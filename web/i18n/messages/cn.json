@@ -16,7 +16,7 @@
       "message_login_success": "登录成功"
     },
     "workbench": {
-      "label_workbench": "工作台",
+      "label_workbench": "仪表盘",
       "text_hello": "hello, {username}",
       "text_welcome": "今天又是元气满满的一天!",
       "label_number_of_items": "项目数",

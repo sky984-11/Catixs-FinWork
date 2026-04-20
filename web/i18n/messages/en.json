@@ -16,7 +16,7 @@
       "message_login_success": "Login successful"
     },
     "workbench": {
-      "label_workbench": "Workbench",
+      "label_workbench": "Dashboard",
       "text_hello": "hello, {username}",
       "text_welcome": "Today is another day full of energy!",
       "label_number_of_items": "Number of items",
