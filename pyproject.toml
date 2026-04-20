@@ -1,9 +1,9 @@
 [project]
-name = "vue-fastapi-admin"
+name = "catixs-finwork"
 version = "0.1.0"
-description = "Vue Fastapi admin"
+description = "Catixs FinWork"
 authors = [
-    {name = "mizhexiaoxiao", email = "mizhexiaoxiao@gmail.com"},
+    {name = "liupeng", email = "peng.liu@cn.catixs.com"},
 ]
 requires-python = ">=3.11"
 dependencies = [

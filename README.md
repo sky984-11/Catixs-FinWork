@@ -6,61 +6,61 @@
 
 <h1 align="center">vue-fastapi-admin</h1>
 
-[English](./README-en.md) | 简体中文
+English | [简体中文](./README.md)
 
-基于 FastAPI + Vue3 + Naive UI 的现代化前后端分离开发平台，融合了 RBAC 权限管理、动态路由和 JWT 鉴权，助力中小型应用快速搭建，也可用于学习参考。
+vue-fastapi-admin is a modern front-end and back-end separation development platform that combines FastAPI, Vue3, and Naive UI. It incorporates RBAC (Role-Based Access Control) management, dynamic routing, and JWT (JSON Web Token) authentication, making it ideal for rapid development of small to medium-sized applications and also serves as a valuable learning resource.
 
-### 特性
-- **最流行技术栈**：基于 Python 3.11 和 FastAPI 高性能异步框架，结合 Vue3 和 Vite 等前沿技术进行开发，同时使用高效的 npm 包管理器 pnpm。
-- **代码规范**：项目内置丰富的规范插件，确保代码质量和一致性，有效提高团队协作效率。
-- **动态路由**：后端动态路由，结合 RBAC（Role-Based Access Control）权限模型，提供精细的菜单路由控制。
-- **JWT鉴权**：使用 JSON Web Token（JWT）进行身份验证和授权，增强应用的安全性。
-- **细粒度权限控制**：实现按钮和接口级别的权限控制，确保不同用户或角色在界面操作和接口访问时具有不同的权限限制。
+### Features
+- **Popular Tech Stack**: The backend is developed with the high-performance asynchronous framework FastAPI using Python 3.11, while the front-end is powered by cutting-edge technologies such as Vue3 and Vite, complemented by the efficient package manager, pnpm.
+- **Code Standards**: The project is equipped with various plugins for code standardization and quality control, ensuring consistency and enhancing team collaboration efficiency.
+- **Dynamic Routing**: Backend dynamic routing combined with the RBAC model allows for fine-grained control of menus and routing.
+- **JWT Authentication**: User identity verification and authorization are handled through JWT, enhancing the application's security.
+- **Granular Permission Control**: Implements detailed permission management including button and interface level controls, ensuring different roles and users have appropriate permissions.
 
-### 在线预览
-- [http://47.111.145.81:3000](http://47.111.145.81:3000)
-- username: admin
-- password: 123456
+### Live Demo
+- URL: http://139.9.100.77:9999
+- Username: admin
+- Password: 123456
 
-### 登录页
+### Screenshots
 
-![image](https://github.com/mizhexiaoxiao/vue-fastapi-admin/blob/main/deploy/sample-picture/login.jpg)
-### 工作台
+#### Login Page
+![Login Page](https://github.com/mizhexiaoxiao/vue-fastapi-admin/blob/main/deploy/sample-picture/login.jpg)
 
-![image](https://github.com/mizhexiaoxiao/vue-fastapi-admin/blob/main/deploy/sample-picture/workbench.jpg)
+#### Workbench
+![Workbench](https://github.com/mizhexiaoxiao/vue-fastapi-admin/blob/main/deploy/sample-picture/workbench.jpg)
 
-### 用户管理
+#### User Management
+![User Management](https://github.com/mizhexiaoxiao/vue-fastapi-admin/blob/main/deploy/sample-picture/user.jpg)
 
-![image](https://github.com/mizhexiaoxiao/vue-fastapi-admin/blob/main/deploy/sample-picture/user.jpg)
-### 角色管理
+#### Role Management
+![Role Management](https://github.com/mizhexiaoxiao/vue-fastapi-admin/blob/main/deploy/sample-picture/role.jpg)
 
-![image](https://github.com/mizhexiaoxiao/vue-fastapi-admin/blob/main/deploy/sample-picture/role.jpg)
+#### Menu Management
+![Menu Management](https://github.com/mizhexiaoxiao/vue-fastapi-admin/blob/main/deploy/sample-picture/menu.jpg)
 
-### 菜单管理
+#### API Management
+![API Management](https://github.com/mizhexiaoxiao/vue-fastapi-admin/blob/main/deploy/sample-picture/api.jpg)
 
-![image](https://github.com/mizhexiaoxiao/vue-fastapi-admin/blob/main/deploy/sample-picture/menu.jpg)
+### Quick Start
+Please follow the instructions below for installation and configuration:
 
-### API管理
-
-![image](https://github.com/mizhexiaoxiao/vue-fastapi-admin/blob/main/deploy/sample-picture/api.jpg)
-
-### 快速开始
-#### 方法一：dockerhub拉取镜像
+#### Method 1：dockerhub pull image
 
 ```sh
 docker pull mizhexiaoxiao/vue-fastapi-admin:latest 
 docker run -d --restart=always --name=vue-fastapi-admin -p 9999:80 mizhexiaoxiao/vue-fastapi-admin
 ```
 
-#### 方法二：dockerfile构建镜像
-##### docker安装(版本17.05+)
+#### Method 2: Build Image Using Dockerfile
+##### Install Docker
 
 ```sh
 yum install -y docker-ce
 systemctl start docker
 ```
 
-##### 构建镜像
+##### Build the Image
 
 ```sh
 git clone https://github.com/mizhexiaoxiao/vue-fastapi-admin.git
@@ -68,13 +68,13 @@ cd vue-fastapi-admin
 docker build --no-cache . -t vue-fastapi-admin
 ```
 
-##### 启动容器
+##### Start the Container
 
 ```sh
 docker run -d --restart=always --name=vue-fastapi-admin -p 9999:80 vue-fastapi-admin
 ```
 
-##### 访问
+##### Access the Service
 
 http://localhost:9999
 
@@ -82,81 +82,76 @@ username：admin
 
 password：123456
 
-### 本地启动
-#### 后端
-启动项目需要以下环境：
+### Local Setup
+#### Backend
+The backend service requires the following environment:
 - Python 3.11
 
-#### 方法一（推荐）：使用 uv 安装依赖
-1. 安装 uv
+#### Method 1 (Recommended): Install Dependencies with uv
+1. Install uv
 ```sh
 pip install uv
 ```
 
-2. 创建并激活虚拟环境
+2. Create and activate virtual environment
 ```sh
 uv venv
 source .venv/bin/activate  # Linux/Mac
-# 或
+# or
 .\.venv\Scripts\activate  # Windows
 ```
 
-3. 安装依赖
+3. Install dependencies
 ```sh
-uv add pyproject.toml
+uv sync
 ```
 
-4. 启动服务
+4. Start the backend service
 ```sh
 python run.py
 ```
 
-#### 方法二：使用 Pip 安装依赖
-1. 创建虚拟环境
+#### Method 2: Install Dependencies with Pip
+1. Create a Python virtual environment:
 ```sh
 python3 -m venv venv
-```
-
-2. 激活虚拟环境
-```sh
 source venv/bin/activate  # Linux/Mac
-# 或
+# or
 .\venv\Scripts\activate  # Windows
 ```
 
-3. 安装依赖
+2. Install project dependencies:
 ```sh
-pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+pip install -r requirements.txt
 ```
 
-4. 启动服务
+3. Start the backend service:
 ```sh
 python run.py
 ```
+The backend service is now running, and you can visit http://localhost:9999/docs to view the API documentation.
 
-服务现在应该正在运行，访问 http://localhost:9999/docs 查看API文档
-
-#### 前端
-启动项目需要以下环境：
+#### Frontend
+The frontend project requires a Node.js environment (recommended version 18.8.0 or higher).
 - node v18.8.0+
 
-1. 进入前端目录
+1. Navigate to the frontend project directory:
 ```sh
 cd web
 ```
 
-2. 安装依赖(建议使用pnpm: https://pnpm.io/zh/installation)
+2. Install project dependencies (pnpm is recommended: https://pnpm.io/zh/installation)
 ```sh
-npm i -g pnpm # 已安装可忽略
-pnpm i # 或者 npm i
+npm i -g pnpm # If pnpm is already installed, skip this step
+pnpm i # Or use npm i
 ```
 
-3. 启动
+3. Start the frontend development server:
 ```sh
 pnpm dev
 ```
 
-### 目录说明
+### Directory Structure Explanation
 
 ```
 ├── app                   // 应用程序目录
@@ -218,26 +213,6 @@ pnpm dev
             ├── system     // 系统管理页面
             └── workbench  // 工作台页面
 ```
-
-### 进群交流
-进群的条件是给项目一个star，小小的star是作者维护下去的动力。
-
-你可以在群里提出任何疑问，我会尽快回复答疑。
-
-<img width="300" src="https://github.com/mizhexiaoxiao/vue-fastapi-admin/blob/main/deploy/sample-picture/group.jpg">
-
-## 打赏
-如果项目有帮助到你，可以请作者喝杯咖啡~
-
-<div style="display: flex">
-    <img src="https://github.com/mizhexiaoxiao/vue-fastapi-admin/blob/main/deploy/sample-picture/1.jpg" width="300">
-    <img src="https://github.com/mizhexiaoxiao/vue-fastapi-admin/blob/main/deploy/sample-picture/2.jpg" width="300">
-</div>
-
-## 定制开发
-如果有基于该项目的定制需求或其他合作，请添加下方微信，备注来意
-
-<img width="300" src="https://github.com/mizhexiaoxiao/vue-fastapi-admin/blob/main/deploy/sample-picture/3.jpg">
 
 ### Visitors Count
 

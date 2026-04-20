@@ -1,53 +1,78 @@
 <template>
   <AppPage :show-footer="true" bg-cover :style="{ backgroundImage: `url(${bgImg})` }">
-    <div
-      style="transform: translateY(25px)"
-      class="m-auto max-w-1500 min-w-345 f-c-c rounded-10 bg-white bg-opacity-60 p-15 card-shadow"
-      dark:bg-dark
-    >
-      <div hidden w-380 px-20 py-35 md:block>
-        <icon-custom-front-page pt-10 text-300 color-primary></icon-custom-front-page>
-      </div>
+    <!-- Using h-full and m-auto for guaranteed centering in flex-col container -->
+    <div class="h-full w-full f-c-c m-auto relative">
+      <main class="login-container f-c-c">
+        <div class="login-card-wrapper relative">
+          <!-- Subtle decorative background elements -->
+          <div class="absolute -top-60px -left-60px w-200px h-200px bg-primary/10 rounded-full blur-3xl opacity-50"></div>
+          <div class="absolute -bottom-40px -right-40px w-160px h-160px bg-green-500/5 rounded-full blur-3xl opacity-30"></div>
 
-      <div w-320 flex-col px-20 py-35>
-        <h5 f-c-c text-24 font-normal color="#6a6a6a">
-          <icon-custom-logo mr-10 text-50 color-primary />{{ $t('app_name') }}
-        </h5>
-        <div mt-30>
-          <n-input
-            v-model:value="loginInfo.username"
-            autofocus
-            class="h-50 items-center pl-10 text-16"
-            placeholder="admin"
-            :maxlength="20"
-          />
-        </div>
-        <div mt-30>
-          <n-input
-            v-model:value="loginInfo.password"
-            class="h-50 items-center pl-10 text-16"
-            type="password"
-            show-password-on="mousedown"
-            placeholder="123456"
-            :maxlength="20"
-            @keypress.enter="handleLogin"
-          />
-        </div>
+          <!-- Perfectly Centered Professional Login Card -->
+          <div class="login-card w-480px bg-white/75 dark:bg-dark/80 backdrop-blur-2xl border border-white/40 rounded-24px p-48px shadow-premium">
+            <header class="card-header f-c-c flex-col mb-40px">
+              <!-- Branded Icon -->
+              <div class="icon-wrap f-c-c mb-20px animate-float-slow">
+                <icon-custom-logo class="text-80px" />
+              </div>
+              
+              <!-- Branding Text -->
+              <div class="branding-text text-center">
+                <h1 class="text-32px font-bold tracking-tight text-gray-800 dark:text-gray-100 f-c-c">
+                  <span class="text-blue-standard">Catixs</span>
+                  <span class="text-green-standard ml-2">FinWork</span>
+                </h1>
+                <p class="text-14px font-medium text-gray-400 dark:text-gray-500 mt-8px tracking-Widest uppercase">
+                  财工一体化管理平台
+                </p>
+              </div>
+            </header>
 
-        <div mt-20>
-          <n-button
-            h-50
-            w-full
-            rounded-5
-            text-16
-            type="primary"
-            :loading="loading"
-            @click="handleLogin"
-          >
-            {{ $t('views.login.text_login') }}
-          </n-button>
+            <!-- Login Form -->
+            <div class="form-content space-y-28px">
+              <div class="input-group">
+                <n-input
+                  v-model:value="loginInfo.username"
+                  autofocus
+                  class="login-input h-52px text-16px"
+                  placeholder="admin"
+                  :maxlength="20"
+                >
+                  <template #prefix>
+                    <i class="i-carbon-user text-gray-400 mr-2" />
+                  </template>
+                </n-input>
+              </div>
+              <div class="input-group mt-20px">
+                <n-input
+                  v-model:value="loginInfo.password"
+                  class="login-input h-52px text-16px"
+                  type="password"
+                  show-password-on="mousedown"
+                  placeholder="123456"
+                  :maxlength="20"
+                  @keypress.enter="handleLogin"
+                >
+                  <template #prefix>
+                    <i class="i-carbon-locked text-gray-400 mr-2" />
+                  </template>
+                </n-input>
+              </div>
+              
+              <div class="action-group mt-40px">
+                <n-button
+                  class="h-52px w-full rounded-12px text-17px font-bold shadow-md hover:shadow-lg transition-all duration-300"
+                  type="primary"
+                  :loading="loading"
+                  @click="handleLogin"
+                >
+                  {{ $t('views.login.text_login') }}
+                </n-button>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
+      </main>
     </div>
   </AppPage>
 </template>
@@ -94,7 +119,6 @@ async function handleLogin() {
     await addDynamicRoutes()
     if (query.redirect) {
       const path = query.redirect
-      console.log('path', { path, query })
       Reflect.deleteProperty(query, 'redirect')
       router.push({ path, query })
     } else {
@@ -106,3 +130,69 @@ async function handleLogin() {
   loading.value = false
 }
 </script>
+
+<style scoped>
+.animate-float-slow {
+  animation: float-slow 8s ease-in-out infinite;
+}
+
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+.shadow-premium {
+  box-shadow: 
+    0 25px 50px -12px rgba(0, 0, 0, 0.1),
+    0 10px 20px -5px rgba(0, 0, 0, 0.05),
+    0 0 1px rgba(0, 0, 0, 0.1);
+}
+
+.text-blue-standard {
+  color: #0A369D;
+}
+
+.text-green-standard {
+  color: #10B981;
+}
+
+.tracking-Widest {
+  letter-spacing: 0.4em;
+  margin-right: -0.4em;
+}
+
+.rounded-24px {
+  border-radius: 24px;
+}
+
+.rounded-12px {
+  border-radius: 12px;
+}
+
+.login-container {
+  width: 100%;
+}
+
+.login-input :deep(.n-input-wrapper) {
+  padding-left: 12px;
+}
+
+.dark .text-blue-standard {
+  color: #3B82F6;
+}
+
+.dark .text-green-standard {
+  color: #34D399;
+}
+
+.login-card {
+  transition: all 0.3s ease;
+}
+
+.login-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 
+    0 30px 60px -10px rgba(0, 0, 0, 0.15),
+    0 10px 25px -5px rgba(0, 0, 0, 0.1);
+}
+</style>

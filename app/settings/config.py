@@ -6,8 +6,8 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     VERSION: str = "0.1.0"
-    APP_TITLE: str = "Vue FastAPI Admin"
-    PROJECT_NAME: str = "Vue FastAPI Admin"
+    APP_TITLE: str = "Catixs FinWork"
+    PROJECT_NAME: str = "Catixs FinWork"
     APP_DESCRIPTION: str = "Description"
 
     CORS_ORIGINS: typing.List = ["*"]
