@@ -1,24 +1,30 @@
 <template>
   <AppPage :show-footer="true" bg-cover :style="{ backgroundImage: `url(${bgImg})` }">
-    <!-- Using h-full and m-auto for guaranteed centering in flex-col container -->
-    <div class="h-full w-full f-c-c m-auto relative">
-      <main class="login-container f-c-c">
+    <!-- Using explicit flex and absolute positioning for centering if flex-1 fails -->
+    <div class="flex flex-col flex-1 items-center justify-center w-full min-h-0 relative">
+      <main class="login-container flex flex-col items-center justify-center">
         <div class="login-card-wrapper relative">
           <!-- Subtle decorative background elements -->
-          <div class="absolute -top-60px -left-60px w-200px h-200px bg-primary/10 rounded-full blur-3xl opacity-50"></div>
-          <div class="absolute -bottom-40px -right-40px w-160px h-160px bg-green-500/5 rounded-full blur-3xl opacity-30"></div>
+          <div
+            class="absolute -top-60px -left-60px w-200px h-200px bg-primary/10 rounded-full blur-3xl opacity-50 pointer-events-none">
+          </div>
+          <div
+            class="absolute -bottom-40px -right-40px w-160px h-160px bg-green-500/5 rounded-full blur-3xl opacity-30 pointer-events-none">
+          </div>
 
           <!-- Perfectly Centered Professional Login Card -->
-          <div class="login-card w-480px bg-white/75 dark:bg-dark/80 backdrop-blur-2xl border border-white/40 rounded-24px p-48px shadow-premium">
-            <header class="card-header f-c-c flex-col mb-40px">
+          <div
+            class="login-card w-480px bg-white/75 dark:bg-dark/80 backdrop-blur-3xl border border-white/20 rounded-24px p-48px shadow-premium transition-all duration-300">
+            <header class="card-header flex flex-col items-center justify-center mb-40px">
               <!-- Branded Icon -->
-              <div class="icon-wrap f-c-c mb-20px animate-float-slow">
+              <div class="icon-wrap flex items-center justify-center mb-20px animate-float-slow">
                 <icon-custom-logo class="text-80px" />
               </div>
-              
+
               <!-- Branding Text -->
               <div class="branding-text text-center">
-                <h1 class="text-32px font-bold tracking-tight text-gray-800 dark:text-gray-100 f-c-c">
+                <h1
+                  class="text-32px font-bold tracking-tight text-gray-800 dark:text-gray-100 flex items-center justify-center">
                   <span class="text-blue-standard">Catixs</span>
                   <span class="text-green-standard ml-2">FinWork</span>
                 </h1>
@@ -31,41 +37,26 @@
             <!-- Login Form -->
             <div class="form-content space-y-28px">
               <div class="input-group">
-                <n-input
-                  v-model:value="loginInfo.username"
-                  autofocus
-                  class="login-input h-52px text-16px"
-                  placeholder="admin"
-                  :maxlength="20"
-                >
+                <n-input v-model:value="loginInfo.username" size="large" autofocus class="login-input text-16px"
+                  placeholder="admin" :maxlength="20">
                   <template #prefix>
                     <i class="i-carbon-user text-gray-400 mr-2" />
                   </template>
                 </n-input>
               </div>
               <div class="input-group mt-20px">
-                <n-input
-                  v-model:value="loginInfo.password"
-                  class="login-input h-52px text-16px"
-                  type="password"
-                  show-password-on="mousedown"
-                  placeholder="123456"
-                  :maxlength="20"
-                  @keypress.enter="handleLogin"
-                >
+                <n-input v-model:value="loginInfo.password" size="large" class="login-input  text-16px" type="password"
+                  show-password-on="mousedown" placeholder="123456" :maxlength="20" @keypress.enter="handleLogin">
                   <template #prefix>
                     <i class="i-carbon-locked text-gray-400 mr-2" />
                   </template>
                 </n-input>
               </div>
-              
+
               <div class="action-group mt-40px">
                 <n-button
                   class="h-52px w-full rounded-12px text-17px font-bold shadow-md hover:shadow-lg transition-all duration-300"
-                  type="primary"
-                  :loading="loading"
-                  @click="handleLogin"
-                >
+                  type="primary" :loading="loading" @click="handleLogin">
                   {{ $t('views.login.text_login') }}
                 </n-button>
               </div>
@@ -137,12 +128,19 @@ async function handleLogin() {
 }
 
 @keyframes float-slow {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-8px); }
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-8px);
+  }
 }
 
 .shadow-premium {
-  box-shadow: 
+  box-shadow:
     0 25px 50px -12px rgba(0, 0, 0, 0.1),
     0 10px 20px -5px rgba(0, 0, 0, 0.05),
     0 0 1px rgba(0, 0, 0, 0.1);
@@ -191,7 +189,7 @@ async function handleLogin() {
 
 .login-card:hover {
   transform: translateY(-4px);
-  box-shadow: 
+  box-shadow:
     0 30px 60px -10px rgba(0, 0, 0, 0.15),
     0 10px 25px -5px rgba(0, 0, 0, 0.1);
 }

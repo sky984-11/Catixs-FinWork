@@ -1,35 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="blueGrad" x1="0%" y1="100%" x2="0%" y2="0%">
+    <linearGradient id="brandGrad" x1="0%" y1="100%" x2="100%" y2="0%">
       <stop offset="0%" style="stop-color:#0A369D;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#3B82F6;stop-opacity:1" />
-    </linearGradient>
-    <linearGradient id="greenGrad" x1="0%" y1="100%" x2="0%" y2="0%">
-      <stop offset="0%" style="stop-color:#10B981;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#34D399;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#10B981;stop-opacity:1" />
     </linearGradient>
   </defs>
-
-  <!-- Circular Arrows -->
-  <path d="M256 40 C 350 40, 440 120, 440 256 L 470 256 L 420 310 L 370 256 L 400 256 C 400 160, 340 80, 256 80 L 256 40 Z" fill="url(#blueGrad)" />
-  <path d="M256 472 C 162 472, 72 392, 72 256 L 42 256 L 92 202 L 142 256 L 112 256 C 112 352, 172 432, 256 432 L 256 472 Z" fill="url(#greenGrad)" />
-
-  <!-- Document Icon (Left/Blue side) -->
-  <g transform="translate(130, 160) scale(0.8)">
-    <rect x="0" y="0" width="140" height="180" rx="15" fill="url(#blueGrad)" />
-    <!-- Lines -->
-    <rect x="30" y="40" width="80" height="12" rx="6" fill="#FFFFFF" />
-    <rect x="30" y="75" width="80" height="12" rx="6" fill="#FFFFFF" />
-    <rect x="30" y="110" width="50" height="12" rx="6" fill="#FFFFFF" />
-    <!-- Checkmark Circle -->
-    <circle cx="120" cy="160" r="35" fill="url(#blueGrad)" stroke="#FFFFFF" stroke-width="8" />
-    <path d="M105 160 L 115 170 L 135 150" stroke="#FFFFFF" stroke-width="12" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-  </g>
-
-  <!-- Bar Chart Icon (Right/Green side) -->
-  <g transform="translate(280, 200) scale(0.8)">
-    <rect x="0" y="80" width="35" height="60" rx="8" fill="url(#greenGrad)" />
-    <rect x="55" y="40" width="35" height="100" rx="8" fill="url(#greenGrad)" />
-    <rect x="110" y="0" width="35" height="140" rx="8" fill="url(#greenGrad)" />
-  </g>
+  <path d="M256 40 L 290 40 L 305 85 C 322 90, 338 98, 353 108 L 395 80 L 432 117 L 404 159 C 414 174, 422 190, 427 207 L 472 222 L 472 274 L 427 289 C 422 306, 414 322, 404 337 L 432 379 L 395 416 L 353 388 C 338 398, 322 406, 305 411 L 290 456 L 222 456 L 207 411 C 190 406, 174 398, 159 388 L 117 416 L 80 379 L 108 337 C 98 322, 90 306, 85 289 L 40 274 L 40 222 L 85 207 C 90 190, 98 174, 108 159 L 80 117 L 117 80 L 159 108 C 174 98, 190 90, 207 85 L 222 40 Z" 
+    fill="none" stroke="url(#brandGrad)" stroke-width="24" stroke-linejoin="round" />
+  <circle cx="256" cy="256" r="110" fill="url(#brandGrad)" opacity="0.1" />
+  <circle cx="256" cy="256" r="95" fill="none" stroke="url(#brandGrad)" stroke-width="12" />
+  <path d="M200 180 L 256 260 L 312 180 M210 280 L 302 280 M210 320 L 302 320 M256 260 L 256 360" 
+    fill="none" stroke="url(#brandGrad)" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" />
 </svg>
