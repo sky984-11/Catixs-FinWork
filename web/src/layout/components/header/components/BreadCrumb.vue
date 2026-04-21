@@ -2,7 +2,7 @@
   <n-breadcrumb>
     <n-breadcrumb-item
       v-for="item in route.matched.filter((item) => !!item.meta?.title)"
-      :key="item.path"
+      :key="(item.name || '') + '::' + item.path"
       @click="handleBreadClick(item.path)"
     >
       <component :is="getIcon(item.meta)" />

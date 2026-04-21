@@ -21,7 +21,7 @@ const curRoute = useRoute()
 const permissionStore = usePermissionStore()
 const appStore = useAppStore()
 
-const activeKey = computed(() => curRoute.meta?.activeMenu || curRoute.name)
+const activeKey = computed(() => curRoute.meta?.activeMenu || curRoute.path)
 
 const menuOptions = computed(() => {
   return permissionStore.menus.map((item) => getMenuItem(item)).sort((a, b) => a.order - b.order)
@@ -47,7 +47,7 @@ function resolvePath(basePath, path) {
 function getMenuItem(route, basePath = '') {
   let menuItem = {
     label: (route.meta && route.meta.title) || route.name,
-    key: route.name,
+    key: resolvePath(basePath, route.path),
     path: resolvePath(basePath, route.path),
     icon: getIcon(route.meta),
     order: route.meta?.order || 0,
@@ -65,7 +65,7 @@ function getMenuItem(route, basePath = '') {
     menuItem = {
       ...menuItem,
       label: singleRoute.meta?.title || singleRoute.name,
-      key: singleRoute.name,
+      key: resolvePath(menuItem.path, singleRoute.path),
       path: resolvePath(menuItem.path, singleRoute.path),
       icon: getIcon(singleRoute.meta),
     }

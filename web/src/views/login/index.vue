@@ -73,6 +73,7 @@ import { lStorage, setToken } from '@/utils'
 import bgImg from '@/assets/images/login_bg.webp'
 import api from '@/api'
 import { addDynamicRoutes } from '@/router'
+import { usePermissionStore } from '@/store'
 import { useI18n } from 'vue-i18n'
 
 const router = useRouter()
@@ -113,7 +114,40 @@ async function handleLogin() {
       Reflect.deleteProperty(query, 'redirect')
       router.push({ path, query })
     } else {
-      router.push('/')
+      const permissionStore = usePermissionStore()
+
+      // 已注册路由集合，优先只跳转到真正注册过的路由
+      const registeredPaths = new Set(router.getRoutes().map((r) => r.path))
+
+      const buildFull = (parent, child) => {
+        if (!child || child === '' || child === '/') return parent
+        if (child.startsWith('/')) return child
+        return `${parent.replace(/\/$/, '')}/${child}`
+      }
+
+      const dfs = (nodes, parent = '') => {
+        if (!nodes || !nodes.length) return null
+        for (const node of nodes) {
+          if (node.isHidden) continue
+          // compute full path
+          const nodePath = node.path || ''
+          const full = nodePath.startsWith('/') ? nodePath : (parent ? `${parent.replace(/\/$/, '')}/${nodePath}` : nodePath)
+
+          // if has children, search children first (depth-first)
+          if (node.children && node.children.length) {
+            const res = dfs(node.children, full || node.path)
+            if (res) return res
+          }
+
+          // treat empty path as parent path
+          const candidate = (!nodePath || nodePath === '' || nodePath === '/') ? (parent || node.path) : full
+          if (candidate && registeredPaths.has(candidate)) return candidate
+        }
+        return null
+      }
+
+      let target = dfs(permissionStore.accessRoutes || []) || dfs(permissionStore.menus || []) || '/'
+      router.push(target)
     }
   } catch (e) {
     console.error('login error', e.error)

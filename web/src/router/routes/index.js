@@ -4,29 +4,7 @@ const { t } = i18n.global
 const Layout = () => import('@/layout/index.vue')
 
 export const basicRoutes = [
-  {
-    path: '/',
-    redirect: '/workbench', // 默认跳转到首页
-    meta: { order: 0 },
-  },
-  {
-    name: t('views.workbench.label_workbench'),
-    path: '/workbench',
-    component: Layout,
-    children: [
-      {
-        path: '',
-        component: () => import('@/views/workbench/index.vue'),
-        name: `${t('views.workbench.label_workbench')}Default`,
-        meta: {
-          title: t('views.workbench.label_workbench'),
-          icon: 'icon-park-outline:workbench',
-          affix: true,
-        },
-      },
-    ],
-    meta: { order: 1 },
-  },
+  // 根路径与固定 workbench 路由移除，默认跳转由登录逻辑动态决定
   {
     name: t('views.profile.label_profile'),
     path: '/profile',

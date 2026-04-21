@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { resetRouter } from '@/router'
-import { useTagsStore, usePermissionStore } from '@/store'
+import { useTagsStore, usePermissionStore, useAppStore } from '@/store'
 import { removeToken, toLogin } from '@/utils'
 import api from '@/api'
 
@@ -51,10 +51,31 @@ export const useUserStore = defineStore('user', {
     async logout() {
       const { resetTags } = useTagsStore()
       const { resetPermission } = usePermissionStore()
+      const { $reset: resetApp } = useAppStore()
+      // remove auth token
       removeToken()
+      // reset stores
       resetTags()
       resetPermission()
+      // clear storages (local/session) to remove cached data
+      try {
+        const { lStorage, sStorage } = await import('@/utils')
+        lStorage.clear()
+        sStorage.clear()
+      } catch (e) {
+        // ignore
+      }
+      // remove any direct localStorage keys used by app
+      try {
+        window.localStorage.removeItem('__THEME_COLOR__')
+      } catch (e) {}
+
+      // reset router and app state
       resetRouter()
+      try {
+        resetApp()
+      } catch (e) {}
+
       this.$reset()
       toLogin()
     },
