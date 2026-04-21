@@ -4,7 +4,29 @@ const { t } = i18n.global
 const Layout = () => import('@/layout/index.vue')
 
 export const basicRoutes = [
-  // 根路径与固定 workbench 路由移除，默认跳转由登录逻辑动态决定
+  {
+    path: '/',
+    redirect: '/workbench', // 默认跳转到首页
+    meta: { order: 0 },
+  },
+  {
+    name: t('views.workbench.label_workbench'),
+    path: '/workbench',
+    component: Layout,
+    children: [
+      {
+        path: '',
+        component: () => import('@/views/workbench/index.vue'),
+        name: `${t('views.workbench.label_workbench')}Default`,
+        meta: {
+          title: t('views.workbench.label_workbench'),
+          icon: 'icon-park-outline:workbench',
+          affix: true,
+        },
+      },
+    ],
+    meta: { order: 1 },
+  },
   {
     name: t('views.profile.label_profile'),
     path: '/profile',
@@ -28,6 +50,7 @@ export const basicRoutes = [
     name: 'ErrorPage',
     path: '/error-page',
     component: Layout,
+    isHidden: true,
     redirect: '/error-page/404',
     meta: {
       title: t('views.errors.label_error'),
@@ -39,6 +62,7 @@ export const basicRoutes = [
         name: 'ERROR-401',
         path: '401',
         component: () => import('@/views/error-page/401.vue'),
+        isHidden: true,
         meta: {
           title: '401',
           icon: 'material-symbols:authenticator',
@@ -48,6 +72,7 @@ export const basicRoutes = [
         name: 'ERROR-403',
         path: '403',
         component: () => import('@/views/error-page/403.vue'),
+        isHidden: true,
         meta: {
           title: '403',
           icon: 'solar:forbidden-circle-line-duotone',
@@ -57,6 +82,7 @@ export const basicRoutes = [
         name: 'ERROR-404',
         path: '404',
         component: () => import('@/views/error-page/404.vue'),
+        isHidden: true,
         meta: {
           title: '404',
           icon: 'tabler:error-404',
@@ -66,6 +92,7 @@ export const basicRoutes = [
         name: 'ERROR-500',
         path: '500',
         component: () => import('@/views/error-page/500.vue'),
+        isHidden: true,
         meta: {
           title: '500',
           icon: 'clarity:rack-server-outline-alerted',
