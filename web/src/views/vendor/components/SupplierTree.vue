@@ -1,14 +1,13 @@
 <template>
   <div class="supplier-tree">
-    <div class="search">
-      <n-input v-model="query" placeholder="搜索供应商名称" clearable @input="onInput"/>
-    </div>
+    <div class="title">供应商管理</div>
     <div class="tree-wrap">
       <n-tree
         :data="treeData"
         block-node
-        accordion
         @node-click="onNodeClick"
+        selectable
+        default-expand-all
       />
     </div>
     <div class="footer">
@@ -29,19 +28,15 @@ const treeData = computed(() => {
   return [
     {
       label: '全部供应商',
-      key: 'network_suppliers',
+      key: 'vendor',
       children: [
-        { label: '中国电信股份有限公司', key: 'telecom' },
-        { label: '中国联通有限公司', key: 'unicom' },
-        { label: '中国移动通信集团', key: 'cmcc' },
-        { label: '华为技术有限公司', key: 'huawei' },
-        { label: '新华三技术有限公司', key: 'h3c' },
-        { label: '中兴通讯股份有限公司', key: 'zte' },
-        { label: '戴尔科技有限公司', key: 'dell' },
-        { label: '联想集团有限公司', key: 'lenovo' },
-        { label: '思科系统（中国）有限公司', key: 'cisco' },
-        { label: '瞻博网络（Juniper）', key: 'juniper' }
+        { label: 'DC', key: 'dc',children:[
+          { label: '是方数据中心', key: 'chief',name:'是方数据中心',contact_name:'Ken Yang',contact_phone:'+886-910114505',address:'台北市內湖區陽光街250號 是方電訊 麗源大樓',remark:'主要提供云服务器托管服务',status:1 },
+        ] },
+
       ]
+
+
     }
   ]
 })
@@ -63,4 +58,8 @@ function onAdd() {
 .supplier-tree .search { margin-bottom: 12px }
 .tree-wrap { max-height: calc(100vh - 240px); overflow: auto }
 .footer { margin-top: 12px }
+.title { text-align: left; font-size: 25px; font-weight: 700; margin-bottom: 12px }
+.supplier-tree .search { margin-bottom: 12px }
+.tree-wrap { max-height: calc(100vh - 260px); overflow: auto }
+.footer { margin-top: 16px }
 </style>

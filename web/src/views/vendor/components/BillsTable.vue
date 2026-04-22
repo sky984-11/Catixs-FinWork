@@ -32,7 +32,7 @@
           <td>{{ row.owner }}</td>
           <td>
             <n-space>
-              <a class="link" @click.prevent="onView(row)">查看</a>
+              <a class="link" @click.prevent="onEdit(row)">编辑</a>
               <!--  支持邮件和飞书通知 -->
               <a class="link" @click.prevent="onPay(row)">付款通知</a>
             </n-space>
@@ -85,8 +85,12 @@ function onView(row) {
     confirm() {},
   })
 }
+
+function onEdit(row) {
+  $message.info('编辑功能暂未实现')
+}
 function onPay(row) {
-  $message.info('付款功能暂未实现')
+  $message.info('后面支持飞书或者邮件通知付款')
 }
 function onPageChange(p) {
   emit('page-change', p)

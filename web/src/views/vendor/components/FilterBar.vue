@@ -1,12 +1,12 @@
 <template>
   <div class="filter-bar">
     <div class="row">
-      <n-input v-model="filters.billNo" placeholder="请输入账单编号" style="width: 220px" />
-      <n-select v-model="filters.supplier" :options="supplierOptions" placeholder="请选择供应商" style="width: 200px"/>
-      <n-select v-model="filters.status" :options="statusOptions" placeholder="状态" style="width: 140px"/>
-      <n-date-picker v-model="filters.dateRange" type="daterange" placeholder="账单日期" style="width: 260px"/>
-      <n-button type="primary" @click="onSearch">查询</n-button>
-      <n-button @click="onReset">重置</n-button>
+      <n-input v-model="filters.billNo" size="large"  placeholder="请输入账单编号" style="width: 220px" />
+      <n-select v-model="filters.supplier" :options="supplierOptions" size="large" placeholder="请选择供应商" style="width: 200px"/>
+      <n-select v-model="filters.status" :options="statusOptions" size="large" placeholder="状态" style="width: 140px"/>
+      <n-date-picker v-model="filters.dateRange" type="daterange" size="large" placeholder="账单日期" style="width: 260px"/>
+      <n-button type="primary" size="large" @click="onSearch" round>查询</n-button>
+      <n-button size="large" @click="onReset" round>重置</n-button>
     </div>
   </div>
 </template>
