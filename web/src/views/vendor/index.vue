@@ -2,7 +2,7 @@
   <div class="vendor-page">
     <div class="vendor-container">
       <aside class="sidebar bg-white dark:bg-dark transition-background-color duration-300 ease-in-out">
-        <SupplierTree @select="onSelectSupplier" />
+        <SupplierTree @select="onSelectSupplier" @click="onNodeClick" />
       </aside>
 
       <main class="main bg-white dark:bg-dark transition-background-color duration-300 ease-in-out">
@@ -48,6 +48,18 @@ const pageSize = ref(10)
 const total = ref(0)
 const selectedSupplier = ref(null)
 
+
+function initData(){
+  loading.value = true
+
+  loading.value = false
+
+}
+
+function onNodeClick(node) {
+  // apply filters and reload
+  console.log('选择供应商', node)
+}
 function mockLoad() {
   loading.value = true
   setTimeout(() => {
@@ -88,19 +100,22 @@ function mockLoad() {
 }
 
 onMounted(() => {
-  mockLoad()
+  initData()
+  // mockLoad()
 })
 
 function onSearch(filters) {
   // apply filters and reload
   page.value = 1
-  mockLoad()
+  initData()
+  // mockLoad()
 }
 
 function onSelectSupplier(supplier) {
   selectedSupplier.value = supplier
   page.value = 1
-  mockLoad()
+  initData()
+  // mockLoad()
 }
 
 function onNew() {
@@ -121,7 +136,8 @@ function onExport() {
 
 function handlePageChange(p) {
   page.value = p
-  mockLoad()
+  initData()
+  // mockLoad()
 }
 
 const supplierLabel = computed(() => {
