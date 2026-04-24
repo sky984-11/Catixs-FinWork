@@ -9,8 +9,8 @@
                 <div>币种：USD</div>
 
                 <n-space class="mt">
-                    <n-button size="small">编辑</n-button>
-                    <n-button size="small" type="error">删除</n-button>
+                    <EditButton />
+                    <DelButton />
                 </n-space>
             </div>
 
@@ -18,6 +18,11 @@
         </div>
     </n-card>
 </template>
+
+<script setup>
+import EditButton from '@/components/public/EditButton.vue'
+import DelButton from '@/components/public/DelButton.vue'
+</script>
 
 <style scoped>
 .bank-content {
