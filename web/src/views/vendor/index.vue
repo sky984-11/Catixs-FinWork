@@ -15,7 +15,7 @@ import { ref } from 'vue'
 import VendorList from './components/VendorList.vue'
 import VendorDetail from './components/VendorDetail.vue'
 
-const currentVendor = ref(null)
+
 const vendorList = ref([
   {
     id: 1,
@@ -31,6 +31,7 @@ const vendorList = ref([
   },
   { id: 2, name: '77 Telecom Ltd', country: '香港' },
 ])
+const currentVendor = ref(vendorList.value[0])
 
 const handleSelect = (row) => {
   console.log('Selected vendor:', row)

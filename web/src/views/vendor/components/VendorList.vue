@@ -44,6 +44,18 @@ const activeId = ref(null)
 
 const emit = defineEmits(['select'])
 
+// ✅ 默认选中第一个
+watch(
+  () => props.vendorList,
+  (list) => {
+    if (list.length && !activeId.value) {
+      activeId.value = list[0].id
+      emit('select', list[0]) // 顺便通知父组件
+    }
+  },
+  { immediate: true }
+)
+
 const selectItem = (item) => {
   activeId.value = item.id
   emit('select', item)
