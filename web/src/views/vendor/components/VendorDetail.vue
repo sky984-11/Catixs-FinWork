@@ -20,6 +20,7 @@
               <n-descriptions-item label="地址"> {{ vendor.address }} </n-descriptions-item>
               <n-descriptions-item label="NOC邮箱"> {{ vendor.noc_email }} </n-descriptions-item>
               <n-descriptions-item label="NOC电话"> {{ vendor.noc_phone }} </n-descriptions-item>
+              <n-descriptions-item label="税号"> {{ vendor.tax_no }} </n-descriptions-item>
               <n-descriptions-item label="备注"> {{ vendor.remark }} </n-descriptions-item>
             </n-descriptions>
           </div>
@@ -36,7 +37,7 @@
     <n-card :bordered="false" class="mt">
       <n-tabs type="line" animated>
         <n-tab-pane name="bank" tab="银行账户">
-          <BankCard :company-id="vendor.id" :company-name="vendor.name" />
+          <BankCard :company-id="vendor.id" :company-name="vendor.name" :company-tax-no="vendor.tax_no" />
         </n-tab-pane>
 
         <n-tab-pane name="invoice" tab="账单(PDF)">

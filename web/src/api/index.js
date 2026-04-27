@@ -47,6 +47,12 @@ export default {
   updateVendor: (data = {}) => request.post('/vendor/update', data),
   deleteVendor: (params = {}) => request.delete(`/vendor/delete`, { params }),
 
+  // bank
+  getBankList: (params = {}) => request.get('/bank/list', { params }),
+  createBank: (data = {}) => request.post('/bank/create', data),
+  updateBank: (data = {}) => request.post('/bank/update', data),
+  deleteBank: (params = {}) => request.delete('/bank/delete', { params }),
+
   // bank account
   getBankAccountList: (params = {}) => request.get('/bank_account/list', { params }),
   createBankAccount: (data = {}) => request.post('/bank_account/create', data),

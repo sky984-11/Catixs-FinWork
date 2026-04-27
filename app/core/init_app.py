@@ -70,8 +70,8 @@ async def init_superuser():
         await user_controller.create_user(
             UserCreate(
                 username="admin",
-                email="admin@admin.com",
-                password="123456",
+                email="noc@cn.catixs.com",
+                password="Catixs@3202",
                 is_active=True,
                 is_superuser=True,
             )
@@ -164,13 +164,25 @@ async def init_menus():
         await Menu.bulk_create(children_menu)
         await Menu.create(
             menu_type=MenuType.MENU,
-            name="一级菜单",
-            path="/top-menu",
+            name="工单管理",
+            path="/ticket",
             order=2,
             parent_id=0,
-            icon="material-symbols:featured-play-list-outline",
+            icon="material-symbols:assignment-globe",
             is_hidden=False,
-            component="/top-menu",
+            component="/ticket",
+            keepalive=False,
+            redirect="",
+        )
+        await Menu.create(
+            menu_type=MenuType.MENU,
+            name="供应商管理",
+            path="/vendor",
+            order=2,
+            parent_id=0,
+            icon="material-symbols:assured-workload-outline",
+            is_hidden=False,
+            component="/vendor",
             keepalive=False,
             redirect="",
         )

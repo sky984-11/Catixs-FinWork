@@ -15,9 +15,20 @@ class Company(BaseModel, TimestampMixin):
     noc_phone = fields.CharField(max_length=50, null=True, description="NOC电话")
     remark = fields.CharField(max_length=500, null=True, description="备注")
     status = fields.BooleanField(default=True, description="状态", index=True)
+    tax_no = fields.CharField(max_length=50, null=True, description="税号")
 
     class Meta:
         table = "company"
+
+
+class Bank(BaseModel, TimestampMixin):
+    name = fields.CharField(max_length=100, description="银行名称", index=True)
+    country = fields.CharField(max_length=50, null=True, description="银行所在国家")
+    swift_code = fields.CharField(max_length=50, null=True, description="银行国际代码")
+    bank_address = fields.CharField(max_length=255, null=True, description="银行地址")
+
+    class Meta:
+        table = "bank"
 
 
 class BankAccount(BaseModel, TimestampMixin):
@@ -26,7 +37,12 @@ class BankAccount(BaseModel, TimestampMixin):
         related_name="bank_accounts",
         on_delete=fields.CASCADE,
     )
-    bank_name = fields.CharField(max_length=100, null=True, description="银行名称")
+    bank = fields.ForeignKeyField(
+        "models.Bank",
+        related_name="bank_accounts",
+        null=True,
+        on_delete=fields.SET_NULL,
+    )
     bank_code = fields.CharField(max_length=50, null=True, description="银行编号")
     branch_code = fields.CharField(max_length=50, null=True, description="分行编号")
     account_name = fields.CharField(max_length=100, null=True, description="账户名")
@@ -35,9 +51,6 @@ class BankAccount(BaseModel, TimestampMixin):
     iban = fields.CharField(max_length=50, null=True, description="IBAN")
     sort_code = fields.CharField(max_length=50, null=True, description="SORT CODE")
     currency = fields.CharField(max_length=10, null=True, description="币种")
-    tax_no = fields.CharField(max_length=50, null=True, description="税号")
-    contact_email = fields.CharField(max_length=100, null=True, description="联系邮箱")
-    contact_phone = fields.CharField(max_length=50, null=True, description="联系电话")
 
     class Meta:
         table = "bank_account"
@@ -84,4 +97,3 @@ class BillItem(BaseModel, TimestampMixin):
 
     class Meta:
         table = "bill_item"
-

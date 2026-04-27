@@ -13,6 +13,7 @@ class BaseVendor(BaseModel):
     noc_email: Optional[str] = None
     noc_phone: Optional[str] = None
     remark: Optional[str] = None
+    tax_no: Optional[str] = None
     status: bool = True
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -27,6 +28,7 @@ class VendorCreate(BaseModel):
     noc_email: str = Field("", example="noc@example.com")
     noc_phone: str = Field("", example="886-70-1017-1777")
     remark: str = Field("", example="备注")
+    tax_no: str = Field("", example="")
     status: bool = Field(True, example=True)
 
 
@@ -39,4 +41,5 @@ class VendorUpdate(BaseModel):
     noc_email: str = Field("", example="noc@example.com")
     noc_phone: str = Field("", example="886-70-1017-1777")
     remark: str = Field("", example="备注")
+    tax_no: str = Field("", example="")
     status: bool = Field(True, example=True)

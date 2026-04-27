@@ -19,8 +19,15 @@ async def list_bank_account(
     company_id: int = Query(..., description="公司ID"),
 ):
     q = Q(company_id=company_id)
-    total, objs = await bank_account_controller.list(page=page, page_size=page_size, search=q)
-    data = [await obj.to_dict() for obj in objs]
+    query = bank_account_controller.model.filter(q).prefetch_related("bank").order_by("-id")
+    total = await query.count()
+    objs = await query.offset((page - 1) * page_size).limit(page_size)
+    data = []
+    for obj in objs:
+        d = await obj.to_dict()
+        d["bank_id"] = obj.bank_id
+        d["bank_name"] = getattr(getattr(obj, "bank", None), "name", None)
+        data.append(d)
     return SuccessExtra(data=data, total=total, page=page, page_size=page_size)
 
 
@@ -46,4 +53,3 @@ async def delete_bank_account(
 ):
     await bank_account_controller.remove(id=bank_account_id)
     return Success(msg="Deleted Successfully")
-

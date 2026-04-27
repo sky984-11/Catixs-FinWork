@@ -4,6 +4,7 @@ from app.core.dependency import DependPermission
 
 from .apis import apis_router
 from .auditlog import auditlog_router
+from .banks import banks_router
 from .bank_accounts import bank_accounts_router
 from .base import base_router
 from .bills import bills_router
@@ -23,5 +24,6 @@ v1_router.include_router(apis_router, prefix="/api", dependencies=[DependPermiss
 v1_router.include_router(depts_router, prefix="/dept", dependencies=[DependPermission])
 v1_router.include_router(auditlog_router, prefix="/auditlog", dependencies=[DependPermission])
 v1_router.include_router(vendors_router, prefix="/vendor", dependencies=[DependPermission])
+v1_router.include_router(banks_router, prefix="/bank", dependencies=[DependPermission])
 v1_router.include_router(bank_accounts_router, prefix="/bank_account", dependencies=[DependPermission])
 v1_router.include_router(bills_router, prefix="/bill", dependencies=[DependPermission])

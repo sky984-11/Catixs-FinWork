@@ -27,14 +27,14 @@
         :model="modalForm"
         :rules="modalRules"
       >
+        <NFormItem label="编号" path="code">
+          <NInput v-model:value="modalForm.code" clearable placeholder="如：VU00024" />
+        </NFormItem>
         <NFormItem label="名称" path="name">
           <NInput v-model:value="modalForm.name" clearable placeholder="请输入供应商名称" />
         </NFormItem>
         <NFormItem label="国家/地区" path="country">
           <NInput v-model:value="modalForm.country" clearable placeholder="如：中国/香港/台湾" />
-        </NFormItem>
-        <NFormItem label="编号" path="code">
-          <NInput v-model:value="modalForm.code" clearable placeholder="如：VU00024" />
         </NFormItem>
         <NFormItem label="地址" path="address">
           <NInput
@@ -56,6 +56,9 @@
             :autosize="{ minRows: 2, maxRows: 4 }"
           />
         </NFormItem>
+        <NFormItem label="税号" path="tax_no">
+          <NInput v-model:value="modalForm.tax_no" clearable placeholder="中国供应商可填写" />
+        </NFormItem>
         <NFormItem label="启用" path="status">
           <NSwitch
             v-model:value="modalForm.status"
@@ -69,7 +72,6 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
 import VendorList from './components/VendorList.vue'
 import VendorDetail from './components/VendorDetail.vue'
 import CrudModal from '@/components/table/CrudModal.vue'
@@ -93,6 +95,7 @@ const modalForm = reactive({
   noc_email: '',
   noc_phone: '',
   remark: '',
+  tax_no: '',
   status: true,
 })
 
@@ -151,6 +154,7 @@ function resetModalForm() {
   modalForm.noc_email = ''
   modalForm.noc_phone = ''
   modalForm.remark = ''
+  modalForm.tax_no = ''
   modalForm.status = true
 }
 
@@ -173,6 +177,7 @@ function openEdit(vendor) {
   modalForm.noc_email = vendor.noc_email || ''
   modalForm.noc_phone = vendor.noc_phone || ''
   modalForm.remark = vendor.remark || ''
+  modalForm.tax_no = vendor.tax_no || ''
   modalForm.status = !!vendor.status
   modalVisible.value = true
 }
