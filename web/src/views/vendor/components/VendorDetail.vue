@@ -26,8 +26,8 @@
         </div>
 
         <n-space>
-          <EditButton />
-          <DelButton />
+          <EditButton :disabled="!vendor" @click="emit('edit', vendor)" />
+          <DelButton :disabled="!vendor" @click="emit('delete', vendor)" />
         </n-space>
       </div>
     </n-card>
@@ -36,11 +36,11 @@
     <n-card :bordered="false" class="mt">
       <n-tabs type="line" animated>
         <n-tab-pane name="bank" tab="银行账户">
-          <BankCard />
+          <BankCard :company-id="vendor.id" :company-name="vendor.name" />
         </n-tab-pane>
 
         <n-tab-pane name="invoice" tab="账单(PDF)">
-          <InvoiceTable />
+          <InvoiceTable :company-id="vendor.id" />
         </n-tab-pane>
       </n-tabs>
     </n-card>
@@ -55,7 +55,13 @@ import EditButton from '@/components/public/EditButton.vue'
 import DelButton from '@/components/public/DelButton.vue'
 import InvoiceTable from './InvoiceTable.vue'
 
-defineProps({ vendor: Object })
+defineProps({
+  vendor: {
+    type: Object,
+    default: null,
+  },
+})
+const emit = defineEmits(['edit', 'delete'])
 </script>
 
 <style scoped>

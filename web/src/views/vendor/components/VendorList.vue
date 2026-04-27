@@ -1,11 +1,11 @@
 <template>
   <n-card title="供应商列表" :bordered="false">
     <n-space vertical size="medium">
-      <n-input clearable placeholder="搜索供应商名称" />
+      <n-input v-model:value="keyword" clearable placeholder="搜索供应商名称" />
 
       <div class="list">
         <div
-          v-for="item in vendorList"
+          v-for="item in filteredList"
           :key="item.id"
           class="item"
           :class="{ active: activeId === item.id }"
@@ -24,32 +24,45 @@
         </div>
       </div>
 
-      <n-button type="primary" block round> + 新增供应商 </n-button>
+      <n-button type="primary" block round @click="emit('add')"> + 新增供应商 </n-button>
     </n-space>
   </n-card>
 </template>
 
-
 <script setup>
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 const props = defineProps({
   vendorList: {
     type: Array,
     default: () => [],
   },
+  activeId: {
+    type: [Number, String],
+    default: null,
+  },
 })
 
-const activeId = ref(null)
+const innerActiveId = ref(null)
+const keyword = ref('')
 
-const emit = defineEmits(['select'])
+const emit = defineEmits(['select', 'add', 'update:activeId'])
+
+const activeId = computed(() => props.activeId ?? innerActiveId.value)
+
+const filteredList = computed(() => {
+  const k = keyword.value.trim()
+  if (!k) return props.vendorList
+  return props.vendorList.filter((v) => String(v?.name || '').includes(k))
+})
 
 // ✅ 默认选中第一个
 watch(
   () => props.vendorList,
   (list) => {
     if (list.length && !activeId.value) {
-      activeId.value = list[0].id
+      innerActiveId.value = list[0].id
+      emit('update:activeId', list[0].id)
       emit('select', list[0]) // 顺便通知父组件
     }
   },
@@ -57,7 +70,8 @@ watch(
 )
 
 const selectItem = (item) => {
-  activeId.value = item.id
+  innerActiveId.value = item.id
+  emit('update:activeId', item.id)
   emit('select', item)
 }
 </script>
@@ -68,12 +82,10 @@ const selectItem = (item) => {
   align-items: center;
   padding: 12px;
   border-radius: 10px;
-
   cursor: pointer;
   transition: all 0.2s;
   position: relative;
 }
-
 
 /* ⭐ 选中态 */
 .item.active {

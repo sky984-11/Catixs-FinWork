@@ -1,0 +1,49 @@
+import logging
+
+from fastapi import APIRouter, Query
+from tortoise.expressions import Q
+
+from app.controllers.bank_account import bank_account_controller
+from app.schemas.bank_accounts import BankAccountCreate, BankAccountUpdate
+from app.schemas.base import Success, SuccessExtra
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+
+@router.get("/list", summary="查看银行账户列表")
+async def list_bank_account(
+    page: int = Query(1, description="页码"),
+    page_size: int = Query(10, description="每页数量"),
+    company_id: int = Query(..., description="公司ID"),
+):
+    q = Q(company_id=company_id)
+    total, objs = await bank_account_controller.list(page=page, page_size=page_size, search=q)
+    data = [await obj.to_dict() for obj in objs]
+    return SuccessExtra(data=data, total=total, page=page, page_size=page_size)
+
+
+@router.post("/create", summary="创建银行账户")
+async def create_bank_account(
+    obj_in: BankAccountCreate,
+):
+    obj = await bank_account_controller.create(obj_in)
+    return Success(msg="Created Successfully", data=await obj.to_dict())
+
+
+@router.post("/update", summary="更新银行账户")
+async def update_bank_account(
+    obj_in: BankAccountUpdate,
+):
+    obj = await bank_account_controller.update(id=obj_in.id, obj_in=obj_in)
+    return Success(msg="Updated Successfully", data=await obj.to_dict())
+
+
+@router.delete("/delete", summary="删除银行账户")
+async def delete_bank_account(
+    bank_account_id: int = Query(..., description="银行账户ID"),
+):
+    await bank_account_controller.remove(id=bank_account_id)
+    return Success(msg="Deleted Successfully")
+
