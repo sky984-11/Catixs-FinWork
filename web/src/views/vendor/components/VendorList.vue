@@ -1,32 +1,51 @@
 <template>
   <n-card title="供应商列表" :bordered="false">
-        <template #header-extra>
-                <n-button type="primary" size="small" quaternary @click="triggerImport">
-            <template #icon>
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                <polyline points="17 8 12 3 7 8"/>
-                <line x1="12" y1="3" x2="12" y2="15"/>
-              </svg>
-            </template>
-            导入
-          </n-button>
-          <n-button type="info" size="small" quaternary @click="handleExport">
-            <template #icon>
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                <polyline points="7 10 12 15 17 10"/>
-                <line x1="12" y1="15" x2="12" y2="3"/>
-              </svg>
-            </template>
-            导出
-          </n-button>
+    <template #header-extra>
+      <n-button type="primary" size="small" quaternary @click="triggerImport">
+        <template #icon>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="17 8 12 3 7 8" />
+            <line x1="12" y1="3" x2="12" y2="15" />
+          </svg>
+        </template>
+        导入
+      </n-button>
+      <n-button type="info" size="small" quaternary @click="handleExport">
+        <template #icon>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+        </template>
+        导出
+      </n-button>
     </template>
+    <!-- <n-input v-model:value="keyword" clearable placeholder="搜索供应商名称" /> -->
     <n-space vertical size="medium">
       <n-space justify="space-between" align="center">
-        <n-input v-model:value="keyword" clearable placeholder="搜索供应商名称"  />
         <n-space size="small">
-
           <input
             ref="importInput"
             type="file"
@@ -52,7 +71,7 @@
             <div class="sub">{{ item.country }}</div>
           </div>
 
-          <n-tag round  :type="item.status ? 'success' : 'error'" size="small">
+          <n-tag round :type="item.status ? 'success' : 'error'" size="small">
             {{ item.status ? '启用' : '禁用' }}
           </n-tag>
         </div>
@@ -102,7 +121,7 @@ watch(
       emit('select', list[0]) // 顺便通知父组件
     }
   },
-  { immediate: true }
+  { immediate: true },
 )
 
 const selectItem = (item) => {
@@ -141,12 +160,12 @@ function triggerImport() {
 async function handleImport(event) {
   const file = event.target.files?.[0]
   if (!file) return
-  
+
   if (!file.name.toLowerCase().endsWith('.csv')) {
     window.$message?.error?.('请选择 CSV 文件')
     return
   }
-  
+
   try {
     const res = await api.importVendor(file)
     if (res?.code === 0 || res?.code === 200) {
@@ -158,7 +177,7 @@ async function handleImport(event) {
   } catch (e) {
     window.$message?.error?.('导入失败')
   }
-  
+
   // 清空input
   event.target.value = ''
 }

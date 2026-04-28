@@ -69,7 +69,11 @@
           <NInput v-model:value="modalForm.noc_phone" clearable placeholder="请输入NOC电话" />
         </NFormItem>
         <NFormItem label="注册号" path="registration_no">
-          <NInput v-model:value="modalForm.registration_no" clearable placeholder="如：公司注册号" />
+          <NInput
+            v-model:value="modalForm.registration_no"
+            clearable
+            placeholder="如：公司注册号"
+          />
         </NFormItem>
         <NFormItem label="税号" path="tax_no">
           <NInput v-model:value="modalForm.tax_no" clearable placeholder="中国供应商可填写" />
@@ -302,7 +306,7 @@ async function handleDelete(vendor) {
 }
 
 .left-panel {
-  width: 320px;
+  width: 400px;
   padding: 16px;
 }
 
