@@ -35,14 +35,20 @@ def get_region_code(country: str) -> str:
     return "U"  # 默认英国
 
 
-async def generate_vendor_code(country: str) -> str:
-    """生成供应商编号，格式: V + 地区码 + 0000(自增)"""
-    region_code = get_region_code(country)
-    prefix = f"V{region_code}"
+async def generate_vendor_code(contract_company_id: int) -> str:
+    """生成供应商编号，格式: 签约主体公司code + 0000(自增)"""
+    # 获取签约主体公司的code作为前缀
+    contract_company = await Company.get_or_none(id=contract_company_id)
+    if not contract_company or not contract_company.code:
+        # 如果没有签约主体或没有code，使用默认前缀
+        prefix = "V0000"
+    else:
+        prefix = "V" + contract_company.code
     
-    # 查找当前最大的编号
+    # 查找当前最大的编号（以该前缀开头的供应商）
     max_code = await Company.filter(
-        code__startswith=prefix
+        code__startswith=prefix,
+        role=2  # 供应商角色
     ).order_by("-code").first()
     
     if max_code and max_code.code:
@@ -54,8 +60,8 @@ async def generate_vendor_code(country: str) -> str:
     else:
         num = 1
     
-    # 生成新编号，保持5位数字部分（不够前面补0）
-    return f"{prefix}{num:05d}"
+    # 生成新编号，保持4位数字部分（不够前面补0）
+    return f"{prefix}{num:04d}"
 
 
 class VendorController(CRUDBase[Company, VendorCreate, VendorUpdate]):
@@ -73,7 +79,12 @@ class VendorController(CRUDBase[Company, VendorCreate, VendorUpdate]):
         
         # 如果没有提供编号，自动生成
         if not data.get("code"):
-            data["code"] = await generate_vendor_code(data.get("country", ""))
+            contract_company_id = data.get("contract_company_id")
+            if contract_company_id:
+                data["code"] = await generate_vendor_code(contract_company_id)
+            else:
+                # 没有签约主体时使用默认生成方式
+                data["code"] = await generate_vendor_code(0)
         
         return await self.create(data)
 
