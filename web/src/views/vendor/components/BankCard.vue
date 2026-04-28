@@ -3,7 +3,7 @@
     <n-space vertical>
       <n-space justify="space-between" align="center">
         <div class="hint">{{ companyName || '-' }}</div>
-        <n-button type="primary" size="small" @click="openAdd">新增账户</n-button>
+        <n-button strong secondary round type="primary" size="small" @click="openAdd">新增账户</n-button>
       </n-space>
 
       <n-data-table :columns="columns" :data="data" :bordered="false" />

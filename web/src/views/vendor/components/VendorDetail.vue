@@ -6,7 +6,7 @@
         <div>
           <div class="title">
             {{ vendor.name }}
-            <n-tag round :type="vendor.status ? 'success' : 'error'">
+            <n-tag round :type="vendor.status ? 'success' : 'error'" size="small">
               {{ vendor.status ? '启用' : '禁用' }}
             </n-tag>
           </div>
