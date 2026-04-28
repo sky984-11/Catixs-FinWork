@@ -27,8 +27,7 @@
         </div>
 
         <n-space>
-          <EditButton :disabled="!vendor" @click="emit('edit', vendor)" />
-          <DelButton :disabled="!vendor" @click="emit('delete', vendor)" />
+          <CButton showEdit showDelete :disabled="!vendor" @edit="emit('edit', vendor)" @del="emit('delete', vendor)" />
         </n-space>
       </div>
     </n-card>
@@ -52,8 +51,7 @@
 
 <script setup>
 import BankCard from './BankCard.vue'
-import EditButton from '@/components/public/EditButton.vue'
-import DelButton from '@/components/public/DelButton.vue'
+import CButton from '@/components/public/CButton.vue'
 import InvoiceTable from './InvoiceTable.vue'
 
 defineProps({
