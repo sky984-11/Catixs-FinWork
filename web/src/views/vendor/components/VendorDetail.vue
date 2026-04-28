@@ -20,6 +20,9 @@
               <n-descriptions-item v-if="vendor.address" label="地址"> {{ vendor.address }} </n-descriptions-item>
               <n-descriptions-item v-if="vendor.noc_email" label="NOC邮箱"> {{ vendor.noc_email }} </n-descriptions-item>
               <n-descriptions-item v-if="vendor.noc_phone" label="NOC电话"> {{ vendor.noc_phone }} </n-descriptions-item>
+              <n-descriptions-item v-if="vendor.company_email" label="公司邮箱"> {{ vendor.company_email }} </n-descriptions-item>
+              <n-descriptions-item v-if="vendor.company_phone" label="公司电话"> {{ vendor.company_phone }} </n-descriptions-item>
+              <n-descriptions-item v-if="vendor.registration_no" label="注册号"> {{ vendor.registration_no }} </n-descriptions-item>
               <n-descriptions-item v-if="vendor.tax_no" label="税号"> {{ vendor.tax_no }} </n-descriptions-item>
               <n-descriptions-item v-if="vendor.remark" label="备注"> {{ vendor.remark }} </n-descriptions-item>
             </n-descriptions>
