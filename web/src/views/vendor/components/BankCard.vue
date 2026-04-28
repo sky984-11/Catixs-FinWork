@@ -31,6 +31,7 @@
               clearable
               :options="bankOptions"
               placeholder="请选择银行"
+              @update:value="handleBankChange"
             />
             <n-button size="small" secondary @click="openAddBank">新增银行</n-button>
           </div>
@@ -52,9 +53,6 @@
           <NFormItem label="Account Number" path="account_number">
             <NInput v-model:value="modalForm.account_number" clearable placeholder="请输入 Account Number" />
           </NFormItem>
-          <NFormItem label="SWIFT" path="swift_code">
-            <NInput v-model:value="modalForm.swift_code" clearable placeholder="请输入 SWIFT" />
-          </NFormItem>
           <NFormItem label="IBAN" path="iban">
             <NInput v-model:value="modalForm.iban" clearable placeholder="请输入 IBAN" />
           </NFormItem>
@@ -71,9 +69,6 @@
           <NFormItem label="Account Number" path="account_number">
             <NInput v-model:value="modalForm.account_number" clearable placeholder="请输入 Account Number" />
           </NFormItem>
-          <NFormItem label="SWIFT" path="swift_code">
-            <NInput v-model:value="modalForm.swift_code" clearable placeholder="请输入 SWIFT" />
-          </NFormItem>
         </template>
 
         <!-- CN -->
@@ -87,9 +82,6 @@
         <template v-else>
           <NFormItem label="账号" path="account_number">
             <NInput v-model:value="modalForm.account_number" clearable placeholder="请输入账号" />
-          </NFormItem>
-          <NFormItem label="SWIFT" path="swift_code">
-            <NInput v-model:value="modalForm.swift_code" clearable placeholder="请输入 SWIFT" />
           </NFormItem>
           <NFormItem label="IBAN" path="iban">
             <NInput v-model:value="modalForm.iban" clearable placeholder="请输入 IBAN" />
@@ -198,7 +190,6 @@ const modalForm = reactive({
   account_number: '',
   bank_code: '',
   branch_code: '',
-  swift_code: '',
   iban: '',
   sort_code: '',
   currency: '',
@@ -217,12 +208,13 @@ function requireIf(conditionFn, message) {
 }
 
 const modalRules = {
-  bank_id: [{ required: true, message: '请选择银行', trigger: ['blur', 'change'] }],
+  bank_id: [{ required: true, message: '请选择银行' }],
   account_number: [{ required: true, message: '请输入账号', trigger: ['blur', 'input'] }],
   sort_code: [requireIf(() => region.value === 'GB', '请输入 Sort Code')],
   bank_code: [requireIf(() => region.value === 'HK', '请输入 Bank Code')],
   branch_code: [requireIf(() => region.value === 'HK', '请输入 Branch Code')],
 }
+
 
 const bankModalVisible = ref(false)
 const bankModalLoading = ref(false)
@@ -264,12 +256,13 @@ watch(
 
 watch(
   () => modalForm.bank_id,
-  () => {
-    // 新增时自动带出银行 SWIFT（可手改）
-    if (modalAction.value !== 'add') return
-    if (modalForm.swift_code) return
-    const swift = selectedBank.value?.swift_code
-    if (swift) modalForm.swift_code = swift
+  (newVal) => {
+    // 清除验证错误
+    if (newVal) {
+      nextTick(() => {
+        modalFormRef.value?.clearValidate?.(['bank_id'])
+      })
+    }
   }
 )
 
@@ -293,7 +286,6 @@ function resetModalForm() {
   modalForm.account_number = ''
   modalForm.bank_code = ''
   modalForm.branch_code = ''
-  modalForm.swift_code = ''
   modalForm.iban = ''
   modalForm.sort_code = ''
   modalForm.currency = ''
@@ -316,7 +308,6 @@ function openEdit(row) {
   modalForm.account_number = row.account_number || ''
   modalForm.bank_code = row.bank_code || ''
   modalForm.branch_code = row.branch_code || ''
-  modalForm.swift_code = row.swift_code || ''
   modalForm.iban = row.iban || ''
   modalForm.sort_code = row.sort_code || ''
   modalForm.currency = row.currency || ''
@@ -369,6 +360,15 @@ async function handleSaveBank() {
   }
 }
 
+/**
+ * 选择银行后将 bank id 赋值给表单，并自动填充 SWIFT 代码
+ * @param {number|string} bankId - 选择的银行 ID
+ */
+function handleBankChange(bankId) {
+  // 确保 bank_id 为数字类型
+  modalForm.bank_id = bankId ? Number(bankId) : null
+}
+
 function handleDelete(row) {
   window.$dialog?.confirm?.({
     title: '删除银行账户',
@@ -385,7 +385,6 @@ const columns = [
   { title: '银行', key: 'bank_name' },
   { title: '账号', key: 'account_number' },
   { title: '币种', key: 'currency' },
-  { title: 'SWIFT', key: 'swift_code' },
   {
     title: '操作',
     key: 'action',

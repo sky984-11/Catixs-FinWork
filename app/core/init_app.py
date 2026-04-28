@@ -274,7 +274,6 @@ async def init_companies():
         branch_code="478",
         account_name="77 Telecom Limited",
         account_number="7950193007",
-        swift_code="DHBKHKHH",
         currency="USD",
     )
     
@@ -336,7 +335,6 @@ async def init_companies():
         sort_code="040085",
         account_name="Catixs Ltd",
         account_number="06520111",
-        swift_code="MODRGB21",
         iban="GB54MODR04008506520111",
         currency="GBP",
     )
@@ -354,7 +352,6 @@ async def init_companies():
         branch_code="474",
         account_name="Catixs Ltd",
         account_number="47412321804",
-        swift_code="SCBLHKHH",
         currency="HKD",
     )
     
@@ -366,7 +363,6 @@ async def init_companies():
         branch_code="474",
         account_name="Catixs Ltd",
         account_number="47412485947",
-        swift_code="SCBLHKHH",
         currency="USD",
     )
     
