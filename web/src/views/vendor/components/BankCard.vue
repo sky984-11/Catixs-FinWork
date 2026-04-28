@@ -81,9 +81,6 @@
           <NFormItem label="账户号" path="account_number">
             <NInput v-model:value="modalForm.account_number" clearable placeholder="请输入账户号" />
           </NFormItem>
-          <NFormItem label="税号">
-            <NInput :value="companyTaxNo || ''" disabled placeholder="供应商信息里维护" />
-          </NFormItem>
         </template>
 
         <!-- Fallback -->
@@ -157,10 +154,6 @@ const props = defineProps({
     default: null,
   },
   companyName: {
-    type: String,
-    default: '',
-  },
-  companyTaxNo: {
     type: String,
     default: '',
   },
