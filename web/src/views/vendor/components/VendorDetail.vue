@@ -17,11 +17,11 @@
                 <template #label> 编号 </template>
                 {{ vendor.code }}
               </n-descriptions-item>
-              <n-descriptions-item label="地址"> {{ vendor.address }} </n-descriptions-item>
-              <n-descriptions-item label="NOC邮箱"> {{ vendor.noc_email }} </n-descriptions-item>
-              <n-descriptions-item label="NOC电话"> {{ vendor.noc_phone }} </n-descriptions-item>
-              <n-descriptions-item label="税号"> {{ vendor.tax_no }} </n-descriptions-item>
-              <n-descriptions-item label="备注"> {{ vendor.remark }} </n-descriptions-item>
+              <n-descriptions-item v-if="vendor.address" label="地址"> {{ vendor.address }} </n-descriptions-item>
+              <n-descriptions-item v-if="vendor.noc_email" label="NOC邮箱"> {{ vendor.noc_email }} </n-descriptions-item>
+              <n-descriptions-item v-if="vendor.noc_phone" label="NOC电话"> {{ vendor.noc_phone }} </n-descriptions-item>
+              <n-descriptions-item v-if="vendor.tax_no" label="税号"> {{ vendor.tax_no }} </n-descriptions-item>
+              <n-descriptions-item v-if="vendor.remark" label="备注"> {{ vendor.remark }} </n-descriptions-item>
             </n-descriptions>
           </div>
         </div>
