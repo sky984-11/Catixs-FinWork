@@ -52,19 +52,17 @@
           />
         </NFormItem>
         <NFormItem label="PDF文件" path="pdf_file">
-          <div class="upload-row">
-            <n-button @click="triggerFileSelect">
-              选择文件
-            </n-button>
-            <span v-if="selectedFileName" class="file-name">{{ selectedFileName }}</span>
-            <input
-              ref="fileInput"
-              type="file"
-              accept="application/pdf"
-              style="display: none"
-              @change="handleFileChange"
-            />
-          </div>
+          <n-upload
+            ref="uploadRef"
+            v-model:file-list="fileList"
+            :max="1"
+            accept="application/pdf"
+            list-type="text"
+            @change="handleUploadChange"
+            @preview="handlePreviewPdf"
+          >
+            <n-button>点击上传 PDF</n-button>
+          </n-upload>
         </NFormItem>
       </NForm>
     </CrudModal>
@@ -73,7 +71,7 @@
 
 <script setup>
 import { computed, h, nextTick, onMounted, reactive, ref, watch } from 'vue'
-import { NButton, NSelect, NInput, NInputNumber, NDatePicker } from 'naive-ui'
+import { NButton, NSelect, NInput, NInputNumber, NDatePicker, NUpload, NImage } from 'naive-ui'
 import PdfPreview from './PdfPreview.vue'
 import CrudModal from '@/components/table/CrudModal.vue'
 import CButton from '@/components/public/CButton.vue'
@@ -103,8 +101,8 @@ function handleDateChange(value) {
 }
 
 const pdfUrl = ref('')
-const fileInput = ref(null)
-const selectedFileName = ref('')
+const uploadRef = ref(null)
+const fileList = ref([])
 const selectedFile = ref(null)
 
 // 币种选项
@@ -171,7 +169,7 @@ function resetModalForm() {
   modalForm.invoice_date = null
   modalForm.total_amount = null
   modalForm.currency = 'USD'
-  selectedFileName.value = ''
+  fileList.value = []
   selectedFile.value = null
 }
 
@@ -183,21 +181,27 @@ function openAdd() {
   modalVisible.value = true
 }
 
-function triggerFileSelect() {
-  fileInput.value?.click()
-}
-
-function handleFileChange(event) {
-  const file = event.target.files?.[0]
+function handleUploadChange(options) {
+  const { file } = options
   if (!file) return
   
+  // 检查文件类型
   if (!file.name.toLowerCase().endsWith('.pdf')) {
     window.$message?.error?.('请选择 PDF 文件')
+    // 移除非法文件
+    fileList.value = []
     return
   }
   
-  selectedFileName.value = file.name
-  selectedFile.value = file
+  // n-upload 会自动处理文件，我们只需要保存文件对象用于后续上传
+  selectedFile.value = file.file
+}
+
+function handlePreviewPdf(file) {
+  // 在新标签页打开PDF
+  if (file && file.url) {
+    window.open(file.url, '_blank')
+  }
 }
 
 async function handleSave() {
@@ -281,7 +285,20 @@ function openEdit(row) {
   }
   modalForm.total_amount = row.total_amount ?? null
   modalForm.currency = row.currency || 'USD'
-  selectedFileName.value = ''
+  // 显示已有PDF文件
+  if (row.invoice_url) {
+    const fileName = row.invoice_url.split('/').pop()
+    fileList.value = [
+      {
+        id: 'existing',
+        name: fileName || '已有PDF文件',
+        status: 'finished',
+        url: row.invoice_url,
+      },
+    ]
+  } else {
+    fileList.value = []
+  }
   selectedFile.value = null
   modalVisible.value = true
 }
@@ -336,14 +353,4 @@ const columns = [
 </script>
 
 <style scoped>
-.upload-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.file-name {
-  color: #666;
-  font-size: 12px;
-}
 </style>

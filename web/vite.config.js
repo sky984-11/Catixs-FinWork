@@ -28,11 +28,7 @@ export default defineConfig(({ command, mode }) => {
       host: '0.0.0.0',
       port: VITE_PORT,
       open: true,
-      proxy: VITE_USE_PROXY
-        ? {
-            [VITE_BASE_API]: PROXY_CONFIG[VITE_BASE_API],
-          }
-        : undefined,
+      proxy: VITE_USE_PROXY ? PROXY_CONFIG : undefined,
     },
     build: {
       target: 'es2015',

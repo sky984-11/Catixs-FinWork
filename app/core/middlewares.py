@@ -52,6 +52,8 @@ class HttpAuditLogMiddleware(BaseHTTPMiddleware):
         self.methods = methods
         self.exclude_paths = exclude_paths
         self.audit_log_paths = ["/api/v1/auditlog/list"]
+        # 排除不记录日志的路径（如静态文件）
+        self.exclude_response_log_paths = ["/uploads"]
         self.max_body_size = 1024 * 1024  # 1MB 响应体大小限制
 
     async def get_request_args(self, request: Request) -> dict:
@@ -62,22 +64,32 @@ class HttpAuditLogMiddleware(BaseHTTPMiddleware):
 
         # 获取请求体
         if request.method in ["POST", "PUT", "PATCH"]:
-            try:
-                body = await request.json()
-                args.update(body)
-            except json.JSONDecodeError:
+            content_type = request.headers.get("content-type", "")
+            
+            # 如果是 multipart/form-data 且包含文件上传，跳过body解析
+            # 因为文件上传的请求体需要被端点直接读取
+            if "multipart/form-data" in content_type:
+                # 检查是否包含文件字段
+                # 不在这里解析表单数据，让端点自己处理
+                pass
+            else:
+                # 其他请求（如 JSON）按原逻辑处理
                 try:
-                    body = await request.form()
-                    # args.update(body)
-                    for k, v in body.items():
-                        if hasattr(v, "filename"):  # 文件上传行为
-                            args[k] = v.filename
-                        elif isinstance(v, list) and v and hasattr(v[0], "filename"):
-                            args[k] = [file.filename for file in v]
-                        else:
-                            args[k] = v
-                except Exception:
-                    pass
+                    body = await request.json()
+                    args.update(body)
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    # JSON 解析失败，尝试解析表单数据
+                    try:
+                        body = await request.form()
+                        for k, v in body.items():
+                            if hasattr(v, "filename"):  # 文件上传行为
+                                args[k] = v.filename
+                            elif isinstance(v, list) and v and hasattr(v[0], "filename"):
+                                args[k] = [file.filename for file in v]
+                            else:
+                                args[k] = v
+                    except Exception:
+                        pass
 
         return args
 
@@ -99,6 +111,10 @@ class HttpAuditLogMiddleware(BaseHTTPMiddleware):
             response.body_iterator = self._async_iter(body_chunks)
             body = b"".join(body_chunks)
 
+        # 排除不需要记录响应体的路径（如静态文件/图片/PDF等二进制内容）
+        if any(request.url.path.startswith(path) for path in self.exclude_response_log_paths):
+            return None
+        
         if any(request.url.path.startswith(path) for path in self.audit_log_paths):
             try:
                 data = self.lenient_json(body)
@@ -159,6 +175,10 @@ class HttpAuditLogMiddleware(BaseHTTPMiddleware):
         request.state.request_args = request_args
 
     async def after_request(self, request: Request, response: Response, process_time: int):
+        # 跳过不需要记录日志的路径
+        if any(request.url.path.startswith(path) for path in self.exclude_response_log_paths):
+            return response
+            
         if request.method in self.methods:
             for path in self.exclude_paths:
                 if re.search(path, request.url.path, re.I) is not None:
