@@ -16,6 +16,20 @@ class Company(BaseModel, TimestampMixin):
     remark = fields.CharField(max_length=500, null=True, description="备注")
     status = fields.BooleanField(default=True, description="状态", index=True)
     tax_no = fields.CharField(max_length=50, null=True, description="税号")
+    # 公司邮箱
+    company_email = fields.CharField(max_length=100, null=True, description="公司邮箱")
+    # 公司电话
+    company_phone = fields.CharField(max_length=50, null=True, description="公司电话")
+    # 公司注册号
+    registration_no = fields.CharField(max_length=50, null=True, description="公司注册号")
+    # 签约主体公司ID（role=0的公司）
+    contract_company = fields.ForeignKeyField(
+        "models.Company",
+        related_name="contract_companies",
+        null=True,
+        on_delete=fields.SET_NULL,
+        description="签约主体公司"
+    )
 
     class Meta:
         table = "company"

@@ -27,11 +27,17 @@
         :model="modalForm"
         :rules="modalRules"
       >
-        <NFormItem label="编号" path="code">
-          <NInput v-model:value="modalForm.code" clearable placeholder="如：VU00024" />
-        </NFormItem>
         <NFormItem label="名称" path="name">
           <NInput v-model:value="modalForm.name" clearable placeholder="请输入供应商名称" />
+        </NFormItem>
+        <NFormItem label="签约主体" path="contract_company_id">
+          <NSelect
+            v-model:value="modalForm.contract_company_id"
+            clearable
+            filterable
+            :options="contractCompanyOptions"
+            placeholder="请选择签约主体公司"
+          />
         </NFormItem>
         <NFormItem label="国家/地区" path="country">
           <NInput v-model:value="modalForm.country" clearable placeholder="如：中国/香港/台湾" />
@@ -43,11 +49,23 @@
             :autosize="{ minRows: 2, maxRows: 4 }"
           />
         </NFormItem>
+        <NFormItem label="公司邮箱" path="company_email">
+          <NInput v-model:value="modalForm.company_email" clearable placeholder="请输入公司邮箱" />
+        </NFormItem>
+        <NFormItem label="公司电话" path="company_phone">
+          <NInput v-model:value="modalForm.company_phone" clearable placeholder="请输入公司电话" />
+        </NFormItem>
         <NFormItem label="NOC邮箱" path="noc_email">
-          <NInput v-model:value="modalForm.noc_email" clearable placeholder="请输入邮箱" />
+          <NInput v-model:value="modalForm.noc_email" clearable placeholder="请输入NOC邮箱" />
         </NFormItem>
         <NFormItem label="NOC电话" path="noc_phone">
-          <NInput v-model:value="modalForm.noc_phone" clearable placeholder="请输入电话" />
+          <NInput v-model:value="modalForm.noc_phone" clearable placeholder="请输入NOC电话" />
+        </NFormItem>
+        <NFormItem label="注册号" path="registration_no">
+          <NInput v-model:value="modalForm.registration_no" clearable placeholder="如：公司注册号" />
+        </NFormItem>
+        <NFormItem label="税号" path="tax_no">
+          <NInput v-model:value="modalForm.tax_no" clearable placeholder="中国供应商可填写" />
         </NFormItem>
         <NFormItem label="备注" path="remark">
           <NInput
@@ -55,9 +73,6 @@
             type="textarea"
             :autosize="{ minRows: 2, maxRows: 4 }"
           />
-        </NFormItem>
-        <NFormItem label="税号" path="tax_no">
-          <NInput v-model:value="modalForm.tax_no" clearable placeholder="中国供应商可填写" />
         </NFormItem>
         <NFormItem label="启用" path="status">
           <NSwitch
@@ -78,8 +93,16 @@ import CrudModal from '@/components/table/CrudModal.vue'
 import api from '@/api'
 
 const vendorList = ref([])
+const contractCompanyList = ref([])
 const currentVendor = ref(null)
 const activeId = ref(null)
+
+const contractCompanyOptions = computed(() => {
+  return (contractCompanyList.value || []).map((c) => ({
+    label: c.name,
+    value: c.id,
+  }))
+})
 
 const modalVisible = ref(false)
 const modalLoading = ref(false)
@@ -89,19 +112,22 @@ const modalFormRef = ref(null)
 const modalForm = reactive({
   id: null,
   name: '',
-  country: '',
   code: '',
+  country: '',
   address: '',
+  company_email: '',
+  company_phone: '',
   noc_email: '',
   noc_phone: '',
-  remark: '',
+  registration_no: '',
   tax_no: '',
+  contract_company_id: null,
+  remark: '',
   status: true,
 })
 
 const modalRules = {
   name: [{ required: true, message: '请输入供应商名称', trigger: ['blur', 'input'] }],
-  code: [{ required: true, message: '请输入供应商编号', trigger: ['blur', 'input'] }],
   noc_email: [
     {
       trigger: ['blur'],
@@ -114,6 +140,23 @@ const modalRules = {
       },
     },
   ],
+  company_email: [
+    {
+      trigger: ['blur'],
+      validator: (rule, value, callback) => {
+        const v = String(value || '').trim()
+        if (!v) return callback()
+        const re = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)+$/
+        if (!re.test(v)) return callback('邮箱格式错误')
+        return callback()
+      },
+    },
+  ],
+}
+
+async function fetchContractCompanies() {
+  const res = await api.getCompanyList({ page: 1, page_size: 9999, role: 0 })
+  contractCompanyList.value = res?.data || []
 }
 
 async function fetchVendors() {
@@ -134,9 +177,9 @@ async function fetchVendors() {
 
 onMounted(async () => {
   try {
-    await fetchVendors()
+    await Promise.all([fetchVendors(), fetchContractCompanies()])
   } catch (e) {
-    window.$message?.error?.('获取供应商列表失败')
+    window.$message?.error?.('获取数据失败')
   }
 })
 
@@ -148,13 +191,17 @@ const handleSelect = (row) => {
 function resetModalForm() {
   modalForm.id = null
   modalForm.name = ''
-  modalForm.country = ''
   modalForm.code = ''
+  modalForm.country = ''
   modalForm.address = ''
+  modalForm.company_email = ''
+  modalForm.company_phone = ''
   modalForm.noc_email = ''
   modalForm.noc_phone = ''
-  modalForm.remark = ''
+  modalForm.registration_no = ''
   modalForm.tax_no = ''
+  modalForm.contract_company_id = null
+  modalForm.remark = ''
   modalForm.status = true
 }
 
@@ -171,13 +218,17 @@ function openEdit(vendor) {
   modalTitle.value = '编辑供应商'
   modalForm.id = vendor.id
   modalForm.name = vendor.name || ''
-  modalForm.country = vendor.country || ''
   modalForm.code = vendor.code || ''
+  modalForm.country = vendor.country || ''
   modalForm.address = vendor.address || ''
+  modalForm.company_email = vendor.company_email || ''
+  modalForm.company_phone = vendor.company_phone || ''
   modalForm.noc_email = vendor.noc_email || ''
   modalForm.noc_phone = vendor.noc_phone || ''
-  modalForm.remark = vendor.remark || ''
+  modalForm.registration_no = vendor.registration_no || ''
   modalForm.tax_no = vendor.tax_no || ''
+  modalForm.contract_company_id = vendor.contract_company_id ?? null
+  modalForm.remark = vendor.remark || ''
   modalForm.status = !!vendor.status
   modalVisible.value = true
 }
@@ -186,14 +237,18 @@ async function handleSave() {
   try {
     modalLoading.value = true
     await modalFormRef.value?.validate?.()
+    const payload = { ...modalForm }
+    delete payload.id
+    // 如果code为空字符串，转为null让后端自动生成
+    if (!payload.code) {
+      delete payload.code
+    }
     if (modalAction.value === 'add') {
-      const payload = { ...modalForm }
-      delete payload.id
       const res = await api.createVendor(payload)
       window.$message?.success?.('新增成功')
       if (res?.data?.id) activeId.value = res.data.id
     } else {
-      const res = await api.updateVendor({ ...modalForm })
+      const res = await api.updateVendor({ ...modalForm, id: modalForm.id })
       window.$message?.success?.('更新成功')
       if (res?.data?.id) activeId.value = res.data.id
     }
