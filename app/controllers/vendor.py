@@ -37,31 +37,24 @@ def get_region_code(country: str) -> str:
 
 async def generate_vendor_code(contract_company_id: int) -> str:
     """生成供应商编号，格式: 签约主体公司code + 0000(自增)"""
+    prefix = "V"
+    
     # 获取签约主体公司的code作为前缀
-    contract_company = await Company.get_or_none(id=contract_company_id)
-    if not contract_company or not contract_company.code:
-        # 如果没有签约主体或没有code，使用默认前缀
-        prefix = "V0000"
-    else:
-        prefix = "V" + contract_company.code
+    if contract_company_id:
+        contract_company = await Company.get_or_none(id=contract_company_id)
+        if contract_company and contract_company.code:
+            prefix = "V" + contract_company.code
     
-    # 查找当前最大的编号（以该前缀开头的供应商）
-    max_code = await Company.filter(
+    # 统计该前缀下的供应商数量，+1 作为新的编号
+    count = await Company.filter(
         code__startswith=prefix,
-        role=2  # 供应商角色
-    ).order_by("-code").first()
+        role=2
+    ).count()
     
-    if max_code and max_code.code:
-        try:
-            # 提取数字部分并加1
-            num = int(max_code.code[len(prefix):]) + 1
-        except ValueError:
-            num = 1
-    else:
-        num = 1
+    # 新编号 = 当前数量 + 1
+    new_num = count + 1
     
-    # 生成新编号，保持4位数字部分（不够前面补0）
-    return f"{prefix}{num:04d}"
+    return f"{prefix}{new_num:04d}"
 
 
 class VendorController(CRUDBase[Company, VendorCreate, VendorUpdate]):

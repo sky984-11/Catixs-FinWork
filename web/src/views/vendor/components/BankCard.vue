@@ -60,12 +60,6 @@
 
         <!-- HK -->
         <template v-else-if="region === 'HK'">
-          <NFormItem label="Bank Code" path="bank_code">
-            <NInput v-model:value="modalForm.bank_code" clearable placeholder="请输入 Bank Code" />
-          </NFormItem>
-          <NFormItem label="Branch Code" path="branch_code">
-            <NInput v-model:value="modalForm.branch_code" clearable placeholder="请输入 Branch Code" />
-          </NFormItem>
           <NFormItem label="Account Number" path="account_number">
             <NInput v-model:value="modalForm.account_number" clearable placeholder="请输入 Account Number" />
           </NFormItem>
@@ -89,13 +83,7 @@
           <NFormItem label="SORT CODE" path="sort_code">
             <NInput v-model:value="modalForm.sort_code" clearable placeholder="请输入 SORT CODE" />
           </NFormItem>
-          <NFormItem label="Bank Code" path="bank_code">
-            <NInput v-model:value="modalForm.bank_code" clearable placeholder="请输入 Bank Code" />
-          </NFormItem>
-	          <NFormItem label="Branch Code" path="branch_code">
-	            <NInput v-model:value="modalForm.branch_code" clearable placeholder="请输入 Branch Code" />
-	          </NFormItem>
-	        </template>
+        </template>
 	      </NForm>
 	    </CrudModal>
 
@@ -121,6 +109,12 @@
         </NFormItem>
         <NFormItem label="SWIFT" path="swift_code">
           <NInput v-model:value="bankForm.swift_code" clearable placeholder="请输入 SWIFT" />
+        </NFormItem>
+        <NFormItem label="Bank Code" path="bank_code">
+          <NInput v-model:value="bankForm.bank_code" clearable placeholder="请输入 Bank Code" />
+        </NFormItem>
+        <NFormItem label="Branch Code" path="branch_code">
+          <NInput v-model:value="bankForm.branch_code" clearable placeholder="请输入 Branch Code" />
         </NFormItem>
         <NFormItem label="地址" path="bank_address">
           <NInput
@@ -188,8 +182,6 @@ const modalForm = reactive({
   company_id: null,
   bank_id: null,
   account_number: '',
-  bank_code: '',
-  branch_code: '',
   iban: '',
   sort_code: '',
   currency: '',
@@ -211,8 +203,6 @@ const modalRules = {
   bank_id: [{ required: true, message: '请选择银行' }],
   account_number: [{ required: true, message: '请输入账号', trigger: ['blur', 'input'] }],
   sort_code: [requireIf(() => region.value === 'GB', '请输入 Sort Code')],
-  bank_code: [requireIf(() => region.value === 'HK', '请输入 Bank Code')],
-  branch_code: [requireIf(() => region.value === 'HK', '请输入 Branch Code')],
 }
 
 
@@ -224,6 +214,8 @@ const bankForm = reactive({
   country: '',
   swift_code: '',
   bank_address: '',
+  bank_code: '',
+  branch_code: '',
 })
 const bankRules = {
   name: [{ required: true, message: '请输入银行名称', trigger: ['blur', 'input'] }],
@@ -284,8 +276,6 @@ function resetModalForm() {
   modalForm.company_id = props.companyId ? Number(props.companyId) : null
   modalForm.bank_id = null
   modalForm.account_number = ''
-  modalForm.bank_code = ''
-  modalForm.branch_code = ''
   modalForm.iban = ''
   modalForm.sort_code = ''
   modalForm.currency = ''
@@ -306,8 +296,6 @@ function openEdit(row) {
   modalForm.company_id = row.company_id
   modalForm.bank_id = row.bank_id ?? null
   modalForm.account_number = row.account_number || ''
-  modalForm.bank_code = row.bank_code || ''
-  modalForm.branch_code = row.branch_code || ''
   modalForm.iban = row.iban || ''
   modalForm.sort_code = row.sort_code || ''
   modalForm.currency = row.currency || ''
@@ -339,6 +327,8 @@ function resetBankForm() {
   bankForm.country = ''
   bankForm.swift_code = ''
   bankForm.bank_address = ''
+  bankForm.bank_code = ''
+  bankForm.branch_code = ''
 }
 
 function openAddBank() {

@@ -266,12 +266,12 @@ async def init_companies():
         name="DBS Bank (Hong Kong) Limited",
         country="Hong Kong",
         swift_code="DHBKHKHH",
+        bank_code="016",
+        branch_code="478",
     )
     await BankAccount.create(
         company=company_77,
         bank=bank_dbs_hk,
-        bank_code="016",
-        branch_code="478",
         account_name="77 Telecom Limited",
         account_number="7950193007",
         currency="USD",
@@ -344,12 +344,12 @@ async def init_companies():
         name="Standard Chartered Bank (Hong Kong) Ltd",
         country="Hong Kong",
         swift_code="SCBLHKHH",
+        bank_code="003",
+        branch_code="474",
     )
     await BankAccount.create(
         company=company_uk,
         bank=bank_sc_hk,
-        bank_code="003",
-        branch_code="474",
         account_name="Catixs Ltd",
         account_number="47412321804",
         currency="HKD",
@@ -359,8 +359,6 @@ async def init_companies():
     await BankAccount.create(
         company=company_uk,
         bank=bank_sc_hk,
-        bank_code="003",
-        branch_code="474",
         account_name="Catixs Ltd",
         account_number="47412485947",
         currency="USD",

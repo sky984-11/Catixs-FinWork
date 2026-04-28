@@ -27,7 +27,7 @@
         </div>
 
         <n-space>
-          <CButton showEdit showDelete :disabled="!vendor" @edit="emit('edit', vendor)" @del="emit('delete', vendor)" />
+          <CButton showEdit showDelete :disabled="!vendor" @edit="emit('edit', vendor)" @delete="emit('delete', vendor)" />
         </n-space>
       </div>
     </n-card>
