@@ -132,6 +132,7 @@
 import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import { NButton } from 'naive-ui'
 import CrudModal from '@/components/table/CrudModal.vue'
+import CButton from '@/components/public/CButton.vue'
 import api from '@/api'
 
 const props = defineProps({
@@ -379,18 +380,14 @@ const columns = [
     title: '操作',
     key: 'action',
     render(row) {
-      return h('div', { style: 'display:flex;gap:8px;' }, [
-        h(
-          NButton,
-          { size: 'small', type: 'info', secondary: true, onClick: () => openEdit(row) },
-          { default: () => '编辑' }
-        ),
-        h(
-          NButton,
-          { size: 'small', type: 'error', secondary: true, onClick: () => handleDelete(row) },
-          { default: () => '删除' }
-        ),
-      ])
+      return h(CButton, {
+        showEdit: true,
+        showDelete: true,
+        editLoading: false,
+        deleteLoading: false,
+        onEdit: () => openEdit(row),
+        onDelete: () => handleDelete(row),
+      })
     },
   },
 ]
