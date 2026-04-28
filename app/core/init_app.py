@@ -285,8 +285,8 @@ async def init_companies():
         role=0,
         country="China",
         address="深圳市南山区粤海街道科技园社区科发路222号康泰集团大厦3202",
-        noc_email="fapiao@cn.catixs.com",
-        noc_phone="+0755-86638006",
+        noc_email="",
+        noc_phone="",
         tax_no="91440300MAEAJ4CP7U",
         registration_no="91440300MAEAJ4CP7U",
         company_email="fapiao@cn.catixs.com",
@@ -314,8 +314,8 @@ async def init_companies():
         role=0,
         country="United Kingdom",
         address="6 Watergate Walk, London, E14 9XH, United Kingdom",
-        noc_email="billing@catixs.com",
-        noc_phone="+44 020 4600 7777",
+        noc_email="",
+        noc_phone="",
         registration_no="13745695",
         company_email="billing@catixs.com",
         company_phone="+44 020 4600 7777",
@@ -325,14 +325,15 @@ async def init_companies():
     # 创建Catixs Ltd的银行账户
     # GBP账户
     bank_mod = await Bank.create(
-        name="Metro Bank",
+        name="Airwallex",
         country="United Kingdom",
         swift_code="MODRGB21",
+        bank_address="58 Wood Ln",
     )
     await BankAccount.create(
         company=company_uk,
         bank=bank_mod,
-        sort_code="04-00-85",
+        sort_code="040085",
         account_name="Catixs Ltd",
         account_number="06520111",
         swift_code="MODRGB21",
