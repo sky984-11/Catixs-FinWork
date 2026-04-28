@@ -249,7 +249,7 @@ async def init_companies():
     # 1. 77 Telecom Ltd (香港)
     company_77 = await Company.create(
         name="77 Telecom Ltd",
-        code="VH00001",
+        code="H",
         role=0,
         country="Hong Kong",
         address="RM B, 10/F, LEE MAY BUILDING, 788-790 NATHAN ROAD, MONGKOK, KOWLOON, HONG KONG",
@@ -281,7 +281,7 @@ async def init_companies():
     # 2. 深圳市科特思网络科技有限公司 (中国)
     company_cn = await Company.create(
         name="深圳市科特思网络科技有限公司",
-        code="VC00001",
+        code="C",
         role=0,
         country="China",
         address="深圳市南山区粤海街道科技园社区科发路222号康泰集团大厦3202",
@@ -310,7 +310,7 @@ async def init_companies():
     # 3. Catixs Ltd (英国)
     company_uk = await Company.create(
         name="Catixs Ltd",
-        code="VU00001",
+        code="U",
         role=0,
         country="United Kingdom",
         address="6 Watergate Walk, London, E14 9XH, United Kingdom",
