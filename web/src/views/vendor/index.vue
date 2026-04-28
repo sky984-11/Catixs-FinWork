@@ -6,6 +6,7 @@
         :vendor-list="vendorList"
         @select="handleSelect"
         @add="openAdd"
+        @refresh="fetchVendors"
       />
     </div>
 

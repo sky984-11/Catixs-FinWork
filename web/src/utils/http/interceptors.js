@@ -21,7 +21,11 @@ export function reqReject(error) {
 }
 
 export function resResolve(response) {
-  const { data, status, statusText } = response
+  const { data, status, statusText, config } = response
+  // 跳过错误处理（如文件下载）
+  if (config?.skipErrorHandle) {
+    return Promise.resolve(response)
+  }
   if (data?.code !== 200) {
     const code = data?.code ?? status
     /** 根据code处理对应的操作，并返回处理后的message */

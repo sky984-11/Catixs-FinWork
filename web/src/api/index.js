@@ -46,6 +46,14 @@ export default {
   createVendor: (data = {}) => request.post('/vendor/create', data),
   updateVendor: (data = {}) => request.post('/vendor/update', data),
   deleteVendor: (params = {}) => request.delete(`/vendor/delete`, { params }),
+  exportVendor: () => {
+    return request.get('/vendor/export', { responseType: 'blob', skipErrorHandle: true })
+  },
+  importVendor: (file) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return request.post('/vendor/import', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+  },
 
   // company (签约主体)
   getCompanyList: (params = {}) => request.get('/company/list', { params }),

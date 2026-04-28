@@ -55,6 +55,12 @@ class VendorController(CRUDBase[Company, VendorCreate, VendorUpdate]):
         data = obj_in.model_dump(exclude_unset=True, exclude={"id"})
         data["role"] = 2
         return await self.update(id=id, obj_in=data)
+    
+    async def generate_code(self, contract_company_id: int = None) -> str:
+        """生成供应商编号的公共方法"""
+        if contract_company_id:
+            return await generate_vendor_code(contract_company_id)
+        return await generate_vendor_code(0)
 
 
 vendor_controller = VendorController()
