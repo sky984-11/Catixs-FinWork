@@ -1,6 +1,9 @@
 import logging
+import os
+import uuid
+from datetime import datetime
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, File, Query, UploadFile
 from tortoise.expressions import Q
 
 from app.controllers.bill import bill_controller
@@ -10,6 +13,10 @@ from app.schemas.bills import BillCreate, BillUpdate
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# 文件上传目录
+UPLOAD_DIR = "uploads/bills"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
 @router.get("/list", summary="查看账单列表")
@@ -57,4 +64,30 @@ async def delete_bill(
 ):
     await bill_controller.remove(id=bill_id)
     return Success(msg="Deleted Successfully")
+
+
+@router.post("/upload", summary="上传账单PDF")
+async def upload_bill_pdf(
+    bill_id: int = Query(..., description="账单ID"),
+    file: UploadFile = File(..., description="PDF文件"),
+):
+    # 检查文件类型
+    if not file.filename.lower().endswith('.pdf'):
+        return Success(msg="Only PDF files are allowed", code=400)
+    
+    # 生成唯一文件名
+    file_ext = os.path.splitext(file.filename)[1]
+    unique_filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}{file_ext}"
+    file_path = os.path.join(UPLOAD_DIR, unique_filename)
+    
+    # 保存文件
+    content = await file.read()
+    with open(file_path, "wb") as f:
+        f.write(content)
+    
+    # 返回的URL路径
+    invoice_url = f"/uploads/bills/{unique_filename}"
+    await bill_controller.update(id=bill_id, obj_in={"invoice_url": invoice_url})
+    
+    return Success(msg="Upload Successfully", data={"invoice_url": invoice_url})
 

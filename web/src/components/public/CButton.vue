@@ -5,11 +5,14 @@
       type="info"
       round
       secondary
+      :loading="editLoading"
+      :disabled="disabled"
       @click="handleEdit"
     >
       <template #icon>
         <n-icon>
           <svg
+            v-if="!editLoading"
             xmlns="http://www.w3.org/2000/svg"
             xmlns:xlink="http://www.w3.org/1999/xlink"
             viewBox="0 0 24 24"
@@ -20,19 +23,25 @@
               fill="currentColor"
             ></path>
           </svg>
+          <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" fill="currentColor"/>
+          </svg>
         </n-icon>
       </template>
-      编辑
+      {{ editLoading ? '处理中' : '编辑' }}
     </n-button>
     <n-button
       v-if="showDelete"
       type="error"
       round
       secondary
+      :loading="deleteLoading"
+      :disabled="disabled"
       @click="handleDelete"
     >
       <template #icon>
         <svg
+          v-if="!deleteLoading"
           xmlns="http://www.w3.org/2000/svg"
           xmlns:xlink="http://www.w3.org/1999/xlink"
           viewBox="0 0 20 20"
@@ -44,8 +53,11 @@
             ></path>
           </g>
         </svg>
+        <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+          <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" fill="currentColor"/>
+        </svg>
       </template>
-      删除
+      {{ deleteLoading ? '处理中' : '删除' }}
     </n-button>
   </n-space>
 </template>
@@ -61,6 +73,21 @@ defineProps({
   },
   // 是否显示删除按钮
   showDelete: {
+    type: Boolean,
+    default: false
+  },
+  // 禁用所有按钮
+  disabled: {
+    type: Boolean,
+    default: false
+  },
+  // 编辑按钮loading状态
+  editLoading: {
+    type: Boolean,
+    default: false
+  },
+  // 删除按钮loading状态
+  deleteLoading: {
     type: Boolean,
     default: false
   }

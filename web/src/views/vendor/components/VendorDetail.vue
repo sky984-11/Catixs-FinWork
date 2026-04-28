@@ -6,7 +6,7 @@
         <div>
           <div class="title">
             {{ vendor.name }}
-            <n-tag round size="small" :type="vendor.status ? 'success' : 'error'">
+            <n-tag round :type="vendor.status ? 'success' : 'error'">
               {{ vendor.status ? '启用' : '禁用' }}
             </n-tag>
           </div>
@@ -27,7 +27,15 @@
         </div>
 
         <n-space>
-          <CButton showEdit showDelete :disabled="!vendor" @edit="emit('edit', vendor)" @delete="emit('delete', vendor)" />
+          <CButton
+            showEdit
+            showDelete
+            :disabled="!vendor"
+            :edit-loading="editLoading"
+            :delete-loading="deleteLoading"
+            @edit="emit('edit', vendor)"
+            @delete="emit('delete', vendor)"
+          />
         </n-space>
       </div>
     </n-card>
@@ -58,6 +66,14 @@ defineProps({
   vendor: {
     type: Object,
     default: null,
+  },
+  editLoading: {
+    type: Boolean,
+    default: false,
+  },
+  deleteLoading: {
+    type: Boolean,
+    default: false,
   },
 })
 const emit = defineEmits(['edit', 'delete'])

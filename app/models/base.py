@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, date
 
 from tortoise import fields, models
 
@@ -19,6 +19,8 @@ class BaseModel(models.Model):
                 value = getattr(self, field)
                 if isinstance(value, datetime):
                     value = value.strftime(settings.DATETIME_FORMAT)
+                elif isinstance(value, date):
+                    value = value.strftime('%Y-%m-%d')
                 d[field] = value
 
         if m2m:

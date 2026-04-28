@@ -18,7 +18,7 @@
             <div class="sub">{{ item.country }}</div>
           </div>
 
-          <n-tag round size="small" :type="item.status ? 'success' : 'error'">
+          <n-tag round  :type="item.status ? 'success' : 'error'">
             {{ item.status ? '启用' : '禁用' }}
           </n-tag>
         </div>

@@ -72,4 +72,9 @@ export default {
   createBill: (data = {}) => request.post('/bill/create', data),
   updateBill: (data = {}) => request.post('/bill/update', data),
   deleteBill: (params = {}) => request.delete('/bill/delete', { params }),
+  uploadBillPdf: (params = {}, file) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return request.post('/bill/upload', formData, { params })
+  },
 }

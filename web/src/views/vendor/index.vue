@@ -10,7 +10,13 @@
     </div>
 
     <div class="right-panel">
-      <VendorDetail :vendor="currentVendor" @edit="openEdit" @delete="handleDelete" />
+      <VendorDetail
+        :vendor="currentVendor"
+        :edit-loading="editLoading"
+        :delete-loading="deleteLoading"
+        @edit="openEdit"
+        @delete="handleDelete"
+      />
     </div>
 
     <CrudModal
@@ -106,6 +112,8 @@ const contractCompanyOptions = computed(() => {
 
 const modalVisible = ref(false)
 const modalLoading = ref(false)
+const editLoading = ref(false)
+const deleteLoading = ref(false)
 const modalAction = ref('add') // add | edit
 const modalTitle = ref('新增供应商')
 const modalFormRef = ref(null)
@@ -268,6 +276,7 @@ async function handleDelete(vendor) {
     content: `确定删除「${vendor.name || ''}」吗？`,
     confirm: async () => {
       try {
+        deleteLoading.value = true
         await api.deleteVendor({ vendor_id: vendor.id })
         window.$message?.success?.('删除成功')
         if (activeId.value === vendor.id) {
@@ -277,6 +286,8 @@ async function handleDelete(vendor) {
         await fetchVendors()
       } catch (e) {
         window.$message?.error?.('删除失败')
+      } finally {
+        deleteLoading.value = false
       }
     },
   })

@@ -5,36 +5,6 @@ from app.models.company import Company
 from app.schemas.vendors import VendorCreate, VendorUpdate
 
 
-# 地区编码映射
-REGION_CODE_MAP = {
-    "UK": "U",  # 英国
-    "GB": "U",  # 英国
-    "United Kingdom": "U",
-    "HK": "H",  # 香港
-    "Hong Kong": "H",
-    "CN": "C",  # 中国
-    "China": "C",
-    "中国": "C",
-    "香港": "H",
-    "英国": "U",
-}
-
-
-def get_region_code(country: str) -> str:
-    """根据国家获取地区编码"""
-    if not country:
-        return "U"  # 默认英国
-    country_normalized = country.strip().upper()
-    # 直接匹配
-    if country_normalized in REGION_CODE_MAP:
-        return REGION_CODE_MAP[country_normalized]
-    # 模糊匹配
-    for key, value in REGION_CODE_MAP.items():
-        if key.upper() in country_normalized or country_normalized in key.upper():
-            return value
-    return "U"  # 默认英国
-
-
 async def generate_vendor_code(contract_company_id: int) -> str:
     """生成供应商编号，格式: 签约主体公司code + 0000(自增)"""
     prefix = "V"
