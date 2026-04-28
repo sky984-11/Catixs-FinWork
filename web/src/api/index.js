@@ -47,6 +47,13 @@ export default {
   updateVendor: (data = {}) => request.post('/vendor/update', data),
   deleteVendor: (params = {}) => request.delete(`/vendor/delete`, { params }),
 
+  // company (签约主体)
+  getCompanyList: (params = {}) => request.get('/company/list', { params }),
+  getCompanyById: (params = {}) => request.get('/company/get', { params }),
+  createCompany: (data = {}) => request.post('/company/create', data),
+  updateCompany: (data = {}) => request.post('/company/update', data),
+  deleteCompany: (params = {}) => request.delete(`/company/delete`, { params }),
+
   // bank
   getBankList: (params = {}) => request.get('/bank/list', { params }),
   createBank: (data = {}) => request.post('/bank/create', data),

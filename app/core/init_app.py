@@ -23,6 +23,7 @@ from app.core.exceptions import (
 )
 from app.log import logger
 from app.models.admin import Api, Menu, Role
+from app.models.company import Bank, BankAccount, Company
 from app.schemas.menus import MenuType
 from app.settings.config import settings
 
@@ -237,9 +238,144 @@ async def init_roles():
         await user_role.apis.add(*basic_apis)
 
 
+async def init_companies():
+    """初始化签约主体公司（role=0）和银行账户"""
+    # 检查是否已存在签约主体公司
+    existing = await Company.filter(role=0).first()
+    if existing:
+        logger.info("签约主体公司已存在，跳过初始化")
+        return
+    
+    # 1. 77 Telecom Ltd (香港)
+    company_77 = await Company.create(
+        name="77 Telecom Ltd",
+        code="VH00001",
+        role=0,
+        country="Hong Kong",
+        address="RM B, 10/F, LEE MAY BUILDING, 788-790 NATHAN ROAD, MONGKOK, KOWLOON, HONG KONG",
+        noc_email="billing@77tel.com",
+        noc_phone="+44 020 4600 7777",
+        registration_no="78687939",
+        company_email="billing@77tel.com",
+        company_phone="+44 020 4600 7777",
+        status=True,
+    )
+    
+    # 创建77 Telecom的银行账户
+    bank_dbs_hk = await Bank.create(
+        name="DBS Bank (Hong Kong) Limited",
+        country="Hong Kong",
+        swift_code="DHBKHKHH",
+    )
+    await BankAccount.create(
+        company=company_77,
+        bank=bank_dbs_hk,
+        bank_code="016",
+        branch_code="478",
+        account_name="77 Telecom Limited",
+        account_number="7950193007",
+        swift_code="DHBKHKHH",
+        currency="USD",
+    )
+    
+    # 2. 深圳市科特思网络科技有限公司 (中国)
+    company_cn = await Company.create(
+        name="深圳市科特思网络科技有限公司",
+        code="VC00001",
+        role=0,
+        country="China",
+        address="深圳市南山区粤海街道科技园社区科发路222号康泰集团大厦3202",
+        noc_email="fapiao@cn.catixs.com",
+        noc_phone="+0755-86638006",
+        tax_no="91440300MAEAJ4CP7U",
+        registration_no="91440300MAEAJ4CP7U",
+        company_email="fapiao@cn.catixs.com",
+        company_phone="+0755-86638006",
+        status=True,
+    )
+    
+    # 创建中国银行账户
+    bank_boc_sz = await Bank.create(
+        name="中国银行深圳石岩支行",
+        country="China",
+    )
+    await BankAccount.create(
+        company=company_cn,
+        bank=bank_boc_sz,
+        account_name="深圳市科特思网络科技有限公司",
+        account_number="758879546570",
+        currency="CNY",
+    )
+    
+    # 3. Catixs Ltd (英国)
+    company_uk = await Company.create(
+        name="Catixs Ltd",
+        code="VU00001",
+        role=0,
+        country="United Kingdom",
+        address="6 Watergate Walk, London, E14 9XH, United Kingdom",
+        noc_email="billing@catixs.com",
+        noc_phone="+44 020 4600 7777",
+        registration_no="13745695",
+        company_email="billing@catixs.com",
+        company_phone="+44 020 4600 7777",
+        status=True,
+    )
+    
+    # 创建Catixs Ltd的银行账户
+    # GBP账户
+    bank_mod = await Bank.create(
+        name="Metro Bank",
+        country="United Kingdom",
+        swift_code="MODRGB21",
+    )
+    await BankAccount.create(
+        company=company_uk,
+        bank=bank_mod,
+        sort_code="04-00-85",
+        account_name="Catixs Ltd",
+        account_number="06520111",
+        swift_code="MODRGB21",
+        iban="GB54MODR04008506520111",
+        currency="GBP",
+    )
+    
+    # HKD账户
+    bank_sc_hk = await Bank.create(
+        name="Standard Chartered Bank (Hong Kong) Ltd",
+        country="Hong Kong",
+        swift_code="SCBLHKHH",
+    )
+    await BankAccount.create(
+        company=company_uk,
+        bank=bank_sc_hk,
+        bank_code="003",
+        branch_code="474",
+        account_name="Catixs Ltd",
+        account_number="47412321804",
+        swift_code="SCBLHKHH",
+        currency="HKD",
+    )
+    
+    # USD账户
+    await BankAccount.create(
+        company=company_uk,
+        bank=bank_sc_hk,
+        bank_code="003",
+        branch_code="474",
+        account_name="Catixs Ltd",
+        account_number="47412485947",
+        swift_code="SCBLHKHH",
+        currency="USD",
+    )
+    
+    logger.info("签约主体公司和银行账户初始化完成")
+
+
 async def init_data():
     await init_db()
     await init_superuser()
     await init_menus()
     await init_apis()
     await init_roles()
+    await init_companies()
