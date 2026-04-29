@@ -59,11 +59,27 @@
       </template>
       {{ deleteLoading ? '处理中' : '删除' }}
     </n-button>
+    <n-button
+      v-if="showDetail"
+      type="info"
+      size="small"
+      @click="handleDetail"
+    >
+      详情
+    </n-button>
+    <n-button
+      v-if="showSend"
+      type="primary"
+      size="small"
+      @click="handleSend"
+    >
+      发送
+    </n-button>
   </n-space>
 </template>
 
 <script setup>
-const emit = defineEmits(['edit', 'delete'])
+const emit = defineEmits(['edit', 'delete', 'detail', 'send'])
 
 defineProps({
   // 是否显示编辑按钮
@@ -90,6 +106,16 @@ defineProps({
   deleteLoading: {
     type: Boolean,
     default: false
+  },
+  // 是否显示详情按钮
+  showDetail: {
+    type: Boolean,
+    default: false
+  },
+  // 是否显示发送按钮
+  showSend: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -99,5 +125,13 @@ const handleEdit = () => {
 
 const handleDelete = () => {
   emit('delete')
+}
+
+const handleDetail = () => {
+  emit('detail')
+}
+
+const handleSend = () => {
+  emit('send')
 }
 </script>
