@@ -39,6 +39,7 @@
               @detail="handleView"
               @send="handleSend"
               @status-change="handleStatusChange"
+              @delete="handleDelete"
             />
           </div>
           <div v-if="loadingMore" class="loading-more">
@@ -106,6 +107,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useUserStore } from '@/store'
+import api from '@/api'
 import TicketFilter from './components/TicketFilter.vue'
 import TicketCard from './components/TicketCard.vue'
 import CreateTicketModal from './components/CreateTicketModal.vue'
@@ -124,17 +126,7 @@ const sendTicket = ref(null)
 
 const sendSelectedUsers = ref([])
 const userOptions = ref([])
-
-function createUserOptions() {
-  return Array.from({ length: 20 }).map((v, i) => ({
-    label: `用户 ${i + 1} (user${i + 1}@example.com)`,
-    value: i,
-    email: `user${i + 1}@example.com`,
-    disabled: i % 6 === 0
-  }))
-}
-
-userOptions.value = createUserOptions()
+const customerOptions = ref([{ label: '全部用户', value: null }])
 
 const isAdminOrNoc = computed(() => {
   if (userStore.isSuperUser) return true
@@ -190,14 +182,6 @@ const typeOptions = [
   { label: '维护工单', value: 3 }
 ]
 
-const customerOptions = [
-  { label: '全部用户', value: null },
-  { label: '用户A', value: 1 },
-  { label: '用户B', value: 2 },
-  { label: '用户C', value: 3 },
-  { label: '用户D', value: 4 }
-]
-
 const ticketList = ref([])
 const loadingMore = ref(false)
 const noMore = ref(false)
@@ -208,15 +192,7 @@ const pagination = reactive({
   total: 0
 })
 
-const fullFilteredList = ref([])
-
-const mockTickets = [
-  { id: 1, ticketNo: 'TK20260401001', title: 'sentry磁盘占满', type: 0, status: 2, customerId: 1, customerName: '张三', operatorName: '李四', description: 'sentry磁盘/分区占满86%', createTime: '2026-04-01 09:30:00', updateTime: '2026-04-01 10:21:57', location: '数据中心A区', planTime: '2026-04-01 14:00:00', attachments: ['img1.png'] },
-  { id: 2, ticketNo: 'TK20260402001', title: '服务器升级服务', type: 1, status: 1, customerId: 2, customerName: '王五', operatorName: '赵六', description: '申请对Web服务器进行版本升级', createTime: '2026-04-02 10:00:00', updateTime: '2026-04-02 11:30:00', location: '机房B区', planTime: '2026-04-05 08:00:00', attachments: [] },
-  { id: 3, ticketNo: 'TK20260403001', title: '数据库变更申请', type: 2, status: 0, customerId: 1, customerName: '张三', operatorName: null, description: '需要对生产数据库进行结构变更', createTime: '2026-04-03 14:20:00', updateTime: null, location: '数据中心', planTime: '2026-04-10 22:00:00', attachments: ['img2.png', 'img3.png'] }
-]
-
-function loadData(reset = false) {
+async function loadData(reset = false) {
   if (reset) {
     loading.value = true
     pagination.page = 1
@@ -227,79 +203,70 @@ function loadData(reset = false) {
     pagination.page++
   }
 
-  setTimeout(() => {
-    let filteredData = [...mockTickets]
+  try {
+    const params = {
+      page: pagination.page,
+      page_size: pagination.pageSize,
+      title: filters.title || undefined,
+      status: filters.status !== null ? filters.status : undefined,
+      type: filters.type !== null ? filters.type : undefined,
+      user_id: filters.customerId !== null && isAdminOrNoc.value ? filters.customerId : undefined
+    }
 
-    if (!isAdminOrNoc.value) {
-      const currentUserId = userStore.userId
-      if (currentUserId) {
-        filteredData = filteredData.filter(t => String(t.customerId) === String(currentUserId))
+    const result = await api.ticketApi.list(params)
+    
+    if (result.code === 200) {
+      pagination.total = result.total
+      
+      const formatTickets = result.data.map(ticket => ({
+        id: ticket.id,
+        ticketNo: ticket.ticket_no,
+        title: ticket.title,
+        type: ticket.type,
+        status: ticket.status,
+        customerId: ticket.user_id,
+        customerName: ticket.user_id ? customerOptions.value.find(c => c.value === ticket.user_id)?.label || '未知用户' : userStore.name,
+        operatorName: ticket.assignee_id ? `处理人${ticket.assignee_id}` : null,
+        description: ticket.desc,
+        createTime: ticket.created_at,
+        updateTime: ticket.updated_at,
+        location: ticket.location,
+        planTime: ticket.start_time,
+        attachments: ticket.attachment_url ? [ticket.attachment_url] : []
+      }))
+
+      if (reset) {
+        ticketList.value = formatTickets
+        loading.value = false
       } else {
-        filteredData = []
+        ticketList.value = [...ticketList.value, ...formatTickets]
+        loadingMore.value = false
       }
-    }
 
-    if (filters.title) {
-      filteredData = filteredData.filter(t => t.title.includes(filters.title))
-    }
-    if (filters.status !== null) {
-      filteredData = filteredData.filter(t => t.status === filters.status)
-    }
-    if (filters.type !== null) {
-      filteredData = filteredData.filter(t => t.type === filters.type)
-    }
-    if (filters.customerId !== null && isAdminOrNoc.value) {
-      filteredData = filteredData.filter(t => t.customerId === filters.customerId)
-    }
-    if (filters.dateRange) {
-      const [start, end] = filters.dateRange
-      filteredData = filteredData.filter(t => {
-        const time = new Date(t.createTime).getTime()
-        return time >= start && time <= end
-      })
-    }
-
-    pagination.total = filteredData.length
-    fullFilteredList.value = filteredData
-
-    const start = (pagination.page - 1) * pagination.pageSize
-    const end = start + pagination.pageSize
-    const pageData = filteredData.slice(start, end)
-
-    if (reset) {
-      ticketList.value = pageData
-      loading.value = false
+      if (pagination.page * pagination.pageSize >= pagination.total) {
+        noMore.value = true
+      }
     } else {
-      ticketList.value = [...ticketList.value, ...pageData]
-      loadingMore.value = false
+      window.$message?.error(result.msg || '加载失败')
+      if (reset) loading.value = false
+      else loadingMore.value = false
     }
-
-    if (end >= filteredData.length) {
-      noMore.value = true
-    }
-  }, 300)
+  } catch (error) {
+    window.$message?.error('加载失败')
+    if (reset) loading.value = false
+    else loadingMore.value = false
+  }
 }
 
 function handleInfiniteLoad(callback) {
-  const start = pagination.page * pagination.pageSize
-  if (start >= fullFilteredList.value.length) {
+  if (noMore.value || loadingMore.value) {
     callback()
-    noMore.value = true
     return
   }
-
-  setTimeout(() => {
-    pagination.page++
-    const s = (pagination.page - 1) * pagination.pageSize
-    const e = s + pagination.pageSize
-    const pageData = fullFilteredList.value.slice(s, e)
-    ticketList.value = [...ticketList.value, ...pageData]
-
-    if (e >= fullFilteredList.value.length) {
-      noMore.value = true
-    }
+  
+  loadData(false).then(() => {
     callback()
-  }, 500)
+  })
 }
 
 function handleSearch() {
@@ -334,30 +301,30 @@ function handleSubmitLocationTime() {
   locationTimeModalVisible.value = false
 }
 
-function handleSubmitCreate(formData) {
-  const newTicket = {
-    id: mockTickets.length + 1,
-    ticketNo: `TK202604${String(mockTickets.length + 1).padStart(3, '0')}`,
-    title: formData.title,
-    type: formData.type,
-    status: 0,
-    customerId: isAdminOrNoc.value ? (formData.customerId || userStore.userId) : userStore.userId,
-    customerName: isAdminOrNoc.value 
-      ? (customerOptions.find(c => c.value === formData.customerId)?.label || userStore.name) 
-      : userStore.name,
-    operatorName: null,
-    description: formData.description,
-    createTime: new Date().toLocaleString(),
-    updateTime: null,
-    location: locationTimeForm.location || null,
-    planTime: locationTimeForm.planTime ? new Date(locationTimeForm.planTime).toLocaleString() : null,
-    attachments: formData.attachments || []
-  }
+async function handleSubmitCreate(formData) {
+  try {
+    const data = {
+      title: formData.title,
+      type: formData.type,
+      user_id: isAdminOrNoc.value ? (formData.customerId || userStore.userId) : userStore.userId,
+      desc: formData.description,
+      location: locationTimeForm.location || undefined,
+      start_time: locationTimeForm.planTime ? new Date(locationTimeForm.planTime).toISOString() : undefined,
+      attachment_url: formData.attachments?.length > 0 ? formData.attachments[0] : undefined
+    }
 
-  mockTickets.unshift(newTicket)
-  window.$message?.success('创建成功')
-  createModalVisible.value = false
-  loadData(true)
+    const result = await api.ticketApi.create(data)
+    
+    if (result.code === 200) {
+      window.$message?.success('创建成功')
+      createModalVisible.value = false
+      loadData(true)
+    } else {
+      window.$message?.error(result.msg || '创建失败')
+    }
+  } catch (error) {
+    window.$message?.error('创建失败')
+  }
 }
 
 function handleView(ticket) {
@@ -392,7 +359,7 @@ function handleConfirmSend() {
   sendTicket.value = null
 }
 
-function handleStatusChange({ ticket, newStatus }) {
+async function handleStatusChange({ ticket, newStatus }) {
   if (!isAdminOrNoc.value && String(ticket.customerId) !== String(userStore.userId || 1)) {
     window.$message?.error('无权限更改该工单状态')
     return
@@ -403,23 +370,89 @@ function handleStatusChange({ ticket, newStatus }) {
     return
   }
 
-  const ticketIndex = mockTickets.findIndex(t => t.id === ticket.id)
-  if (ticketIndex !== -1) {
-    mockTickets[ticketIndex].status = newStatus
-    mockTickets[ticketIndex].updateTime = new Date().toLocaleString()
-
-    if (currentTicket.value && currentTicket.value.id === ticket.id) {
-      currentTicket.value.status = newStatus
-      currentTicket.value.updateTime = mockTickets[ticketIndex].updateTime
+  try {
+    const result = await api.ticketApi.update({ id: ticket.id, status: newStatus })
+    
+    if (result.code === 200) {
+      const statusNames = { 0: '未开始', 1: '进行中', 2: '已完成', 3: '已关闭' }
+      window.$message?.success(`工单状态已更新为：${statusNames[newStatus]}`)
+      
+      if (currentTicket.value && currentTicket.value.id === ticket.id) {
+        currentTicket.value.status = newStatus
+        currentTicket.value.updateTime = new Date().toLocaleString()
+      }
+      
+      loadData(true)
+    } else {
+      window.$message?.error(result.msg || '更新失败')
     }
+  } catch (error) {
+    window.$message?.error('更新失败')
+  }
+}
 
-    const statusNames = { 0: '未开始', 1: '进行中', 2: '已完成', 3: '已关闭' }
-    window.$message?.success(`工单状态已更新为：${statusNames[newStatus]}`)
-    loadData(true)
+async function handleDelete(ticket) {
+  if (!isAdminOrNoc.value) {
+    window.$message?.error('无权限删除该工单')
+    return
+  }
+
+  window.$dialog?.warning({
+    title: '确认删除',
+    content: `确定要删除工单「${ticket.title}」吗？此操作不可恢复。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      try {
+        const result = await api.ticketApi.delete({ ticket_id: ticket.id })
+        
+        if (result.code === 200) {
+          window.$message?.success('删除成功')
+          loadData(true)
+          
+          if (currentTicket.value && currentTicket.value.id === ticket.id) {
+            viewModalVisible.value = false
+            currentTicket.value = null
+          }
+        } else {
+          window.$message?.error(result.msg || '删除失败')
+        }
+      } catch (error) {
+        window.$message?.error('删除失败')
+      }
+    },
+    onNegativeClick: () => {
+      window.$message?.info('已取消删除')
+    }
+  })
+}
+
+async function loadUsers() {
+  try {
+    const result = await api.getUserList({ page: 1, page_size: 9999 })
+    
+    if (result.code === 200) {
+      const users = result.data
+      
+      customerOptions.value = [{ label: '全部用户', value: null }, ...users.map(u => ({
+        label: u.username,
+        value: u.id
+      }))]
+      
+      userOptions.value = users.map(u => ({
+        label: `${u.username} (${u.email})`,
+        value: u.id,
+        email: u.email,
+        disabled: false
+      }))
+    }
+  } catch (error) {
+    console.error('加载用户列表失败', error)
   }
 }
 
 onMounted(() => {
+  loadUsers()
   loadData(true)
 })
 </script>

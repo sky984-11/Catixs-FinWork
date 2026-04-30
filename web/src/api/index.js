@@ -85,4 +85,14 @@ export default {
     formData.append('file', file)
     return request.post('/bill/upload', formData, { params })
   },
+
+  // ticket
+  ticketApi: {
+    list: (params = {}) => request.get('/ticket/list', { params }),
+    get: (params = {}) => request.get('/ticket/get', { params }),
+    create: (data = {}) => request.post('/ticket/create', data),
+    update: (data = {}) => request.post('/ticket/update', data),
+    delete: (params = {}) => request.delete('/ticket/delete', { params }),
+    getByNo: (params = {}) => request.get('/ticket/get_by_no', { params })
+  }
 }

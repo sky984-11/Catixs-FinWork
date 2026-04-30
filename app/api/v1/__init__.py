@@ -14,6 +14,7 @@ from .menus import menus_router
 from .roles import roles_router
 from .users import users_router
 from .vendors import vendors_router
+from .tickets import ticket_router
 
 v1_router = APIRouter()
 
@@ -25,6 +26,7 @@ v1_router.include_router(apis_router, prefix="/api", dependencies=[DependPermiss
 v1_router.include_router(depts_router, prefix="/dept", dependencies=[DependPermission])
 v1_router.include_router(auditlog_router, prefix="/auditlog", dependencies=[DependPermission])
 v1_router.include_router(vendors_router, prefix="/vendor", dependencies=[DependPermission])
+v1_router.include_router(ticket_router, prefix="/ticket", dependencies=[DependPermission])
 v1_router.include_router(banks_router, prefix="/bank", dependencies=[DependPermission])
 v1_router.include_router(bank_accounts_router, prefix="/bank_account", dependencies=[DependPermission])
 v1_router.include_router(bills_router, prefix="/bill", dependencies=[DependPermission])

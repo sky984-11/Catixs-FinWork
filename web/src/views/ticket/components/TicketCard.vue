@@ -56,6 +56,13 @@
       >
         发送
       </button>
+      <button
+        v-show="isAdminOrNoc"
+        class="btn-delete"
+        @click="$emit('delete', ticket)"
+      >
+        删除
+      </button>
     </div>
 
     <div class="card-meta">
@@ -87,7 +94,7 @@
 <script setup>
 import { ref } from 'vue'
 
-const emit = defineEmits(['detail', 'send', 'statusChange'])
+const emit = defineEmits(['detail', 'send', 'statusChange', 'delete'])
 
 const props = defineProps({
   ticket: {
@@ -456,5 +463,30 @@ function getTypeTagType(type) {
 .btn-send:hover {
   background: rgba(212, 56, 13, 0.18);
   border-color: rgba(212, 56, 13, 0.35);
+}
+
+/* 删除按钮 */
+.btn-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 80px;
+  height: 34px;
+  padding: 0 20px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #ff4d4f;
+  background: rgba(255, 77, 79, 0.1);
+  border: 1px solid rgba(255, 77, 79, 0.25);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  outline: none;
+  white-space: nowrap;
+}
+
+.btn-delete:hover {
+  background: rgba(255, 77, 79, 0.18);
+  border-color: rgba(255, 77, 79, 0.35);
 }
 </style>
