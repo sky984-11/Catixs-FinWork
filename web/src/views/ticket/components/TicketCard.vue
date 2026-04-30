@@ -1,6 +1,7 @@
 <template>
-  <div class="ticket-card" @click="$emit('detail', ticket)">
-    <div class="card-header">
+  <div class="ticket-card-wrapper">
+    <div class="ticket-card" @click="$emit('detail', ticket)">
+      <div class="card-header">
       <span class="ticket-title">{{ ticket.title }}</span>
       <div class="header-tags">
         <!-- 状态标签：管理员可点击切换 -->
@@ -66,6 +67,12 @@
         <span class="meta-divider">|</span>
         <span>{{ ticket.updateTime || ticket.createTime }}</span>
       </div>
+      <div v-if="ticket.location" class="meta-location">
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24" class="meta-icon">
+          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 0 1 0-5a2.5 2.5 0 0 1 0 5z" fill="currentColor"/>
+        </svg>
+        <span>{{ ticket.location }}</span>
+      </div>
       <div v-if="ticket.attachments && ticket.attachments.length > 0" class="meta-attach">
         <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24" class="meta-icon">
           <path d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5a2.5 2.5 0 0 1 5 0v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5a2.5 2.5 0 0 0 5 0V5c0-2.21-1.79-4-4-4S7 2.79 7 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z" fill="currentColor"></path>
@@ -74,6 +81,7 @@
       </div>
     </div>
   </div>
+</div>
 </template>
 
 <script setup>
@@ -136,22 +144,40 @@ function getTypeTagType(type) {
 </script>
 
 <style scoped>
+.ticket-card-wrapper {
+  padding: 4px;
+  margin-bottom: 8px;
+  margin-left: -4px;
+  margin-right: -4px;
+}
+
 .ticket-card {
   display: flex;
   flex-direction: column;
   gap: 14px;
   padding: 24px 28px;
-  margin-bottom: 20px;
   border-radius: 12px;
   background: var(--n-card-color);
   border: 1px solid var(--n-border-color);
+  box-shadow: 
+    0 4px 14px rgba(0, 0, 0, 0.08),
+    0 2px 6px rgba(0, 0, 0, 0.05),
+    3px 3px 8px rgba(0, 0, 0, 0.04),
+    -3px 3px 8px rgba(0, 0, 0, 0.04),
+    0 -1px 6px rgba(0, 0, 0, 0.03);
   cursor: pointer;
-  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .ticket-card:hover {
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
-  border-color: #d0d5dd;
+  box-shadow: 
+    0 14px 36px rgba(0, 0, 0, 0.15),
+    0 8px 20px rgba(0, 0, 0, 0.12),
+    6px 6px 16px rgba(0, 0, 0, 0.1),
+    -6px 6px 16px rgba(0, 0, 0, 0.1),
+    0 -5px 14px rgba(0, 0, 0, 0.08);
+  border-color: var(--n-border-color);
+  transform: translateY(-4px);
 }
 
 .card-header {
@@ -194,7 +220,7 @@ function getTypeTagType(type) {
 }
 
 .status-clickable:hover {
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.08);
 }
 
 /* 状态下拉容器 */
@@ -208,10 +234,10 @@ function getTypeTagType(type) {
   top: calc(100% + 6px);
   right: 0;
   min-width: 140px;
-  background: #ffffff;
-  border: 1px solid #e8e8e8;
+  background: var(--n-card-color);
+  border: 1px solid var(--n-border-color);
   border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
   padding: 4px;
   z-index: 100;
 }
@@ -223,18 +249,18 @@ function getTypeTagType(type) {
   padding: 8px 12px;
   border-radius: 6px;
   font-size: 13px;
-  color: #1d2129;
+  color: var(--n-text-color);
   cursor: pointer;
   transition: background 0.15s ease;
 }
 
 .status-dropdown-item:hover {
-  background: #f5f5f5;
+  background: var(--n-hover-color);
 }
 
 .status-dropdown-item.item-active {
-  background: #f0f5ff;
-  color: #1890ff;
+  background: rgba(24, 144, 255, 0.1);
+  color: var(--n-primary-color);
 }
 
 .item-dot {
@@ -244,10 +270,10 @@ function getTypeTagType(type) {
   flex-shrink: 0;
 }
 
-.dot-0 { background: #8c8c8c; }
+.dot-0 { background: var(--n-text-color-3); }
 .dot-1 { background: #fa8c16; }
 .dot-2 { background: #52c41a; }
-.dot-3 { background: #595959; }
+.dot-3 { background: var(--n-text-color-3); }
 
 .item-check {
   width: 16px;
@@ -263,26 +289,26 @@ function getTypeTagType(type) {
 
 .status-0 {
   color: #8c8c8c;
-  background: #f5f5f5;
-  border: 1px solid #e8e8e8;
+  background: rgba(140, 140, 140, 0.1);
+  border: 1px solid rgba(140, 140, 140, 0.2);
 }
 
 .status-1 {
   color: #fa8c16;
-  background: #fff7e6;
-  border: 1px solid #ffd591;
+  background: rgba(250, 140, 22, 0.1);
+  border: 1px solid rgba(250, 140, 22, 0.2);
 }
 
 .status-2 {
   color: #52c41a;
-  background: #f6ffed;
-  border: 1px solid #b7eb8f;
+  background: rgba(82, 196, 26, 0.1);
+  border: 1px solid rgba(82, 196, 26, 0.2);
 }
 
 .status-3 {
-  color: #595959;
-  background: #f5f5f5;
-  border: 1px solid #d9d9d9;
+  color: var(--n-text-color-3);
+  background: rgba(89, 89, 89, 0.1);
+  border: 1px solid rgba(89, 89, 89, 0.2);
 }
 
 /* 类型标签 */
@@ -299,26 +325,26 @@ function getTypeTagType(type) {
 
 .type-0 {
   color: #ff4d4f;
-  background: #fff2f0;
-  border: 1px solid #ffccc7;
+  background: rgba(255, 77, 79, 0.1);
+  border: 1px solid rgba(255, 77, 79, 0.2);
 }
 
 .type-1 {
   color: #1890ff;
-  background: #e6f7ff;
-  border: 1px solid #91d5ff;
+  background: rgba(24, 144, 255, 0.1);
+  border: 1px solid rgba(24, 144, 255, 0.2);
 }
 
 .type-2 {
   color: #fa8c16;
-  background: #fff7e6;
-  border: 1px solid #ffd591;
+  background: rgba(250, 140, 22, 0.1);
+  border: 1px solid rgba(250, 140, 22, 0.2);
 }
 
 .type-3 {
   color: #52c41a;
-  background: #f6ffed;
-  border: 1px solid #b7eb8f;
+  background: rgba(82, 196, 26, 0.1);
+  border: 1px solid rgba(82, 196, 26, 0.2);
 }
 
 .ticket-desc {
@@ -337,10 +363,10 @@ function getTypeTagType(type) {
   align-items: center;
   gap: 16px;
   padding: 10px 14px;
-  background: #f7f8fa;
+  background: var(--n-hover-color);
   border-radius: 8px;
   font-size: 14px;
-  color: #8c8c8c;
+  color: var(--n-text-color-3);
 }
 
 .meta-time {
@@ -351,15 +377,22 @@ function getTypeTagType(type) {
 
 .meta-divider {
   margin: 0 4px;
-  color: #d9d9d9;
+  color: var(--n-border-color);
 }
 
 .meta-attach {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #1890ff;
+  color: var(--n-primary-color);
   font-weight: 500;
+}
+
+.meta-location {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--n-text-color-2);
 }
 
 .meta-icon {
@@ -375,7 +408,7 @@ function getTypeTagType(type) {
   padding-top: 4px;
 }
 
-/* 详情按钮 - 浅蓝 */
+/* 详情按钮 */
 .btn-detail {
   display: inline-flex;
   align-items: center;
@@ -385,9 +418,9 @@ function getTypeTagType(type) {
   padding: 0 20px;
   font-size: 14px;
   font-weight: 500;
-  color: #1890ff;
-  background: #e6f7ff;
-  border: 1px solid #91d5ff;
+  color: var(--n-primary-color);
+  background: rgba(24, 144, 255, 0.1);
+  border: 1px solid rgba(24, 144, 255, 0.25);
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -396,12 +429,11 @@ function getTypeTagType(type) {
 }
 
 .btn-detail:hover {
-  color: #40a9ff;
-  background: #bae7ff;
-  border-color: #69c0ff;
+  background: rgba(24, 144, 255, 0.18);
+  border-color: rgba(24, 144, 255, 0.35);
 }
 
-/* 发送按钮 - 橙红 */
+/* 发送按钮 */
 .btn-send {
   display: inline-flex;
   align-items: center;
@@ -411,9 +443,9 @@ function getTypeTagType(type) {
   padding: 0 20px;
   font-size: 14px;
   font-weight: 500;
-  color: #ffffff;
-  background: #ff6b35;
-  border: 1px solid #ff6b35;
+  color: #d4380d;
+  background: rgba(212, 56, 13, 0.1);
+  border: 1px solid rgba(212, 56, 13, 0.25);
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -422,7 +454,7 @@ function getTypeTagType(type) {
 }
 
 .btn-send:hover {
-  background: #ff5520;
-  border-color: #ff5520;
+  background: rgba(212, 56, 13, 0.18);
+  border-color: rgba(212, 56, 13, 0.35);
 }
 </style>

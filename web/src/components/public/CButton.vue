@@ -71,6 +71,7 @@
       v-if="showSend"
       type="primary"
       size="small"
+      secondary
       @click="handleSend"
     >
       发送

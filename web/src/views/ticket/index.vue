@@ -15,35 +15,40 @@
       </n-card>
 
       
-      <n-card :title="' '" size="small" :segmented="true" class="list-card" rounded-10>
+      <n-card title=" " class="ticket-list-container" :segmented="true" rounded-10>
         <template #header-extra>
           <n-button text type="primary" @click="handleCreate">新增工单</n-button>
         </template>
-        
+
         <div v-if="loading" class="loading-container">
           <n-spin size="large" />
         </div>
-        
-        <template v-else>
-          <TicketCard
-            v-for="ticket in ticketList"
-            :key="ticket.id"
-            :ticket="ticket"
-            :is-admin-or-noc="isAdminOrNoc"
-            @detail="handleView"
-            @send="handleSend"
-            @status-change="handleStatusChange"
-          />
-        </template>
 
-        <div v-if="!loading && ticketList.length > 0" class="pagination-container">
-          <n-pagination
-            v-model:page="pagination.page"
-            :page-count="Math.ceil(pagination.total / pagination.pageSize)"
-            show-quick-jumper
-            @update:page="handlePageChange"
-          />
-        </div>
+        <n-infinite-scroll
+          v-else
+          class="scroll-container"
+          :distance="100"
+          @load="handleInfiniteLoad"
+        >
+          <div class="cards-wrapper">
+            <TicketCard
+              v-for="ticket in ticketList"
+              :key="ticket.id"
+              :ticket="ticket"
+              :is-admin-or-noc="isAdminOrNoc"
+              @detail="handleView"
+              @send="handleSend"
+              @status-change="handleStatusChange"
+            />
+          </div>
+          <div v-if="loadingMore" class="loading-more">
+            <n-spin size="small" />
+            <span>加载中...</span>
+          </div>
+          <div v-if="noMore && ticketList.length > 0" class="no-more">
+            已加载全部
+          </div>
+        </n-infinite-scroll>
       </n-card>
 
       
@@ -162,6 +167,8 @@ const customerOptions = [
 ]
 
 const ticketList = ref([])
+const loadingMore = ref(false)
+const noMore = ref(false)
 
 const pagination = reactive({
   page: 1,
@@ -169,14 +176,25 @@ const pagination = reactive({
   total: 0
 })
 
+const fullFilteredList = ref([])
+
 const mockTickets = [
   { id: 1, ticketNo: 'TK20260401001', title: 'sentry磁盘占满', type: 0, status: 2, customerId: 1, customerName: '张三', operatorName: '李四', description: 'sentry磁盘/分区占满86%', createTime: '2026-04-01 09:30:00', updateTime: '2026-04-01 10:21:57', location: '数据中心A区', planTime: '2026-04-01 14:00:00', attachments: ['img1.png'] },
   { id: 2, ticketNo: 'TK20260402001', title: '服务器升级服务', type: 1, status: 1, customerId: 2, customerName: '王五', operatorName: '赵六', description: '申请对Web服务器进行版本升级', createTime: '2026-04-02 10:00:00', updateTime: '2026-04-02 11:30:00', location: '机房B区', planTime: '2026-04-05 08:00:00', attachments: [] },
   { id: 3, ticketNo: 'TK20260403001', title: '数据库变更申请', type: 2, status: 0, customerId: 1, customerName: '张三', operatorName: null, description: '需要对生产数据库进行结构变更', createTime: '2026-04-03 14:20:00', updateTime: null, location: '数据中心', planTime: '2026-04-10 22:00:00', attachments: ['img2.png', 'img3.png'] }
 ]
 
-function loadData() {
-  loading.value = true
+function loadData(reset = false) {
+  if (reset) {
+    loading.value = true
+    pagination.page = 1
+    noMore.value = false
+    ticketList.value = []
+  } else {
+    loadingMore.value = true
+    pagination.page++
+  }
+
   setTimeout(() => {
     let filteredData = [...mockTickets]
 
@@ -210,16 +228,50 @@ function loadData() {
     }
 
     pagination.total = filteredData.length
+    fullFilteredList.value = filteredData
+
     const start = (pagination.page - 1) * pagination.pageSize
     const end = start + pagination.pageSize
-    ticketList.value = filteredData.slice(start, end)
-    loading.value = false
+    const pageData = filteredData.slice(start, end)
+
+    if (reset) {
+      ticketList.value = pageData
+      loading.value = false
+    } else {
+      ticketList.value = [...ticketList.value, ...pageData]
+      loadingMore.value = false
+    }
+
+    if (end >= filteredData.length) {
+      noMore.value = true
+    }
   }, 300)
 }
 
+function handleInfiniteLoad(callback) {
+  const start = pagination.page * pagination.pageSize
+  if (start >= fullFilteredList.value.length) {
+    callback()
+    noMore.value = true
+    return
+  }
+
+  setTimeout(() => {
+    pagination.page++
+    const s = (pagination.page - 1) * pagination.pageSize
+    const e = s + pagination.pageSize
+    const pageData = fullFilteredList.value.slice(s, e)
+    ticketList.value = [...ticketList.value, ...pageData]
+
+    if (e >= fullFilteredList.value.length) {
+      noMore.value = true
+    }
+    callback()
+  }, 500)
+}
+
 function handleSearch() {
-  pagination.page = 1
-  loadData()
+  loadData(true)
 }
 
 function handleReset() {
@@ -228,13 +280,7 @@ function handleReset() {
   filters.type = null
   filters.customerId = null
   filters.dateRange = null
-  pagination.page = 1
-  loadData()
-}
-
-function handlePageChange(page) {
-  pagination.page = page
-  loadData()
+  loadData(true)
 }
 
 function handleCreate() {
@@ -279,7 +325,7 @@ function handleSubmitCreate(formData) {
   mockTickets.unshift(newTicket)
   window.$message?.success('创建成功')
   createModalVisible.value = false
-  loadData()
+  loadData(true)
 }
 
 function handleView(ticket) {
@@ -318,12 +364,12 @@ function handleStatusChange({ ticket, newStatus }) {
 
     const statusNames = { 0: '未开始', 1: '进行中', 2: '已完成', 3: '已关闭' }
     window.$message?.success(`工单状态已更新为：${statusNames[newStatus]}`)
-    loadData()
+    loadData(true)
   }
 }
 
 onMounted(() => {
-  loadData()
+  loadData(true)
 })
 </script>
 
@@ -336,8 +382,20 @@ onMounted(() => {
   margin-bottom: 16px;
 }
 
-.list-card {
-  min-height: 400px;
+.loading-more {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  color: var(--n-text-color-3);
+}
+
+.no-more {
+  text-align: center;
+  padding: 16px;
+  color: var(--n-text-color-3);
+  font-size: 13px;
 }
 
 .loading-container {
@@ -346,11 +404,18 @@ onMounted(() => {
   padding: 40px;
 }
 
-.pagination-container {
-  display: flex;
-  justify-content: center;
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--n-border-color);
+.ticket-list-container {
+  margin-top: 15px;
+}
+
+.scroll-container {
+  height: calc(100vh - 280px);
+  padding: 16px;
+  overflow-y: auto;
+  margin: 0 -16px;
+}
+
+.cards-wrapper {
+  padding: 8px;
 }
 </style>

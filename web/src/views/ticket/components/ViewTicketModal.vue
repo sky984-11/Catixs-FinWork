@@ -1,6 +1,6 @@
 <template>
   <n-modal :show="visible" preset="card" title="工单详情" style="width: 720px" @update:show="$emit('update:visible', $event)">
-    <div v-if="ticket" class="detail-container">
+    <div v-if="ticket" class="detail-container" :class="{ 'theme-dark': isDark }">
       <!-- 基本信息卡片 -->
       <div class="info-card">
         <div class="info-card-header">
@@ -62,6 +62,9 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
+import { useAppStore } from '@/store'
+
 const emit = defineEmits(['update:visible'])
 
 const props = defineProps({
@@ -74,6 +77,8 @@ const props = defineProps({
     default: null
   }
 })
+
+const isDark = computed(() => useAppStore().isDark)
 
 function getStatusName(status) {
   const map = { 0: '未开始', 1: '进行中', 2: '已完成', 3: '已关闭' }
@@ -97,8 +102,14 @@ function getTypeName(type) {
 .info-card {
   padding: 16px 20px;
   border-radius: 10px;
-  background: #fafbfc;
-  border: 1px solid #f0f0f0;
+  background: #ffffff;
+  border: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.theme-dark .info-card {
+  background: var(--n-card-color);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
 
 .info-card-header {
@@ -112,8 +123,12 @@ function getTypeName(type) {
 .info-card-title {
   font-size: 16px;
   font-weight: 600;
-  color: #1d2129;
+  color: #1a1a1a;
   line-height: 1.4;
+}
+
+.theme-dark .info-card-title {
+  color: var(--n-text-color);
 }
 
 .info-card-tags {
@@ -124,9 +139,13 @@ function getTypeName(type) {
 
 .info-card-desc {
   font-size: 14px;
-  color: #86909c;
+  color: #6b7280;
   line-height: 1.7;
   margin: 0;
+}
+
+.theme-dark .info-card-desc {
+  color: var(--n-text-color-2);
 }
 
 /* 标签样式 */
@@ -146,11 +165,21 @@ function getTypeName(type) {
   background: #f5f5f5;
   border: 1px solid #e8e8e8;
 }
+.theme-dark .detail-tag.status-0 {
+  color: #a0a0a0;
+  background: rgba(140, 140, 140, 0.12);
+  border: 1px solid rgba(140, 140, 140, 0.2);
+}
 
 .detail-tag.status-1 {
   color: #fa8c16;
   background: #fff7e6;
   border: 1px solid #ffd591;
+}
+.theme-dark .detail-tag.status-1 {
+  color: #ffa940;
+  background: rgba(250, 140, 22, 0.12);
+  border: 1px solid rgba(250, 140, 22, 0.2);
 }
 
 .detail-tag.status-2 {
@@ -158,11 +187,21 @@ function getTypeName(type) {
   background: #f6ffed;
   border: 1px solid #b7eb8f;
 }
+.theme-dark .detail-tag.status-2 {
+  color: #73d13d;
+  background: rgba(82, 196, 26, 0.12);
+  border: 1px solid rgba(82, 196, 26, 0.2);
+}
 
 .detail-tag.type-0 {
   color: #ff4d4f;
   background: #fff2f0;
   border: 1px solid #ffccc7;
+}
+.theme-dark .detail-tag.type-0 {
+  color: #ff7875;
+  background: rgba(255, 77, 79, 0.12);
+  border: 1px solid rgba(255, 77, 79, 0.2);
 }
 
 .detail-tag.type-1 {
@@ -170,17 +209,32 @@ function getTypeName(type) {
   background: #e6f7ff;
   border: 1px solid #91d5ff;
 }
+.theme-dark .detail-tag.type-1 {
+  color: #69c0ff;
+  background: rgba(24, 144, 255, 0.12);
+  border: 1px solid rgba(24, 144, 255, 0.2);
+}
 
 .detail-tag.type-2 {
   color: #fa8c16;
   background: #fff7e6;
   border: 1px solid #ffd591;
 }
+.theme-dark .detail-tag.type-2 {
+  color: #ffa940;
+  background: rgba(250, 140, 22, 0.12);
+  border: 1px solid rgba(250, 140, 22, 0.2);
+}
 
 .detail-tag.type-3 {
   color: #52c41a;
   background: #f6ffed;
   border: 1px solid #b7eb8f;
+}
+.theme-dark .detail-tag.type-3 {
+  color: #73d13d;
+  background: rgba(82, 196, 26, 0.12);
+  border: 1px solid rgba(82, 196, 26, 0.2);
 }
 
 /* 详情网格 */
@@ -189,8 +243,15 @@ function getTypeName(type) {
   grid-template-columns: 1fr 1fr;
   gap: 0;
   border-radius: 10px;
-  border: 1px solid #f0f0f0;
+  border: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   overflow: hidden;
+  background: #ffffff;
+}
+
+.theme-dark .detail-grid {
+  background: var(--n-card-color);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
 
 .detail-item {
@@ -198,30 +259,51 @@ function getTypeName(type) {
   flex-direction: column;
   gap: 4px;
   padding: 14px 16px;
-  background: #ffffff;
-  border-bottom: 1px solid #f5f5f5;
+  background: transparent;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.theme-dark .detail-item {
+  background: transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .detail-item:nth-child(odd) {
-  border-right: 1px solid #f5f5f5;
+  border-right: 1px solid #f0f0f0;
+}
+
+.theme-dark .detail-item:nth-child(odd) {
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .detail-label {
   font-size: 13px;
-  color: #86909c;
+  color: #6b7280;
   font-weight: 400;
+}
+
+.theme-dark .detail-label {
+  color: var(--n-text-color-3);
 }
 
 .detail-value {
   font-size: 14px;
-  color: #1d2129;
+  color: #1a1a1a;
   font-weight: 500;
   word-break: break-all;
+}
+
+.theme-dark .detail-value {
+  color: var(--n-text-color);
 }
 
 .detail-value.mono {
   font-family: 'SF Mono', 'Monaco', 'Menlo', 'Consolas', monospace;
   font-size: 13px;
   color: #4e5969;
+}
+
+.theme-dark .detail-value.mono {
+  color: var(--n-text-color-2);
 }
 </style>

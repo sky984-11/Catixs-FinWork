@@ -85,18 +85,3 @@ function handleSubmit() {
   emit('submit', { ...form, attachments: uploadedFiles.map(file => file.name) })
 }
 </script>
-
-<style scoped>
-/* Dark theme styles */
-[data-theme='dark'] .n-form-item-label {
-  color: var(--n-text-color);
-}
-
-[data-theme='dark'] .n-input,
-[data-theme='dark'] .n-select,
-[data-theme='dark'] .n-date-picker {
-  background-color: var(--n-input-color);
-  border-color: var(--n-border-color);
-  color: var(--n-text-color);
-}
-</style>
