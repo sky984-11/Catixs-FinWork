@@ -83,6 +83,22 @@
         v-model:visible="viewModalVisible"
         :ticket="currentTicket"
       />
+
+      <n-modal v-model:show="sendModalVisible" preset="card" title="发送通知" style="width: 600px">
+        <n-transfer
+          v-model:value="sendSelectedUsers"
+          :options="userOptions"
+          :titles="['可选用户', '已选用户']"
+          filterable
+          search-placeholder="搜索用户"
+        />
+        <template #footer>
+          <n-space justify="end">
+            <n-button @click="sendModalVisible = false">取消</n-button>
+            <n-button type="primary" @click="handleConfirmSend">发送</n-button>
+          </n-space>
+        </template>
+      </n-modal>
     </div>
   </AppPage>
 </template>
@@ -102,7 +118,23 @@ const loading = ref(false)
 const createModalVisible = ref(false)
 const locationTimeModalVisible = ref(false)
 const viewModalVisible = ref(false)
+const sendModalVisible = ref(false)
 const currentTicket = ref(null)
+const sendTicket = ref(null)
+
+const sendSelectedUsers = ref([])
+const userOptions = ref([])
+
+function createUserOptions() {
+  return Array.from({ length: 20 }).map((v, i) => ({
+    label: `用户 ${i + 1} (user${i + 1}@example.com)`,
+    value: i,
+    email: `user${i + 1}@example.com`,
+    disabled: i % 6 === 0
+  }))
+}
+
+userOptions.value = createUserOptions()
 
 const isAdminOrNoc = computed(() => {
   if (userStore.isSuperUser) return true
@@ -338,7 +370,26 @@ function handleView(ticket) {
 }
 
 function handleSend(ticket) {
-  window.$message?.success(`已向用户 ${ticket.customerName} 发送通知`)
+  sendTicket.value = ticket
+  sendSelectedUsers.value = []
+  sendModalVisible.value = true
+}
+
+function handleConfirmSend() {
+  if (sendSelectedUsers.value.length === 0) {
+    window.$message?.warning('请至少选择一个用户')
+    return
+  }
+  
+  const selectedEmails = sendSelectedUsers.value.map(userId => {
+    const user = userOptions.value.find(u => u.value === userId)
+    return user?.email || ''
+  }).filter(Boolean)
+  
+  window.$message?.success(`已向 ${sendSelectedUsers.value.length} 个用户发送通知\n邮箱：${selectedEmails.join(', ')}`)
+  sendModalVisible.value = false
+  sendSelectedUsers.value = []
+  sendTicket.value = null
 }
 
 function handleStatusChange({ ticket, newStatus }) {
