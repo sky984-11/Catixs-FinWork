@@ -189,6 +189,30 @@ async def init_menus():
             keepalive=False,
             redirect="",
         )
+        await Menu.create(
+            menu_type=MenuType.MENU,
+            name="供应商管理",
+            path="/vendor",
+            order=2,
+            parent_id=0,
+            icon="material-symbols:assured-workload-outline",
+            is_hidden=False,
+            component="/vendor",
+            keepalive=False,
+            redirect="",
+        )
+        await Menu.create(
+            menu_type=MenuType.MENU,
+            name="资产管理",
+            path="/asset",
+            order=2,
+            parent_id=0,
+            icon="material-symbols:videogame-asset",
+            is_hidden=False,
+            component="/asset",
+            keepalive=False,
+            redirect="",
+        )
 
 
 async def init_apis():
