@@ -17,8 +17,8 @@
         <span class="filter-label">用户：</span>
         <n-select v-model:value="localFilters.customerId" :options="customerOptions" placeholder="请选择用户" style="width: 150px" />
       </div>
-      <n-button type="primary" @click="$emit('search')">查询</n-button>
-      <n-button @click="$emit('reset')">重置</n-button>
+      <n-button secondary type="primary" style="border-radius: 12px" @click="$emit('search')">查询</n-button>
+      <n-button secondary style="border-radius: 12px" @click="$emit('reset')">重置</n-button>
     </div>
   </div>
 </template>

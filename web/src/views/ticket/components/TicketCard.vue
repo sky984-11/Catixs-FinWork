@@ -1,100 +1,132 @@
 <template>
   <div class="ticket-card-wrapper">
     <div class="ticket-card" @click="$emit('detail', ticket)">
+      <!-- 第一行：标题左 + 状态/类型标签右 -->
       <div class="card-header">
-      <span class="ticket-title">{{ ticket.title }}</span>
-      <div class="header-tags">
-        <!-- 状态标签：管理员可点击切换 -->
-        <div v-if="isAdminOrNoc" class="status-dropdown-wrapper" @click.stop>
-          <span
-            class="status-tag status-clickable"
-            :class="'status-' + ticket.status"
-            @click="toggleStatusDropdown"
-          >
+        <span class="ticket-title">{{ ticket.title }}</span>
+        <div class="header-tags">
+          <div v-if="isAdminOrNoc" class="status-dropdown-wrapper" @click.stop>
+            <span
+              class="status-tag status-clickable"
+              :class="'status-' + ticket.status"
+              @click="toggleStatusDropdown"
+            >
+              <svg v-if="ticket.status === 2" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24" class="tag-icon">
+                <path d="M5 12l5 5L20 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+              </svg>
+              {{ getStatusName(ticket.status) }}
+            </span>
+            <div v-if="statusDropdownVisible" class="status-dropdown">
+              <div
+                v-for="option in statusOptions"
+                :key="option.value"
+                class="status-dropdown-item"
+                :class="{ 'item-active': ticket.status === option.value }"
+                @click="handleStatusSelect(option.value)"
+              >
+                <span class="item-dot" :class="'dot-' + option.value"></span>
+                {{ option.label }}
+                <svg v-if="ticket.status === option.value" class="item-check" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                  <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" fill="currentColor"/>
+                </svg>
+              </div>
+            </div>
+          </div>
+          <span v-else class="status-tag" :class="'status-' + ticket.status">
             <svg v-if="ticket.status === 2" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24" class="tag-icon">
               <path d="M5 12l5 5L20 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
             </svg>
             {{ getStatusName(ticket.status) }}
           </span>
-          <div v-if="statusDropdownVisible" class="status-dropdown">
-            <div
-              v-for="option in statusOptions"
-              :key="option.value"
-              class="status-dropdown-item"
-              :class="{ 'item-active': ticket.status === option.value }"
-              @click="handleStatusSelect(option.value)"
-            >
-              <span class="item-dot" :class="'dot-' + option.value"></span>
-              {{ option.label }}
-              <svg v-if="ticket.status === option.value" class="item-check" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" fill="currentColor"/>
-              </svg>
-            </div>
-          </div>
+          <span class="type-tag" :class="'type-' + ticket.type">
+            {{ getTypeName(ticket.type) }}
+          </span>
         </div>
-        <!-- 非管理员：静态标签 -->
-        <span v-else class="status-tag" :class="'status-' + ticket.status">
-          <svg v-if="ticket.status === 2" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24" class="tag-icon">
-            <path d="M5 12l5 5L20 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+      </div>
+
+      <p class="ticket-desc">{{ ticket.description }}</p>
+
+      <!-- 操作按钮 + 附件按钮行 -->
+      <div class="actions-row" @click.stop>
+        <div class="card-actions">
+          <button class="btn-detail" @click="$emit('detail', ticket)">详情</button>
+          <button
+            v-show="isAdminOrNoc && (ticket.type === 2 || ticket.type === 3)"
+            class="btn-send"
+            @click="$emit('send', ticket)"
+          >
+            发送
+          </button>
+          <button
+            v-show="isAdminOrNoc"
+            class="btn-delete"
+            @click="$emit('delete', ticket)"
+          >
+            删除
+          </button>
+        </div>
+        <button
+          v-if="ticket.attachments && ticket.attachments.length > 0"
+          class="btn-attach"
+          @click="handleViewAttachment"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24" class="attach-icon">
+            <path d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5a2.5 2.5 0 0 1 5 0v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5a2.5 2.5 0 0 0 5 0V5c0-2.21-1.79-4-4-4S7 2.79 7 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z" fill="currentColor"></path>
           </svg>
-          {{ getStatusName(ticket.status) }}
-        </span>
-        <span class="type-tag" :class="'type-' + ticket.type">
-          {{ getTypeName(ticket.type) }}
-        </span>
+          {{ ticket.attachments.length }} 张问题截图
+        </button>
+      </div>
+
+      <div class="card-meta">
+        <div class="meta-time">
+          <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24" class="meta-icon">
+            <path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8s8 3.58 8 8s-3.58 8-8 8zm.5-13H11v6l5.25 3.15l.75-1.23l-4.5-2.67z" fill="currentColor"></path>
+          </svg>
+          <span>{{ ticket.createTime }}</span>
+          <span class="meta-divider">|</span>
+          <span>{{ ticket.updateTime || ticket.createTime }}</span>
+        </div>
+        <div v-if="ticket.location" class="meta-location">
+          <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24" class="meta-icon">
+            <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 0 1 0-5a2.5 2.5 0 0 1 0 5z" fill="currentColor"/>
+          </svg>
+          <span>{{ ticket.location }}</span>
+        </div>
       </div>
     </div>
 
-    <p class="ticket-desc">{{ ticket.description }}</p>
-
-    <div class="card-actions" @click.stop>
-      <button class="btn-detail" @click="$emit('detail', ticket)">详情</button>
-      <button
-        v-show="isAdminOrNoc && (ticket.type === 2 || ticket.type === 3)"
-        class="btn-send"
-        @click="$emit('send', ticket)"
-      >
-        发送
-      </button>
-      <button
-        v-show="isAdminOrNoc"
-        class="btn-delete"
-        @click="$emit('delete', ticket)"
-      >
-        删除
-      </button>
-    </div>
-
-    <div class="card-meta">
-      <div class="meta-time">
-        <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24" class="meta-icon">
-          <path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8s8 3.58 8 8s-3.58 8-8 8zm.5-13H11v6l5.25 3.15l.75-1.23l-4.5-2.67z" fill="currentColor"></path>
-        </svg>
-        <span>{{ ticket.createTime }}</span>
-        <span class="meta-divider">|</span>
-        <span>{{ ticket.updateTime || ticket.createTime }}</span>
-      </div>
-      <div v-if="ticket.location" class="meta-location">
-        <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24" class="meta-icon">
-          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 0 1 0-5a2.5 2.5 0 0 1 0 5z" fill="currentColor"/>
-        </svg>
-        <span>{{ ticket.location }}</span>
-      </div>
-      <div v-if="ticket.attachments && ticket.attachments.length > 0" class="meta-attach">
-        <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24" class="meta-icon">
-          <path d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5a2.5 2.5 0 0 1 5 0v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5a2.5 2.5 0 0 0 5 0V5c0-2.21-1.79-4-4-4S7 2.79 7 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z" fill="currentColor"></path>
-        </svg>
-        <span>{{ ticket.attachments.length }} 张问题截图</span>
-      </div>
-    </div>
+    <!-- 附件图片预览弹窗 -->
+    <n-modal v-model:show="attachmentModalVisible" preset="card" title="问题截图" style="width: 620px" :mask-closable="false">
+      <n-image-group>
+        <n-space>
+          <n-image
+            v-for="(img, index) in ticket.attachments"
+            :key="index"
+            width="200"
+            :src="getImageUrl(img)"
+            object-fit="contain"
+          />
+        </n-space>
+      </n-image-group>
+      <template #footer>
+        <n-button @click="attachmentModalVisible = false">关闭</n-button>
+      </template>
+    </n-modal>
   </div>
-</div>
 </template>
 
 <script setup>
 import { ref } from 'vue'
 
 const emit = defineEmits(['detail', 'send', 'statusChange', 'delete'])
+
+const placeholderImg = 'https://07akioni.oss-cn-beijing.aliyuncs.com/07akioni.jpeg'
+
+const attachmentModalVisible = ref(false)
+
+function handleViewAttachment() {
+  attachmentModalVisible.value = true
+}
 
 const props = defineProps({
   ticket: {
@@ -148,6 +180,12 @@ function getTypeTagType(type) {
   const map = { 0: 'error', 1: 'info', 2: 'warning', 3: 'success' }
   return map[type] || 'default'
 }
+
+function getImageUrl(img) {
+  if (!img) return placeholderImg
+  if (img.startsWith('http://') || img.startsWith('https://') || img.startsWith('/') || img.startsWith('data:')) return img
+  return placeholderImg
+}
 </script>
 
 <style scoped>
@@ -156,6 +194,41 @@ function getTypeTagType(type) {
   margin-bottom: 8px;
   margin-left: -4px;
   margin-right: -4px;
+}
+
+
+/* 操作按钮 + 附件按钮行 */
+.actions-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.btn-attach {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 24px;
+  border-radius: 12px;
+  border: 1px solid #91caff;
+  background: #e6f4ff;
+  color: #1677ff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-attach:hover {
+  background: #bae0ff;
+  border-color: #69b1ff;
+}
+
+.attach-icon {
+  width: 16px;
+  height: 16px;
 }
 
 .ticket-card {
@@ -356,7 +429,7 @@ function getTypeTagType(type) {
 
 .ticket-desc {
   font-size: 15px;
-  color: var(--n-text-color-2);
+  color: #555555;
   line-height: 1.6;
   margin: 0;
   overflow: hidden;
@@ -373,7 +446,7 @@ function getTypeTagType(type) {
   background: var(--n-hover-color);
   border-radius: 8px;
   font-size: 14px;
-  color: var(--n-text-color-3);
+  color: #555555;
 }
 
 .meta-time {
@@ -387,19 +460,12 @@ function getTypeTagType(type) {
   color: var(--n-border-color);
 }
 
-.meta-attach {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--n-primary-color);
-  font-weight: 500;
-}
 
 .meta-location {
   display: flex;
   align-items: center;
   gap: 4px;
-  color: var(--n-text-color-2);
+  color: #555555;
 }
 
 .meta-icon {

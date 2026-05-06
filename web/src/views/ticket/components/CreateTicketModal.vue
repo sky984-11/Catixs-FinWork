@@ -82,6 +82,8 @@ function handleSubmit() {
     window.$message?.warning('请填写必填项')
     return
   }
-  emit('submit', { ...form, attachments: uploadedFiles.map(file => file.name) })
+  // 传递 File 对象，供父组件上传到服务器
+  const files = uploadedFiles.filter(f => f.file).map(f => f.file)
+  emit('submit', { ...form, attachments: files })
 }
 </script>

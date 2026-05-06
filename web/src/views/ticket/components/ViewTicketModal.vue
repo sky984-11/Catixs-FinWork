@@ -52,7 +52,7 @@
               v-for="(img, index) in ticket.attachments"
               :key="index"
               width="120"
-              src="https://07akioni.oss-cn-beijing.aliyuncs.com/07akioni.jpeg"
+              :src="getImageUrl(img)"
             />
           </n-space>
         </n-image-group>
@@ -66,6 +66,14 @@ import { computed } from 'vue'
 import { useAppStore } from '@/store'
 
 const emit = defineEmits(['update:visible'])
+
+const placeholderImg = 'https://07akioni.oss-cn-beijing.aliyuncs.com/07akioni.jpeg'
+
+function getImageUrl(img) {
+  if (!img) return placeholderImg
+  if (img.startsWith('http://') || img.startsWith('https://') || img.startsWith('/') || img.startsWith('data:')) return img
+  return placeholderImg
+}
 
 const props = defineProps({
   visible: {

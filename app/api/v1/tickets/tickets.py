@@ -1,5 +1,9 @@
 import logging
-from fastapi import APIRouter, Query
+import os
+import uuid
+from datetime import datetime
+
+from fastapi import APIRouter, File, Query, UploadFile
 
 from app.controllers.ticket import ticket_controller
 from app.schemas.base import Success, SuccessExtra
@@ -8,6 +12,10 @@ from app.schemas.tickets import TicketCreate, TicketUpdate
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# 工单附件上传目录
+UPLOAD_DIR = "uploads/tickets"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
 @router.get("/list", summary="查看工单列表")
@@ -79,3 +87,26 @@ async def get_ticket_by_no(
     if not ticket_obj:
         return Success(msg="工单不存在", code=404)
     return Success(data=await ticket_obj.to_dict())
+
+
+@router.post("/upload", summary="上传工单附件图片")
+async def upload_ticket_attachment(
+    file: UploadFile = File(..., description="附件图片"),
+):
+    # 只允许图片
+    if not file.content_type or not file.content_type.startswith('image/'):
+        return Success(msg="只允许上传图片文件", code=400)
+
+    # 生成唯一文件名
+    file_ext = os.path.splitext(file.filename)[1]
+    unique_filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}{file_ext}"
+    file_path = os.path.join(UPLOAD_DIR, unique_filename)
+
+    # 保存文件
+    content = await file.read()
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    # 返回可访问的URL路径
+    file_url = f"/uploads/tickets/{unique_filename}"
+    return Success(msg="上传成功", data={"url": file_url})

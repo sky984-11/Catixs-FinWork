@@ -17,7 +17,7 @@
       
       <n-card title=" " class="ticket-list-container" :segmented="true" rounded-10>
         <template #header-extra>
-          <n-button text type="primary" @click="handleCreate">新增工单</n-button>
+          <n-button secondary type="primary" style="border-radius: 12px" @click="handleCreate">新增工单</n-button>
         </template>
 
         <div v-if="loading" class="loading-container">
@@ -288,6 +288,8 @@ function handleCreate() {
 
 function handleTypeChange(type) {
   if (type !== null) {
+    locationTimeForm.location = ''
+    locationTimeForm.planTime = null
     pendingCreateForm.location = ''
     pendingCreateForm.planTime = null
     pendingCreateForm.type = type
@@ -296,13 +298,26 @@ function handleTypeChange(type) {
 }
 
 function handleSubmitLocationTime() {
-  locationTimeForm.location = pendingCreateForm.location
-  locationTimeForm.planTime = pendingCreateForm.planTime
+  // locationTimeForm 已通过 v-model 双向绑定，不需要再复制
   locationTimeModalVisible.value = false
 }
 
 async function handleSubmitCreate(formData) {
   try {
+    // 先上传附件图片
+    let attachmentUrl = undefined
+    if (formData.attachments?.length > 0) {
+      const uploadFormData = new FormData()
+      uploadFormData.append('file', formData.attachments[0])
+      const uploadRes = await api.ticketApi.upload(uploadFormData)
+      if (uploadRes.code === 200) {
+        attachmentUrl = uploadRes.data.url
+      } else {
+        window.$message?.warning('附件上传失败')
+        return
+      }
+    }
+
     const data = {
       title: formData.title,
       type: formData.type,
@@ -310,7 +325,7 @@ async function handleSubmitCreate(formData) {
       desc: formData.description,
       location: locationTimeForm.location || undefined,
       start_time: locationTimeForm.planTime ? new Date(locationTimeForm.planTime).toISOString() : undefined,
-      attachment_url: formData.attachments?.length > 0 ? formData.attachments[0] : undefined
+      attachment_url: attachmentUrl
     }
 
     const result = await api.ticketApi.create(data)
