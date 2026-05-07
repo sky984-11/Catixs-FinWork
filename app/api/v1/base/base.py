@@ -59,6 +59,15 @@ async def get_user_menu():
             menu = await role_obj.menus
             menus.extend(menu)
         menus = list(set(menus))
+        
+        # 确保所有用户都能看到工单管理菜单
+        ticket_menu = await Menu.filter(path="/ticket").first()
+        if ticket_menu and ticket_menu not in menus:
+            menus.append(ticket_menu)
+            # 获取工单管理的子菜单
+            ticket_sub_menus = await Menu.filter(parent_id=ticket_menu.id).all()
+            menus.extend(ticket_sub_menus)
+    
     parent_menus: list[Menu] = []
     for menu in menus:
         if menu.parent_id == 0:

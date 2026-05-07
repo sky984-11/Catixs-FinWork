@@ -50,6 +50,7 @@
       <div class="actions-row" @click.stop>
         <div class="card-actions">
           <button class="btn-detail" @click="$emit('detail', ticket)">详情</button>
+          <button class="btn-edit" @click="$emit('edit', ticket)">编辑</button>
           <button
             v-show="isAdminOrNoc && (ticket.type === 2 || ticket.type === 3)"
             class="btn-send"
@@ -212,9 +213,9 @@ function getImageUrl(img) {
   gap: 8px;
   padding: 8px 24px;
   border-radius: 12px;
-  border: 1px solid #91caff;
-  background: #e6f4ff;
-  color: #1677ff;
+  border: 1px solid rgba(24, 144, 255, 0.3);
+  background: rgba(24, 144, 255, 0.1);
+  color: var(--n-primary-color);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
@@ -222,8 +223,8 @@ function getImageUrl(img) {
 }
 
 .btn-attach:hover {
-  background: #bae0ff;
-  border-color: #69b1ff;
+  background: rgba(24, 144, 255, 0.18);
+  border-color: rgba(24, 144, 255, 0.4);
 }
 
 .attach-icon {
@@ -504,6 +505,31 @@ function getImageUrl(img) {
 .btn-detail:hover {
   background: rgba(24, 144, 255, 0.18);
   border-color: rgba(24, 144, 255, 0.35);
+}
+
+/* 编辑按钮 */
+.btn-edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 80px;
+  height: 34px;
+  padding: 0 20px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #52c41a;
+  background: rgba(82, 196, 26, 0.1);
+  border: 1px solid rgba(82, 196, 26, 0.25);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  outline: none;
+  white-space: nowrap;
+}
+
+.btn-edit:hover {
+  background: rgba(82, 196, 26, 0.18);
+  border-color: rgba(82, 196, 26, 0.35);
 }
 
 /* 发送按钮 */

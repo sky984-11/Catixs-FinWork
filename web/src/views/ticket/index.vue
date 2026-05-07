@@ -37,6 +37,7 @@
               :ticket="ticket"
               :is-admin-or-noc="isAdminOrNoc"
               @detail="handleView"
+              @edit="handleEdit"
               @send="handleSend"
               @status-change="handleStatusChange"
               @delete="handleDelete"
@@ -85,6 +86,13 @@
         :ticket="currentTicket"
       />
 
+      <EditTicketModal
+        v-model:visible="editModalVisible"
+        :ticket="currentTicket"
+        :type-options="typeOptions"
+        @submit="handleSubmitEdit"
+      />
+
       <n-modal v-model:show="sendModalVisible" preset="card" title="发送通知" style="width: 600px">
         <n-transfer
           v-model:value="sendSelectedUsers"
@@ -112,14 +120,27 @@ import TicketFilter from './components/TicketFilter.vue'
 import TicketCard from './components/TicketCard.vue'
 import CreateTicketModal from './components/CreateTicketModal.vue'
 import ViewTicketModal from './components/ViewTicketModal.vue'
+import EditTicketModal from './components/EditTicketModal.vue'
 
 defineOptions({ name: 'MyTickets' })
 
 const userStore = useUserStore()
+
+function formatTimeToMinute(dateStr) {
+  const date = new Date(dateStr)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${year}-${month}-${day} ${hours}:${minutes}:00`
+}
+
 const loading = ref(false)
 const createModalVisible = ref(false)
 const locationTimeModalVisible = ref(false)
 const viewModalVisible = ref(false)
+const editModalVisible = ref(false)
 const sendModalVisible = ref(false)
 const currentTicket = ref(null)
 const sendTicket = ref(null)
@@ -319,14 +340,14 @@ async function handleSubmitCreate(formData) {
     }
 
     const data = {
-      title: formData.title,
-      type: formData.type,
-      user_id: isAdminOrNoc.value ? (formData.customerId || userStore.userId) : userStore.userId,
-      desc: formData.description,
-      location: locationTimeForm.location || undefined,
-      start_time: locationTimeForm.planTime ? new Date(locationTimeForm.planTime).toISOString() : undefined,
-      attachment_url: attachmentUrl
-    }
+        title: formData.title,
+        type: formData.type,
+        user_id: isAdminOrNoc.value ? (formData.customerId || userStore.userId) : userStore.userId,
+        desc: formData.description,
+        location: locationTimeForm.location || undefined,
+        start_time: locationTimeForm.planTime ? formatTimeToMinute(locationTimeForm.planTime) : undefined,
+        attachment_url: attachmentUrl
+      }
 
     const result = await api.ticketApi.create(data)
     
@@ -349,6 +370,15 @@ function handleView(ticket) {
   }
   currentTicket.value = ticket
   viewModalVisible.value = true
+}
+
+function handleEdit(ticket) {
+  if (!isAdminOrNoc.value && String(ticket.customerId) !== String(userStore.userId || 1)) {
+    window.$message?.error('无权限编辑该工单')
+    return
+  }
+  currentTicket.value = ticket
+  editModalVisible.value = true
 }
 
 function handleSend(ticket) {
@@ -403,6 +433,32 @@ async function handleStatusChange({ ticket, newStatus }) {
     }
   } catch (error) {
     window.$message?.error('更新失败')
+  }
+}
+
+async function handleSubmitEdit(formData) {
+  try {
+    const data = {
+      id: formData.id,
+      title: formData.title,
+      type: formData.type,
+      desc: formData.description,
+      location: formData.location,
+      start_time: formData.planTime ? formatTimeToMinute(formData.planTime) : undefined
+    }
+
+    const result = await api.ticketApi.update(data)
+    
+    if (result.code === 200) {
+      window.$message?.success('编辑成功')
+      editModalVisible.value = false
+      loadData(true)
+    } else {
+      window.$message?.error(result.msg || '编辑失败')
+    }
+  } catch (error) {
+    console.error('编辑工单失败:', error)
+    window.$message?.error('编辑失败')
   }
 }
 
@@ -467,7 +523,10 @@ async function loadUsers() {
 }
 
 onMounted(() => {
-  loadUsers()
+  // 只有管理员才加载用户列表（用于筛选和发送通知）
+  if (isAdminOrNoc.value) {
+    loadUsers()
+  }
   loadData(true)
 })
 </script>

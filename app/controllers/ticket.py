@@ -37,8 +37,10 @@ class TicketController(CRUDBase[Ticket, TicketCreate, TicketUpdate]):
     def __init__(self):
         super().__init__(model=Ticket)
 
-    async def list_tickets(self, page: int, page_size: int, search: Q = Q(), order: list = []):
-        """查询工单列表"""
+    async def list_tickets(self, page: int, page_size: int, search: Q = Q(), order: list = [], user_id: int = None):
+        """查询工单列表（支持按用户过滤）"""
+        if user_id is not None:
+            search &= Q(user_id=user_id)
         return await self.list(page=page, page_size=page_size, search=search, order=order)
 
     async def create_ticket(self, obj_in: TicketCreate) -> Ticket:
@@ -49,9 +51,10 @@ class TicketController(CRUDBase[Ticket, TicketCreate, TicketUpdate]):
         ticket_type = data.get("type", 0)
         data["ticket_no"] = await generate_ticket_no(ticket_type)
         
-        # 默认状态为未开始
-        if "status" not in data:
-            data["status"] = 2
+        # 新建工单强制设置为未开始状态
+        # 状态说明：0-已完成, 1-进行中, 2-未开始, 3-已关闭
+        # 已完成和已关闭状态只能通过管理员手动修改
+        data["status"] = 2
         
         return await self.create(data)
 

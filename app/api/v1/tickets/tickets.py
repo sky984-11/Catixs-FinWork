@@ -6,6 +6,9 @@ from datetime import datetime
 from fastapi import APIRouter, File, Query, UploadFile
 
 from app.controllers.ticket import ticket_controller
+from app.core.ctx import CTX_USER_ID
+from app.core.dependency import DependAuth
+from app.models.admin import User
 from app.schemas.base import Success, SuccessExtra
 from app.schemas.tickets import TicketCreate, TicketUpdate
 
@@ -18,7 +21,7 @@ UPLOAD_DIR = "uploads/tickets"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
-@router.get("/list", summary="查看工单列表")
+@router.get("/list", summary="查看工单列表", dependencies=[DependAuth])
 async def list_tickets(
     page: int = Query(1, description="页码"),
     page_size: int = Query(10, description="每页数量"),
@@ -37,8 +40,20 @@ async def list_tickets(
         q &= Q(status=status)
     if type is not None:
         q &= Q(type=type)
-    if user_id is not None:
-        q &= Q(user_id=user_id)
+    
+    # 获取当前用户信息
+    current_user_id = CTX_USER_ID.get()
+    current_user = await User.get(id=current_user_id)
+    
+    # 如果是普通用户（非管理员），只能查看自己创建的工单
+    # 如果没有指定user_id参数或者用户不是管理员，使用当前用户ID过滤
+    if not current_user.is_superuser and not user_id:
+        filter_user_id = current_user_id
+    else:
+        filter_user_id = user_id
+    
+    if filter_user_id is not None:
+        q &= Q(user_id=filter_user_id)
     if assignee_id is not None:
         q &= Q(assignee_id=assignee_id)
 
