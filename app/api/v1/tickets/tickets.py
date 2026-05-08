@@ -11,6 +11,7 @@ from app.core.dependency import DependAuth
 from app.models.admin import User
 from app.schemas.base import Success, SuccessExtra
 from app.schemas.tickets import TicketCreate, TicketUpdate
+from app.utils.feishu_bot import send_ticket_created_notification
 
 logger = logging.getLogger(__name__)
 
@@ -70,11 +71,39 @@ async def get_ticket(
     return Success(data=await ticket_obj.to_dict())
 
 
-@router.post("/create", summary="创建工单")
+@router.post("/create", summary="创建工单", dependencies=[DependAuth])
 async def create_ticket(
     ticket_in: TicketCreate,
 ):
+    # 创建工单
     ticket_obj = await ticket_controller.create_ticket(ticket_in)
+    
+    # 获取创建人信息
+    current_user_id = CTX_USER_ID.get()
+    creator = await User.get_or_none(id=current_user_id)
+    creator_name = creator.username if creator else "未知用户"
+    
+    # 判断是否为非管理员用户创建的工单
+    is_admin = creator.is_superuser if creator else False
+    
+    # 只有非管理员用户创建工单时才发送飞书通知
+    if not is_admin:
+        try:
+            await send_ticket_created_notification(
+                ticket_no=ticket_obj.ticket_no,
+                title=ticket_obj.title,
+                ticket_type=ticket_obj.type,
+                status=ticket_obj.status,
+                creator_name=creator_name,
+                description=ticket_obj.desc or "暂无描述",
+                created_at=ticket_obj.created_at,
+                location=ticket_obj.location,
+            )
+            logger.info(f"工单 {ticket_obj.ticket_no} 创建通知已发送至飞书")
+        except Exception as e:
+            # 通知发送失败不影响工单创建结果
+            logger.error(f"发送飞书通知失败: {e}")
+    
     return Success(msg="工单创建成功", data=await ticket_obj.to_dict())
 
 
