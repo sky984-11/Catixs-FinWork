@@ -7,6 +7,7 @@
         <div class="header-tags">
           <div v-if="isAdminOrNoc" class="status-dropdown-wrapper" @click.stop>
             <span
+              ref="statusTagRef"
               class="status-tag status-clickable"
               :class="'status-' + ticket.status"
               @click="toggleStatusDropdown"
@@ -16,21 +17,6 @@
               </svg>
               {{ getStatusName(ticket.status) }}
             </span>
-            <div v-if="statusDropdownVisible" class="status-dropdown">
-              <div
-                v-for="option in statusOptions"
-                :key="option.value"
-                class="status-dropdown-item"
-                :class="{ 'item-active': ticket.status === option.value }"
-                @click="handleStatusSelect(option.value)"
-              >
-                <span class="item-dot" :class="'dot-' + option.value"></span>
-                {{ option.label }}
-                <svg v-if="ticket.status === option.value" class="item-check" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                  <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" fill="currentColor"/>
-                </svg>
-              </div>
-            </div>
           </div>
           <span v-else class="status-tag" :class="'status-' + ticket.status">
             <svg v-if="ticket.status === 2" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24" class="tag-icon">
@@ -113,11 +99,37 @@
         <n-button @click="attachmentModalVisible = false">关闭</n-button>
       </template>
     </n-modal>
+
+    <!-- 使用Teleport将下拉菜单挂载到body，避免z-index问题 -->
+    <Teleport to="body">
+      <div
+        v-if="statusDropdownVisible && isAdminOrNoc"
+        class="status-dropdown-teleport"
+        :style="dropdownStyle"
+        @click="toggleStatusDropdown"
+      >
+        <div class="status-dropdown" @click.stop>
+          <div
+            v-for="option in statusOptions"
+            :key="option.value"
+            class="status-dropdown-item"
+            :class="{ 'item-active': ticket.status === option.value }"
+            @click="handleStatusSelect(option.value)"
+          >
+            <span class="item-dot" :class="'dot-' + option.value"></span>
+            {{ option.label }}
+            <svg v-if="ticket.status === option.value" class="item-check" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+              <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" fill="currentColor"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 
 const emit = defineEmits(['detail', 'send', 'statusChange', 'delete'])
 
@@ -141,17 +153,39 @@ const props = defineProps({
 })
 
 const statusDropdownVisible = ref(false)
+const statusTagRef = ref(null)
+const dropdownPosition = ref({ left: 0, top: 0 })
 
-const statusOptions = [
-  { label: '未开始', value: 0 },
-  { label: '进行中', value: 1 },
-  { label: '已完成', value: 2 },
-  { label: '已关闭', value: 3 }
-]
+const dropdownStyle = computed(() => {
+  return {
+    position: 'fixed',
+    left: `${dropdownPosition.value.left}px`,
+    top: `${dropdownPosition.value.top}px`,
+    zIndex: 9999
+  }
+})
 
 function toggleStatusDropdown() {
   statusDropdownVisible.value = !statusDropdownVisible.value
+  if (statusDropdownVisible.value) {
+    nextTick(() => {
+      if (statusTagRef.value) {
+        const rect = statusTagRef.value.getBoundingClientRect()
+        dropdownPosition.value = {
+          left: rect.right - 140,
+          top: rect.bottom + 6
+        }
+      }
+    })
+  }
 }
+
+const statusOptions = [
+  { label: '已完成', value: 0 },
+  { label: '进行中', value: 1 },
+  { label: '未开始', value: 2 },
+  { label: '已关闭', value: 3 }
+]
 
 function handleStatusSelect(newStatus) {
   if (newStatus === props.ticket.status) {
@@ -163,7 +197,7 @@ function handleStatusSelect(newStatus) {
 }
 
 function getStatusName(status) {
-  const map = { 0: '未开始', 1: '进行中', 2: '已完成', 3: '已关闭' }
+  const map = { 0: '已完成', 1: '进行中', 2: '未开始', 3: '已关闭' }
   return map[status] || '未知'
 }
 
@@ -173,7 +207,7 @@ function getTypeName(type) {
 }
 
 function getStatusTagType(status) {
-  const map = { 0: 'default', 1: 'warning', 2: 'success' }
+  const map = { 0: 'success', 1: 'warning', 2: 'default', 3: 'error' }
   return map[status] || 'default'
 }
 
@@ -204,6 +238,8 @@ function getImageUrl(img) {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  position: relative;
+  z-index: 1;
 }
 
 .btn-attach {
@@ -220,6 +256,8 @@ function getImageUrl(img) {
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
+  position: relative;
+  z-index: 0;
 }
 
 .btn-attach:hover {
@@ -233,6 +271,7 @@ function getImageUrl(img) {
 }
 
 .ticket-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -258,7 +297,6 @@ function getImageUrl(img) {
     -6px 6px 16px rgba(0, 0, 0, 0.1),
     0 -5px 14px rgba(0, 0, 0, 0.08);
   border-color: var(--n-border-color);
-  transform: translateY(-4px);
 }
 
 .card-header {
@@ -266,6 +304,8 @@ function getImageUrl(img) {
   justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
+  position: relative;
+  z-index: 5;
 }
 
 .ticket-title {
@@ -309,59 +349,64 @@ function getImageUrl(img) {
   position: relative;
 }
 
+/* Teleport下拉菜单容器 */
+:deep(.status-dropdown-teleport) {
+  position: fixed !important;
+  z-index: 99999 !important;
+}
+
 /* 下拉菜单 */
-.status-dropdown {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  min-width: 140px;
-  background: var(--n-card-color);
-  border: 1px solid var(--n-border-color);
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-  padding: 4px;
-  z-index: 100;
+:deep(.status-dropdown) {
+  min-width: 140px !important;
+  background: #ffffff !important;
+  border: 1px solid #e8e8e8 !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12) !important;
+  padding: 4px !important;
+  position: relative !important;
+  z-index: 100000 !important;
 }
 
-.status-dropdown-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 13px;
-  color: var(--n-text-color);
-  cursor: pointer;
-  transition: background 0.15s ease;
+:deep(.status-dropdown-item) {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 8px 12px !important;
+  border-radius: 6px !important;
+  font-size: 13px !important;
+  color: #1a1a1a !important;
+  cursor: pointer !important;
+  transition: background 0.15s ease !important;
 }
 
-.status-dropdown-item:hover {
-  background: var(--n-hover-color);
+:deep(.status-dropdown-item:hover) {
+  background: #f5f5f5 !important;
 }
 
-.status-dropdown-item.item-active {
-  background: rgba(24, 144, 255, 0.1);
-  color: var(--n-primary-color);
+:deep(.status-dropdown-item.item-active) {
+  background: rgba(24, 144, 255, 0.1) !important;
+  color: #1890ff !important;
 }
 
-.item-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
+:deep(.item-dot) {
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 50% !important;
+  flex-shrink: 0 !important;
 }
 
-.dot-0 { background: var(--n-text-color-3); }
-.dot-1 { background: #fa8c16; }
-.dot-2 { background: #52c41a; }
-.dot-3 { background: var(--n-text-color-3); }
+:deep(.dot-0) { background: #52c41a !important; }
+:deep(.dot-1) { background: #fa8c16 !important; }
+:deep(.dot-2) { background: #8c8c8c !important; }
+:deep(.dot-3) { background: #ff4d4f !important; }
 
-.item-check {
-  width: 16px;
-  height: 16px;
-  margin-left: auto;
-  flex-shrink: 0;
+:deep(.item-check) {
+  width: 16px !important;
+  height: 16px !important;
+  flex-shrink: 0 !important;
 }
+
+
 
 .tag-icon {
   width: 13px;
@@ -369,9 +414,9 @@ function getImageUrl(img) {
 }
 
 .status-0 {
-  color: #8c8c8c;
-  background: rgba(140, 140, 140, 0.1);
-  border: 1px solid rgba(140, 140, 140, 0.2);
+  color: #52c41a;
+  background: rgba(82, 196, 26, 0.1);
+  border: 1px solid rgba(82, 196, 26, 0.2);
 }
 
 .status-1 {
@@ -381,15 +426,15 @@ function getImageUrl(img) {
 }
 
 .status-2 {
-  color: #52c41a;
-  background: rgba(82, 196, 26, 0.1);
-  border: 1px solid rgba(82, 196, 26, 0.2);
+  color: #8c8c8c;
+  background: rgba(140, 140, 140, 0.1);
+  border: 1px solid rgba(140, 140, 140, 0.2);
 }
 
 .status-3 {
-  color: var(--n-text-color-3);
-  background: rgba(89, 89, 89, 0.1);
-  border: 1px solid rgba(89, 89, 89, 0.2);
+  color: #ff4d4f;
+  background: rgba(255, 77, 79, 0.1);
+  border: 1px solid rgba(255, 77, 79, 0.2);
 }
 
 /* 类型标签 */

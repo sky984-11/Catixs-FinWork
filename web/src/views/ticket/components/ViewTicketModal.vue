@@ -89,7 +89,7 @@ const props = defineProps({
 const isDark = computed(() => useAppStore().isDark)
 
 function getStatusName(status) {
-  const map = { 0: '未开始', 1: '进行中', 2: '已完成', 3: '已关闭' }
+  const map = { 0: '已完成', 1: '进行中', 2: '未开始', 3: '已关闭' }
   return map[status] || '未知'
 }
 
@@ -169,14 +169,14 @@ function getTypeName(type) {
 }
 
 .detail-tag.status-0 {
-  color: #8c8c8c;
-  background: #f5f5f5;
-  border: 1px solid #e8e8e8;
+  color: #52c41a;
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
 }
 .theme-dark .detail-tag.status-0 {
-  color: #a0a0a0;
-  background: rgba(140, 140, 140, 0.12);
-  border: 1px solid rgba(140, 140, 140, 0.2);
+  color: #73d13d;
+  background: rgba(82, 196, 26, 0.12);
+  border: 1px solid rgba(82, 196, 26, 0.2);
 }
 
 .detail-tag.status-1 {
@@ -191,14 +191,25 @@ function getTypeName(type) {
 }
 
 .detail-tag.status-2 {
-  color: #52c41a;
-  background: #f6ffed;
-  border: 1px solid #b7eb8f;
+  color: #8c8c8c;
+  background: #f5f5f5;
+  border: 1px solid #e8e8e8;
 }
 .theme-dark .detail-tag.status-2 {
-  color: #73d13d;
-  background: rgba(82, 196, 26, 0.12);
-  border: 1px solid rgba(82, 196, 26, 0.2);
+  color: #a0a0a0;
+  background: rgba(140, 140, 140, 0.12);
+  border: 1px solid rgba(140, 140, 140, 0.2);
+}
+
+.detail-tag.status-3 {
+  color: #ff4d4f;
+  background: #fff2f0;
+  border: 1px solid #ffccc7;
+}
+.theme-dark .detail-tag.status-3 {
+  color: #ff7875;
+  background: rgba(255, 77, 79, 0.12);
+  border: 1px solid rgba(255, 77, 79, 0.2);
 }
 
 .detail-tag.type-0 {
