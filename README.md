@@ -127,7 +127,7 @@ pip install -r requirements.txt
 
 3. Start the backend service:
 ```sh
-python run.py
+uv run python run.py
 ```
 The backend service is now running, and you can visit http://localhost:9999/docs to view the API documentation.
 
