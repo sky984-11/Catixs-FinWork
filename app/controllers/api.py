@@ -30,6 +30,9 @@ class ApiController(CRUDBase[Api, ApiCreate, ApiUpdate]):
 
         for route in app.routes:
             if isinstance(route, APIRoute) and len(route.dependencies) > 0:
+                if not route.tags:
+                    logger.warning(f"API skipped without tags {list(route.methods)[0]} {route.path_format}")
+                    continue
                 method = list(route.methods)[0]
                 path = route.path_format
                 summary = route.summary
