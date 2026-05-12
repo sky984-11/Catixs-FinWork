@@ -60,25 +60,7 @@
         :type-options="typeOptions"
         :customer-options="customerOptions"
         @submit="handleSubmitCreate"
-        @type-change="handleTypeChange"
       />
-
-      <n-modal v-model:show="locationTimeModalVisible" preset="card" :title="locationTimeModalTitle" style="width: 500px">
-        <n-form :model="locationTimeForm" label-placement="top">
-          <n-form-item label="地点">
-            <n-input v-model:value="locationTimeForm.location" placeholder="请输入地点" />
-          </n-form-item>
-          <n-form-item label="计划时间">
-            <n-date-picker v-model:value="locationTimeForm.planTime" type="datetime" placeholder="请选择计划时间" style="width: 100%" />
-          </n-form-item>
-        </n-form>
-        <template #footer>
-          <n-space justify="end">
-            <n-button @click="locationTimeModalVisible = false">取消</n-button>
-            <n-button type="primary" @click="handleSubmitLocationTime">确定</n-button>
-          </n-space>
-        </template>
-      </n-modal>
 
       
       <ViewTicketModal
@@ -133,12 +115,11 @@ function formatTimeToMinute(dateStr) {
   const day = String(date.getDate()).padStart(2, '0')
   const hours = String(date.getHours()).padStart(2, '0')
   const minutes = String(date.getMinutes()).padStart(2, '0')
-  return `${year}-${month}-${day} ${hours}:${minutes}:00`
+  return `${year}-${month}-${day} ${hours}:${minutes}`
 }
 
 const loading = ref(false)
 const createModalVisible = ref(false)
-const locationTimeModalVisible = ref(false)
 const viewModalVisible = ref(false)
 const editModalVisible = ref(false)
 const sendModalVisible = ref(false)
@@ -165,27 +146,6 @@ const filters = reactive({
   type: null,
   customerId: null,
   dateRange: null
-})
-
-const locationTimeForm = reactive({
-  location: '',
-  planTime: null
-})
-
-const pendingCreateForm = reactive({
-  location: '',
-  planTime: null,
-  type: null
-})
-
-const locationTimeModalTitle = computed(() => {
-  const typeMap = {
-    0: '故障工单 - 地点和时间',
-    1: '服务请求工单 - 地点和时间',
-    2: '变更工单 - 地点和时间',
-    3: '维护工单 - 地点和时间'
-  }
-  return typeMap[pendingCreateForm.type] || '地点和时间'
 })
 
 const statusOptions = [
@@ -307,22 +267,6 @@ function handleCreate() {
   createModalVisible.value = true
 }
 
-function handleTypeChange(type) {
-  if (type !== null) {
-    locationTimeForm.location = ''
-    locationTimeForm.planTime = null
-    pendingCreateForm.location = ''
-    pendingCreateForm.planTime = null
-    pendingCreateForm.type = type
-    locationTimeModalVisible.value = true
-  }
-}
-
-function handleSubmitLocationTime() {
-  // locationTimeForm 已通过 v-model 双向绑定，不需要再复制
-  locationTimeModalVisible.value = false
-}
-
 async function handleSubmitCreate(formData) {
   try {
     // 先上传附件图片
@@ -344,8 +288,8 @@ async function handleSubmitCreate(formData) {
         type: formData.type,
         user_id: isAdminOrNoc.value ? (formData.customerId || userStore.userId) : userStore.userId,
         desc: formData.description,
-        location: locationTimeForm.location || undefined,
-        start_time: locationTimeForm.planTime ? formatTimeToMinute(locationTimeForm.planTime) : undefined,
+        location: formData.location || undefined,
+        start_time: formData.planTime ? formatTimeToMinute(formData.planTime) : undefined,
         attachment_url: attachmentUrl
       }
 
@@ -419,7 +363,7 @@ async function handleStatusChange({ ticket, newStatus }) {
     const result = await api.ticketApi.update({ id: ticket.id, status: newStatus })
     
     if (result.code === 200) {
-      const statusNames = { 0: '未开始', 1: '进行中', 2: '已完成', 3: '已关闭' }
+      const statusNames = { 0: '已完成', 1: '进行中', 2: '未开始', 3: '已关闭' }
       window.$message?.success(`工单状态已更新为：${statusNames[newStatus]}`)
       
       if (currentTicket.value && currentTicket.value.id === ticket.id) {
