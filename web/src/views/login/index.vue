@@ -18,7 +18,7 @@
             <header class="card-header flex flex-col items-center justify-center mb-40px">
               <!-- Branded Icon -->
               <div class="icon-wrap flex items-center justify-center mb-20px animate-float-slow">
-                <icon-custom-logo class="text-80px" />
+                <img class="login-logo" :src="logoUrl" alt="Catixs FinWork" />
               </div>
 
               <!-- Branding Text -->
@@ -38,7 +38,7 @@
             <div class="form-content space-y-28px">
               <div class="input-group">
                 <n-input v-model:value="loginInfo.username" size="large" autofocus class="login-input text-16px"
-                  placeholder="admin" :maxlength="20">
+                  placeholder="请输入用户名" :maxlength="20">
                   <template #prefix>
                     <i class="i-carbon-user text-gray-400 mr-2" />
                   </template>
@@ -46,7 +46,7 @@
               </div>
               <div class="input-group mt-20px">
                 <n-input v-model:value="loginInfo.password" size="large" class="login-input  text-16px" type="password"
-                  show-password-on="mousedown" placeholder="123456" :maxlength="20" @keypress.enter="handleLogin">
+                  show-password-on="mousedown" placeholder="请输入密码" :maxlength="20" @keypress.enter="handleLogin">
                   <template #prefix>
                     <i class="i-carbon-locked text-gray-400 mr-2" />
                   </template>
@@ -75,6 +75,7 @@ import api from '@/api'
 import { addDynamicRoutes } from '@/router'
 import { usePermissionStore } from '@/store'
 import { useI18n } from 'vue-i18n'
+import logoUrl from '@/assets/svg/logo.svg?url'
 
 const router = useRouter()
 const { query } = useRoute()
@@ -180,12 +181,18 @@ async function handleLogin() {
     0 0 1px rgba(0, 0, 0, 0.1);
 }
 
+.login-logo {
+  width: 88px;
+  height: 88px;
+  object-fit: contain;
+}
+
 .text-blue-standard {
-  color: #0A369D;
+  color: #092a6b;
 }
 
 .text-green-standard {
-  color: #10B981;
+  color: #17a889;
 }
 
 .tracking-Widest {

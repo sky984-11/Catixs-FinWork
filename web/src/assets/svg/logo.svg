@@ -1,34 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="FinWork">
   <defs>
-    <linearGradient id="brandGrad" x1="0%" y1="100%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#0A369D;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#10B981;stop-opacity:1" />
+    <linearGradient id="fw-grad" x1="112" y1="108" x2="420" y2="402" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2563EB"/>
+      <stop offset=".52" stop-color="#06B6D4"/>
+      <stop offset="1" stop-color="#22C55E"/>
     </linearGradient>
-    <linearGradient id="blueGradLogo" x1="0%" y1="100%" x2="0%" y2="0%">
-      <stop offset="0%" style="stop-color:#0A369D;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#3B82F6;stop-opacity:1" />
-    </linearGradient>
-    <linearGradient id="greenGradLogo" x1="0%" y1="100%" x2="0%" y2="0%">
-      <stop offset="0%" style="stop-color:#10B981;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#34D399;stop-opacity:1" />
-    </linearGradient>
+    <filter id="fw-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#092A6B" flood-opacity=".16"/>
+    </filter>
   </defs>
 
-  <!-- Outer Gear (Work Order / Engineering Metaphor) -->
-  <path d="M256 40 L 290 40 L 305 85 C 322 90, 338 98, 353 108 L 395 80 L 432 117 L 404 159 C 414 174, 422 190, 427 207 L 472 222 L 472 274 L 427 289 C 422 306, 414 322, 404 337 L 432 379 L 395 416 L 353 388 C 338 398, 322 406, 305 411 L 290 456 L 222 456 L 207 411 C 190 406, 174 398, 159 388 L 117 416 L 80 379 L 108 337 C 98 322, 90 306, 85 289 L 40 274 L 40 222 L 85 207 C 90 190, 98 174, 108 159 L 80 117 L 117 80 L 159 108 C 174 98, 190 90, 207 85 L 222 40 Z" 
-    fill="none" stroke="url(#brandGrad)" stroke-width="24" stroke-linejoin="round" />
-
-  <!-- Inner Circle + Finance Symbol (Finance Metaphor) -->
-  <circle cx="256" cy="256" r="110" fill="url(#brandGrad)" opacity="0.1" />
-  <circle cx="256" cy="256" r="95" fill="none" stroke="url(#brandGrad)" stroke-width="12" />
-  
-  <!-- Stylized ¥ Symbol -->
-  <path d="M200 180 L 256 260 L 312 180 M210 280 L 302 280 M210 320 L 302 320 M256 260 L 256 360" 
-    fill="none" stroke="url(#brandGrad)" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" />
-
-  <!-- Connecting technical lines -->
-  <circle cx="256" cy="40" r="12" fill="url(#brandGrad)" />
-  <circle cx="256" cy="472" r="12" fill="url(#brandGrad)" />
-  <circle cx="40" cy="256" r="12" fill="url(#brandGrad)" />
-  <circle cx="472" cy="256" r="12" fill="url(#brandGrad)" />
+  <g filter="url(#fw-shadow)">
+    <g fill="none" stroke="url(#fw-grad)" stroke-width="48" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M142 386V126h190"/>
+      <path d="M142 252h138"/>
+      <path d="M224 316l50 70 54-94 50 94 46-142"/>
+    </g>
+    <circle cx="224" cy="316" r="12" fill="#FFFFFF"/>
+    <circle cx="328" cy="292" r="12" fill="#FFFFFF"/>
+    <circle cx="424" cy="244" r="12" fill="#FFFFFF"/>
+  </g>
 </svg>
