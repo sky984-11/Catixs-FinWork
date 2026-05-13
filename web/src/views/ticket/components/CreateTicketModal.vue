@@ -28,12 +28,25 @@
       <n-form-item label="附件图片">
         <n-upload
           v-model:file-list="uploadedFiles"
-          :max="3"
+          multiple
+          directory-dnd
+          :max="5"
           accept="image/*"
-          list-type="image-card"
           @change="handleUploadChange"
         >
-          <n-button size="small">上传图片</n-button>
+          <n-upload-dragger>
+            <div class="upload-icon">
+              <n-icon size="48" :depth="3">
+                <Icon icon="mdi:archive-arrow-up-outline" />
+              </n-icon>
+            </div>
+            <n-text class="upload-title">
+              点击或者拖动图片到该区域上传
+            </n-text>
+            <n-p depth="3" class="upload-tip">
+              支持上传问题截图，请不要上传敏感数据。
+            </n-p>
+          </n-upload-dragger>
         </n-upload>
       </n-form-item>
     </n-form>
@@ -48,6 +61,7 @@
 
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
+import { Icon } from '@iconify/vue'
 
 const emit = defineEmits(['update:visible', 'submit'])
 
@@ -138,5 +152,17 @@ function handleSubmit() {
 
 .ticket-form :deep(.n-form-item-label) {
   padding-bottom: 8px;
+}
+
+.upload-icon {
+  margin-bottom: 12px;
+}
+
+.upload-title {
+  font-size: 16px;
+}
+
+.upload-tip {
+  margin: 8px 0 0;
 }
 </style>
