@@ -35,20 +35,20 @@
       <!-- 操作按钮 + 附件按钮行 -->
       <div class="actions-row">
         <div class="card-actions">
-          <button class="btn-edit" @click.stop="$emit('edit', ticket)">编辑</button>
+          <div @click.stop>
+            <CButton
+              showEdit
+              showDelete
+              @edit="$emit('edit', ticket)"
+              @delete="$emit('delete', ticket)"
+            />
+          </div>
           <button
             v-show="isAdminOrNoc && (ticket.type === 2 || ticket.type === 3)"
             class="btn-send"
             @click.stop="$emit('send', ticket)"
           >
             发送
-          </button>
-          <button
-            v-show="isAdminOrNoc"
-            class="btn-delete"
-            @click.stop="$emit('delete', ticket)"
-          >
-            删除
           </button>
         </div>
         <button
@@ -129,6 +129,7 @@
 
 <script setup>
 import { ref, computed, nextTick } from 'vue'
+import CButton from '@/components/public/CButton.vue'
 
 const emit = defineEmits(['detail', 'edit', 'send', 'statusChange', 'delete'])
 
@@ -525,31 +526,6 @@ function getImageUrl(img) {
   padding-top: 4px;
 }
 
-/* 编辑按钮 */
-.btn-edit {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 80px;
-  height: 34px;
-  padding: 0 20px;
-  font-size: 14px;
-  font-weight: 500;
-  color: #52c41a;
-  background: rgba(82, 196, 26, 0.1);
-  border: 1px solid rgba(82, 196, 26, 0.25);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  outline: none;
-  white-space: nowrap;
-}
-
-.btn-edit:hover {
-  background: rgba(82, 196, 26, 0.18);
-  border-color: rgba(82, 196, 26, 0.35);
-}
-
 /* 发送按钮 */
 .btn-send {
   display: inline-flex;
@@ -575,28 +551,4 @@ function getImageUrl(img) {
   border-color: rgba(212, 56, 13, 0.35);
 }
 
-/* 删除按钮 */
-.btn-delete {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 80px;
-  height: 34px;
-  padding: 0 20px;
-  font-size: 14px;
-  font-weight: 500;
-  color: #ff4d4f;
-  background: rgba(255, 77, 79, 0.1);
-  border: 1px solid rgba(255, 77, 79, 0.25);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  outline: none;
-  white-space: nowrap;
-}
-
-.btn-delete:hover {
-  background: rgba(255, 77, 79, 0.18);
-  border-color: rgba(255, 77, 79, 0.35);
-}
 </style>

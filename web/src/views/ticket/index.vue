@@ -407,7 +407,7 @@ async function handleSubmitEdit(formData) {
 }
 
 async function handleDelete(ticket) {
-  if (!isAdminOrNoc.value) {
+  if (!isAdminOrNoc.value && String(ticket.customerId) !== String(userStore.userId || 1)) {
     window.$message?.error('无权限删除该工单')
     return
   }

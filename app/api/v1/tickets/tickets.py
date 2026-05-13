@@ -150,8 +150,7 @@ async def delete_ticket(
 ):
     current_user = await get_current_ticket_user()
     ticket_obj = await ticket_controller.get(id=ticket_id)
-    if not await can_view_all_tickets(current_user):
-        raise HTTPException(status_code=403, detail="无权限删除该工单")
+    await ensure_ticket_access(ticket_obj, current_user)
     await ticket_controller.remove(id=ticket_id)
     return Success(msg="工单删除成功")
 
