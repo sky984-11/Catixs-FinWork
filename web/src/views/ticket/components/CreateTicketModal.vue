@@ -4,7 +4,32 @@
       <n-form-item label="工单标题" path="title" required>
         <n-input v-model:value="form.title" placeholder="请输入工单标题" />
       </n-form-item>
-      <n-form-item label="工单类型" path="type" required>
+      <n-form-item class="type-form-item" path="type" required>
+        <template #label>
+          <span class="type-label">
+            工单类型
+            <n-tooltip trigger="hover" placement="right">
+              <template #trigger>
+                <span class="type-help" @click.stop>?</span>
+              </template>
+              <div class="type-help-content">
+                <strong>工单类型说明</strong>
+                <p><b>故障工单 (Incident)</b></p>
+                <p>定义：面向客户的故障反馈入口，用于处理各类突发问题。</p>
+                <p>适用场景：网络中断、丢包、高延迟；设备异常（交换机、路由器等）；服务不可用等。</p>
+                <p><b>服务请求工单 (Service Request)</b></p>
+                <p>定义：用于处理客户日常的业务需求申请。</p>
+                <p>适用场景：专线开通、IP地址申请、带宽升级、端口开通等。</p>
+                <p><b>变更工单 (Change)</b></p>
+                <p>定义：用于网络与系统的变更管理，确保变更可控。</p>
+                <p>适用场景：网络割接、设备系统升级、核心配置变更等。</p>
+                <p><b>维护工单 (Maintenance)</b></p>
+                <p>定义：用于日常运维与现场作业，形成长期运维施工文档。</p>
+                <p>适用场景：机房施工、现场布线、硬件巡检与更换等。</p>
+              </div>
+            </n-tooltip>
+          </span>
+        </template>
         <n-select v-model:value="form.type" :options="typeOptions" placeholder="请选择工单类型" />
       </n-form-item>
       <template v-if="showLocationTime">
@@ -157,6 +182,46 @@ function handleSubmit() {
 
 .ticket-form :deep(.n-form-item-label) {
   padding-bottom: 8px;
+}
+
+.type-form-item :deep(.n-form-item-label__asterisk) {
+  order: 2;
+}
+
+.type-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  order: 1;
+}
+
+.type-label :deep(.n-tooltip) {
+  order: 3;
+}
+
+.type-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #e5e7eb;
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+  user-select: none;
+}
+
+.type-help-content {
+  max-width: 460px;
+  line-height: 1.6;
+}
+
+.type-help-content p {
+  margin: 6px 0 0;
 }
 
 .upload-icon {
