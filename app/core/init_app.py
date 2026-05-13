@@ -257,7 +257,7 @@ async def init_companies():
     # 检查是否已存在签约主体公司
     existing = await Company.filter(role=0).first()
     if existing:
-        logger.info("签约主体公司已存在，跳过初始化")
+        logger.debug("签约主体公司已存在，跳过初始化")
         return
     
     # 1. 77 Telecom Ltd (香港)
