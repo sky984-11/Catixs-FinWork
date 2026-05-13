@@ -10,6 +10,7 @@ from .base import base_router
 from .bills import bills_router
 from .companies import companies_router
 from .depts import depts_router
+from .dashboard import router as dashboard_router
 from .menus import menus_router
 from .roles import roles_router
 from .users import users_router
@@ -26,6 +27,7 @@ v1_router.include_router(apis_router, prefix="/api", dependencies=[DependPermiss
 v1_router.include_router(depts_router, prefix="/dept", dependencies=[DependPermission])
 v1_router.include_router(auditlog_router, prefix="/auditlog", dependencies=[DependPermission])
 v1_router.include_router(vendors_router, prefix="/vendor", dependencies=[DependPermission])
+v1_router.include_router(dashboard_router, prefix="/ticket", tags=["仪表盘模块"])
 v1_router.include_router(ticket_router, prefix="/ticket", tags=["工单模块"])
 v1_router.include_router(banks_router, prefix="/bank", dependencies=[DependPermission])
 v1_router.include_router(bank_accounts_router, prefix="/bank_account", dependencies=[DependPermission])
