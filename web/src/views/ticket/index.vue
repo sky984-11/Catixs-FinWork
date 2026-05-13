@@ -490,13 +490,13 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   padding: 16px;
-  color: var(--n-text-color-3);
+  color: #9e9e9e;
 }
 
 .no-more {
   text-align: center;
   padding: 16px;
-  color: var(--n-text-color-3);
+  color: #9e9e9e;
   font-size: 13px;
 }
 
