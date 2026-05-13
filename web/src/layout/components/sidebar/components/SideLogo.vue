@@ -1,9 +1,8 @@
 <template>
   <router-link class="side-logo" to="/" :title="title">
-    <img class="side-logo__mark" :src="logoUrl" alt="Catixs FinWork" />
+    <!-- <img class="side-logo__mark" :src="logoUrl" alt="Catixs FinWork" /> -->
+    <n-avatar round :size="48" :src="logoUrl" />
     <h2 v-show="!appStore.collapsed" class="side-logo__title">
-      <span class="side-logo__title-blue">Catixs</span>
-      <span class="side-logo__title-green">FinWork</span>
     </h2>
   </router-link>
 </template>
