@@ -131,6 +131,42 @@ uv run python run.py
 ```
 The backend service is now running, and you can visit http://localhost:9999/docs to view the API documentation.
 
+#### Database: SQLite and PostgreSQL
+SQLite is used by default and stores data in `db.sqlite3`.
+
+To run with PostgreSQL, set these environment variables before starting the backend:
+
+```sh
+DB_TYPE=postgres
+POSTGRES_HOST=127.0.0.1
+POSTGRES_PORT=5432
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your_password
+POSTGRES_DATABASE=catixs_finwork
+POSTGRES_SSL=false
+```
+
+If the PostgreSQL server requires SSL, set `POSTGRES_SSL=true`.
+
+You can also use a single DSN:
+
+```sh
+DB_TYPE=postgres
+POSTGRES_DSN=postgres://postgres:your_password@127.0.0.1:5432/catixs_finwork
+```
+
+To migrate the current SQLite data into PostgreSQL:
+
+```sh
+uv run python scripts/migrate_sqlite_to_postgres.py
+```
+
+If the target PostgreSQL tables already contain data and you want to replace them:
+
+```sh
+uv run python scripts/migrate_sqlite_to_postgres.py --truncate
+```
+
 #### Frontend
 The frontend project requires a Node.js environment (recommended version 18.8.0 or higher).
 - node v18.8.0+
