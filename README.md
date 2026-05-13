@@ -131,10 +131,10 @@ uv run python run.py
 ```
 The backend service is now running, and you can visit http://localhost:9999/docs to view the API documentation.
 
-#### Database: SQLite and PostgreSQL
-SQLite is used by default and stores data in `db.sqlite3`.
+#### Database: PostgreSQL
+PostgreSQL is the active backend database. The backend reads and writes data directly from PostgreSQL when `DB_TYPE=postgres` is set in `.env`.
 
-To run with PostgreSQL, set these environment variables before starting the backend:
+Set these environment variables before starting the backend:
 
 ```sh
 DB_TYPE=postgres
@@ -146,7 +146,7 @@ POSTGRES_DATABASE=catixs_finwork
 POSTGRES_SSL=false
 ```
 
-If the PostgreSQL server requires SSL, set `POSTGRES_SSL=true`.
+If the PostgreSQL server requires SSL, set `POSTGRES_SSL=true`. If the server rejects SSL upgrade, keep it as `false`.
 
 You can also use a single DSN:
 
@@ -155,10 +155,16 @@ DB_TYPE=postgres
 POSTGRES_DSN=postgres://postgres:your_password@127.0.0.1:5432/catixs_finwork
 ```
 
-To migrate the current SQLite data into PostgreSQL:
+SQLite import is optional and only needed when you want to move old local data into PostgreSQL:
 
 ```sh
 uv run python scripts/migrate_sqlite_to_postgres.py
+```
+
+If the target PostgreSQL database does not exist yet, let the script create it first:
+
+```sh
+uv run python scripts/migrate_sqlite_to_postgres.py --create-database
 ```
 
 If the target PostgreSQL tables already contain data and you want to replace them:

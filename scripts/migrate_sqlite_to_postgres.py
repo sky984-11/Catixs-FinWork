@@ -33,6 +33,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--postgres-database", default=settings.POSTGRES_DATABASE, help="Target PostgreSQL database.")
     parser.add_argument("--postgres-ssl", action="store_true", default=settings.POSTGRES_SSL, help="Use SSL for PostgreSQL.")
     parser.add_argument(
+        "--create-database",
+        action="store_true",
+        help="Create the target PostgreSQL database first if it does not exist.",
+    )
+    parser.add_argument(
+        "--create-database-only",
+        action="store_true",
+        help="Create the target PostgreSQL database if it does not exist, then exit without copying SQLite data.",
+    )
+    parser.add_argument(
+        "--maintenance-database",
+        default="postgres",
+        help="Existing PostgreSQL database used when --create-database is enabled.",
+    )
+    parser.add_argument(
         "--truncate",
         action="store_true",
         help="Truncate target tables before copying. Without this, migration refuses non-empty target tables.",
@@ -93,6 +108,33 @@ async def connect_postgres(args: argparse.Namespace) -> asyncpg.Connection:
         database=args.postgres_database,
         ssl=args.postgres_ssl,
     )
+
+
+async def ensure_postgres_database(args: argparse.Namespace) -> None:
+    if args.postgres_dsn:
+        raise ValueError("--create-database requires POSTGRES_* fields instead of POSTGRES_DSN.")
+
+    maintenance = await asyncpg.connect(
+        host=args.postgres_host,
+        port=args.postgres_port,
+        user=args.postgres_user,
+        password=args.postgres_password,
+        database=args.maintenance_database,
+        ssl=args.postgres_ssl,
+    )
+    try:
+        exists = await maintenance.fetchval(
+            "select 1 from pg_database where datname = $1",
+            args.postgres_database,
+        )
+        if exists:
+            print(f"database exists: {args.postgres_database}")
+            return
+
+        await maintenance.execute(f"create database {quote_ident(args.postgres_database)}")
+        print(f"database created: {args.postgres_database}")
+    finally:
+        await maintenance.close()
 
 
 async def generate_postgres_schema() -> None:
@@ -213,9 +255,16 @@ async def copy_table(sqlite_conn: sqlite3.Connection, pg: asyncpg.Connection, ta
 
 
 async def migrate(args: argparse.Namespace) -> None:
+    if args.create_database_only:
+        await ensure_postgres_database(args)
+        return
+
     sqlite_path = Path(args.sqlite_path)
     if not sqlite_path.exists():
         raise FileNotFoundError(f"SQLite database not found: {sqlite_path}")
+
+    if args.create_database:
+        await ensure_postgres_database(args)
 
     if not args.skip_schema:
         await generate_postgres_schema()

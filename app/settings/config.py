@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
 
-    DB_TYPE: str = "sqlite"
+    DB_TYPE: str = "postgres"
     SQLITE_DB_PATH: str = os.path.join(BASE_DIR, "db.sqlite3")
     POSTGRES_DSN: Optional[str] = None
     POSTGRES_HOST: str = "127.0.0.1"
@@ -74,9 +74,13 @@ class Settings(BaseSettings):
         if connection not in {"sqlite", "postgres"}:
             raise ValueError("default_connection must be either 'sqlite' or 'postgres'")
 
-        postgres_connection: str | dict[str, Any]
-        if self.POSTGRES_DSN:
-            postgres_connection = self.POSTGRES_DSN
+        if connection == "sqlite":
+            db_connection: str | dict[str, Any] = {
+                "engine": "tortoise.backends.sqlite",
+                "credentials": {"file_path": self.SQLITE_DB_PATH},
+            }
+        elif self.POSTGRES_DSN:
+            db_connection = self.POSTGRES_DSN
         else:
             credentials: dict[str, Any] = {
                 "host": self.POSTGRES_HOST,
@@ -87,19 +91,13 @@ class Settings(BaseSettings):
             }
             if self.POSTGRES_SSL:
                 credentials["ssl"] = True
-            postgres_connection = {
+            db_connection = {
                 "engine": "tortoise.backends.asyncpg",
                 "credentials": credentials,
             }
 
         return {
-            "connections": {
-                "sqlite": {
-                    "engine": "tortoise.backends.sqlite",
-                    "credentials": {"file_path": self.SQLITE_DB_PATH},
-                },
-                "postgres": postgres_connection,
-            },
+            "connections": {connection: db_connection},
             "apps": {
                 "models": {
                     "models": ["app.models", "aerich.models"],
