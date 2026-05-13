@@ -1,13 +1,13 @@
 <template>
   <n-modal :show="visible" preset="card" title="编辑工单" style="width: 600px" @update:show="$emit('update:visible', $event)">
-    <n-form :model="form" label-placement="top">
-      <n-form-item label="工单标题" required>
+    <n-form ref="formRef" :model="form" :rules="rules" label-placement="top" :show-feedback="false">
+      <n-form-item label="工单标题" path="title" required>
         <n-input v-model:value="form.title" placeholder="请输入工单标题" />
       </n-form-item>
-      <n-form-item label="工单类型" required>
+      <n-form-item label="工单类型" path="type" required>
         <n-select v-model:value="form.type" :options="typeOptions" placeholder="请选择工单类型" />
       </n-form-item>
-      <n-form-item label="工单描述" required>
+      <n-form-item label="工单描述" path="description" required>
         <n-input v-model:value="form.description" type="textarea" placeholder="请输入工单描述" :rows="4" />
       </n-form-item>
       <n-form-item label="地点">
@@ -17,7 +17,10 @@
         <n-date-picker
           v-model:value="form.planTime"
           type="datetime"
+          format="yyyy-MM-dd HH:mm"
+          :time-picker-props="{ format: 'HH:mm' }"
           placeholder="请选择计划时间"
+          style="width: 100%"
         />
       </n-form-item>
     </n-form>
@@ -31,7 +34,7 @@
 </template>
 
 <script setup>
-import { reactive, watch } from 'vue'
+import { reactive, ref, watch } from 'vue'
 
 const emit = defineEmits(['update:visible', 'submit'])
 
@@ -59,6 +62,18 @@ const form = reactive({
   planTime: null
 })
 
+const formRef = ref(null)
+const rules = {
+  title: { required: true, message: '', trigger: ['input', 'blur'] },
+  type: {
+    required: true,
+    type: 'number',
+    message: '',
+    trigger: ['change', 'blur']
+  },
+  description: { required: true, message: '', trigger: ['input', 'blur'] }
+}
+
 watch(() => props.ticket, (newTicket) => {
   if (newTicket) {
     form.id = newTicket.id
@@ -66,22 +81,23 @@ watch(() => props.ticket, (newTicket) => {
     form.type = newTicket.type
     form.description = newTicket.description || ''
     form.location = newTicket.location || ''
-    form.planTime = newTicket.planTime ? new Date(newTicket.planTime) : null
+    const planTime = newTicket.planTime ? new Date(newTicket.planTime).getTime() : null
+    form.planTime = Number.isNaN(planTime) ? null : planTime
+    formRef.value?.restoreValidation()
   }
 }, { immediate: true })
 
 function handleSubmit() {
-  if (!form.title || form.type === null || !form.description) {
-    window.$message?.warning('请填写必填项')
-    return
-  }
-  emit('submit', {
-    id: form.id,
-    title: form.title,
-    type: form.type,
-    description: form.description,
-    location: form.location || undefined,
-    planTime: form.planTime ? form.planTime.toISOString() : undefined
+  formRef.value?.validate((errors) => {
+    if (errors) return
+    emit('submit', {
+      id: form.id,
+      title: form.title,
+      type: form.type,
+      description: form.description,
+      location: form.location || undefined,
+      planTime: form.planTime || undefined
+    })
   })
 }
 </script>

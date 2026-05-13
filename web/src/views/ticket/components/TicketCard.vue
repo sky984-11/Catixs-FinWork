@@ -12,14 +12,14 @@
               :class="'status-' + ticket.status"
               @click="toggleStatusDropdown"
             >
-              <svg v-if="ticket.status === 2" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24" class="tag-icon">
+              <svg v-if="ticket.status === 0" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24" class="tag-icon">
                 <path d="M5 12l5 5L20 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
               </svg>
               {{ getStatusName(ticket.status) }}
             </span>
           </div>
           <span v-else class="status-tag" :class="'status-' + ticket.status">
-            <svg v-if="ticket.status === 2" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24" class="tag-icon">
+            <svg v-if="ticket.status === 0" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24" class="tag-icon">
               <path d="M5 12l5 5L20 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
             </svg>
             {{ getStatusName(ticket.status) }}
@@ -118,7 +118,7 @@
           >
             <span class="item-dot" :class="'dot-' + option.value"></span>
             {{ option.label }}
-            <svg v-if="ticket.status === option.value" class="item-check" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <svg v-if="ticket.status === 0 && option.value === 0" class="item-check" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
               <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" fill="currentColor"/>
             </svg>
           </div>
@@ -131,7 +131,7 @@
 <script setup>
 import { ref, computed, nextTick } from 'vue'
 
-const emit = defineEmits(['detail', 'send', 'statusChange', 'delete'])
+const emit = defineEmits(['detail', 'edit', 'send', 'statusChange', 'delete'])
 
 const placeholderImg = 'https://07akioni.oss-cn-beijing.aliyuncs.com/07akioni.jpeg'
 
