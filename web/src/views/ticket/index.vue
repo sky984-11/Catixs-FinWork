@@ -134,8 +134,8 @@ const isAdminOrNoc = computed(() => {
   if (userStore.isSuperUser) return true
   const roles = userStore.role || []
   const result = roles.some(role => {
-    const roleName = typeof role === 'string' ? role : role?.name
-    return roleName === 'admin' || roleName === 'noc'
+    const roleName = String(typeof role === 'string' ? role : role?.name || '').trim().toLowerCase()
+    return ['admin', 'noc', '管理员'].includes(roleName)
   })
   return result
 })

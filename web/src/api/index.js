@@ -88,6 +88,7 @@ export default {
 
   // ticket
   ticketApi: {
+    dashboard: () => request.get('/ticket/dashboard'),
     list: (params = {}) => request.get('/ticket/list', { params }),
     get: (params = {}) => request.get('/ticket/get', { params }),
     create: (data = {}) => request.post('/ticket/create', data),
