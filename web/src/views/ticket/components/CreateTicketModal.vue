@@ -11,13 +11,13 @@
         <n-form-item label="地点" path="location">
           <n-input v-model:value="form.location" placeholder="请输入地点" />
         </n-form-item>
-        <n-form-item label="计划时间" path="planTime">
+        <n-form-item :label="timeFieldLabel" path="planTime">
           <n-date-picker
             v-model:value="form.planTime"
             type="datetime"
             format="yyyy-MM-dd HH:mm"
             :time-picker-props="{ format: 'HH:mm' }"
-            placeholder="请选择计划时间"
+            :placeholder="`请选择${timeFieldLabel}`"
             style="width: 100%"
           />
         </n-form-item>
@@ -87,6 +87,11 @@ const form = reactive({
 const formRef = ref(null)
 const uploadedFiles = ref([])
 const showLocationTime = computed(() => form.type === 0 || form.type === 3)
+const timeFieldLabel = computed(() => {
+  if (form.type === 0) return '故障时间'
+  if (form.type === 3) return '维护时间'
+  return '计划时间'
+})
 
 const rules = {
   title: { required: true, message: '', trigger: ['input', 'blur'] },
@@ -105,9 +110,9 @@ watch(() => props.visible, (visible) => {
   }
 })
 
-watch(() => form.type, () => {
+watch(() => form.type, (type) => {
   form.location = ''
-  form.planTime = null
+  form.planTime = type === 0 ? Date.now() : null
 })
 
 function resetForm() {
