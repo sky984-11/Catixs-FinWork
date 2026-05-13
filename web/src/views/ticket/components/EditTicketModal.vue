@@ -55,6 +55,7 @@ const props = defineProps({
 
 const form = reactive({
   id: null,
+  ticketNo: '',
   title: '',
   type: null,
   description: '',
@@ -77,6 +78,7 @@ const rules = {
 watch(() => props.ticket, (newTicket) => {
   if (newTicket) {
     form.id = newTicket.id
+    form.ticketNo = newTicket.ticketNo || ''
     form.title = newTicket.title || ''
     form.type = newTicket.type
     form.description = newTicket.description || ''
@@ -92,6 +94,7 @@ function handleSubmit() {
     if (errors) return
     emit('submit', {
       id: form.id,
+      ticketNo: form.ticketNo,
       title: form.title,
       type: form.type,
       description: form.description,

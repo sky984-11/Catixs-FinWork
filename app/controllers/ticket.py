@@ -60,7 +60,7 @@ class TicketController(CRUDBase[Ticket, TicketCreate, TicketUpdate]):
 
     async def update_ticket(self, id: int, obj_in: TicketUpdate) -> Ticket:
         """更新工单"""
-        data = obj_in.model_dump(exclude_unset=True, exclude={"id"})
+        data = obj_in.model_dump(exclude_unset=True, exclude={"id", "ticket_no"})
         return await self.update(id=id, obj_in=data)
     
     async def get_ticket_by_no(self, ticket_no: str) -> Ticket:

@@ -37,7 +37,8 @@ class TicketCreate(BaseModel):
 
 class TicketUpdate(BaseModel):
     """更新工单请求模型"""
-    id: int = Field(..., example=1)
+    id: Optional[int] = Field(None, example=1)
+    ticket_no: Optional[str] = Field(None, description="工单编号")
     title: Optional[str] = Field(None, example="服务器磁盘空间不足")
     status: Optional[int] = Field(None, description="工单状态：0-已完成, 1-进行中, 2-未开始, 3-已关闭", example=1)
     type: Optional[int] = Field(None, description="工单类型：0-故障工单, 1-服务请求, 2-变更工单, 3-维护工单", example=0)

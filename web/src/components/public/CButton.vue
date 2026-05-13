@@ -69,11 +69,19 @@
     </n-button>
     <n-button
       v-if="showSend"
-      type="primary"
-      size="small"
+      class="c-button-send"
+      round
       secondary
+      :disabled="disabled"
       @click="handleSend"
     >
+      <template #icon>
+        <n-icon>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M2.01 21L23 12L2.01 3L2 10L17 12L2 14L2.01 21Z" fill="currentColor"/>
+          </svg>
+        </n-icon>
+      </template>
       发送
     </n-button>
   </n-space>
@@ -136,3 +144,20 @@ const handleSend = () => {
   emit('send')
 }
 </script>
+
+<style scoped>
+.c-button-send {
+  --n-text-color: #d4380d !important;
+  --n-text-color-hover: #d4380d !important;
+  --n-text-color-pressed: #ad2b08 !important;
+  --n-text-color-focus: #d4380d !important;
+  --n-color: rgba(250, 140, 22, 0.12) !important;
+  --n-color-hover: rgba(250, 140, 22, 0.18) !important;
+  --n-color-pressed: rgba(250, 140, 22, 0.24) !important;
+  --n-color-focus: rgba(250, 140, 22, 0.18) !important;
+  --n-border: 1px solid rgba(250, 140, 22, 0.28) !important;
+  --n-border-hover: 1px solid rgba(250, 140, 22, 0.4) !important;
+  --n-border-pressed: 1px solid rgba(250, 140, 22, 0.48) !important;
+  --n-border-focus: 1px solid rgba(250, 140, 22, 0.4) !important;
+}
+</style>
