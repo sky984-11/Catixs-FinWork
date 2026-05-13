@@ -56,9 +56,7 @@
       
       <CreateTicketModal
         v-model:visible="createModalVisible"
-        :is-admin-or-noc="isAdminOrNoc"
         :type-options="typeOptions"
-        :customer-options="customerOptions"
         @submit="handleSubmitCreate"
       />
 
@@ -286,7 +284,7 @@ async function handleSubmitCreate(formData) {
     const data = {
         title: formData.title,
         type: formData.type,
-        user_id: isAdminOrNoc.value ? (formData.customerId || userStore.userId) : userStore.userId,
+        user_id: userStore.userId,
         desc: formData.description,
         location: formData.location || undefined,
         start_time: formData.planTime ? formatTimeToMinute(formData.planTime) : undefined,

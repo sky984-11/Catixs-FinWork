@@ -97,10 +97,7 @@ async def create_ticket(
     current_user = await get_current_ticket_user()
     has_ticket_manager_access = await can_view_all_tickets(current_user)
     ticket_data = ticket_in.model_dump()
-    if not has_ticket_manager_access:
-        ticket_data["user_id"] = current_user.id
-    elif not ticket_data.get("user_id"):
-        ticket_data["user_id"] = current_user.id
+    ticket_data["user_id"] = current_user.id
 
     # 创建工单
     ticket_obj = await ticket_controller.create_ticket(TicketCreate(**ticket_data))

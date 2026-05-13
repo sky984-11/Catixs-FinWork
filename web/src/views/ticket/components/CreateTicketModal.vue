@@ -25,9 +25,6 @@
       <n-form-item label="工单描述" path="description" required>
         <n-input v-model:value="form.description" type="textarea" placeholder="请输入工单描述" :rows="4" />
       </n-form-item>
-      <n-form-item v-show="isAdminOrNoc" label="用户">
-        <n-select v-model:value="form.customerId" :options="customerOptions" placeholder="请选择用户" />
-      </n-form-item>
       <n-form-item label="附件图片">
         <n-upload
           v-model:file-list="uploadedFiles"
@@ -59,15 +56,7 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  isAdminOrNoc: {
-    type: Boolean,
-    default: false
-  },
   typeOptions: {
-    type: Array,
-    default: () => []
-  },
-  customerOptions: {
     type: Array,
     default: () => []
   }
@@ -77,7 +66,6 @@ const form = reactive({
   title: '',
   type: null,
   description: '',
-  customerId: null,
   location: '',
   planTime: null
 })
@@ -112,7 +100,6 @@ function resetForm() {
   form.title = ''
   form.type = null
   form.description = ''
-  form.customerId = null
   form.location = ''
   form.planTime = null
   uploadedFiles.value = []
