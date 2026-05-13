@@ -204,10 +204,15 @@ async function loadData(reset = false) {
         type: ticket.type,
         status: ticket.status,
         customerId: ticket.user_id,
+        creatorName: ticket.creator_name,
+        assigneeName: ticket.assignee_name,
+        assigneeId: ticket.assignee_id,
         customerName: ticket.user_id ? customerOptions.value.find(c => c.value === ticket.user_id)?.label || '未知用户' : userStore.name,
         operatorName: ticket.assignee_id ? `处理人${ticket.assignee_id}` : null,
         description: ticket.desc,
         createTime: ticket.created_at,
+        startTime: ticket.start_time,
+        completeTime: ticket.end_time,
         updateTime: ticket.updated_at,
         location: ticket.location,
         planTime: ticket.start_time,
@@ -366,7 +371,10 @@ async function handleStatusChange({ ticket, newStatus }) {
       
       if (currentTicket.value && currentTicket.value.id === ticket.id) {
         currentTicket.value.status = newStatus
-        currentTicket.value.updateTime = new Date().toLocaleString()
+        if (newStatus === 0) {
+          currentTicket.value.assigneeName = userStore.name
+          currentTicket.value.completeTime = new Date().toLocaleString()
+        }
       }
       
       loadData(true)

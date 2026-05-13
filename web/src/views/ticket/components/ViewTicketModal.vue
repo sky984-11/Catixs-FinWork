@@ -27,17 +27,19 @@
           <span class="detail-label">创建时间</span>
           <span class="detail-value">{{ ticket.createTime }}</span>
         </div>
-        <div class="detail-item">
-          <span class="detail-label">更新时间</span>
-          <span class="detail-value">{{ ticket.updateTime || '-' }}</span>
-        </div>
+        <template v-if="ticket.status === 0">
+          <div class="detail-item">
+            <span class="detail-label">处理人</span>
+            <span class="detail-value">{{ ticket.assigneeName || ticket.operatorName || '-' }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">完成时间</span>
+            <span class="detail-value">{{ ticket.completeTime || '-' }}</span>
+          </div>
+        </template>
         <div class="detail-item" v-if="ticket.location">
           <span class="detail-label">地点</span>
           <span class="detail-value">{{ ticket.location }}</span>
-        </div>
-        <div class="detail-item" v-if="ticket.planTime">
-          <span class="detail-label">计划时间</span>
-          <span class="detail-value">{{ ticket.planTime }}</span>
         </div>
       </div>
 

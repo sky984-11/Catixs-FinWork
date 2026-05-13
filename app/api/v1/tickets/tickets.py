@@ -47,6 +47,21 @@ async def ensure_ticket_access(ticket_obj: Ticket, current_user: User) -> None:
         raise HTTPException(status_code=403, detail="无权限访问该工单")
 
 
+def get_user_display_name(user: User | None) -> str:
+    if not user:
+        return "未知用户"
+    return user.alias or user.username or "未知用户"
+
+
+async def ticket_to_dict(ticket_obj: Ticket) -> dict:
+    data = await ticket_obj.to_dict()
+    creator = await User.get_or_none(id=ticket_obj.user_id) if ticket_obj.user_id else None
+    assignee = await User.get_or_none(id=ticket_obj.assignee_id) if ticket_obj.assignee_id else None
+    data["creator_name"] = get_user_display_name(creator)
+    data["assignee_name"] = get_user_display_name(assignee) if assignee else ""
+    return data
+
+
 @router.get("/list", summary="查看工单列表", dependencies=[DependAuth])
 async def list_tickets(
     page: int = Query(1, description="页码"),
@@ -77,7 +92,7 @@ async def list_tickets(
         q &= Q(assignee_id=assignee_id)
 
     total, ticket_objs = await ticket_controller.list_tickets(page=page, page_size=page_size, search=q, order=["-created_at"])
-    data = [await obj.to_dict() for obj in ticket_objs]
+    data = [await ticket_to_dict(obj) for obj in ticket_objs]
     return SuccessExtra(data=data, total=total, page=page, page_size=page_size)
 
 
@@ -88,7 +103,7 @@ async def get_ticket(
     current_user = await get_current_ticket_user()
     ticket_obj = await ticket_controller.get(id=ticket_id)
     await ensure_ticket_access(ticket_obj, current_user)
-    return Success(data=await ticket_obj.to_dict())
+    return Success(data=await ticket_to_dict(ticket_obj))
 
 
 @router.post("/create", summary="创建工单", dependencies=[DependAuth])
@@ -128,7 +143,7 @@ async def create_ticket(
             # 通知发送失败不影响工单创建结果
             logger.error(f"发送飞书通知失败: {e}")
     
-    return Success(msg="工单创建成功", data=await ticket_obj.to_dict())
+    return Success(msg="工单创建成功", data=await ticket_to_dict(ticket_obj))
 
 
 @router.post("/update", summary="更新工单", dependencies=[DependAuth])
@@ -147,8 +162,11 @@ async def update_ticket(
     if ticket_obj is None:
         raise HTTPException(status_code=404, detail="工单不存在")
     await ensure_ticket_access(ticket_obj, current_user)
+    if ticket_in.status == 0:
+        ticket_in.assignee_id = current_user.id
+        ticket_in.end_time = datetime.now()
     ticket_obj = await ticket_controller.update_ticket(id=ticket_obj.id, obj_in=ticket_in)
-    return Success(msg="工单更新成功", data=await ticket_obj.to_dict())
+    return Success(msg="工单更新成功", data=await ticket_to_dict(ticket_obj))
 
 
 @router.delete("/delete", summary="删除工单", dependencies=[DependAuth])
@@ -171,7 +189,7 @@ async def get_ticket_by_no(
         return Success(msg="工单不存在", code=404)
     current_user = await get_current_ticket_user()
     await ensure_ticket_access(ticket_obj, current_user)
-    return Success(data=await ticket_obj.to_dict())
+    return Success(data=await ticket_to_dict(ticket_obj))
 
 
 @router.post("/upload", summary="上传工单附件图片", dependencies=[DependAuth])
