@@ -39,17 +39,12 @@
             <CButton
               showEdit
               showDelete
+              :show-send="isAdminOrNoc && (ticket.type === 2 || ticket.type === 3)"
               @edit="$emit('edit', ticket)"
               @delete="$emit('delete', ticket)"
+              @send="$emit('send', ticket)"
             />
           </div>
-          <button
-            v-show="isAdminOrNoc && (ticket.type === 2 || ticket.type === 3)"
-            class="btn-send"
-            @click.stop="$emit('send', ticket)"
-          >
-            发送
-          </button>
         </div>
         <button
           v-if="ticket.attachments && ticket.attachments.length > 0"
@@ -81,23 +76,12 @@
       </div>
     </div>
 
-    <!-- 附件图片预览弹窗 -->
-    <n-modal v-model:show="attachmentModalVisible" preset="card" title="问题截图" style="width: 620px" :mask-closable="false">
-      <n-image-group>
-        <n-space>
-          <n-image
-            v-for="(img, index) in ticket.attachments"
-            :key="index"
-            width="200"
-            :src="getImageUrl(img)"
-            object-fit="contain"
-          />
-        </n-space>
-      </n-image-group>
-      <template #footer>
-        <n-button @click="attachmentModalVisible = false">关闭</n-button>
-      </template>
-    </n-modal>
+    <n-image
+      ref="attachmentImageRef"
+      class="attachment-preview-trigger"
+      :src="attachmentPreviewSrc"
+      :preview-src="attachmentPreviewSrc"
+    />
 
     <!-- 使用Teleport将下拉菜单挂载到body，避免z-index问题 -->
     <Teleport to="body">
@@ -135,10 +119,13 @@ const emit = defineEmits(['detail', 'edit', 'send', 'statusChange', 'delete'])
 
 const placeholderImg = 'https://07akioni.oss-cn-beijing.aliyuncs.com/07akioni.jpeg'
 
-const attachmentModalVisible = ref(false)
+const attachmentImageRef = ref(null)
+const attachmentPreviewSrc = computed(() => getImageUrl(props.ticket.attachments?.[0]))
 
 function handleViewAttachment() {
-  attachmentModalVisible.value = true
+  nextTick(() => {
+    attachmentImageRef.value?.click?.()
+  })
 }
 
 const props = defineProps({
@@ -268,6 +255,14 @@ function getImageUrl(img) {
 .attach-icon {
   width: 16px;
   height: 16px;
+}
+
+.attachment-preview-trigger {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .ticket-card {
@@ -524,31 +519,6 @@ function getImageUrl(img) {
   display: flex;
   gap: 12px;
   padding-top: 4px;
-}
-
-/* 发送按钮 */
-.btn-send {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 80px;
-  height: 34px;
-  padding: 0 20px;
-  font-size: 14px;
-  font-weight: 500;
-  color: #d4380d;
-  background: rgba(212, 56, 13, 0.1);
-  border: 1px solid rgba(212, 56, 13, 0.25);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  outline: none;
-  white-space: nowrap;
-}
-
-.btn-send:hover {
-  background: rgba(212, 56, 13, 0.18);
-  border-color: rgba(212, 56, 13, 0.35);
 }
 
 </style>

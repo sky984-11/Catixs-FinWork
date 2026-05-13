@@ -358,7 +358,7 @@ async function handleStatusChange({ ticket, newStatus }) {
   }
 
   try {
-    const result = await api.ticketApi.update({ id: ticket.id, status: newStatus })
+    const result = await api.ticketApi.update({ id: ticket.id, ticket_no: ticket.ticketNo, status: newStatus })
     
     if (result.code === 200) {
       const statusNames = { 0: '已完成', 1: '进行中', 2: '未开始', 3: '已关闭' }
@@ -382,6 +382,7 @@ async function handleSubmitEdit(formData) {
   try {
     const data = {
       id: formData.id,
+      ticket_no: formData.ticketNo,
       title: formData.title,
       type: formData.type,
       desc: formData.description,

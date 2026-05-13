@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from tortoise.exceptions import DoesNotExist
 from tortoise.expressions import Q
 
 from app.controllers.ticket import ticket_controller
@@ -135,9 +136,18 @@ async def update_ticket(
     ticket_in: TicketUpdate,
 ):
     current_user = await get_current_ticket_user()
-    ticket_obj = await ticket_controller.get(id=ticket_in.id)
+    ticket_obj = None
+    if ticket_in.id is not None:
+        try:
+            ticket_obj = await ticket_controller.get(id=ticket_in.id)
+        except DoesNotExist:
+            ticket_obj = None
+    if ticket_obj is None and ticket_in.ticket_no:
+        ticket_obj = await ticket_controller.get_ticket_by_no(ticket_no=ticket_in.ticket_no)
+    if ticket_obj is None:
+        raise HTTPException(status_code=404, detail="工单不存在")
     await ensure_ticket_access(ticket_obj, current_user)
-    ticket_obj = await ticket_controller.update_ticket(id=ticket_in.id, obj_in=ticket_in)
+    ticket_obj = await ticket_controller.update_ticket(id=ticket_obj.id, obj_in=ticket_in)
     return Success(msg="工单更新成功", data=await ticket_obj.to_dict())
 
 
