@@ -76,23 +76,12 @@
       </div>
     </div>
 
-    <!-- 附件图片预览弹窗 -->
-    <n-modal v-model:show="attachmentModalVisible" preset="card" title="问题截图" style="width: 620px" :mask-closable="false">
-      <n-image-group>
-        <n-space>
-          <n-image
-            v-for="(img, index) in ticket.attachments"
-            :key="index"
-            width="200"
-            :src="getImageUrl(img)"
-            object-fit="contain"
-          />
-        </n-space>
-      </n-image-group>
-      <template #footer>
-        <n-button @click="attachmentModalVisible = false">关闭</n-button>
-      </template>
-    </n-modal>
+    <n-image
+      ref="attachmentImageRef"
+      class="attachment-preview-trigger"
+      :src="attachmentPreviewSrc"
+      :preview-src="attachmentPreviewSrc"
+    />
 
     <!-- 使用Teleport将下拉菜单挂载到body，避免z-index问题 -->
     <Teleport to="body">
@@ -130,10 +119,13 @@ const emit = defineEmits(['detail', 'edit', 'send', 'statusChange', 'delete'])
 
 const placeholderImg = 'https://07akioni.oss-cn-beijing.aliyuncs.com/07akioni.jpeg'
 
-const attachmentModalVisible = ref(false)
+const attachmentImageRef = ref(null)
+const attachmentPreviewSrc = computed(() => getImageUrl(props.ticket.attachments?.[0]))
 
 function handleViewAttachment() {
-  attachmentModalVisible.value = true
+  nextTick(() => {
+    attachmentImageRef.value?.click?.()
+  })
 }
 
 const props = defineProps({
@@ -263,6 +255,14 @@ function getImageUrl(img) {
 .attach-icon {
   width: 16px;
   height: 16px;
+}
+
+.attachment-preview-trigger {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .ticket-card {
