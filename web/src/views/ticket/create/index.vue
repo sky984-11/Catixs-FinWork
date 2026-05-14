@@ -87,10 +87,16 @@
             </n-upload>
           </n-form-item>
 
-          <n-space justify="end" class="form-actions">
-            <n-button @click="handleCancel">取消</n-button>
-            <n-button type="primary" :loading="submitting" @click="handleSubmit">提交</n-button>
-          </n-space>
+          <div class="form-actions">
+            <CButton
+              show-cancel
+              show-save
+              save-text="提交"
+              :save-loading="submitting"
+              @cancel="handleCancel"
+              @save="handleSubmit"
+            />
+          </div>
         </n-form>
       </n-card>
     </div>
@@ -103,6 +109,7 @@ import { useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
 import { useUserStore } from '@/store'
 import api from '@/api'
+import CButton from '@/components/public/CButton.vue'
 
 defineOptions({ name: 'CreateTicket' })
 
@@ -321,6 +328,8 @@ async function submitTicket() {
 }
 
 .form-actions {
+  display: flex;
+  justify-content: flex-end;
   padding-top: 4px;
 }
 

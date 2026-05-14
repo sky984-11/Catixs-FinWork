@@ -62,10 +62,15 @@
             </n-form-item>
           </template>
 
-          <n-space justify="end" class="form-actions">
-            <n-button @click="handleCancel">取消</n-button>
-            <n-button type="primary" :loading="submitting" @click="handleSubmit">保存</n-button>
-          </n-space>
+          <div class="form-actions">
+            <CButton
+              show-cancel
+              show-save
+              :save-loading="submitting"
+              @cancel="handleCancel"
+              @save="handleSubmit"
+            />
+          </div>
         </n-form>
       </n-card>
 
@@ -83,6 +88,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
 import api from '@/api'
+import CButton from '@/components/public/CButton.vue'
 
 defineOptions({ name: 'EditTicket' })
 
@@ -295,6 +301,8 @@ onMounted(loadTicket)
 }
 
 .form-actions {
+  display: flex;
+  justify-content: flex-end;
   padding-top: 4px;
 }
 

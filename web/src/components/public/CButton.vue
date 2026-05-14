@@ -1,6 +1,48 @@
 <template>
   <n-space :size="12">
     <n-button
+      v-if="showCancel"
+      class="c-button-cancel"
+      round
+      secondary
+      :loading="cancelLoading"
+      :disabled="disabled"
+      @click="handleCancel"
+    >
+      <template #icon>
+        <n-icon>
+          <svg v-if="!cancelLoading" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M18.3 5.71L12 12l6.3 6.29l-1.41 1.42L10.59 13.41L4.29 19.71L2.88 18.29L9.17 12L2.88 5.71L4.29 4.29l6.3 6.3l6.3-6.3l1.41 1.42z" fill="currentColor"/>
+          </svg>
+          <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" fill="currentColor"/>
+          </svg>
+        </n-icon>
+      </template>
+      {{ cancelLoading ? '处理中' : cancelText }}
+    </n-button>
+    <n-button
+      v-if="showSave"
+      type="info"
+      round
+      secondary
+      :loading="saveLoading"
+      :disabled="disabled"
+      @click="handleSave"
+    >
+      <template #icon>
+        <n-icon>
+          <svg v-if="!saveLoading" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19L21 7l-1.41-1.41z" fill="currentColor"/>
+          </svg>
+          <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" fill="currentColor"/>
+          </svg>
+        </n-icon>
+      </template>
+      {{ saveLoading ? '处理中' : saveText }}
+    </n-button>
+    <n-button
       v-if="showEdit"
       type="info"
       round
@@ -84,9 +126,19 @@
 </template>
 
 <script setup>
-const emit = defineEmits(['edit', 'delete', 'send'])
+const emit = defineEmits(['cancel', 'save', 'edit', 'delete', 'send'])
 
 defineProps({
+  // 是否显示取消按钮
+  showCancel: {
+    type: Boolean,
+    default: false
+  },
+  // 是否显示保存按钮
+  showSave: {
+    type: Boolean,
+    default: false
+  },
   // 是否显示编辑按钮
   showEdit: {
     type: Boolean,
@@ -121,8 +173,36 @@ defineProps({
   sendLoading: {
     type: Boolean,
     default: false
+  },
+  // 保存按钮loading状态
+  saveLoading: {
+    type: Boolean,
+    default: false
+  },
+  // 取消按钮loading状态
+  cancelLoading: {
+    type: Boolean,
+    default: false
+  },
+  // 保存按钮文案
+  saveText: {
+    type: String,
+    default: '保存'
+  },
+  // 取消按钮文案
+  cancelText: {
+    type: String,
+    default: '取消'
   }
 })
+
+const handleCancel = () => {
+  emit('cancel')
+}
+
+const handleSave = () => {
+  emit('save')
+}
 
 const handleEdit = () => {
   emit('edit')
@@ -138,6 +218,21 @@ const handleSend = () => {
 </script>
 
 <style scoped>
+.c-button-cancel {
+  --n-text-color: #4b5563 !important;
+  --n-text-color-hover: #374151 !important;
+  --n-text-color-pressed: #1f2937 !important;
+  --n-text-color-focus: #374151 !important;
+  --n-color: rgba(107, 114, 128, 0.1) !important;
+  --n-color-hover: rgba(107, 114, 128, 0.16) !important;
+  --n-color-pressed: rgba(107, 114, 128, 0.22) !important;
+  --n-color-focus: rgba(107, 114, 128, 0.16) !important;
+  --n-border: 1px solid rgba(107, 114, 128, 0.24) !important;
+  --n-border-hover: 1px solid rgba(107, 114, 128, 0.38) !important;
+  --n-border-pressed: 1px solid rgba(107, 114, 128, 0.46) !important;
+  --n-border-focus: 1px solid rgba(107, 114, 128, 0.38) !important;
+}
+
 .c-button-send {
   --n-text-color: #d4380d !important;
   --n-text-color-hover: #d4380d !important;
