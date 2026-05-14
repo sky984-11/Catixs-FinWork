@@ -58,6 +58,18 @@
             </n-form-item>
           </template>
 
+          <n-form-item label="附件图片">
+            <n-upload
+              v-model:file-list="uploadedFiles"
+              multiple
+              directory-dnd
+              :max="5"
+              accept="image/*"
+              list-type="image-card"
+              @change="handleUploadChange"
+            />
+          </n-form-item>
+
           <div class="form-actions">
             <CButton
               show-cancel
@@ -95,6 +107,7 @@ const formRef = ref(null)
 const loading = ref(false)
 const submitting = ref(false)
 const ticketLoaded = ref(false)
+const uploadedFiles = ref([])
 
 const form = reactive({
   id: null,
@@ -160,7 +173,34 @@ function fillForm(ticket) {
   form.location = ticket.location || ''
   const planTime = ticket.start_time ? new Date(ticket.start_time).getTime() : null
   form.planTime = Number.isNaN(planTime) ? null : planTime
+  uploadedFiles.value = parseAttachmentUrls(ticket).map((url, index) => ({
+    id: `existing-${index}`,
+    name: getFileName(url, index),
+    status: 'finished',
+    url
+  }))
   formRef.value?.restoreValidation()
+}
+
+function handleUploadChange(options) {
+  uploadedFiles.value = options.fileList
+}
+
+function parseAttachmentUrls(ticket) {
+  if (Array.isArray(ticket.attachment_urls)) return ticket.attachment_urls.filter(Boolean)
+  if (!ticket.attachment_url) return []
+  try {
+    const parsed = JSON.parse(ticket.attachment_url)
+    if (Array.isArray(parsed)) return parsed.filter(Boolean)
+  } catch (error) {
+    return [ticket.attachment_url]
+  }
+  return [ticket.attachment_url]
+}
+
+function getFileName(url, index) {
+  const name = String(url || '').split('/').filter(Boolean).pop()
+  return name || `附件${index + 1}`
 }
 
 function formatTimeToMinute(dateStr) {
@@ -189,13 +229,15 @@ async function submitTicket() {
   submitting.value = true
 
   try {
+    const attachmentUrls = await resolveAttachmentUrls()
     const result = await api.ticketApi.update({
       id: form.id,
       ticket_no: form.ticketNo,
       title: form.title,
       desc: form.description,
       location: showLocationTime.value ? form.location || undefined : undefined,
-      start_time: showLocationTime.value && form.planTime ? formatTimeToMinute(form.planTime) : undefined
+      start_time: showLocationTime.value && form.planTime ? formatTimeToMinute(form.planTime) : undefined,
+      attachment_url: JSON.stringify(attachmentUrls)
     })
 
     if (result.code === 200) {
@@ -205,10 +247,31 @@ async function submitTicket() {
       window.$message?.error(result.msg || '编辑失败')
     }
   } catch (error) {
-    window.$message?.error('编辑失败')
+    window.$message?.error(error?.message || '编辑失败')
   } finally {
     submitting.value = false
   }
+}
+
+async function resolveAttachmentUrls() {
+  const urls = []
+  for (const item of uploadedFiles.value) {
+    if (item.url) {
+      urls.push(item.url)
+      continue
+    }
+    if (!item.file) continue
+    const uploadFormData = new FormData()
+    uploadFormData.append('file', item.file)
+    const uploadRes = await api.ticketApi.upload(uploadFormData, { ticket_id: form.id })
+    if (uploadRes.code !== 200) {
+      throw new Error(uploadRes.msg || '附件上传失败')
+    }
+    if (uploadRes.data?.url) {
+      urls.push(uploadRes.data.url)
+    }
+  }
+  return urls
 }
 
 onMounted(loadTicket)

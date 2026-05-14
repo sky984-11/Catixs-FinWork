@@ -188,42 +188,47 @@ async function submitTicket() {
   submitting.value = true
 
   try {
-    let attachmentUrl = undefined
     const files = uploadedFiles.value.filter(f => f.file).map(f => f.file)
-
-    if (files.length > 0) {
-      const uploadFormData = new FormData()
-      uploadFormData.append('file', files[0])
-      const uploadRes = await api.ticketApi.upload(uploadFormData)
-      if (uploadRes.code === 200) {
-        attachmentUrl = uploadRes.data.url
-      } else {
-        window.$message?.warning(uploadRes.msg || '附件上传失败')
-        return
-      }
-    }
-
     const result = await api.ticketApi.create({
       title: form.title,
       type: form.type,
       user_id: userStore.userId,
       desc: form.description,
       location: showLocationTime.value ? form.location || undefined : undefined,
-      start_time: showLocationTime.value && form.planTime ? formatTimeToMinute(form.planTime) : undefined,
-      attachment_url: attachmentUrl
+      start_time: showLocationTime.value && form.planTime ? formatTimeToMinute(form.planTime) : undefined
     })
 
     if (result.code === 200) {
+      const ticketId = result.data?.id
+      if (files.length > 0 && ticketId) {
+        await uploadTicketAttachments(files, ticketId)
+      }
       window.$message?.success('创建成功')
       router.push('/ticket')
     } else {
       window.$message?.error(result.msg || '创建失败')
     }
   } catch (error) {
-    window.$message?.error('创建失败')
+    window.$message?.error(error?.message || '创建失败')
   } finally {
     submitting.value = false
   }
+}
+
+async function uploadTicketAttachments(files, ticketId) {
+  const urls = []
+  for (const file of files) {
+    const uploadFormData = new FormData()
+    uploadFormData.append('file', file)
+    const uploadRes = await api.ticketApi.upload(uploadFormData, { ticket_id: ticketId })
+    if (uploadRes.code !== 200) {
+      throw new Error(uploadRes.msg || '附件上传失败')
+    }
+    if (uploadRes.data?.url) {
+      urls.push(uploadRes.data.url)
+    }
+  }
+  return urls
 }
 </script>
 

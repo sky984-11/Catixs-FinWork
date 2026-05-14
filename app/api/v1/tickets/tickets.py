@@ -1,4 +1,5 @@
 import logging
+import json
 import os
 import uuid
 from datetime import datetime
@@ -59,7 +60,31 @@ async def ticket_to_dict(ticket_obj: Ticket) -> dict:
     assignee = await User.get_or_none(id=ticket_obj.assignee_id) if ticket_obj.assignee_id else None
     data["creator_name"] = get_user_display_name(creator)
     data["assignee_name"] = get_user_display_name(assignee) if assignee else ""
+    data["attachment_urls"] = get_ticket_attachment_urls(ticket_obj)
     return data
+
+
+def parse_attachment_urls(attachment_url: str | None) -> list[str]:
+    if not attachment_url:
+        return []
+    try:
+        parsed = json.loads(attachment_url)
+    except (TypeError, json.JSONDecodeError):
+        parsed = None
+    if isinstance(parsed, list):
+        return [str(url) for url in parsed if str(url).strip()]
+    return [attachment_url]
+
+
+def get_ticket_attachment_urls(ticket_obj: Ticket) -> list[str]:
+    urls = parse_attachment_urls(ticket_obj.attachment_url)
+    ticket_upload_dir = os.path.join(UPLOAD_DIR, str(ticket_obj.id))
+    if os.path.isdir(ticket_upload_dir):
+        for filename in sorted(os.listdir(ticket_upload_dir)):
+            file_path = os.path.join(ticket_upload_dir, filename)
+            if os.path.isfile(file_path):
+                urls.append(f"/uploads/tickets/{ticket_obj.id}/{filename}")
+    return list(dict.fromkeys(urls))
 
 
 @router.get("/list", summary="查看工单列表", dependencies=[DependAuth])
@@ -197,6 +222,7 @@ async def get_ticket_by_no(
 @router.post("/upload", summary="上传工单附件图片", dependencies=[DependAuth])
 async def upload_ticket_attachment(
     file: UploadFile = File(..., description="附件图片"),
+    ticket_id: int | None = Query(None, description="工单ID"),
 ):
     # 只允许图片
     if not file.content_type or not file.content_type.startswith('image/'):
@@ -205,13 +231,21 @@ async def upload_ticket_attachment(
     # 生成唯一文件名
     file_ext = os.path.splitext(file.filename)[1]
     unique_filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}{file_ext}"
-    file_path = os.path.join(UPLOAD_DIR, unique_filename)
+    if ticket_id is not None:
+        ticket_obj = await ticket_controller.get(id=ticket_id)
+        current_user = await get_current_ticket_user()
+        await ensure_ticket_access(ticket_obj, current_user)
+        ticket_upload_dir = os.path.join(UPLOAD_DIR, str(ticket_id))
+        file_url = f"/uploads/tickets/{ticket_id}/{unique_filename}"
+    else:
+        ticket_upload_dir = UPLOAD_DIR
+        file_url = f"/uploads/tickets/{unique_filename}"
+    os.makedirs(ticket_upload_dir, exist_ok=True)
+    file_path = os.path.join(ticket_upload_dir, unique_filename)
 
     # 保存文件
     content = await file.read()
     with open(file_path, "wb") as f:
         f.write(content)
 
-    # 返回可访问的URL路径
-    file_url = f"/uploads/tickets/{unique_filename}"
     return Success(msg="上传成功", data={"url": file_url})

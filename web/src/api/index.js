@@ -95,7 +95,8 @@ export default {
     update: (data = {}) => request.post('/ticket/update', data),
     delete: (params = {}) => request.delete('/ticket/delete', { params }),
     getByNo: (params = {}) => request.get('/ticket/get_by_no', { params }),
-    upload: (formData) => request.post('/ticket/upload', formData, {
+    upload: (formData, params = {}) => request.post('/ticket/upload', formData, {
+      params,
       headers: { 'Content-Type': 'multipart/form-data' }
     })
   }

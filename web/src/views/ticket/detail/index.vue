@@ -113,7 +113,6 @@ const visibleDetailFields = computed(() => {
     { key: 'location', label: '地点', value: ticket.value.location },
     { key: 'start_time', label: '计划开始时间', value: ticket.value.startTime },
     { key: 'end_time', label: '完成时间', value: ticket.value.completeTime },
-    { key: 'attachment_url', label: '附件地址', value: ticket.value.attachmentUrl },
     { key: 'created_at', label: '创建时间', value: ticket.value.createTime },
     { key: 'updated_at', label: '更新时间', value: ticket.value.updateTime },
   ]
@@ -140,8 +139,21 @@ function formatTicket(data) {
     updateTime: shouldShowUpdatedAt(data.updated_at, data.created_at) ? data.updated_at : null,
     location: data.location,
     attachmentUrl: data.attachment_url,
-    attachments: data.attachment_url ? [data.attachment_url] : []
+    attachments: parseAttachmentUrls(data),
+    attachmentUrlDisplay: parseAttachmentUrls(data).join('\n')
   }
+}
+
+function parseAttachmentUrls(data) {
+  if (Array.isArray(data.attachment_urls)) return data.attachment_urls.filter(Boolean)
+  if (!data.attachment_url) return []
+  try {
+    const parsed = JSON.parse(data.attachment_url)
+    if (Array.isArray(parsed)) return parsed.filter(Boolean)
+  } catch (error) {
+    return [data.attachment_url]
+  }
+  return [data.attachment_url]
 }
 
 function hasValue(value) {

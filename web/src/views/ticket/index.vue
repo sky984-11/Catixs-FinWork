@@ -187,7 +187,7 @@ async function loadData(reset = false) {
         updateTime: ticket.updated_at,
         location: ticket.location,
         planTime: ticket.start_time,
-        attachments: ticket.attachment_url ? [ticket.attachment_url] : []
+        attachments: parseAttachmentUrls(ticket)
       }))
 
       if (reset) {
@@ -211,6 +211,18 @@ async function loadData(reset = false) {
     if (reset) loading.value = false
     else loadingMore.value = false
   }
+}
+
+function parseAttachmentUrls(ticket) {
+  if (Array.isArray(ticket.attachment_urls)) return ticket.attachment_urls.filter(Boolean)
+  if (!ticket.attachment_url) return []
+  try {
+    const parsed = JSON.parse(ticket.attachment_url)
+    if (Array.isArray(parsed)) return parsed.filter(Boolean)
+  } catch (error) {
+    return [ticket.attachment_url]
+  }
+  return [ticket.attachment_url]
 }
 
 function handleInfiniteLoad(callback) {

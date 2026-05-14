@@ -79,14 +79,16 @@
       </div>
     </div>
 
-    <n-image
-      v-if="attachmentPreviewVisible"
-      ref="attachmentImageRef"
-      class="attachment-preview-trigger"
-      :src="attachmentPreviewSrc"
-      :preview-src="attachmentPreviewSrc"
-      @error="handleAttachmentError"
-    />
+    <n-image-group>
+      <n-image
+        v-for="(img, index) in attachmentPreviewSrcList"
+        :key="img"
+        :ref="el => setAttachmentImageRef(el, index)"
+        class="attachment-preview-trigger"
+        :src="img"
+        :preview-src="img"
+      />
+    </n-image-group>
 
     <!-- 使用Teleport将下拉菜单挂载到body，避免z-index问题 -->
     <Teleport to="body">
@@ -122,22 +124,27 @@ import CButton from '@/components/public/CButton.vue'
 
 const emit = defineEmits(['detail', 'edit', 'send', 'statusChange', 'delete'])
 
-const placeholderImg = 'https://07akioni.oss-cn-beijing.aliyuncs.com/07akioni.jpeg'
+const attachmentImageRefs = ref([])
+const attachmentPreviewSrcList = computed(() => {
+  return (props.ticket.attachments || [])
+    .map(img => getImageUrl(img))
+    .filter(Boolean)
+})
 
-const attachmentImageRef = ref(null)
-const attachmentPreviewVisible = ref(false)
-const attachmentPreviewSrc = computed(() => getImageUrl(props.ticket.attachments?.[0]))
-
-function handleViewAttachment() {
-  attachmentPreviewVisible.value = true
-  nextTick(() => {
-    attachmentImageRef.value?.click?.()
-  })
+function setAttachmentImageRef(el, index) {
+  if (el) {
+    attachmentImageRefs.value[index] = el
+  }
 }
 
-function handleAttachmentError() {
-  attachmentPreviewVisible.value = false
-  window.$message?.warning('附件图片不存在或已失效')
+function handleViewAttachment() {
+  if (attachmentPreviewSrcList.value.length === 0) {
+    window.$message?.warning('附件图片不存在或已失效')
+    return
+  }
+  nextTick(() => {
+    attachmentImageRefs.value[0]?.click?.()
+  })
 }
 
 const props = defineProps({
