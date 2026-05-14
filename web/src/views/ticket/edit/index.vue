@@ -33,6 +33,15 @@
             <n-input v-model:value="form.title" placeholder="请输入工单标题" />
           </n-form-item>
 
+          <n-form-item label="工单状态">
+            <n-select
+              v-model:value="form.status"
+              :options="statusOptions"
+              disabled
+              placeholder="工单状态"
+            />
+          </n-form-item>
+
           <n-form-item label="工单描述" path="description" required>
             <n-input
               v-model:value="form.description"
@@ -114,10 +123,18 @@ const form = reactive({
   ticketNo: '',
   title: '',
   type: null,
+  status: null,
   description: '',
   location: '',
   planTime: null
 })
+
+const statusOptions = [
+  { label: '已完成', value: 0 },
+  { label: '进行中', value: 1 },
+  { label: '未开始', value: 2 },
+  { label: '已关闭', value: 3 }
+]
 
 const showLocationTime = computed(() => form.type === 0 || form.type === 3)
 const timeFieldLabel = computed(() => {
@@ -169,6 +186,7 @@ function fillForm(ticket) {
   form.ticketNo = ticket.ticket_no || ''
   form.title = ticket.title || ''
   form.type = Number(ticket.type ?? 0)
+  form.status = Number(ticket.status ?? 2)
   form.description = ticket.desc || ''
   form.location = ticket.location || ''
   const planTime = ticket.start_time ? new Date(ticket.start_time).getTime() : null

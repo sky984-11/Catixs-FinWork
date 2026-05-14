@@ -61,7 +61,7 @@
             <n-input
               v-model:value="form.description"
               type="textarea"
-              placeholder="请详细描述您遇到的问题或需要的帮助，支持粘贴图片"
+              placeholder="请详细描述您遇到的问题或需要的帮助。"
               :rows="6"
             />
           </n-form-item>
