@@ -88,24 +88,30 @@ def get_ticket_attachment_urls(ticket_obj: Ticket) -> list[str]:
 
 
 def build_ticket_detail_url(request: Request, ticket_id: int) -> str:
-    origin = request.headers.get("origin")
-    referer = request.headers.get("referer")
-    forwarded_proto = request.headers.get("x-forwarded-proto")
-    forwarded_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    frontend_origin = get_frontend_origin(request)
+    return f"{frontend_origin}/ticket/detail?ticket_id={ticket_id}"
 
+
+def get_frontend_origin(request: Request) -> str:
+    # 只动态获取前端访问前缀，后面的工单详情路由固定为 /ticket/detail。
+    origin = request.headers.get("origin", "").rstrip("/")
     if origin:
-        base_url = origin.rstrip("/")
-    elif referer:
+        return origin
+
+    referer = request.headers.get("referer", "")
+    if referer:
         from urllib.parse import urlsplit
 
         parts = urlsplit(referer)
-        base_url = f"{parts.scheme}://{parts.netloc}".rstrip("/")
-    elif forwarded_proto and forwarded_host:
-        base_url = f"{forwarded_proto}://{forwarded_host}".rstrip("/")
-    else:
-        base_url = str(request.base_url).rstrip("/")
+        if parts.scheme and parts.netloc:
+            return f"{parts.scheme}://{parts.netloc}".rstrip("/")
 
-    return f"{base_url}/ticket/detail?ticket_id={ticket_id}"
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    forwarded_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+
+    if forwarded_proto and forwarded_host:
+        return f"{forwarded_proto}://{forwarded_host}".rstrip("/")
+    return str(request.base_url).rstrip("/")
 
 
 @router.get("/list", summary="查看工单列表", dependencies=[DependAuth])
