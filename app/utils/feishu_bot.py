@@ -19,7 +19,7 @@ FEISHU_WEBHOOK_URL = "https://open.feishu.cn/open-apis/bot/v2/hook/5e4f6911-411c
 TICKET_TYPE_MAP = {
     0: "故障工单(INC)",
     1: "服务请求工单(REQ)",
-    2: "变更工单(CHG)",
+    2: "维护工单(MTN)",
     3: "维护工单(MTN)",
 }
 
@@ -76,6 +76,7 @@ async def send_ticket_created_notification(
     description: str,
     created_at: datetime,
     location: Optional[str] = None,
+    ticket_url: Optional[str] = None,
 ) -> bool:
     """
     发送工单创建通知
@@ -89,6 +90,7 @@ async def send_ticket_created_notification(
         description: 工单描述
         created_at: 创建时间
         location: 发生地点（可选）
+        ticket_url: 工单详情链接（可选）
         
     Returns:
         bool: 是否发送成功
@@ -167,6 +169,22 @@ async def send_ticket_created_notification(
             "content": f"**工单描述：**\n{desc_display}"
         }
     })
+
+    if ticket_url:
+        card_content["card"]["elements"].append({
+            "tag": "action",
+            "actions": [
+                {
+                    "tag": "button",
+                    "text": {
+                        "tag": "plain_text",
+                        "content": "查看工单详情"
+                    },
+                    "type": "primary",
+                    "url": ticket_url
+                }
+            ]
+        })
     
     # 添加分隔线
     card_content["card"]["elements"].append({

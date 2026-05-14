@@ -4,7 +4,7 @@ import os
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from tortoise.exceptions import DoesNotExist
 from tortoise.expressions import Q
 
@@ -87,6 +87,27 @@ def get_ticket_attachment_urls(ticket_obj: Ticket) -> list[str]:
     return list(dict.fromkeys(urls))
 
 
+def build_ticket_detail_url(request: Request, ticket_id: int) -> str:
+    origin = request.headers.get("origin")
+    referer = request.headers.get("referer")
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    forwarded_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+
+    if origin:
+        base_url = origin.rstrip("/")
+    elif referer:
+        from urllib.parse import urlsplit
+
+        parts = urlsplit(referer)
+        base_url = f"{parts.scheme}://{parts.netloc}".rstrip("/")
+    elif forwarded_proto and forwarded_host:
+        base_url = f"{forwarded_proto}://{forwarded_host}".rstrip("/")
+    else:
+        base_url = str(request.base_url).rstrip("/")
+
+    return f"{base_url}/ticket/detail?ticket_id={ticket_id}"
+
+
 @router.get("/list", summary="查看工单列表", dependencies=[DependAuth])
 async def list_tickets(
     page: int = Query(1, description="页码"),
@@ -136,6 +157,7 @@ async def get_ticket(
 @router.post("/create", summary="创建工单", dependencies=[DependAuth])
 async def create_ticket(
     ticket_in: TicketCreate,
+    request: Request,
 ):
     current_user = await get_current_ticket_user()
     has_ticket_manager_access = await can_view_all_tickets(current_user)
@@ -164,6 +186,7 @@ async def create_ticket(
                 description=ticket_obj.desc or "暂无描述",
                 created_at=ticket_obj.created_at,
                 location=ticket_obj.location,
+                ticket_url=build_ticket_detail_url(request, ticket_obj.id),
             )
             logger.info(f"工单 {ticket_obj.ticket_no} 创建通知已发送至飞书")
         except Exception as e:
