@@ -122,8 +122,7 @@ const statusOptions = [
   { label: '全部状态', value: null },
   { label: '已完成', value: 0 },
   { label: '进行中', value: 1 },
-  { label: '未开始', value: 2 },
-  { label: '已关闭', value: 3 }
+  { label: '未开始', value: 2 }
 ]
 
 const typeOptions = [

@@ -77,6 +77,8 @@ async def list_tickets(
         q &= Q(title__contains=title)
     if status is not None:
         q &= Q(status=status)
+    else:
+        q &= ~Q(status=3)
     if type is not None:
         q &= Q(type=type)
     
