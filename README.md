@@ -142,7 +142,7 @@ POSTGRES_HOST=127.0.0.1
 POSTGRES_PORT=5432
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=your_password
-POSTGRES_DATABASE=catixs_finwork
+POSTGRES_DATABASE=finwork
 POSTGRES_SSL=false
 ```
 
@@ -152,7 +152,7 @@ You can also use a single DSN:
 
 ```sh
 DB_TYPE=postgres
-POSTGRES_DSN=postgres://postgres:your_password@127.0.0.1:5432/catixs_finwork
+POSTGRES_DSN=postgres://postgres:your_password@127.0.0.1:5432/finwork
 ```
 
 SQLite import is optional and only needed when you want to move old local data into PostgreSQL:

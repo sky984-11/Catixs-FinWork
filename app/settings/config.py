@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     POSTGRES_PORT: int = 5432
     POSTGRES_USER: str = "postgres"
     POSTGRES_PASSWORD: str = ""
-    POSTGRES_DATABASE: str = "catixs_finwork"
+    POSTGRES_DATABASE: str = "finwork"
     POSTGRES_SSL: bool = False
 
     TORTOISE_ORM: dict[str, Any] = {}
