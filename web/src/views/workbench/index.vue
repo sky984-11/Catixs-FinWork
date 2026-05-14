@@ -7,7 +7,7 @@
           <div class="user-copy">
             <span class="eyebrow">IDC 运维中心</span>
             <h1>{{ greetingText }}</h1>
-            <p>聚合故障响应、服务请求、变更窗口与维护计划。</p>
+            <p>聚合故障响应、服务请求与维护计划。</p>
           </div>
         </div>
         <div class="toolbar-actions">
@@ -226,17 +226,9 @@ const typeMeta = [
     bg: 'rgba(37, 99, 235, .1)',
   },
   {
-    value: 2,
-    label: '变更窗口',
-    desc: '割接、配置、路由调整',
-    icon: 'mdi:source-branch-sync',
-    color: '#7c3aed',
-    bg: 'rgba(124, 58, 237, .1)',
-  },
-  {
     value: 3,
     label: '维护计划',
-    desc: '巡检、升级、资产维护',
+    desc: '巡检、升级、割接与资产维护',
     icon: 'mdi:shield-check-outline',
     color: '#0f9f6e',
     bg: 'rgba(15, 159, 110, .1)',
@@ -384,11 +376,13 @@ function getStatusTagType(status) {
 }
 
 function getTypeName(type) {
-  return typeMeta.find((item) => item.value === type)?.label || '工单'
+  const normalizedType = type === 2 ? 3 : type
+  return typeMeta.find((item) => item.value === normalizedType)?.label || '工单'
 }
 
 function getTypeColor(type) {
-  const meta = typeMeta.find((item) => item.value === type)
+  const normalizedType = type === 2 ? 3 : type
+  const meta = typeMeta.find((item) => item.value === normalizedType)
   return {
     color: meta?.bg || 'rgba(37, 99, 235, .1)',
     textColor: meta?.color || '#2563eb',
