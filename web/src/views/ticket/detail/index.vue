@@ -28,42 +28,20 @@
         <n-card :bordered="false" class="detail-card">
           <div class="section-title">{{ ticket.title }}</div>
           <div class="detail-grid">
-            <div class="detail-item">
-              <span class="detail-label">工单ID</span>
-              <span class="detail-value">{{ ticket.ticketNo || '-' }}</span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">创建人</span>
-              <span class="detail-value">{{ ticket.creatorName || ticket.customerName || '-' }}</span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">处理人</span>
-              <span class="detail-value">{{ ticket.assigneeName || ticket.operatorName || '-' }}</span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">工单类型</span>
-              <span class="type-pill" :class="'type-' + ticket.type">{{ getTypeName(ticket.type) }}</span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">创建时间</span>
-              <span class="detail-value">{{ ticket.createTime || '-' }}</span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">更新时间</span>
-              <span class="detail-value">{{ ticket.updateTime || '-' }}</span>
-            </div>
-            <div v-if="ticket.location" class="detail-item">
-              <span class="detail-label">地点</span>
-              <span class="detail-value">{{ ticket.location }}</span>
-            </div>
-            <div v-if="ticket.completeTime" class="detail-item">
-              <span class="detail-label">完成时间</span>
-              <span class="detail-value">{{ ticket.completeTime }}</span>
+            <div v-for="field in visibleDetailFields" :key="field.key" class="detail-item">
+              <span class="detail-label">{{ field.label }}</span>
+              <span
+                v-if="field.tagClass"
+                :class="field.tagClass"
+              >
+                {{ field.value }}
+              </span>
+              <span v-else class="detail-value">{{ field.value }}</span>
             </div>
           </div>
         </n-card>
 
-        <n-card :bordered="false" class="detail-card">
+        <n-card v-if="ticket.description" :bordered="false" class="detail-card">
           <div class="section-heading">
             <n-icon size="22">
               <Icon icon="mdi:file-document-edit-outline" />
@@ -71,7 +49,7 @@
             <span>问题描述</span>
           </div>
           <div class="description-box">
-            {{ ticket.description || '暂无描述' }}
+            {{ ticket.description }}
           </div>
         </n-card>
 
@@ -106,7 +84,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
 import api from '@/api'
@@ -120,6 +98,27 @@ const userStore = useUserStore()
 
 const loading = ref(false)
 const ticket = ref(null)
+
+const visibleDetailFields = computed(() => {
+  if (!ticket.value) return []
+  const fields = [
+    { key: 'id', label: 'ID', value: ticket.value.id },
+    { key: 'ticket_no', label: '工单编号', value: ticket.value.ticketNo },
+    { key: 'title', label: '工单标题', value: ticket.value.title },
+    { key: 'status', label: '工单状态', value: getStatusName(ticket.value.status), tagClass: `status-pill status-${ticket.value.status}` },
+    { key: 'type', label: '工单类型', value: getTypeName(ticket.value.type), tagClass: `type-pill type-${ticket.value.type}` },
+    { key: 'creator_name', label: '创建人', value: ticket.value.creatorName || ticket.value.customerName },
+    { key: 'assignee_id', label: '处理人ID', value: ticket.value.assigneeId },
+    { key: 'assignee_name', label: '处理人', value: ticket.value.assigneeName || ticket.value.operatorName },
+    { key: 'location', label: '地点', value: ticket.value.location },
+    { key: 'start_time', label: '计划开始时间', value: ticket.value.startTime },
+    { key: 'end_time', label: '完成时间', value: ticket.value.completeTime },
+    { key: 'attachment_url', label: '附件地址', value: ticket.value.attachmentUrl },
+    { key: 'created_at', label: '创建时间', value: ticket.value.createTime },
+    { key: 'updated_at', label: '更新时间', value: ticket.value.updateTime },
+  ]
+  return fields.filter((field) => hasValue(field.value))
+})
 
 function formatTicket(data) {
   return {
@@ -138,10 +137,30 @@ function formatTicket(data) {
     createTime: data.created_at,
     startTime: data.start_time,
     completeTime: data.end_time,
-    updateTime: data.updated_at,
+    updateTime: shouldShowUpdatedAt(data.updated_at, data.created_at) ? data.updated_at : null,
     location: data.location,
+    attachmentUrl: data.attachment_url,
     attachments: data.attachment_url ? [data.attachment_url] : []
   }
+}
+
+function hasValue(value) {
+  if (value === null || value === undefined) return false
+  if (typeof value === 'string') return value.trim() !== ''
+  if (Array.isArray(value)) return value.length > 0
+  return true
+}
+
+function shouldShowUpdatedAt(updatedAt, createdAt) {
+  if (!hasValue(updatedAt)) return false
+  if (!hasValue(createdAt)) return true
+  if (updatedAt === createdAt) return false
+
+  const updatedTime = new Date(updatedAt).getTime()
+  const createdTime = new Date(createdAt).getTime()
+  if (Number.isNaN(updatedTime) || Number.isNaN(createdTime)) return true
+
+  return updatedTime !== createdTime
 }
 
 async function loadTicket() {

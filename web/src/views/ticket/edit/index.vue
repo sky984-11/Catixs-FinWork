@@ -33,10 +33,6 @@
             <n-input v-model:value="form.title" placeholder="请输入工单标题" />
           </n-form-item>
 
-          <n-form-item label="工单类型" path="type" required>
-            <n-select v-model:value="form.type" :options="typeOptions" placeholder="请选择工单类型" />
-          </n-form-item>
-
           <n-form-item label="工单描述" path="description" required>
             <n-input
               v-model:value="form.description"
@@ -95,13 +91,6 @@ defineOptions({ name: 'EditTicket' })
 const route = useRoute()
 const router = useRouter()
 
-const typeOptions = [
-  { label: '故障工单', value: 0 },
-  { label: '服务请求工单', value: 1 },
-  { label: '变更工单', value: 2 },
-  { label: '维护工单', value: 3 }
-]
-
 const formRef = ref(null)
 const loading = ref(false)
 const submitting = ref(false)
@@ -126,12 +115,6 @@ const timeFieldLabel = computed(() => {
 
 const rules = {
   title: { required: true, message: '请输入工单标题', trigger: ['input', 'blur'] },
-  type: {
-    required: true,
-    type: 'number',
-    message: '请选择工单类型',
-    trigger: ['change', 'blur']
-  },
   description: { required: true, message: '请输入工单描述', trigger: ['input', 'blur'] }
 }
 
@@ -210,7 +193,6 @@ async function submitTicket() {
       id: form.id,
       ticket_no: form.ticketNo,
       title: form.title,
-      type: form.type,
       desc: form.description,
       location: showLocationTime.value ? form.location || undefined : undefined,
       start_time: showLocationTime.value && form.planTime ? formatTimeToMinute(form.planTime) : undefined

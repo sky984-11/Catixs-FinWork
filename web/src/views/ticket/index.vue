@@ -62,10 +62,15 @@
           search-placeholder="搜索用户"
         />
         <template #footer>
-          <n-space justify="end">
-            <n-button @click="sendModalVisible = false">取消</n-button>
-            <n-button type="primary" @click="handleConfirmSend">发送</n-button>
-          </n-space>
+          <div class="send-modal-footer">
+            <CButton
+              show-cancel
+              show-send
+              :send-loading="sendSubmitting"
+              @cancel="handleCancelSend"
+              @send="handleConfirmSend"
+            />
+          </div>
         </template>
       </n-modal>
     </div>
@@ -79,6 +84,7 @@ import { useUserStore } from '@/store'
 import api from '@/api'
 import TicketFilter from './components/TicketFilter.vue'
 import TicketCard from './components/TicketCard.vue'
+import CButton from '@/components/public/CButton.vue'
 
 defineOptions({ name: 'MyTickets' })
 
@@ -88,6 +94,7 @@ const router = useRouter()
 const loading = ref(false)
 const sendModalVisible = ref(false)
 const sendTicket = ref(null)
+const sendSubmitting = ref(false)
 
 const sendSelectedUsers = ref([])
 const userOptions = ref([])
@@ -254,24 +261,39 @@ function handleEdit(ticket) {
 function handleSend(ticket) {
   sendTicket.value = ticket
   sendSelectedUsers.value = []
+  sendSubmitting.value = false
   sendModalVisible.value = true
 }
 
-function handleConfirmSend() {
+function handleCancelSend() {
+  sendModalVisible.value = false
+  sendSelectedUsers.value = []
+  sendTicket.value = null
+  sendSubmitting.value = false
+}
+
+async function handleConfirmSend() {
+  if (sendSubmitting.value) return
+
   if (sendSelectedUsers.value.length === 0) {
     window.$message?.warning('请至少选择一个用户')
     return
   }
-  
-  const selectedEmails = sendSelectedUsers.value.map(userId => {
-    const user = userOptions.value.find(u => u.value === userId)
-    return user?.email || ''
-  }).filter(Boolean)
-  
-  window.$message?.success(`已向 ${sendSelectedUsers.value.length} 个用户发送通知\n邮箱：${selectedEmails.join(', ')}`)
-  sendModalVisible.value = false
-  sendSelectedUsers.value = []
-  sendTicket.value = null
+
+  sendSubmitting.value = true
+  try {
+    const selectedEmails = sendSelectedUsers.value.map(userId => {
+      const user = userOptions.value.find(u => u.value === userId)
+      return user?.email || ''
+    }).filter(Boolean)
+
+    window.$message?.success(`已向 ${sendSelectedUsers.value.length} 个用户发送通知\n邮箱：${selectedEmails.join(', ')}`)
+    sendModalVisible.value = false
+    sendSelectedUsers.value = []
+    sendTicket.value = null
+  } finally {
+    sendSubmitting.value = false
+  }
 }
 
 async function handleStatusChange({ ticket, newStatus }) {
@@ -409,5 +431,10 @@ onMounted(() => {
 
 .cards-wrapper {
   padding: 8px;
+}
+
+.send-modal-footer {
+  display: flex;
+  justify-content: flex-end;
 }
 </style>
