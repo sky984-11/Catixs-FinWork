@@ -226,9 +226,9 @@ const typeMeta = [
     bg: 'rgba(37, 99, 235, .1)',
   },
   {
-    value: 2,
+    value: 3,
     label: '维护计划',
-    desc: '巡检、升级、资产维护',
+    desc: '巡检、升级、割接与资产维护',
     icon: 'mdi:shield-check-outline',
     color: '#0f9f6e',
     bg: 'rgba(15, 159, 110, .1)',
@@ -376,11 +376,13 @@ function getStatusTagType(status) {
 }
 
 function getTypeName(type) {
-  return typeMeta.find((item) => item.value === type)?.label || '工单'
+  const normalizedType = type === 2 ? 3 : type
+  return typeMeta.find((item) => item.value === normalizedType)?.label || '工单'
 }
 
 function getTypeColor(type) {
-  const meta = typeMeta.find((item) => item.value === type)
+  const normalizedType = type === 2 ? 3 : type
+  const meta = typeMeta.find((item) => item.value === normalizedType)
   return {
     color: meta?.bg || 'rgba(37, 99, 235, .1)',
     textColor: meta?.color || '#2563eb',

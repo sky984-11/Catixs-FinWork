@@ -23,7 +23,12 @@ async def ticket_dashboard():
     risk_deadline = now - timedelta(hours=24)
 
     status_values = [0, 1, 2, 3]
-    type_values = [0, 1, 2]
+    type_values = [0, 1, 3]
+    type_filters = {
+        0: Q(type=0),
+        1: Q(type=1),
+        3: Q(type__in=[2, 3]),
+    }
     active_status_q = Q(status__in=[1, 2])
 
     total = await Ticket.filter(scope_q).count()
@@ -32,11 +37,11 @@ async def ticket_dashboard():
         for status in status_values
     }
     type_counts = {
-        str(ticket_type): await Ticket.filter(scope_q & Q(type=ticket_type)).count()
+        str(ticket_type): await Ticket.filter(scope_q & type_filters[ticket_type]).count()
         for ticket_type in type_values
     }
     active_type_counts = {
-        str(ticket_type): await Ticket.filter(scope_q & active_status_q & Q(type=ticket_type)).count()
+        str(ticket_type): await Ticket.filter(scope_q & active_status_q & type_filters[ticket_type]).count()
         for ticket_type in type_values
     }
     today_created = await Ticket.filter(scope_q & Q(created_at__gte=today_start)).count()
