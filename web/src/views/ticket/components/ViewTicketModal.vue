@@ -96,7 +96,7 @@ function getStatusName(status) {
 }
 
 function getTypeName(type) {
-  const map = { 0: '故障工单', 1: '服务请求工单', 2: '变更工单', 3: '维护工单' }
+  const map = { 0: '故障工单', 1: '服务请求工单', 2: '维护工单', 3: '维护工单' }
   return map[type] || '未知'
 }
 </script>

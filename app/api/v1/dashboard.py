@@ -23,7 +23,7 @@ async def ticket_dashboard():
     risk_deadline = now - timedelta(hours=24)
 
     status_values = [0, 1, 2, 3]
-    type_values = [0, 1, 2, 3]
+    type_values = [0, 1, 2]
     active_status_q = Q(status__in=[1, 2])
 
     total = await Ticket.filter(scope_q).count()

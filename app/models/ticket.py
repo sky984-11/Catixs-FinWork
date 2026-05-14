@@ -11,7 +11,7 @@ class Ticket(BaseModel, TimestampMixin):
     # 工单状态：0-已完成, 1-进行中, 2-未开始, 3-已关闭
     status = fields.IntField(default=2, description="工单状态", index=True)
     
-    # 工单类型：0-故障工单(INC), 1-服务请求工单(REQ), 2-变更工单(CHG), 3-维护工单(MTN)
+    # 工单类型：0-故障工单(INC), 1-服务请求工单(REQ), 2-维护工单(MTN)
     type = fields.IntField(default=0, description="工单类型", index=True)
     
     # 外键，工单所属用户

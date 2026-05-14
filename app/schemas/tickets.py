@@ -25,7 +25,7 @@ class BaseTicket(BaseModel):
 class TicketCreate(BaseModel):
     """创建工单请求模型"""
     title: str = Field(..., example="服务器磁盘空间不足")
-    type: int = Field(0, description="工单类型：0-故障工单, 1-服务请求, 2-变更工单, 3-维护工单", example=0)
+    type: int = Field(0, description="工单类型：0-故障工单, 1-服务请求, 2-维护工单", example=0)
     user_id: Optional[int] = Field(None, description="工单所属用户ID", example=1)
     desc: str = Field("", description="工单描述", example="服务器磁盘使用率达到95%，需要清理空间")
     location: str = Field("", description="发生地点", example="数据中心A区")
@@ -41,7 +41,7 @@ class TicketUpdate(BaseModel):
     ticket_no: Optional[str] = Field(None, description="工单编号")
     title: Optional[str] = Field(None, example="服务器磁盘空间不足")
     status: Optional[int] = Field(None, description="工单状态：0-已完成, 1-进行中, 2-未开始, 3-已关闭", example=1)
-    type: Optional[int] = Field(None, description="工单类型：0-故障工单, 1-服务请求, 2-变更工单, 3-维护工单", example=0)
+    type: Optional[int] = Field(None, description="工单类型：0-故障工单, 1-服务请求, 2-维护工单", example=0)
     user_id: Optional[int] = Field(None, description="工单所属用户ID", example=1)
     desc: Optional[str] = Field(None, description="工单描述")
     location: Optional[str] = Field(None, description="发生地点")

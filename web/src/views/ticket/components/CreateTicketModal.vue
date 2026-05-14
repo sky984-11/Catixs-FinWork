@@ -15,7 +15,6 @@
               <div class="type-help-content">
                 <p>故障工单：处理突发异常。如：网络中断、设备故障、服务不可用等。</p>
                 <p>服务请求：申请日常业务。如：开通专线、申请IP、带宽/端口扩容等。</p>
-                <p>变更工单：执行网络/系统变更。如：网络割接、设备升级、配置调整等。</p>
                 <p>维护工单：记录现场运维作业。如：机房施工、硬件维护等。</p>
               </div>
             </n-tooltip>
@@ -102,10 +101,10 @@ const form = reactive({
 
 const formRef = ref(null)
 const uploadedFiles = ref([])
-const showLocationTime = computed(() => form.type === 0 || form.type === 3)
+const showLocationTime = computed(() => form.type === 0 || form.type === 2 || form.type === 3)
 const timeFieldLabel = computed(() => {
   if (form.type === 0) return '故障时间'
-  if (form.type === 3) return '维护时间'
+  if (form.type === 2 || form.type === 3) return '维护时间'
   return '计划时间'
 })
 

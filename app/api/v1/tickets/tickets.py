@@ -93,7 +93,7 @@ async def list_tickets(
     page_size: int = Query(10, description="每页数量"),
     title: str = Query("", description="工单标题，用于搜索"),
     status: int | None = Query(None, description="工单状态：0-已完成, 1-进行中, 2-未开始, 3-已关闭"),
-    type: int | None = Query(None, description="工单类型：0-故障工单, 1-服务请求, 2-变更工单, 3-维护工单"),
+    type: int | None = Query(None, description="工单类型：0-故障工单, 1-服务请求, 2-维护工单"),
     user_id: int | None = Query(None, description="用户ID"),
     assignee_id: int | None = Query(None, description="处理人ID"),
 ):
@@ -191,7 +191,8 @@ async def update_ticket(
     await ensure_ticket_access(ticket_obj, current_user)
     if ticket_in.status == 0:
         ticket_in.assignee_id = current_user.id
-        ticket_in.end_time = datetime.now()
+        if ticket_obj.type not in (2, 3):
+            ticket_in.end_time = datetime.now()
     ticket_obj = await ticket_controller.update_ticket(id=ticket_obj.id, obj_in=ticket_in)
     return Success(msg="工单更新成功", data=await ticket_to_dict(ticket_obj))
 

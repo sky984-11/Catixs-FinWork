@@ -20,7 +20,7 @@
             </n-button>
           </div>
           <div class="hero-meta">
-            <span>ID: {{ ticket.ticketNo || ticket.id }}</span>
+            <span>工单编号: {{ ticket.ticketNo }}</span>
             <span class="status-pill" :class="'status-' + ticket.status">{{ getStatusName(ticket.status) }}</span>
           </div>
         </section>
@@ -102,17 +102,15 @@ const ticket = ref(null)
 const visibleDetailFields = computed(() => {
   if (!ticket.value) return []
   const fields = [
-    { key: 'id', label: 'ID', value: ticket.value.id },
     { key: 'ticket_no', label: '工单编号', value: ticket.value.ticketNo },
     { key: 'title', label: '工单标题', value: ticket.value.title },
     { key: 'status', label: '工单状态', value: getStatusName(ticket.value.status), tagClass: `status-pill status-${ticket.value.status}` },
     { key: 'type', label: '工单类型', value: getTypeName(ticket.value.type), tagClass: `type-pill type-${ticket.value.type}` },
     { key: 'creator_name', label: '创建人', value: ticket.value.creatorName || ticket.value.customerName },
-    { key: 'assignee_id', label: '处理人ID', value: ticket.value.assigneeId },
     { key: 'assignee_name', label: '处理人', value: ticket.value.assigneeName || ticket.value.operatorName },
     { key: 'location', label: '地点', value: ticket.value.location },
-    { key: 'start_time', label: '计划开始时间', value: ticket.value.startTime },
-    { key: 'end_time', label: '完成时间', value: ticket.value.completeTime },
+    { key: 'start_time', label: getStartTimeLabel(ticket.value.type), value: ticket.value.startTime },
+    { key: 'end_time', label: getEndTimeLabel(ticket.value.type), value: ticket.value.completeTime },
     { key: 'created_at', label: '创建时间', value: ticket.value.createTime },
     { key: 'updated_at', label: '更新时间', value: ticket.value.updateTime },
   ]
@@ -209,8 +207,18 @@ function getStatusName(status) {
 }
 
 function getTypeName(type) {
-  const map = { 0: '故障工单', 1: '服务请求工单', 2: '变更工单', 3: '维护工单' }
+  const map = { 0: '故障工单', 1: '服务请求工单', 2: '维护工单', 3: '维护工单' }
   return map[type] || '未知'
+}
+
+function getStartTimeLabel(type) {
+  const map = { 0: '故障时间', 2: '维护开始时间', 3: '维护开始时间' }
+  return map[type] || '计划开始时间'
+}
+
+function getEndTimeLabel(type) {
+  const map = { 2: '维护结束时间', 3: '维护结束时间' }
+  return map[type] || '完成时间'
 }
 
 function getImageUrl(img) {
@@ -393,8 +401,8 @@ onMounted(loadTicket)
 }
 
 .type-2 {
-  color: #ad4e00;
-  background: #fff7e6;
+  color: #237804;
+  background: #f6ffed;
 }
 
 .type-3 {

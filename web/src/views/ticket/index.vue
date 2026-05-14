@@ -128,8 +128,7 @@ const statusOptions = [
 const typeOptions = [
   { label: '故障工单', value: 0 },
   { label: '服务请求工单', value: 1 },
-  { label: '变更工单', value: 2 },
-  { label: '维护工单', value: 3 }
+  { label: '维护工单', value: 2 }
 ]
 
 const ticketList = ref([])

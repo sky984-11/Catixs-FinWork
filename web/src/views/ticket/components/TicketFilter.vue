@@ -59,10 +59,7 @@ const localFilters = computed({
 })
 
 const visibleTypeOptions = computed(() => {
-  if (props.isAdminOrNoc) {
-    return [{ label: '全部类型', value: null }, ...props.typeOptions]
-  }
-  return [{ label: '全部类型', value: null }, ...props.typeOptions.filter(t => t.value !== 3)]
+  return [{ label: '全部类型', value: null }, ...props.typeOptions]
 })
 </script>
 

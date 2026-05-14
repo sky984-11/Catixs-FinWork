@@ -11,8 +11,8 @@ def get_ticket_type_prefix(ticket_type: int) -> str:
     type_map = {
         0: "INC",  # 故障工单
         1: "REQ",  # 服务请求工单
-        2: "CHG",  # 变更工单
-        3: "MTN",  # 维护工单
+        2: "MTN",  # 维护工单
+        3: "MTN",  # 历史维护工单兼容
     }
     return type_map.get(ticket_type, "INC")
 

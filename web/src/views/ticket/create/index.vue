@@ -32,7 +32,6 @@
                   <div class="type-help-content">
                     <p>故障工单：处理突发异常。如：网络中断、设备故障、服务不可用等。</p>
                     <p>服务请求：申请日常业务。如：开通专线、申请IP、带宽/端口扩容等。</p>
-                    <p>变更工单：执行网络/系统变更。如：网络割接、设备升级、配置调整等。</p>
                     <p>维护工单：记录现场运维作业。如：机房施工、硬件维护等。</p>
                   </div>
                 </n-tooltip>
@@ -41,16 +40,33 @@
             <n-select v-model:value="form.type" :options="typeOptions" placeholder="请选择工单类型" />
           </n-form-item>
 
-          <template v-if="showLocationTime">
+          <template v-if="showLocationField">
             <n-form-item label="地点" path="location">
               <n-input v-model:value="form.location" placeholder="请输入地点" />
             </n-form-item>
+          </template>
+
+          <template v-if="showSingleTime">
             <n-form-item :label="timeFieldLabel" path="planTime">
               <n-date-picker
                 v-model:value="form.planTime"
                 type="datetime"
                 format="yyyy-MM-dd HH:mm"
                 :time-picker-props="{ format: 'HH:mm' }"
+                :placeholder="`请选择${timeFieldLabel}`"
+                style="width: 100%"
+              />
+            </n-form-item>
+          </template>
+
+          <template v-if="showRangeTime">
+            <n-form-item :label="timeFieldLabel" path="timeRange">
+              <n-date-picker
+                v-model:value="form.timeRange"
+                type="datetimerange"
+                format="yyyy-MM-dd HH:mm"
+                :time-picker-props="{ format: 'HH:mm' }"
+                clearable
                 :placeholder="`请选择${timeFieldLabel}`"
                 style="width: 100%"
               />
@@ -119,8 +135,7 @@ const userStore = useUserStore()
 const typeOptions = [
   { label: '故障工单', value: 0 },
   { label: '服务请求工单', value: 1 },
-  { label: '变更工单', value: 2 },
-  { label: '维护工单', value: 3 }
+  { label: '维护工单', value: 2 }
 ]
 
 const formRef = ref(null)
@@ -132,13 +147,16 @@ const form = reactive({
   type: null,
   description: '',
   location: '',
-  planTime: null
+  planTime: null,
+  timeRange: null
 })
 
-const showLocationTime = computed(() => form.type === 0 || form.type === 3)
+const showLocationField = computed(() => form.type === 0 || form.type === 2)
+const showSingleTime = computed(() => form.type === 0)
+const showRangeTime = computed(() => form.type === 2)
 const timeFieldLabel = computed(() => {
   if (form.type === 0) return '故障时间'
-  if (form.type === 3) return '维护时间'
+  if (form.type === 2) return '维护时间'
   return '计划时间'
 })
 
@@ -156,6 +174,7 @@ const rules = {
 watch(() => form.type, (type) => {
   form.location = ''
   form.planTime = type === 0 ? Date.now() : null
+  form.timeRange = type === 2 ? [Date.now(), Date.now()] : null
 })
 
 function handleUploadChange(options) {
@@ -194,8 +213,9 @@ async function submitTicket() {
       type: form.type,
       user_id: userStore.userId,
       desc: form.description,
-      location: showLocationTime.value ? form.location || undefined : undefined,
-      start_time: showLocationTime.value && form.planTime ? formatTimeToMinute(form.planTime) : undefined
+      location: showLocationField.value ? form.location || undefined : undefined,
+      start_time: getSubmitStartTime(),
+      end_time: getSubmitEndTime()
     })
 
     if (result.code === 200) {
@@ -213,6 +233,17 @@ async function submitTicket() {
   } finally {
     submitting.value = false
   }
+}
+
+function getSubmitStartTime() {
+  if (showSingleTime.value && form.planTime) return formatTimeToMinute(form.planTime)
+  if (showRangeTime.value && form.timeRange?.[0]) return formatTimeToMinute(form.timeRange[0])
+  return undefined
+}
+
+function getSubmitEndTime() {
+  if (showRangeTime.value && form.timeRange?.[1]) return formatTimeToMinute(form.timeRange[1])
+  return undefined
 }
 
 async function uploadTicketAttachments(files, ticketId) {

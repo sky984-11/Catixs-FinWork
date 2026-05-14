@@ -208,7 +208,7 @@ function getStatusName(status) {
 }
 
 function getTypeName(type) {
-  const map = { 0: '故障工单', 1: '服务请求工单', 2: '变更工单', 3: '维护工单' }
+  const map = { 0: '故障工单', 1: '服务请求工单', 2: '维护工单', 3: '维护工单' }
   return map[type] || '未知'
 }
 
@@ -218,7 +218,7 @@ function getStatusTagType(status) {
 }
 
 function getTypeTagType(type) {
-  const map = { 0: 'error', 1: 'info', 2: 'warning', 3: 'success' }
+  const map = { 0: 'error', 1: 'info', 2: 'success', 3: 'success' }
   return map[type] || 'default'
 }
 
@@ -476,9 +476,9 @@ function getImageUrl(img) {
 }
 
 .type-2 {
-  color: #fa8c16;
-  background: rgba(250, 140, 22, 0.1);
-  border: 1px solid rgba(250, 140, 22, 0.2);
+  color: #52c41a;
+  background: rgba(82, 196, 26, 0.1);
+  border: 1px solid rgba(82, 196, 26, 0.2);
 }
 
 .type-3 {

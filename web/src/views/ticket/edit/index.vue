@@ -51,16 +51,33 @@
             />
           </n-form-item>
 
-          <template v-if="showLocationTime">
+          <template v-if="showLocationField">
             <n-form-item label="地点" path="location">
               <n-input v-model:value="form.location" placeholder="请输入地点" />
             </n-form-item>
+          </template>
+
+          <template v-if="showSingleTime">
             <n-form-item :label="timeFieldLabel" path="planTime">
               <n-date-picker
                 v-model:value="form.planTime"
                 type="datetime"
                 format="yyyy-MM-dd HH:mm"
                 :time-picker-props="{ format: 'HH:mm' }"
+                :placeholder="`请选择${timeFieldLabel}`"
+                style="width: 100%"
+              />
+            </n-form-item>
+          </template>
+
+          <template v-if="showRangeTime">
+            <n-form-item :label="timeFieldLabel" path="timeRange">
+              <n-date-picker
+                v-model:value="form.timeRange"
+                type="datetimerange"
+                format="yyyy-MM-dd HH:mm"
+                :time-picker-props="{ format: 'HH:mm' }"
+                clearable
                 :placeholder="`请选择${timeFieldLabel}`"
                 style="width: 100%"
               />
@@ -126,7 +143,8 @@ const form = reactive({
   status: null,
   description: '',
   location: '',
-  planTime: null
+  planTime: null,
+  timeRange: null
 })
 
 const statusOptions = [
@@ -136,10 +154,13 @@ const statusOptions = [
   { label: '已关闭', value: 3 }
 ]
 
-const showLocationTime = computed(() => form.type === 0 || form.type === 3)
+const isMaintenanceType = computed(() => form.type === 2 || form.type === 3)
+const showLocationField = computed(() => form.type === 0 || isMaintenanceType.value)
+const showSingleTime = computed(() => form.type === 0)
+const showRangeTime = computed(() => isMaintenanceType.value)
 const timeFieldLabel = computed(() => {
   if (form.type === 0) return '故障时间'
-  if (form.type === 3) return '维护时间'
+  if (isMaintenanceType.value) return '维护时间'
   return '计划时间'
 })
 
@@ -150,10 +171,11 @@ const rules = {
 
 watch(() => form.type, (type, oldType) => {
   if (oldType === undefined || oldType === null) return
-  if (type !== 0 && type !== 3) {
+  if (type !== 0 && type !== 2 && type !== 3) {
     form.location = ''
-    form.planTime = null
   }
+  form.planTime = type === 0 ? form.planTime : null
+  form.timeRange = type === 2 || type === 3 ? form.timeRange : null
 })
 
 async function loadTicket() {
@@ -190,7 +212,11 @@ function fillForm(ticket) {
   form.description = ticket.desc || ''
   form.location = ticket.location || ''
   const planTime = ticket.start_time ? new Date(ticket.start_time).getTime() : null
-  form.planTime = Number.isNaN(planTime) ? null : planTime
+  const endTime = ticket.end_time ? new Date(ticket.end_time).getTime() : null
+  form.planTime = form.type === 0 && !Number.isNaN(planTime) ? planTime : null
+  form.timeRange = (form.type === 2 || form.type === 3) && !Number.isNaN(planTime) && !Number.isNaN(endTime)
+    ? [planTime, endTime]
+    : null
   uploadedFiles.value = parseAttachmentUrls(ticket).map((url, index) => ({
     id: `existing-${index}`,
     name: getFileName(url, index),
@@ -253,8 +279,9 @@ async function submitTicket() {
       ticket_no: form.ticketNo,
       title: form.title,
       desc: form.description,
-      location: showLocationTime.value ? form.location || undefined : undefined,
-      start_time: showLocationTime.value && form.planTime ? formatTimeToMinute(form.planTime) : undefined,
+      location: showLocationField.value ? form.location || undefined : undefined,
+      start_time: getSubmitStartTime(),
+      end_time: getSubmitEndTime(),
       attachment_url: JSON.stringify(attachmentUrls)
     })
 
@@ -269,6 +296,17 @@ async function submitTicket() {
   } finally {
     submitting.value = false
   }
+}
+
+function getSubmitStartTime() {
+  if (showSingleTime.value && form.planTime) return formatTimeToMinute(form.planTime)
+  if (showRangeTime.value && form.timeRange?.[0]) return formatTimeToMinute(form.timeRange[0])
+  return undefined
+}
+
+function getSubmitEndTime() {
+  if (showRangeTime.value && form.timeRange?.[1]) return formatTimeToMinute(form.timeRange[1])
+  return undefined
 }
 
 async function resolveAttachmentUrls() {
