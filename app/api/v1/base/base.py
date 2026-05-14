@@ -67,6 +67,15 @@ async def get_user_menu():
             # 获取工单管理的子菜单
             ticket_sub_menus = await Menu.filter(parent_id=ticket_menu.id).all()
             menus.extend(ticket_sub_menus)
+        ticket_create_menu = await Menu.filter(path="/ticket/create").first()
+        if ticket_create_menu and ticket_create_menu not in menus:
+            menus.append(ticket_create_menu)
+        ticket_detail_menu = await Menu.filter(path="/ticket/detail").first()
+        if ticket_detail_menu and ticket_detail_menu not in menus:
+            menus.append(ticket_detail_menu)
+        ticket_edit_menu = await Menu.filter(path="/ticket/edit").first()
+        if ticket_edit_menu and ticket_edit_menu not in menus:
+            menus.append(ticket_edit_menu)
     
     parent_menus: list[Menu] = []
     for menu in menus:

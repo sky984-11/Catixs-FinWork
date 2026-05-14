@@ -60,35 +60,31 @@
       {{ deleteLoading ? '处理中' : '删除' }}
     </n-button>
     <n-button
-      v-if="showDetail"
-      type="info"
-      size="small"
-      @click="handleDetail"
-    >
-      详情
-    </n-button>
-    <n-button
       v-if="showSend"
       class="c-button-send"
       round
       secondary
+      :loading="sendLoading"
       :disabled="disabled"
       @click="handleSend"
     >
       <template #icon>
         <n-icon>
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+          <svg v-if="!sendLoading" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
             <path d="M2.01 21L23 12L2.01 3L2 10L17 12L2 14L2.01 21Z" fill="currentColor"/>
+          </svg>
+          <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" fill="currentColor"/>
           </svg>
         </n-icon>
       </template>
-      发送
+      {{ sendLoading ? '处理中' : '发送' }}
     </n-button>
   </n-space>
 </template>
 
 <script setup>
-const emit = defineEmits(['edit', 'delete', 'detail', 'send'])
+const emit = defineEmits(['edit', 'delete', 'send'])
 
 defineProps({
   // 是否显示编辑按钮
@@ -116,13 +112,13 @@ defineProps({
     type: Boolean,
     default: false
   },
-  // 是否显示详情按钮
-  showDetail: {
+  // 是否显示发送按钮
+  showSend: {
     type: Boolean,
     default: false
   },
-  // 是否显示发送按钮
-  showSend: {
+  // 发送按钮loading状态
+  sendLoading: {
     type: Boolean,
     default: false
   }
@@ -134,10 +130,6 @@ const handleEdit = () => {
 
 const handleDelete = () => {
   emit('delete')
-}
-
-const handleDetail = () => {
-  emit('detail')
 }
 
 const handleSend = () => {

@@ -165,7 +165,7 @@ async def init_menus():
             ),
         ]
         await Menu.bulk_create(children_menu)
-        await Menu.create(
+        ticket_menu = await Menu.create(
             menu_type=MenuType.MENU,
             name="工单管理",
             path="/ticket",
@@ -174,6 +174,42 @@ async def init_menus():
             icon="material-symbols:assignment-globe",
             is_hidden=False,
             component="/ticket",
+            keepalive=False,
+            redirect="",
+        )
+        await Menu.create(
+            menu_type=MenuType.MENU,
+            name="新增工单",
+            path="/ticket/create",
+            order=1,
+            parent_id=0,
+            icon="mdi:file-document-plus-outline",
+            is_hidden=True,
+            component="/ticket/create",
+            keepalive=False,
+            redirect="",
+        )
+        await Menu.create(
+            menu_type=MenuType.MENU,
+            name="工单详情",
+            path="/ticket/detail",
+            order=2,
+            parent_id=0,
+            icon="mdi:file-document-outline",
+            is_hidden=True,
+            component="/ticket/detail",
+            keepalive=False,
+            redirect="",
+        )
+        await Menu.create(
+            menu_type=MenuType.MENU,
+            name="编辑工单",
+            path="/ticket/edit",
+            order=3,
+            parent_id=0,
+            icon="mdi:file-document-edit-outline",
+            is_hidden=True,
+            component="/ticket/edit",
             keepalive=False,
             redirect="",
         )
@@ -201,6 +237,68 @@ async def init_menus():
             keepalive=False,
             redirect="",
         )
+    await ensure_ticket_route_menus()
+
+
+async def ensure_ticket_route_menus():
+    ticket_menu = await Menu.filter(path="/ticket").first()
+    if not ticket_menu:
+        await Menu.create(
+            menu_type=MenuType.MENU,
+            name="工单管理",
+            path="/ticket",
+            order=2,
+            parent_id=0,
+            icon="material-symbols:assignment-globe",
+            is_hidden=False,
+            component="/ticket",
+            keepalive=False,
+            redirect="",
+        )
+
+    ticket_route_menus = [
+        {
+            "name": "新增工单",
+            "path": "/ticket/create",
+            "order": 1,
+            "icon": "mdi:file-document-plus-outline",
+            "component": "/ticket/create",
+        },
+        {
+            "name": "工单详情",
+            "path": "/ticket/detail",
+            "order": 2,
+            "icon": "mdi:file-document-outline",
+            "component": "/ticket/detail",
+        },
+        {
+            "name": "编辑工单",
+            "path": "/ticket/edit",
+            "order": 3,
+            "icon": "mdi:file-document-edit-outline",
+            "component": "/ticket/edit",
+        },
+    ]
+    for menu_data in ticket_route_menus:
+        route_menu = await Menu.filter(component=menu_data["component"]).first()
+        if not route_menu:
+            await Menu.create(
+                menu_type=MenuType.MENU,
+                name=menu_data["name"],
+                path=menu_data["path"],
+                order=menu_data["order"],
+                parent_id=0,
+                icon=menu_data["icon"],
+                is_hidden=True,
+                component=menu_data["component"],
+                keepalive=False,
+                redirect="",
+            )
+        elif route_menu.path != menu_data["path"] or route_menu.parent_id != 0 or not route_menu.is_hidden:
+            route_menu.path = menu_data["path"]
+            route_menu.parent_id = 0
+            route_menu.is_hidden = True
+            await route_menu.save()
 
 
 async def init_apis():

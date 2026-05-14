@@ -80,10 +80,12 @@
     </div>
 
     <n-image
+      v-if="attachmentPreviewVisible"
       ref="attachmentImageRef"
       class="attachment-preview-trigger"
       :src="attachmentPreviewSrc"
       :preview-src="attachmentPreviewSrc"
+      @error="handleAttachmentError"
     />
 
     <!-- 使用Teleport将下拉菜单挂载到body，避免z-index问题 -->
@@ -123,12 +125,19 @@ const emit = defineEmits(['detail', 'edit', 'send', 'statusChange', 'delete'])
 const placeholderImg = 'https://07akioni.oss-cn-beijing.aliyuncs.com/07akioni.jpeg'
 
 const attachmentImageRef = ref(null)
+const attachmentPreviewVisible = ref(false)
 const attachmentPreviewSrc = computed(() => getImageUrl(props.ticket.attachments?.[0]))
 
 function handleViewAttachment() {
+  attachmentPreviewVisible.value = true
   nextTick(() => {
     attachmentImageRef.value?.click?.()
   })
+}
+
+function handleAttachmentError() {
+  attachmentPreviewVisible.value = false
+  window.$message?.warning('附件图片不存在或已失效')
 }
 
 const props = defineProps({

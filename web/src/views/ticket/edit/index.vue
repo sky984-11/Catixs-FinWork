@@ -1,0 +1,336 @@
+<template>
+  <AppPage>
+    <div class="edit-ticket-page">
+      <div v-if="loading" class="loading-container">
+        <n-spin size="large" />
+      </div>
+
+      <n-card v-else-if="ticketLoaded" :bordered="false" class="edit-ticket-card" content-style="padding: 0">
+        <div class="edit-ticket-header">
+          <div class="header-title">
+            <n-icon size="28">
+              <Icon icon="mdi:file-document-edit-outline" />
+            </n-icon>
+            <span>编辑工单</span>
+          </div>
+          <n-button secondary class="back-btn" @click="handleCancel">
+            <template #icon>
+              <n-icon><Icon icon="mdi:chevron-left" /></n-icon>
+            </template>
+            返回
+          </n-button>
+        </div>
+
+        <n-form
+          ref="formRef"
+          class="ticket-form"
+          :model="form"
+          :rules="rules"
+          label-placement="top"
+          :show-feedback="false"
+        >
+          <n-form-item label="工单标题" path="title" required>
+            <n-input v-model:value="form.title" placeholder="请输入工单标题" />
+          </n-form-item>
+
+          <n-form-item label="工单类型" path="type" required>
+            <n-select v-model:value="form.type" :options="typeOptions" placeholder="请选择工单类型" />
+          </n-form-item>
+
+          <n-form-item label="工单描述" path="description" required>
+            <n-input
+              v-model:value="form.description"
+              type="textarea"
+              placeholder="请输入工单描述"
+              :rows="6"
+            />
+          </n-form-item>
+
+          <template v-if="showLocationTime">
+            <n-form-item label="地点" path="location">
+              <n-input v-model:value="form.location" placeholder="请输入地点" />
+            </n-form-item>
+            <n-form-item :label="timeFieldLabel" path="planTime">
+              <n-date-picker
+                v-model:value="form.planTime"
+                type="datetime"
+                format="yyyy-MM-dd HH:mm"
+                :time-picker-props="{ format: 'HH:mm' }"
+                :placeholder="`请选择${timeFieldLabel}`"
+                style="width: 100%"
+              />
+            </n-form-item>
+          </template>
+
+          <n-space justify="end" class="form-actions">
+            <n-button @click="handleCancel">取消</n-button>
+            <n-button type="primary" :loading="submitting" @click="handleSubmit">保存</n-button>
+          </n-space>
+        </n-form>
+      </n-card>
+
+      <n-result v-else status="404" title="工单不存在" description="请返回工单列表后重新选择。">
+        <template #footer>
+          <n-button type="primary" @click="handleCancel">返回列表</n-button>
+        </template>
+      </n-result>
+    </div>
+  </AppPage>
+</template>
+
+<script setup>
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { Icon } from '@iconify/vue'
+import api from '@/api'
+
+defineOptions({ name: 'EditTicket' })
+
+const route = useRoute()
+const router = useRouter()
+
+const typeOptions = [
+  { label: '故障工单', value: 0 },
+  { label: '服务请求工单', value: 1 },
+  { label: '变更工单', value: 2 },
+  { label: '维护工单', value: 3 }
+]
+
+const formRef = ref(null)
+const loading = ref(false)
+const submitting = ref(false)
+const ticketLoaded = ref(false)
+
+const form = reactive({
+  id: null,
+  ticketNo: '',
+  title: '',
+  type: null,
+  description: '',
+  location: '',
+  planTime: null
+})
+
+const showLocationTime = computed(() => form.type === 0 || form.type === 3)
+const timeFieldLabel = computed(() => {
+  if (form.type === 0) return '故障时间'
+  if (form.type === 3) return '维护时间'
+  return '计划时间'
+})
+
+const rules = {
+  title: { required: true, message: '请输入工单标题', trigger: ['input', 'blur'] },
+  type: {
+    required: true,
+    type: 'number',
+    message: '请选择工单类型',
+    trigger: ['change', 'blur']
+  },
+  description: { required: true, message: '请输入工单描述', trigger: ['input', 'blur'] }
+}
+
+watch(() => form.type, (type, oldType) => {
+  if (oldType === undefined || oldType === null) return
+  if (type !== 0 && type !== 3) {
+    form.location = ''
+    form.planTime = null
+  }
+})
+
+async function loadTicket() {
+  const ticketId = route.query.ticket_id
+  if (!ticketId) {
+    ticketLoaded.value = false
+    return
+  }
+
+  loading.value = true
+  try {
+    const result = await api.ticketApi.get({ ticket_id: ticketId })
+    if (result.code === 200 && result.data) {
+      fillForm(result.data)
+      ticketLoaded.value = true
+    } else {
+      ticketLoaded.value = false
+      window.$message?.error(result.msg || '工单加载失败')
+    }
+  } catch (error) {
+    ticketLoaded.value = false
+    window.$message?.error('工单加载失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+function fillForm(ticket) {
+  form.id = ticket.id
+  form.ticketNo = ticket.ticket_no || ''
+  form.title = ticket.title || ''
+  form.type = Number(ticket.type ?? 0)
+  form.description = ticket.desc || ''
+  form.location = ticket.location || ''
+  const planTime = ticket.start_time ? new Date(ticket.start_time).getTime() : null
+  form.planTime = Number.isNaN(planTime) ? null : planTime
+  formRef.value?.restoreValidation()
+}
+
+function formatTimeToMinute(dateStr) {
+  const date = new Date(dateStr)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${year}-${month}-${day} ${hours}:${minutes}`
+}
+
+function handleCancel() {
+  router.push('/ticket')
+}
+
+function handleSubmit() {
+  formRef.value?.validate(async (errors) => {
+    if (errors) return
+    await submitTicket()
+  })
+}
+
+async function submitTicket() {
+  if (submitting.value) return
+  submitting.value = true
+
+  try {
+    const result = await api.ticketApi.update({
+      id: form.id,
+      ticket_no: form.ticketNo,
+      title: form.title,
+      type: form.type,
+      desc: form.description,
+      location: showLocationTime.value ? form.location || undefined : undefined,
+      start_time: showLocationTime.value && form.planTime ? formatTimeToMinute(form.planTime) : undefined
+    })
+
+    if (result.code === 200) {
+      window.$message?.success('编辑成功')
+      router.push({ path: '/ticket/detail', query: { ticket_id: form.id } })
+    } else {
+      window.$message?.error(result.msg || '编辑失败')
+    }
+  } catch (error) {
+    window.$message?.error('编辑失败')
+  } finally {
+    submitting.value = false
+  }
+}
+
+onMounted(loadTicket)
+</script>
+
+<style scoped>
+.edit-ticket-page {
+  min-height: calc(100vh - 92px);
+  padding: 24px;
+  background: #eef3fb;
+}
+
+.loading-container {
+  display: flex;
+  justify-content: center;
+  padding: 80px 0;
+}
+
+.edit-ticket-card {
+  max-width: 920px;
+  margin: 0 auto;
+  overflow: hidden;
+  border-radius: 8px;
+  box-shadow: 0 14px 40px rgb(31 41 55 / 10%);
+}
+
+.edit-ticket-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 90px;
+  padding: 0 36px;
+  color: #fff;
+  background: linear-gradient(135deg, #5f7fee 0%, #7a4dae 100%);
+}
+
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.back-btn {
+  color: #fff;
+  border-color: rgb(255 255 255 / 35%);
+}
+
+.ticket-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 36px;
+  background: #fff;
+}
+
+.ticket-form :deep(.n-form-item) {
+  margin-bottom: 0;
+}
+
+.ticket-form :deep(.n-form-item-label) {
+  padding-bottom: 8px;
+  color: #1f2937;
+  font-weight: 700;
+}
+
+.ticket-form :deep(.n-input),
+.ticket-form :deep(.n-base-selection) {
+  --n-border-radius: 12px;
+}
+
+.form-actions {
+  padding-top: 4px;
+}
+
+@media (max-width: 768px) {
+  .edit-ticket-page {
+    padding: 12px;
+  }
+
+  .edit-ticket-header {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 22px;
+  }
+
+  .header-title {
+    font-size: 22px;
+  }
+
+  .back-btn {
+    width: 100%;
+  }
+
+  .ticket-form {
+    padding: 20px;
+  }
+}
+
+html.dark .edit-ticket-page {
+  background: #101827;
+}
+
+html.dark .ticket-form {
+  background: #18181c;
+}
+
+html.dark .ticket-form :deep(.n-form-item-label) {
+  color: #e5e7eb;
+}
+</style>

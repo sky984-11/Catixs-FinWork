@@ -53,26 +53,6 @@
         </n-infinite-scroll>
       </n-card>
 
-      
-      <CreateTicketModal
-        v-model:visible="createModalVisible"
-        :type-options="typeOptions"
-        @submit="handleSubmitCreate"
-      />
-
-      
-      <ViewTicketModal
-        v-model:visible="viewModalVisible"
-        :ticket="currentTicket"
-      />
-
-      <EditTicketModal
-        v-model:visible="editModalVisible"
-        :ticket="currentTicket"
-        :type-options="typeOptions"
-        @submit="handleSubmitEdit"
-      />
-
       <n-modal v-model:show="sendModalVisible" preset="card" title="发送通知" style="width: 600px">
         <n-transfer
           v-model:value="sendSelectedUsers"
@@ -94,34 +74,19 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store'
 import api from '@/api'
 import TicketFilter from './components/TicketFilter.vue'
 import TicketCard from './components/TicketCard.vue'
-import CreateTicketModal from './components/CreateTicketModal.vue'
-import ViewTicketModal from './components/ViewTicketModal.vue'
-import EditTicketModal from './components/EditTicketModal.vue'
 
 defineOptions({ name: 'MyTickets' })
 
 const userStore = useUserStore()
-
-function formatTimeToMinute(dateStr) {
-  const date = new Date(dateStr)
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const hours = String(date.getHours()).padStart(2, '0')
-  const minutes = String(date.getMinutes()).padStart(2, '0')
-  return `${year}-${month}-${day} ${hours}:${minutes}`
-}
+const router = useRouter()
 
 const loading = ref(false)
-const createModalVisible = ref(false)
-const viewModalVisible = ref(false)
-const editModalVisible = ref(false)
 const sendModalVisible = ref(false)
-const currentTicket = ref(null)
 const sendTicket = ref(null)
 
 const sendSelectedUsers = ref([])
@@ -267,47 +232,7 @@ function handleReset() {
 }
 
 function handleCreate() {
-  createModalVisible.value = true
-}
-
-async function handleSubmitCreate(formData) {
-  try {
-    // 先上传附件图片
-    let attachmentUrl = undefined
-    if (formData.attachments?.length > 0) {
-      const uploadFormData = new FormData()
-      uploadFormData.append('file', formData.attachments[0])
-      const uploadRes = await api.ticketApi.upload(uploadFormData)
-      if (uploadRes.code === 200) {
-        attachmentUrl = uploadRes.data.url
-      } else {
-        window.$message?.warning('附件上传失败')
-        return
-      }
-    }
-
-    const data = {
-        title: formData.title,
-        type: formData.type,
-        user_id: userStore.userId,
-        desc: formData.description,
-        location: formData.location || undefined,
-        start_time: formData.planTime ? formatTimeToMinute(formData.planTime) : undefined,
-        attachment_url: attachmentUrl
-      }
-
-    const result = await api.ticketApi.create(data)
-    
-    if (result.code === 200) {
-      window.$message?.success('创建成功')
-      createModalVisible.value = false
-      loadData(true)
-    } else {
-      window.$message?.error(result.msg || '创建失败')
-    }
-  } catch (error) {
-    window.$message?.error('创建失败')
-  }
+  router.push('/ticket/create')
 }
 
 function handleView(ticket) {
@@ -315,8 +240,7 @@ function handleView(ticket) {
     window.$message?.error('无权限查看该工单')
     return
   }
-  currentTicket.value = ticket
-  viewModalVisible.value = true
+  router.push({ path: '/ticket/detail', query: { ticket_id: ticket.id } })
 }
 
 function handleEdit(ticket) {
@@ -324,8 +248,7 @@ function handleEdit(ticket) {
     window.$message?.error('无权限编辑该工单')
     return
   }
-  currentTicket.value = ticket
-  editModalVisible.value = true
+  router.push({ path: '/ticket/edit', query: { ticket_id: ticket.id } })
 }
 
 function handleSend(ticket) {
@@ -369,47 +292,12 @@ async function handleStatusChange({ ticket, newStatus }) {
       const statusNames = { 0: '已完成', 1: '进行中', 2: '未开始', 3: '已关闭' }
       window.$message?.success(`工单状态已更新为：${statusNames[newStatus]}`)
       
-      if (currentTicket.value && currentTicket.value.id === ticket.id) {
-        currentTicket.value.status = newStatus
-        if (newStatus === 0) {
-          currentTicket.value.assigneeName = userStore.name
-          currentTicket.value.completeTime = new Date().toLocaleString()
-        }
-      }
-      
       loadData(true)
     } else {
       window.$message?.error(result.msg || '更新失败')
     }
   } catch (error) {
     window.$message?.error('更新失败')
-  }
-}
-
-async function handleSubmitEdit(formData) {
-  try {
-    const data = {
-      id: formData.id,
-      ticket_no: formData.ticketNo,
-      title: formData.title,
-      type: formData.type,
-      desc: formData.description,
-      location: formData.location,
-      start_time: formData.planTime ? formatTimeToMinute(formData.planTime) : undefined
-    }
-
-    const result = await api.ticketApi.update(data)
-    
-    if (result.code === 200) {
-      window.$message?.success('编辑成功')
-      editModalVisible.value = false
-      loadData(true)
-    } else {
-      window.$message?.error(result.msg || '编辑失败')
-    }
-  } catch (error) {
-    console.error('编辑工单失败:', error)
-    window.$message?.error('编辑失败')
   }
 }
 
@@ -431,11 +319,6 @@ async function handleDelete(ticket) {
         if (result.code === 200) {
           window.$message?.success('删除成功')
           loadData(true)
-          
-          if (currentTicket.value && currentTicket.value.id === ticket.id) {
-            viewModalVisible.value = false
-            currentTicket.value = null
-          }
         } else {
           window.$message?.error(result.msg || '删除失败')
         }
