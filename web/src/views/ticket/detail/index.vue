@@ -131,10 +131,10 @@ function formatTicket(data) {
     customerName: data.creator_name || userStore.name,
     operatorName: data.assignee_id ? `处理人${data.assignee_id}` : null,
     description: data.desc,
-    createTime: data.created_at,
-    startTime: data.start_time,
-    completeTime: data.end_time,
-    updateTime: shouldShowUpdatedAt(data.updated_at, data.created_at) ? data.updated_at : null,
+    createTime: formatTimeToMinute(data.created_at),
+    startTime: formatTimeToMinute(data.start_time),
+    completeTime: formatTimeToMinute(data.end_time),
+    updateTime: shouldShowUpdatedAt(data.updated_at, data.created_at) ? formatTimeToMinute(data.updated_at) : null,
     location: data.location,
     attachmentUrl: data.attachment_url,
     attachments: parseAttachmentUrls(data),
@@ -159,6 +159,11 @@ function hasValue(value) {
   if (typeof value === 'string') return value.trim() !== ''
   if (Array.isArray(value)) return value.length > 0
   return true
+}
+
+function formatTimeToMinute(value) {
+  if (!hasValue(value)) return value
+  return String(value).slice(0, 16)
 }
 
 function shouldShowUpdatedAt(updatedAt, createdAt) {

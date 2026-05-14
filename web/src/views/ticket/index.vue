@@ -180,12 +180,12 @@ async function loadData(reset = false) {
         customerName: ticket.user_id ? customerOptions.value.find(c => c.value === ticket.user_id)?.label || '未知用户' : userStore.name,
         operatorName: ticket.assignee_id ? `处理人${ticket.assignee_id}` : null,
         description: ticket.desc,
-        createTime: ticket.created_at,
-        startTime: ticket.start_time,
-        completeTime: ticket.end_time,
-        updateTime: ticket.updated_at,
+        createTime: formatTimeToMinute(ticket.created_at),
+        startTime: formatTimeToMinute(ticket.start_time),
+        completeTime: formatTimeToMinute(ticket.end_time),
+        updateTime: formatTimeToMinute(ticket.updated_at),
         location: ticket.location,
-        planTime: ticket.start_time,
+        planTime: formatTimeToMinute(ticket.start_time),
         attachments: parseAttachmentUrls(ticket)
       }))
 
@@ -210,6 +210,11 @@ async function loadData(reset = false) {
     if (reset) loading.value = false
     else loadingMore.value = false
   }
+}
+
+function formatTimeToMinute(value) {
+  if (value === null || value === undefined || value === '') return value
+  return String(value).slice(0, 16)
 }
 
 function parseAttachmentUrls(ticket) {
