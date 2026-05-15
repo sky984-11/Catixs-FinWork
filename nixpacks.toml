@@ -1,9 +1,10 @@
 [phases.setup]
-nixPkgs = ["python311", "nodejs_20", "pnpm", "gcc"]
+nixPkgs = ["python313", "python313Packages.pip", "nodejs_20", "pnpm", "gcc"]
 
 [phases.install]
 cmds = [
-  "pip install --no-cache-dir -r requirements.txt --index-url https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com",
+  "python --version",
+  "python -m pip install --no-cache-dir -r requirements.txt --index-url https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com",
   "cd web && pnpm install --frozen-lockfile"
 ]
 
