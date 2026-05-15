@@ -1,5 +1,6 @@
 from datetime import datetime
 from tortoise.expressions import Q
+from tortoise.exceptions import IntegrityError
 
 from app.core.crud import CRUDBase
 from app.models.ticket import Ticket
@@ -21,15 +22,17 @@ async def generate_ticket_no(ticket_type: int) -> str:
     """生成工单编号，格式: {类型前缀}-{日期}-{序号}"""
     prefix = get_ticket_type_prefix(ticket_type)
     today = datetime.now().strftime("%Y%m%d")
-    
-    # 统计当天同类型工单数量
-    count = await Ticket.filter(
-        ticket_no__startswith=f"{prefix}-{today}"
-    ).count()
-    
-    # 新编号 = 当前数量 + 1
-    new_num = count + 1
-    
+
+    latest_ticket = await Ticket.filter(ticket_no__startswith=f"{prefix}-{today}-").order_by("-ticket_no").first()
+    latest_no = latest_ticket.ticket_no if latest_ticket else ""
+    latest_num = 0
+    if latest_no:
+        try:
+            latest_num = int(latest_no.rsplit("-", 1)[-1])
+        except (TypeError, ValueError):
+            latest_num = 0
+    new_num = latest_num + 1
+
     return f"{prefix}-{today}-{new_num:04d}"
 
 
@@ -46,17 +49,21 @@ class TicketController(CRUDBase[Ticket, TicketCreate, TicketUpdate]):
     async def create_ticket(self, obj_in: TicketCreate) -> Ticket:
         """创建工单"""
         data = obj_in.model_dump()
-        
-        # 自动生成工单编号
-        ticket_type = data.get("type", 0)
-        data["ticket_no"] = await generate_ticket_no(ticket_type)
-        
+
         # 新建工单强制设置为未开始状态
         # 状态说明：0-已完成, 1-进行中, 2-未开始, 3-已关闭
         # 已完成和已关闭状态只能通过管理员手动修改
         data["status"] = 2
-        
-        return await self.create(data)
+
+        ticket_type = data.get("type", 0)
+        for _ in range(5):
+            data["ticket_no"] = await generate_ticket_no(ticket_type)
+            try:
+                return await self.create(data)
+            except IntegrityError as exc:
+                if "ticket_no" not in str(exc):
+                    raise
+        raise IntegrityError("生成工单编号失败，请重试")
 
     async def update_ticket(self, id: int, obj_in: TicketUpdate) -> Ticket:
         """更新工单"""

@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.controllers.user import user_controller
 from app.core.ctx import CTX_USER_ID
-from app.core.dependency import DependAuth
+from app.core.dependency import DependAuth, has_admin_role
 from app.models.admin import Api, Menu, Role, User
 from app.schemas.base import Fail, Success
 from app.schemas.login import *
@@ -53,7 +53,7 @@ async def get_user_menu():
     if not user_obj:
         raise HTTPException(status_code=401, detail="Authentication failed")
     menus: list[Menu] = []
-    if user_obj.is_superuser:
+    if user_obj.is_superuser or await has_admin_role(user_obj):
         menus = await Menu.all()
     else:
         role_objs: list[Role] = await user_obj.roles
@@ -66,18 +66,12 @@ async def get_user_menu():
         ticket_menu = await Menu.filter(path="/ticket").first()
         if ticket_menu and ticket_menu not in menus:
             menus.append(ticket_menu)
+        if ticket_menu:
             # 获取工单管理的子菜单
             ticket_sub_menus = await Menu.filter(parent_id=ticket_menu.id).all()
-            menus.extend(ticket_sub_menus)
-        ticket_create_menu = await Menu.filter(path="/ticket/create").first()
-        if ticket_create_menu and ticket_create_menu not in menus:
-            menus.append(ticket_create_menu)
-        ticket_detail_menu = await Menu.filter(path="/ticket/detail").first()
-        if ticket_detail_menu and ticket_detail_menu not in menus:
-            menus.append(ticket_detail_menu)
-        ticket_edit_menu = await Menu.filter(path="/ticket/edit").first()
-        if ticket_edit_menu and ticket_edit_menu not in menus:
-            menus.append(ticket_edit_menu)
+            for ticket_sub_menu in ticket_sub_menus:
+                if ticket_sub_menu not in menus:
+                    menus.append(ticket_sub_menu)
     
     parent_menus: list[Menu] = []
     for menu in menus:
@@ -100,7 +94,7 @@ async def get_user_api():
     user_obj = await User.filter(id=user_id).first()
     if not user_obj:
         raise HTTPException(status_code=401, detail="Authentication failed")
-    if user_obj.is_superuser:
+    if user_obj.is_superuser or await has_admin_role(user_obj):
         api_objs: list[Api] = await Api.all()
         apis = [api.method.lower() + api.path for api in api_objs]
         return Success(data=apis)

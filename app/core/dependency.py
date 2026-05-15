@@ -7,6 +7,14 @@ from app.core.ctx import CTX_USER_ID
 from app.models import Role, User
 from app.settings import settings
 
+ADMIN_ROLE_NAMES = {"admin", "管理员"}
+
+
+async def has_admin_role(user: User) -> bool:
+    roles: list[Role] = await user.roles
+    role_names = {str(role.name or "").strip().lower() for role in roles}
+    return bool(role_names & ADMIN_ROLE_NAMES)
+
 
 class AuthControl:
     @classmethod
@@ -39,6 +47,8 @@ class PermissionControl:
     @classmethod
     async def has_permission(cls, request: Request, current_user: User = Depends(AuthControl.is_authed)) -> None:
         if current_user.is_superuser:
+            return
+        if await has_admin_role(current_user):
             return
         method = request.method
         path = request.url.path

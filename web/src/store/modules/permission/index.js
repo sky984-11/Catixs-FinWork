@@ -24,19 +24,36 @@ function buildRoutes(routes = []) {
     }
 
     if (e.children && e.children.length > 0) {
+      const defaultComponent = vueModules[`/src/views${e.component}/index.vue`]
+      if (defaultComponent) {
+        route.children.push({
+          name: `${e.name}Default`,
+          path: '',
+          component: defaultComponent,
+          isHidden: true,
+          meta: {
+            title: e.name,
+            icon: e.icon,
+            order: e.order,
+            keepAlive: e.keepalive,
+          },
+        })
+      }
       // 有子菜单
-      route.children = e.children.map((e_child) => ({
-        name: e_child.name,
-        path: e_child.path,
-        component: vueModules[`/src/views${e_child.component}/index.vue`],
-        isHidden: e_child.is_hidden,
-        meta: {
-          title: e_child.name,
-          icon: e_child.icon,
-          order: e_child.order,
-          keepAlive: e_child.keepalive,
-        },
-      }))
+      route.children.push(
+        ...e.children.map((e_child) => ({
+          name: e_child.name,
+          path: e_child.path,
+          component: vueModules[`/src/views${e_child.component}/index.vue`],
+          isHidden: e_child.is_hidden,
+          meta: {
+            title: e_child.name,
+            icon: e_child.icon,
+            order: e_child.order,
+            keepAlive: e_child.keepalive,
+          },
+        }))
+      )
     } else {
       // 没有子菜单，创建一个默认的子路由
       route.children.push({

@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 TICKET_MANAGER_ROLE_NAMES = {"admin", "noc", "管理员"}
+TICKET_MANAGER_ACCOUNT_NAMES = {"noc"}
 
 # 工单附件上传目录
 UPLOAD_DIR = "uploads/tickets"
@@ -30,6 +31,15 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 async def can_view_all_tickets(user: User) -> bool:
     if user.is_superuser:
+        return True
+    user_names = {
+        str(user.username or "").strip().lower(),
+        str(user.alias or "").strip().lower(),
+    }
+    email_local = str(user.email or "").split("@", 1)[0].strip().lower()
+    if email_local:
+        user_names.add(email_local)
+    if user_names & TICKET_MANAGER_ACCOUNT_NAMES:
         return True
     roles = await user.roles.all()
     role_names = {str(role.name or "").strip().lower() for role in roles}
@@ -148,6 +158,24 @@ async def list_tickets(
     total, ticket_objs = await ticket_controller.list_tickets(page=page, page_size=page_size, search=q, order=["-created_at"])
     data = [await ticket_to_dict(obj) for obj in ticket_objs]
     return SuccessExtra(data=data, total=total, page=page, page_size=page_size)
+
+
+@router.get("/users", summary="查看工单用户选项", dependencies=[DependAuth])
+async def list_ticket_users():
+    current_user = await get_current_ticket_user()
+    if not await can_view_all_tickets(current_user):
+        raise HTTPException(status_code=403, detail="无权限查看工单用户选项")
+    users = await User.all().order_by("username")
+    data = [
+        {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "alias": user.alias,
+        }
+        for user in users
+    ]
+    return Success(data=data)
 
 
 @router.get("/get", summary="查看工单详情", dependencies=[DependAuth])

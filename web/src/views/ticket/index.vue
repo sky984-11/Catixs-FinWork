@@ -102,6 +102,12 @@ const customerOptions = ref([{ label: '全部用户', value: null }])
 
 const isAdminOrNoc = computed(() => {
   if (userStore.isSuperUser) return true
+  const accountNames = [
+    userStore.name,
+    userStore.userInfo?.alias,
+    String(userStore.email || '').split('@')[0],
+  ].map(value => String(value || '').trim().toLowerCase())
+  if (accountNames.includes('noc')) return true
   const roles = userStore.role || []
   const result = roles.some(role => {
     const roleName = String(typeof role === 'string' ? role : role?.name || '').trim().toLowerCase()
@@ -371,7 +377,7 @@ async function handleDelete(ticket) {
 
 async function loadUsers() {
   try {
-    const result = await api.getUserList({ page: 1, page_size: 9999 })
+    const result = await api.ticketApi.users()
     
     if (result.code === 200) {
       const users = result.data

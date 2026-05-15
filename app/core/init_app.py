@@ -183,7 +183,7 @@ async def init_menus():
             name="新增工单",
             path="/ticket/create",
             order=1,
-            parent_id=0,
+            parent_id=ticket_menu.id,
             icon="mdi:file-document-plus-outline",
             is_hidden=True,
             component="/ticket/create",
@@ -195,7 +195,7 @@ async def init_menus():
             name="工单详情",
             path="/ticket/detail",
             order=2,
-            parent_id=0,
+            parent_id=ticket_menu.id,
             icon="mdi:file-document-outline",
             is_hidden=True,
             component="/ticket/detail",
@@ -207,7 +207,7 @@ async def init_menus():
             name="编辑工单",
             path="/ticket/edit",
             order=3,
-            parent_id=0,
+            parent_id=ticket_menu.id,
             icon="mdi:file-document-edit-outline",
             is_hidden=True,
             component="/ticket/edit",
@@ -244,7 +244,7 @@ async def init_menus():
 async def ensure_ticket_route_menus():
     ticket_menu = await Menu.filter(path="/ticket").first()
     if not ticket_menu:
-        await Menu.create(
+        ticket_menu = await Menu.create(
             menu_type=MenuType.MENU,
             name="工单管理",
             path="/ticket",
@@ -288,16 +288,20 @@ async def ensure_ticket_route_menus():
                 name=menu_data["name"],
                 path=menu_data["path"],
                 order=menu_data["order"],
-                parent_id=0,
+                parent_id=ticket_menu.id,
                 icon=menu_data["icon"],
                 is_hidden=True,
                 component=menu_data["component"],
                 keepalive=False,
                 redirect="",
             )
-        elif route_menu.path != menu_data["path"] or route_menu.parent_id != 0 or not route_menu.is_hidden:
+        elif (
+            route_menu.path != menu_data["path"]
+            or route_menu.parent_id != ticket_menu.id
+            or not route_menu.is_hidden
+        ):
             route_menu.path = menu_data["path"]
-            route_menu.parent_id = 0
+            route_menu.parent_id = ticket_menu.id
             route_menu.is_hidden = True
             await route_menu.save()
 
