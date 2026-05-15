@@ -27,8 +27,8 @@ RUN apt-get update \
 
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt \
-    --index-url https://pypi.org/simple \
-    --extra-index-url https://pypi.tuna.tsinghua.edu.cn/simple
+    --index-url https://mirrors.aliyun.com/pypi/simple/ \
+    --trusted-host mirrors.aliyun.com
 
 COPY app ./app
 COPY scripts ./scripts
