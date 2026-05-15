@@ -1,5 +1,6 @@
 import json
 import re
+import logging
 from datetime import datetime
 from typing import Any, AsyncGenerator
 
@@ -14,6 +15,9 @@ from app.core.dependency import AuthControl
 from app.models.admin import AuditLog, User
 
 from .bgtask import BgTasks
+
+
+logger = logging.getLogger(__name__)
 
 
 class SimpleBaseMiddleware:
@@ -188,7 +192,10 @@ class HttpAuditLogMiddleware(BaseHTTPMiddleware):
 
             data["request_args"] = request.state.request_args
             data["response_body"] = await self.get_response_body(request, response)
-            await AuditLog.create(**data)
+            try:
+                await AuditLog.create(**data)
+            except Exception:
+                logger.exception("failed to create audit log")
 
         return response
 

@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime, date
+from enum import Enum
 
 from tortoise import fields, models
 
@@ -21,6 +22,8 @@ class BaseModel(models.Model):
                     value = value.strftime(settings.DATETIME_FORMAT)
                 elif isinstance(value, date):
                     value = value.strftime('%Y-%m-%d')
+                elif isinstance(value, Enum):
+                    value = value.value
                 d[field] = value
 
         if m2m:
@@ -45,6 +48,8 @@ class BaseModel(models.Model):
                 if k not in exclude_fields:
                     if isinstance(v, datetime):
                         formatted_value[k] = v.strftime(settings.DATETIME_FORMAT)
+                    elif isinstance(v, Enum):
+                        formatted_value[k] = v.value
                     else:
                         formatted_value[k] = v
             formatted_values.append(formatted_value)
