@@ -30,14 +30,18 @@
                     <span class="type-help" @click.stop>?</span>
                   </template>
                   <div class="type-help-content">
-                    <p>故障工单：处理突发异常。如：网络中断、设备故障、服务不可用等。</p>
-                    <p>服务请求：申请日常业务。如：开通专线、申请IP、带宽/端口扩容等。</p>
-                    <p>维护工单：记录现场运维作业。如：机房施工、硬件维护等。</p>
+                    <p>故障工单：链路、服务器、网络异常</p>
+                    <p>服务请求：带宽、资源、权限类需求</p>
+                    <p>维护工单：巡检、升级、割接与资产维护</p>
                   </div>
                 </n-tooltip>
               </span>
             </template>
-            <n-select v-model:value="form.type" :options="typeOptions" placeholder="请选择工单类型" />
+            <n-select
+              v-model:value="form.type"
+              :options="typeOptions"
+              placeholder="请选择工单类型"
+            />
           </n-form-item>
 
           <template v-if="showLocationField">
@@ -74,19 +78,14 @@
           </template>
 
           <n-form-item label="工单描述" path="description" required>
-            <n-input
-              v-model:value="form.description"
-              type="textarea"
-              placeholder="请详细描述您遇到的问题或需要的帮助。"
-              :rows="6"
-            />
+            <TicketDescriptionInput v-model:value="form.description" :type="form.type" />
           </n-form-item>
 
           <n-form-item label="上传图片">
             <n-upload
               v-model:file-list="uploadedFiles"
-              multiple
               directory-dnd
+              multiple
               :max="5"
               accept="image/*"
               @change="handleUploadChange"
@@ -98,7 +97,9 @@
                   </n-icon>
                 </div>
                 <n-text class="upload-title">点击或拖拽图片到此处上传</n-text>
-                <n-p depth="3" class="upload-tip">支持 JPG、PNG、WebP 和 GIF 格式，单张图片最大 5MB。</n-p>
+                <n-p depth="3" class="upload-tip"
+                  >支持 JPG、PNG、WebP 和 GIF 格式，单张图片最大 5MB。</n-p
+                >
               </n-upload-dragger>
             </n-upload>
           </n-form-item>
@@ -126,6 +127,7 @@ import { Icon } from '@iconify/vue'
 import { useUserStore } from '@/store'
 import api from '@/api'
 import CButton from '@/components/public/CButton.vue'
+import TicketDescriptionInput from '../components/TicketDescriptionInput.vue'
 
 defineOptions({ name: 'CreateTicket' })
 
@@ -135,7 +137,7 @@ const userStore = useUserStore()
 const typeOptions = [
   { label: '故障工单', value: 0 },
   { label: '服务请求工单', value: 1 },
-  { label: '维护工单', value: 2 }
+  { label: '维护工单', value: 2 },
 ]
 
 const formRef = ref(null)
@@ -148,7 +150,7 @@ const form = reactive({
   description: '',
   location: '',
   planTime: null,
-  timeRange: null
+  timeRange: null,
 })
 
 const showLocationField = computed(() => form.type === 0 || form.type === 2)
@@ -159,23 +161,25 @@ const timeFieldLabel = computed(() => {
   if (form.type === 2) return '维护时间'
   return '计划时间'
 })
-
 const rules = {
   title: { required: true, message: '请输入工单标题', trigger: ['input', 'blur'] },
   type: {
     required: true,
     type: 'number',
     message: '请选择工单类型',
-    trigger: ['change', 'blur']
+    trigger: ['change', 'blur'],
   },
-  description: { required: true, message: '请输入工单描述', trigger: ['input', 'blur'] }
+  description: { required: true, message: '请输入工单描述', trigger: ['input', 'blur'] },
 }
 
-watch(() => form.type, (type) => {
-  form.location = ''
-  form.planTime = type === 0 ? Date.now() : null
-  form.timeRange = type === 2 ? [Date.now(), Date.now()] : null
-})
+watch(
+  () => form.type,
+  (type) => {
+    form.location = ''
+    form.planTime = type === 0 ? Date.now() : null
+    form.timeRange = type === 2 ? [Date.now(), Date.now()] : null
+  }
+)
 
 function handleUploadChange(options) {
   uploadedFiles.value = options.fileList
@@ -207,7 +211,7 @@ async function submitTicket() {
   submitting.value = true
 
   try {
-    const files = uploadedFiles.value.filter(f => f.file).map(f => f.file)
+    const files = uploadedFiles.value.filter((f) => f.file).map((f) => f.file)
     const result = await api.ticketApi.create({
       title: form.title,
       type: form.type,
@@ -215,7 +219,7 @@ async function submitTicket() {
       desc: form.description,
       location: showLocationField.value ? form.location || undefined : undefined,
       start_time: getSubmitStartTime(),
-      end_time: getSubmitEndTime()
+      end_time: getSubmitEndTime(),
     })
 
     if (result.code === 200) {

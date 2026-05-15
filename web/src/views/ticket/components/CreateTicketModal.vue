@@ -1,6 +1,19 @@
 <template>
-  <n-modal :show="visible" preset="card" title="创建工单" style="width: 600px" @update:show="$emit('update:visible', $event)">
-    <n-form ref="formRef" class="ticket-form" :model="form" :rules="rules" label-placement="top" :show-feedback="false">
+  <n-modal
+    :show="visible"
+    preset="card"
+    title="创建工单"
+    style="width: 600px"
+    @update:show="$emit('update:visible', $event)"
+  >
+    <n-form
+      ref="formRef"
+      class="ticket-form"
+      :model="form"
+      :rules="rules"
+      label-placement="top"
+      :show-feedback="false"
+    >
       <n-form-item label="工单标题" path="title" required>
         <n-input v-model:value="form.title" placeholder="请输入工单标题" />
       </n-form-item>
@@ -13,9 +26,9 @@
                 <span class="type-help" @click.stop>?</span>
               </template>
               <div class="type-help-content">
-                <p>故障工单：处理突发异常。如：网络中断、设备故障、服务不可用等。</p>
-                <p>服务请求：申请日常业务。如：开通专线、申请IP、带宽/端口扩容等。</p>
-                <p>维护工单：记录现场运维作业。如：机房施工、硬件维护等。</p>
+                <p>故障工单：链路、服务器、网络异常</p>
+                <p>服务请求：带宽、资源、权限类需求</p>
+                <p>维护工单：巡检、升级、割接与资产维护</p>
               </div>
             </n-tooltip>
           </span>
@@ -38,7 +51,7 @@
         </n-form-item>
       </template>
       <n-form-item label="工单描述" path="description" required>
-        <n-input v-model:value="form.description" type="textarea" placeholder="请输入工单描述" :rows="4" />
+        <TicketDescriptionInput v-model:value="form.description" :type="form.type" />
       </n-form-item>
       <n-form-item label="附件图片">
         <n-upload
@@ -55,12 +68,8 @@
                 <Icon icon="mdi:archive-arrow-up-outline" />
               </n-icon>
             </div>
-            <n-text class="upload-title">
-              点击或者拖动图片到该区域上传
-            </n-text>
-            <n-p depth="3" class="upload-tip">
-              支持上传问题截图，请不要上传敏感数据。
-            </n-p>
+            <n-text class="upload-title"> 点击或者拖动图片到该区域上传 </n-text>
+            <n-p depth="3" class="upload-tip"> 支持上传问题截图，请不要上传敏感数据。 </n-p>
           </n-upload-dragger>
         </n-upload>
       </n-form-item>
@@ -77,18 +86,19 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
 import { Icon } from '@iconify/vue'
+import TicketDescriptionInput from './TicketDescriptionInput.vue'
 
 const emit = defineEmits(['update:visible', 'submit'])
 
 const props = defineProps({
   visible: {
     type: Boolean,
-    default: false
+    default: false,
   },
   typeOptions: {
     type: Array,
-    default: () => []
-  }
+    default: () => [],
+  },
 })
 
 const form = reactive({
@@ -96,7 +106,7 @@ const form = reactive({
   type: null,
   description: '',
   location: '',
-  planTime: null
+  planTime: null,
 })
 
 const formRef = ref(null)
@@ -107,28 +117,33 @@ const timeFieldLabel = computed(() => {
   if (form.type === 2 || form.type === 3) return '维护时间'
   return '计划时间'
 })
-
 const rules = {
   title: { required: true, message: '', trigger: ['input', 'blur'] },
   type: {
     required: true,
     type: 'number',
     message: '',
-    trigger: ['change', 'blur']
+    trigger: ['change', 'blur'],
   },
-  description: { required: true, message: '', trigger: ['input', 'blur'] }
+  description: { required: true, message: '', trigger: ['input', 'blur'] },
 }
 
-watch(() => props.visible, (visible) => {
-  if (visible) {
-    resetForm()
+watch(
+  () => props.visible,
+  (visible) => {
+    if (visible) {
+      resetForm()
+    }
   }
-})
+)
 
-watch(() => form.type, (type) => {
-  form.location = ''
-  form.planTime = type === 0 ? Date.now() : null
-})
+watch(
+  () => form.type,
+  (type) => {
+    form.location = ''
+    form.planTime = type === 0 ? Date.now() : null
+  }
+)
 
 function resetForm() {
   form.title = ''
@@ -148,12 +163,12 @@ function handleSubmit() {
   formRef.value?.validate((errors) => {
     if (errors) return
     // 传递 File 对象，供父组件上传到服务器
-    const files = uploadedFiles.value.filter(f => f.file).map(f => f.file)
+    const files = uploadedFiles.value.filter((f) => f.file).map((f) => f.file)
     emit('submit', {
       ...form,
       location: showLocationTime.value ? form.location : '',
       planTime: showLocationTime.value ? form.planTime : null,
-      attachments: files
+      attachments: files,
     })
   })
 }
