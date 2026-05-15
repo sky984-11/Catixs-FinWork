@@ -31,10 +31,10 @@ class Settings(BaseSettings):
     DB_TYPE: str = "postgres"
     SQLITE_DB_PATH: str = os.path.join(BASE_DIR, "db.sqlite3")
     POSTGRES_DSN: Optional[str] = None
-    POSTGRES_HOST: str = "127.0.0.1"
+    POSTGRES_HOST: str = "10.4.10.11"
     POSTGRES_PORT: int = 5432
     POSTGRES_USER: str = "postgres"
-    POSTGRES_PASSWORD: str = ""
+    POSTGRES_PASSWORD: str = "Catixs@3202"
     POSTGRES_DATABASE: str = "finwork"
     POSTGRES_SSL: bool = False
 

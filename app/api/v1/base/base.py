@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from app.controllers.user import user_controller
 from app.core.ctx import CTX_USER_ID
@@ -50,6 +50,8 @@ async def get_userinfo():
 async def get_user_menu():
     user_id = CTX_USER_ID.get()
     user_obj = await User.filter(id=user_id).first()
+    if not user_obj:
+        raise HTTPException(status_code=401, detail="Authentication failed")
     menus: list[Menu] = []
     if user_obj.is_superuser:
         menus = await Menu.all()
@@ -96,6 +98,8 @@ async def get_user_menu():
 async def get_user_api():
     user_id = CTX_USER_ID.get()
     user_obj = await User.filter(id=user_id).first()
+    if not user_obj:
+        raise HTTPException(status_code=401, detail="Authentication failed")
     if user_obj.is_superuser:
         api_objs: list[Api] = await Api.all()
         apis = [api.method.lower() + api.path for api in api_objs]
