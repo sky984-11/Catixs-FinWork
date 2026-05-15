@@ -29,13 +29,12 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 COPY app ./app
-COPY migrations ./migrations
 COPY scripts ./scripts
 COPY deploy ./deploy
 COPY pyproject.toml run.py ./
 COPY --from=web-build /app/web/dist ./web/dist
 
-RUN mkdir -p uploads/tickets app/logs \
+RUN mkdir -p migrations uploads/tickets app/logs \
     && rm -f /etc/nginx/sites-enabled/default \
     && cp deploy/web.conf /etc/nginx/sites-available/web.conf \
     && ln -s /etc/nginx/sites-available/web.conf /etc/nginx/sites-enabled/web.conf \
