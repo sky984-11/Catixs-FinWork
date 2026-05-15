@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from starlette.concurrency import run_in_threadpool
 from tortoise.exceptions import DoesNotExist
 from tortoise.expressions import Q
 
@@ -16,8 +17,9 @@ from app.core.dependency import DependAuth
 from app.models.admin import User
 from app.models.ticket import Ticket
 from app.schemas.base import Success, SuccessExtra
-from app.schemas.tickets import TicketAttachmentUpload, TicketCreate, TicketUpdate
-from app.utils.feishu_bot import send_ticket_created_notification
+from app.schemas.tickets import TicketAttachmentUpload, TicketCreate, TicketEmailSend, TicketUpdate
+from app.utils.feishu_bot import TICKET_STATUS_MAP, TICKET_TYPE_MAP, send_ticket_created_notification
+from app.utils.feishu_email import send_email
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +105,33 @@ def get_ticket_attachment_urls(ticket_obj: Ticket) -> list[str]:
 def build_ticket_detail_url(request: Request, ticket_id: int) -> str:
     frontend_origin = get_frontend_origin(request)
     return f"{frontend_origin}/ticket/detail?ticket_id={ticket_id}"
+
+
+def build_ticket_email_content(ticket_obj: Ticket, creator_name: str, ticket_url: str) -> str:
+    type_name = TICKET_TYPE_MAP.get(ticket_obj.type, "未知类型")
+    status_name = TICKET_STATUS_MAP.get(ticket_obj.status, "未知状态")
+    created_at = ticket_obj.created_at.strftime("%Y-%m-%d %H:%M") if ticket_obj.created_at else "-"
+    location = ticket_obj.location or "-"
+    description = ticket_obj.desc or "暂无描述"
+
+    return "\n".join(
+        [
+            "您好，您有一条工单通知，请及时查看。",
+            "",
+            f"工单编号：{ticket_obj.ticket_no}",
+            f"工单标题：{ticket_obj.title}",
+            f"工单类型：{type_name}",
+            f"当前状态：{status_name}",
+            f"创建人：{creator_name}",
+            f"创建时间：{created_at}",
+            f"发生地点：{location}",
+            "",
+            "工单描述：",
+            description,
+            "",
+            f"详情链接：{ticket_url}",
+        ]
+    )
 
 
 def get_frontend_origin(request: Request) -> str:
@@ -218,6 +247,50 @@ async def list_ticket_users():
         for user in users
     ]
     return Success(data=data)
+
+
+@router.post("/send_email", summary="发送工单邮件通知", dependencies=[DependAuth])
+async def send_ticket_email(
+    email_in: TicketEmailSend,
+    request: Request,
+):
+    current_user = await get_current_ticket_user()
+    if not await can_view_all_tickets(current_user):
+        raise HTTPException(status_code=403, detail="无权限发送工单通知")
+    if not email_in.user_ids:
+        return Success(code=400, msg="请至少选择一个收件用户")
+
+    ticket_obj = await ticket_controller.get(id=email_in.ticket_id)
+    creator = await User.get_or_none(id=ticket_obj.user_id) if ticket_obj.user_id else None
+    creator_name = get_user_display_name(creator)
+    users = await User.filter(id__in=email_in.user_ids).all()
+    recipients = [user.email for user in users if user.email]
+    if not recipients:
+        return Success(code=400, msg="所选用户没有可用邮箱")
+
+    subject = f"工单通知：{ticket_obj.ticket_no} {ticket_obj.title}"
+    content = build_ticket_email_content(
+        ticket_obj=ticket_obj,
+        creator_name=creator_name,
+        ticket_url=build_ticket_detail_url(request, ticket_obj.id),
+    )
+    failed_emails = []
+    for email in recipients:
+        try:
+            await run_in_threadpool(send_email, email, subject, content)
+        except Exception as e:
+            logger.error(f"发送工单邮件失败，ticket_id={ticket_obj.id}, email={email}: {e}")
+            failed_emails.append(email)
+
+    sent_emails = [email for email in recipients if email not in failed_emails]
+    if not sent_emails:
+        return Success(code=500, msg="工单邮件发送失败", data={"failed_emails": failed_emails})
+    if failed_emails:
+        return Success(
+            msg="工单邮件部分发送成功",
+            data={"sent_emails": sent_emails, "failed_emails": failed_emails},
+        )
+    return Success(msg="工单邮件发送成功", data={"sent_emails": sent_emails})
 
 
 @router.get("/get", summary="查看工单详情", dependencies=[DependAuth])

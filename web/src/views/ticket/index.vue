@@ -303,15 +303,26 @@ async function handleConfirmSend() {
 
   sendSubmitting.value = true
   try {
-    const selectedEmails = sendSelectedUsers.value.map(userId => {
-      const user = userOptions.value.find(u => u.value === userId)
-      return user?.email || ''
-    }).filter(Boolean)
+    const result = await api.ticketApi.sendEmail({
+      ticket_id: sendTicket.value.id,
+      user_ids: sendSelectedUsers.value
+    })
 
-    window.$message?.success(`已向 ${sendSelectedUsers.value.length} 个用户发送通知\n邮箱：${selectedEmails.join(', ')}`)
-    sendModalVisible.value = false
-    sendSelectedUsers.value = []
-    sendTicket.value = null
+    if (result.code === 200) {
+      const sentEmails = result.data?.sent_emails || []
+      const failedEmails = result.data?.failed_emails || []
+      const message = failedEmails.length
+        ? `已发送 ${sentEmails.length} 个，失败 ${failedEmails.length} 个`
+        : `已向 ${sentEmails.length || sendSelectedUsers.value.length} 个用户发送通知`
+      window.$message?.success(message)
+      sendModalVisible.value = false
+      sendSelectedUsers.value = []
+      sendTicket.value = null
+    } else {
+      window.$message?.error(result.msg || '发送失败')
+    }
+  } catch (error) {
+    window.$message?.error(error?.response?.data?.msg || '发送失败')
   } finally {
     sendSubmitting.value = false
   }

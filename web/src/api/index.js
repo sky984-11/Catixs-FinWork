@@ -96,6 +96,7 @@ export default {
     delete: (params = {}) => request.delete('/ticket/delete', { params }),
     getByNo: (params = {}) => request.get('/ticket/get_by_no', { params }),
     users: () => request.get('/ticket/users'),
+    sendEmail: (data = {}) => request.post('/ticket/send_email', data),
     upload: (data = {}, params = {}) => request.post('/ticket/upload', data, { params })
   }
 }

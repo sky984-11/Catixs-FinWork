@@ -65,3 +65,9 @@ class TicketAttachmentUpload(BaseModel):
     filename: str = Field(..., description="原始文件名", example="screenshot.png")
     content_type: str = Field(..., description="文件 MIME 类型", example="image/png")
     data: str = Field(..., description="Base64 内容，支持纯 base64 或 data URL")
+
+
+class TicketEmailSend(BaseModel):
+    """发送工单邮件请求模型"""
+    ticket_id: int = Field(..., description="工单ID", example=1)
+    user_ids: list[int] = Field(default_factory=list, description="收件用户ID列表")
