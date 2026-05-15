@@ -1,140 +1,63 @@
 <p align="center">
-  <a href="https://github.com/mizhexiaoxiao/vue-fastapi-admin">
-    <img alt="Vue FastAPI Admin Logo" width="200" src="https://github.com/mizhexiaoxiao/vue-fastapi-admin/blob/main/deploy/sample-picture/logo.svg">
+  <a href="#">
+    <img alt="Catixs FinWork Logo" width="200" src="./deploy/sample-picture/logo.svg">
   </a>
 </p>
 
-<h1 align="center">vue-fastapi-admin</h1>
+<h1 align="center">Catixs FinWork</h1>
 
 English | [简体中文](./README.md)
 
-vue-fastapi-admin is a modern front-end and back-end separation development platform that combines FastAPI, Vue3, and Naive UI. It incorporates RBAC (Role-Based Access Control) management, dynamic routing, and JWT (JSON Web Token) authentication, making it ideal for rapid development of small to medium-sized applications and also serves as a valuable learning resource.
+Catixs FinWork is an internal finance and operations platform built with FastAPI, Vue3, and Naive UI. It includes RBAC permission management, dynamic routing, JWT authentication, ticket workflows, vendor management, asset management, and PostgreSQL-backed business data.
 
 ### Features
-- **Popular Tech Stack**: The backend is developed with the high-performance asynchronous framework FastAPI using Python 3.11, while the front-end is powered by cutting-edge technologies such as Vue3 and Vite, complemented by the efficient package manager, pnpm.
+- **Popular Tech Stack**: The backend is developed with the high-performance asynchronous framework FastAPI using Python 3.13, while the front-end is powered by Vue3 and Vite, with pnpm for package management.
 - **Code Standards**: The project is equipped with various plugins for code standardization and quality control, ensuring consistency and enhancing team collaboration efficiency.
 - **Dynamic Routing**: Backend dynamic routing combined with the RBAC model allows for fine-grained control of menus and routing.
 - **JWT Authentication**: User identity verification and authorization are handled through JWT, enhancing the application's security.
 - **Granular Permission Control**: Implements detailed permission management including button and interface level controls, ensuring different roles and users have appropriate permissions.
 
-### Live Demo
-- URL: http://139.9.100.77:9999
+### Default Account
+
+The application creates a default superuser during first startup if the user table is empty.
+
 - Username: admin
-- Password: 123456
+- Password: Catixs@3202
 
 ### Screenshots
 
 #### Login Page
-![Login Page](https://github.com/mizhexiaoxiao/vue-fastapi-admin/blob/main/deploy/sample-picture/login.jpg)
+![Login Page](./deploy/sample-picture/login.jpg)
 
 #### Workbench
-![Workbench](https://github.com/mizhexiaoxiao/vue-fastapi-admin/blob/main/deploy/sample-picture/workbench.jpg)
+![Workbench](./deploy/sample-picture/workbench.jpg)
 
 #### User Management
-![User Management](https://github.com/mizhexiaoxiao/vue-fastapi-admin/blob/main/deploy/sample-picture/user.jpg)
+![User Management](./deploy/sample-picture/user.jpg)
 
 #### Role Management
-![Role Management](https://github.com/mizhexiaoxiao/vue-fastapi-admin/blob/main/deploy/sample-picture/role.jpg)
+![Role Management](./deploy/sample-picture/role.jpg)
 
 #### Menu Management
-![Menu Management](https://github.com/mizhexiaoxiao/vue-fastapi-admin/blob/main/deploy/sample-picture/menu.jpg)
+![Menu Management](./deploy/sample-picture/menu.jpg)
 
 #### API Management
-![API Management](https://github.com/mizhexiaoxiao/vue-fastapi-admin/blob/main/deploy/sample-picture/api.jpg)
+![API Management](./deploy/sample-picture/api.jpg)
 
-### Quick Start
-Please follow the instructions below for installation and configuration:
+### Installation
 
-#### Method 1：dockerhub pull image
+Catixs FinWork is a FastAPI + Vue application. The production build is served by FastAPI directly: API routes are mounted under `/api`, frontend static files are served from `web/dist`, and uploaded files are served from `/uploads`.
 
-```sh
-docker pull mizhexiaoxiao/vue-fastapi-admin:latest 
-docker run -d --restart=always --name=vue-fastapi-admin -p 9999:80 mizhexiaoxiao/vue-fastapi-admin
-```
+#### Requirements
 
-#### Method 2: Build Image Using Dockerfile
-##### Install Docker
+- Python 3.13
+- Node.js 20
+- pnpm
+- PostgreSQL
 
-```sh
-yum install -y docker-ce
-systemctl start docker
-```
+#### Environment Variables
 
-##### Build the Image
-
-```sh
-git clone https://github.com/mizhexiaoxiao/vue-fastapi-admin.git
-cd vue-fastapi-admin
-docker build --no-cache . -t vue-fastapi-admin
-```
-
-##### Start the Container
-
-```sh
-docker run -d --restart=always --name=vue-fastapi-admin -p 9999:80 vue-fastapi-admin
-```
-
-##### Access the Service
-
-http://localhost:9999
-
-username：admin
-
-password：123456
-
-### Local Setup
-#### Backend
-The backend service requires the following environment:
-- Python 3.11
-
-#### Method 1 (Recommended): Install Dependencies with uv
-1. Install uv
-```sh
-pip install uv
-```
-
-2. Create and activate virtual environment
-```sh
-uv venv
-source .venv/bin/activate  # Linux/Mac
-# or
-.\.venv\Scripts\activate  # Windows
-```
-
-3. Install dependencies
-```sh
-uv sync
-```
-
-4. Start the backend service
-```sh
-python run.py
-```
-
-#### Method 2: Install Dependencies with Pip
-1. Create a Python virtual environment:
-```sh
-python3 -m venv venv
-source venv/bin/activate  # Linux/Mac
-# or
-.\venv\Scripts\activate  # Windows
-```
-
-2. Install project dependencies:
-```sh
-pip install -r requirements.txt
-```
-
-3. Start the backend service:
-```sh
-uv run python run.py
-```
-The backend service is now running, and you can visit http://localhost:9999/docs to view the API documentation.
-
-#### Database: PostgreSQL
-PostgreSQL is the active backend database. The backend reads and writes data directly from PostgreSQL when `DB_TYPE=postgres` is set in `.env`.
-
-Set these environment variables before starting the backend:
+Create `.env` locally, or configure the same variables in your deployment platform:
 
 ```sh
 DB_TYPE=postgres
@@ -146,52 +69,125 @@ POSTGRES_DATABASE=finwork
 POSTGRES_SSL=false
 ```
 
-If the PostgreSQL server requires SSL, set `POSTGRES_SSL=true`. If the server rejects SSL upgrade, keep it as `false`.
+If your PostgreSQL server requires SSL, set `POSTGRES_SSL=true`. If the server rejects SSL upgrade, keep it as `false`.
 
-You can also use a single DSN:
+You can also use a single DSN. `POSTGRES_DSN` takes precedence over the individual `POSTGRES_*` fields:
 
 ```sh
 DB_TYPE=postgres
 POSTGRES_DSN=postgres://postgres:your_password@127.0.0.1:5432/finwork
 ```
 
-SQLite import is optional and only needed when you want to move old local data into PostgreSQL:
+#### Local Development
+
+Install `uv` and backend dependencies:
 
 ```sh
-uv run python scripts/migrate_sqlite_to_postgres.py
+python -m pip install uv
+uv sync --no-install-project
 ```
 
-If the target PostgreSQL database does not exist yet, let the script create it first:
+If your Python command is `python3`:
 
 ```sh
-uv run python scripts/migrate_sqlite_to_postgres.py --create-database
+python3 -m pip install uv
+uv sync --no-install-project
 ```
 
-If the target PostgreSQL tables already contain data and you want to replace them:
+Install frontend dependencies:
 
-```sh
-uv run python scripts/migrate_sqlite_to_postgres.py --truncate
-```
-
-#### Frontend
-The frontend project requires a Node.js environment (recommended version 18.8.0 or higher).
-- node v18.8.0+
-
-1. Navigate to the frontend project directory:
 ```sh
 cd web
+pnpm install
 ```
 
-2. Install project dependencies (pnpm is recommended: https://pnpm.io/zh/installation)
+Start development servers in two terminals:
+
 ```sh
-npm i -g pnpm # If pnpm is already installed, skip this step
-pnpm i # Or use npm i
+uv run python run.py
 ```
 
-3. Start the frontend development server:
 ```sh
+cd web
 pnpm dev
 ```
+
+The backend API documentation is available at:
+
+```text
+http://localhost:9999/docs
+```
+
+#### Production Build
+
+Build the frontend first:
+
+```sh
+cd web
+pnpm install --frozen-lockfile
+pnpm run build
+cd ..
+```
+
+Create runtime directories:
+
+```sh
+mkdir -p migrations uploads/tickets app/logs
+```
+
+Start the application:
+
+```sh
+UVICORN_RELOAD=false PORT=8000 uv run python run.py
+```
+
+The application will serve both the frontend and backend from the same port.
+
+#### Nixpacks Deployment
+
+For Coolify or other Nixpacks-based platforms, select:
+
+```text
+Build Pack: Nixpacks
+```
+
+The repository includes `nixpacks.toml`, which performs these steps:
+
+```text
+1. install Python 3.13, uv, Node.js 20, pnpm, gcc
+2. install backend dependencies with `uv sync --no-dev --no-install-project`
+3. install frontend dependencies with pnpm
+4. build web/dist
+5. start the app with `uv run python run.py`
+```
+
+Configure the PostgreSQL environment variables in the platform UI. Do not bake `.env` into the deployment image.
+
+#### Database Initialization
+
+On startup, the backend runs database initialization and migrations through Aerich/Tortoise. Make sure the configured PostgreSQL database exists before starting the app.
+
+If the database does not exist yet and you want the helper script to create it:
+
+```sh
+python scripts/migrate_sqlite_to_postgres.py --create-database-only
+```
+
+SQLite import is optional and only needed when moving old local data into PostgreSQL:
+
+```sh
+python scripts/migrate_sqlite_to_postgres.py
+```
+
+If the target PostgreSQL tables already contain data and you intentionally want to replace them:
+
+```sh
+python scripts/migrate_sqlite_to_postgres.py --truncate
+```
+
+#### Docker
+
+Docker is optional. The current recommended deployment path is Nixpacks. If Docker is used, pass database configuration at runtime with environment variables; do not copy `.env` into the image.
 
 ### Directory Structure Explanation
 
@@ -256,6 +252,3 @@ pnpm dev
             └── workbench  // 工作台页面
 ```
 
-### Visitors Count
-
-<img align="left" src = "https://profile-counter.glitch.me/vue-fastapi-admin/count.svg" alt="Loading">

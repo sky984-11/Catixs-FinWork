@@ -44,6 +44,7 @@ def make_middlewares():
             HttpAuditLogMiddleware,
             methods=["GET", "POST", "PUT", "DELETE"],
             exclude_paths=[
+                r"^/(?!api/)",
                 "/api/v1/base/access_token",
                 "/api/v1/vendor/export",
                 "/api/v1/vendor/import",

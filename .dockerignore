@@ -1,1 +1,16 @@
+.git
+.codex
+.venv
+.venv-win
+.uv-cache
+.uv-cache2
+__pycache__
+*.pyc
+.env
+db.sqlite3
+app/logs
+uploads
 web/node_modules
+web/.pnpm-store
+web/dist
+web/.env.development

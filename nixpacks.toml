@@ -1,0 +1,18 @@
+[phases.setup]
+nixPkgs = ["python313", "uv", "nodejs_20", "pnpm", "gcc"]
+
+[phases.install]
+cmds = [
+  "python --version",
+  "uv sync --no-dev --no-install-project --default-index https://mirrors.aliyun.com/pypi/simple/ --allow-insecure-host mirrors.aliyun.com",
+  "cd web && pnpm install --frozen-lockfile"
+]
+
+[phases.build]
+cmds = [
+  "cd web && pnpm run build",
+  "mkdir -p migrations uploads/tickets app/logs"
+]
+
+[start]
+cmd = "UVICORN_RELOAD=false uv run python run.py"

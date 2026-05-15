@@ -1,33 +1,44 @@
-FROM node:18.12.0-alpine3.16 AS web
+FROM node:20-alpine AS web-build
 
-WORKDIR /opt/vue-fastapi-admin
-COPY /web ./web
-RUN cd /opt/vue-fastapi-admin/web && npm i --registry=https://registry.npmmirror.com && npm run build
+WORKDIR /app/web
+
+RUN npm install -g pnpm@9.15.9 --registry=https://registry.npmmirror.com \
+    && pnpm config set registry https://registry.npmmirror.com
+
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
+
+COPY web/ ./
+RUN pnpm run build
 
 
-FROM python:3.11-slim-bullseye
+FROM python:3.11-slim-bookworm
 
-WORKDIR /opt/vue-fastapi-admin
-ADD . .
-COPY /deploy/entrypoint.sh .
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    LANG=C.UTF-8 \
+    TZ=Asia/Shanghai
 
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked,id=core-apt \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked,id=core-apt \
-    sed -i "s@http://.*.debian.org@http://mirrors.ustc.edu.cn@g" /etc/apt/sources.list \
-    && rm -f /etc/apt/apt.conf.d/docker-clean \
-    && ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
-    && echo "Asia/Shanghai" > /etc/timezone \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends gcc python3-dev bash nginx vim curl procps net-tools
+WORKDIR /app
 
-RUN pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY --from=web /opt/vue-fastapi-admin/web/dist /opt/vue-fastapi-admin/web/dist
-ADD /deploy/web.conf /etc/nginx/sites-available/web.conf
-RUN rm -f /etc/nginx/sites-enabled/default \ 
-    && ln -s /etc/nginx/sites-available/web.conf /etc/nginx/sites-enabled/ 
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt \
+    --index-url https://mirrors.aliyun.com/pypi/simple/ \
+    --trusted-host mirrors.aliyun.com
 
-ENV LANG=zh_CN.UTF-8
+COPY app ./app
+COPY scripts ./scripts
+COPY deploy ./deploy
+COPY pyproject.toml run.py ./
+COPY --from=web-build /app/web/dist ./web/dist
+
+RUN mkdir -p migrations uploads/tickets app/logs \
+    && chmod +x deploy/entrypoint.sh
+
 EXPOSE 80
 
-ENTRYPOINT [ "sh", "entrypoint.sh" ]
+ENTRYPOINT ["sh", "deploy/entrypoint.sh"]
