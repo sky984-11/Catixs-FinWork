@@ -18,20 +18,19 @@ def get_ticket_type_prefix(ticket_type: int) -> str:
     return type_map.get(ticket_type, "INC")
 
 
-async def generate_ticket_no(ticket_type: int) -> str:
+async def generate_ticket_no(ticket_type: int, min_sequence: int = 1) -> str:
     """生成工单编号，格式: {类型前缀}-{日期}-{序号}"""
     prefix = get_ticket_type_prefix(ticket_type)
     today = datetime.now().strftime("%Y%m%d")
 
-    latest_ticket = await Ticket.filter(ticket_no__startswith=f"{prefix}-{today}-").order_by("-ticket_no").first()
-    latest_no = latest_ticket.ticket_no if latest_ticket else ""
+    ticket_nos = await Ticket.filter(ticket_no__startswith=f"{prefix}-{today}-").values_list("ticket_no", flat=True)
     latest_num = 0
-    if latest_no:
+    for ticket_no in ticket_nos:
         try:
-            latest_num = int(latest_no.rsplit("-", 1)[-1])
+            latest_num = max(latest_num, int(str(ticket_no).rsplit("-", 1)[-1]))
         except (TypeError, ValueError):
-            latest_num = 0
-    new_num = latest_num + 1
+            continue
+    new_num = max(latest_num + 1, min_sequence)
 
     return f"{prefix}-{today}-{new_num:04d}"
 
@@ -56,8 +55,13 @@ class TicketController(CRUDBase[Ticket, TicketCreate, TicketUpdate]):
         data["status"] = 2
 
         ticket_type = data.get("type", 0)
+        next_sequence = 1
         for _ in range(5):
-            data["ticket_no"] = await generate_ticket_no(ticket_type)
+            data["ticket_no"] = await generate_ticket_no(ticket_type, min_sequence=next_sequence)
+            try:
+                next_sequence = int(data["ticket_no"].rsplit("-", 1)[-1]) + 1
+            except (TypeError, ValueError):
+                next_sequence += 1
             try:
                 return await self.create(data)
             except IntegrityError as exc:

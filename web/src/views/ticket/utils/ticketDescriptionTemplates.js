@@ -33,13 +33,6 @@ const descriptionSections = {
       title: '资源信息',
       placeholder: '请输入 IP、设备、端口、线路、带宽、权限等相关信息。',
     },
-    { key: 'background', title: '业务背景', placeholder: '请输入申请原因、业务用途或关联项目。' },
-    {
-      key: 'requirement',
-      title: '实施要求',
-      placeholder: '请输入期望完成时间、窗口期或特殊要求。',
-    },
-    { key: 'remark', title: '备注信息', placeholder: '请输入其他补充内容。' },
   ],
   2: [
     { key: 'description', title: '维护说明', placeholder: '请输入本次维护/割接的背景及原因。' },
@@ -56,6 +49,56 @@ const descriptionSections = {
 
 descriptionSections[3] = descriptionSections[2]
 
+const deprecatedDescriptionSections = {
+  1: [
+    { title: '业务背景', placeholder: '请输入申请原因、业务用途或关联项目。' },
+    { title: '实施要求', placeholder: '请输入期望完成时间、窗口期或特殊要求。' },
+    { title: '备注信息', placeholder: '请输入其他补充内容。' },
+  ],
+}
+
 export function getTicketDescriptionSections(type) {
   return descriptionSections[type] || []
+}
+
+export function getTicketDescriptionTitleTemplate(type) {
+  return getTicketDescriptionSections(type)
+    .map((section) => `${section.title}：\n`)
+    .join('\n')
+}
+
+export function getTicketDescriptionPlaceholder(type) {
+  const sections = getTicketDescriptionSections(type)
+  if (!sections.length) return '请选择工单类型后填写描述'
+  return sections.map((section) => `${section.title}：\n${section.placeholder}`).join('\n\n')
+}
+
+export function cleanupDeprecatedTicketDescription(type, value) {
+  let nextValue = value || ''
+  const deprecatedSections = deprecatedDescriptionSections[type] || []
+  deprecatedSections.forEach((section) => {
+    nextValue = removeDeprecatedSection(nextValue, section)
+  })
+  return nextValue.replace(/\n{3,}/g, '\n\n').trimEnd()
+}
+
+function removeDeprecatedSection(value, section) {
+  const title = `${section.title}：`
+  const startIndex = value.indexOf(title)
+  if (startIndex < 0) return value
+
+  const contentStart = startIndex + title.length
+  const nextTitleIndex = findNextTitleIndex(value, contentStart)
+  const endIndex = nextTitleIndex >= 0 ? nextTitleIndex : value.length
+  const content = value.slice(contentStart, endIndex).trim()
+  if (content && content !== section.placeholder) return value
+
+  const before = value.slice(0, startIndex).replace(/\n+$/, '')
+  const after = value.slice(endIndex).replace(/^\n+/, '')
+  return [before, after].filter(Boolean).join('\n\n')
+}
+
+function findNextTitleIndex(value, fromIndex) {
+  const match = value.slice(fromIndex).match(/\n\S[^：\n]*：/u)
+  return match ? fromIndex + match.index + 1 : -1
 }
