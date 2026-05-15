@@ -26,7 +26,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip install --no-cache-dir -r requirements.txt \
+    --index-url https://pypi.org/simple \
+    --extra-index-url https://pypi.tuna.tsinghua.edu.cn/simple
 
 COPY app ./app
 COPY scripts ./scripts
