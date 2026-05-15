@@ -128,6 +128,7 @@ import { useUserStore } from '@/store'
 import api from '@/api'
 import CButton from '@/components/public/CButton.vue'
 import TicketDescriptionInput from '../components/TicketDescriptionInput.vue'
+import { fileToBase64Payload } from '../utils/fileBase64'
 
 defineOptions({ name: 'CreateTicket' })
 
@@ -253,9 +254,7 @@ function getSubmitEndTime() {
 async function uploadTicketAttachments(files, ticketId) {
   const urls = []
   for (const file of files) {
-    const uploadFormData = new FormData()
-    uploadFormData.append('file', file)
-    const uploadRes = await api.ticketApi.upload(uploadFormData, { ticket_id: ticketId })
+    const uploadRes = await api.ticketApi.upload(await fileToBase64Payload(file), { ticket_id: ticketId })
     if (uploadRes.code !== 200) {
       throw new Error(uploadRes.msg || '附件上传失败')
     }

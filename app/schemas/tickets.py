@@ -58,3 +58,10 @@ class TicketQuery(BaseModel):
     type: Optional[int] = Field(None, description="工单类型")
     user_id: Optional[int] = Field(None, description="用户ID")
     assignee_id: Optional[int] = Field(None, description="处理人ID")
+
+
+class TicketAttachmentUpload(BaseModel):
+    """工单附件图片 JSON 上传模型"""
+    filename: str = Field(..., description="原始文件名", example="screenshot.png")
+    content_type: str = Field(..., description="文件 MIME 类型", example="image/png")
+    data: str = Field(..., description="Base64 内容，支持纯 base64 或 data URL")

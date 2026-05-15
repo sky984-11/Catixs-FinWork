@@ -1,10 +1,12 @@
+import base64
+import binascii
 import logging
 import json
 import os
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, HTTPException, Query, Request
 from tortoise.exceptions import DoesNotExist
 from tortoise.expressions import Q
 
@@ -14,7 +16,7 @@ from app.core.dependency import DependAuth
 from app.models.admin import User
 from app.models.ticket import Ticket
 from app.schemas.base import Success, SuccessExtra
-from app.schemas.tickets import TicketCreate, TicketUpdate
+from app.schemas.tickets import TicketAttachmentUpload, TicketCreate, TicketUpdate
 from app.utils.feishu_bot import send_ticket_created_notification
 
 logger = logging.getLogger(__name__)
@@ -26,6 +28,7 @@ TICKET_MANAGER_ACCOUNT_NAMES = {"noc"}
 
 # 工单附件上传目录
 UPLOAD_DIR = "uploads/tickets"
+MAX_UPLOAD_IMAGE_SIZE = 5 * 1024 * 1024
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
@@ -122,6 +125,45 @@ def get_frontend_origin(request: Request) -> str:
     if forwarded_proto and forwarded_host:
         return f"{forwarded_proto}://{forwarded_host}".rstrip("/")
     return str(request.base_url).rstrip("/")
+
+
+def decode_base64_image(upload: TicketAttachmentUpload) -> tuple[bytes, str]:
+    content_type = str(upload.content_type or "").strip().lower()
+    base64_data = str(upload.data or "").strip()
+
+    if base64_data.startswith("data:"):
+        header, _, payload = base64_data.partition(",")
+        if not payload:
+            return b"", content_type
+        if ";" in header:
+            content_type = header[5:].split(";", 1)[0].strip().lower() or content_type
+        base64_data = payload
+
+    if not content_type.startswith("image/"):
+        return b"", content_type
+
+    try:
+        content = base64.b64decode(base64_data, validate=True)
+    except (binascii.Error, ValueError):
+        return b"", content_type
+
+    return content, content_type
+
+
+def get_image_file_extension(filename: str, content_type: str) -> str:
+    ext = os.path.splitext(os.path.basename(filename or ""))[1].lower()
+    allowed_exts = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg"}
+    if ext in allowed_exts:
+        return ext
+    content_type_exts = {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/gif": ".gif",
+        "image/webp": ".webp",
+        "image/bmp": ".bmp",
+        "image/svg+xml": ".svg",
+    }
+    return content_type_exts.get(content_type, ".png")
 
 
 @router.get("/list", summary="查看工单列表", dependencies=[DependAuth])
@@ -279,15 +321,17 @@ async def get_ticket_by_no(
 
 @router.post("/upload", summary="上传工单附件图片", dependencies=[DependAuth])
 async def upload_ticket_attachment(
-    file: UploadFile = File(..., description="附件图片"),
+    upload: TicketAttachmentUpload,
     ticket_id: int | None = Query(None, description="工单ID"),
 ):
-    # 只允许图片
-    if not file.content_type or not file.content_type.startswith('image/'):
+    content, content_type = decode_base64_image(upload)
+    if not content:
         return Success(msg="只允许上传图片文件", code=400)
+    if len(content) > MAX_UPLOAD_IMAGE_SIZE:
+        return Success(msg="图片大小不能超过 5MB", code=400)
 
     # 生成唯一文件名
-    file_ext = os.path.splitext(file.filename)[1]
+    file_ext = get_image_file_extension(upload.filename, content_type)
     unique_filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}{file_ext}"
     if ticket_id is not None:
         ticket_obj = await ticket_controller.get(id=ticket_id)
@@ -302,7 +346,6 @@ async def upload_ticket_attachment(
     file_path = os.path.join(ticket_upload_dir, unique_filename)
 
     # 保存文件
-    content = await file.read()
     with open(file_path, "wb") as f:
         f.write(content)
 

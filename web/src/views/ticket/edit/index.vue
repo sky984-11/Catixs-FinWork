@@ -123,6 +123,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
 import api from '@/api'
 import CButton from '@/components/public/CButton.vue'
+import { fileToBase64Payload } from '../utils/fileBase64'
 
 defineOptions({ name: 'EditTicket' })
 
@@ -317,9 +318,7 @@ async function resolveAttachmentUrls() {
       continue
     }
     if (!item.file) continue
-    const uploadFormData = new FormData()
-    uploadFormData.append('file', item.file)
-    const uploadRes = await api.ticketApi.upload(uploadFormData, { ticket_id: form.id })
+    const uploadRes = await api.ticketApi.upload(await fileToBase64Payload(item.file), { ticket_id: form.id })
     if (uploadRes.code !== 200) {
       throw new Error(uploadRes.msg || '附件上传失败')
     }
