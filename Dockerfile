@@ -22,7 +22,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends nginx curl \
+    && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
@@ -37,9 +37,6 @@ COPY pyproject.toml run.py ./
 COPY --from=web-build /app/web/dist ./web/dist
 
 RUN mkdir -p migrations uploads/tickets app/logs \
-    && rm -f /etc/nginx/sites-enabled/default \
-    && cp deploy/web.conf /etc/nginx/sites-available/web.conf \
-    && ln -s /etc/nginx/sites-available/web.conf /etc/nginx/sites-enabled/web.conf \
     && chmod +x deploy/entrypoint.sh
 
 EXPOSE 80
