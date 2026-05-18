@@ -26,14 +26,7 @@ const descriptionSections = {
       placeholder: '请输入希望运维协助排查、恢复、升级或现场处理的事项。',
     },
   ],
-  1: [
-    { key: 'request', title: '需求说明', placeholder: '请输入本次申请或变更内容。' },
-    {
-      key: 'resource',
-      title: '资源信息',
-      placeholder: '请输入 IP、设备、端口、线路、带宽、权限等相关信息。',
-    },
-  ],
+  1: [],
   2: [
     { key: 'description', title: '维护说明', placeholder: '请输入本次维护/割接的背景及原因。' },
     {

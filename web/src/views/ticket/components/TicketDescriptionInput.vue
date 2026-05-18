@@ -60,10 +60,16 @@ watch(
   () => props.type,
   (type, oldType) => {
     const nextTemplate = getTicketDescriptionTitleTemplate(type)
-    if (!nextTemplate) return
-
     const oldTemplate = getTicketDescriptionTitleTemplate(oldType)
     const currentValue = props.value || ''
+
+    if (!nextTemplate) {
+      if (shouldReplaceTemplate(currentValue, oldType, oldTemplate)) {
+        emit('update:value', '')
+      }
+      return
+    }
+
     if (!shouldReplaceTemplate(currentValue, oldType, oldTemplate)) return
 
     emit('update:value', nextTemplate)
