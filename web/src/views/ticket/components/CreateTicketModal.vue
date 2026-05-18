@@ -87,6 +87,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { Icon } from '@iconify/vue'
 import TicketDescriptionInput from './TicketDescriptionInput.vue'
+import { cleanupTicketDescriptionForSubmit } from '../utils/ticketDescriptionTemplates'
 
 const emit = defineEmits(['update:visible', 'submit'])
 
@@ -166,6 +167,7 @@ function handleSubmit() {
     const files = uploadedFiles.value.filter((f) => f.file).map((f) => f.file)
     emit('submit', {
       ...form,
+      description: cleanupTicketDescriptionForSubmit(form.description),
       location: showLocationTime.value ? form.location : '',
       planTime: showLocationTime.value ? form.planTime : null,
       attachments: files,

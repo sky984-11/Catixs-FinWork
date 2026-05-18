@@ -129,6 +129,7 @@ import api from '@/api'
 import CButton from '@/components/public/CButton.vue'
 import TicketDescriptionInput from '../components/TicketDescriptionInput.vue'
 import { fileToBase64Payload } from '../utils/fileBase64'
+import { cleanupTicketDescriptionForSubmit } from '../utils/ticketDescriptionTemplates'
 
 defineOptions({ name: 'CreateTicket' })
 
@@ -217,7 +218,7 @@ async function submitTicket() {
       title: form.title,
       type: form.type,
       user_id: userStore.userId,
-      desc: form.description,
+      desc: cleanupTicketDescriptionForSubmit(form.description),
       location: showLocationField.value ? form.location || undefined : undefined,
       start_time: getSubmitStartTime(),
       end_time: getSubmitEndTime(),

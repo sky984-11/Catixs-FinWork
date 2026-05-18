@@ -42,6 +42,7 @@
 <script setup>
 import { reactive, ref, watch } from 'vue'
 import TicketDescriptionInput from './TicketDescriptionInput.vue'
+import { cleanupTicketDescriptionForSubmit } from '../utils/ticketDescriptionTemplates'
 
 const emit = defineEmits(['update:visible', 'submit'])
 
@@ -108,7 +109,7 @@ function handleSubmit() {
       ticketNo: form.ticketNo,
       title: form.title,
       type: form.type,
-      description: form.description,
+      description: cleanupTicketDescriptionForSubmit(form.description),
       location: form.location || undefined,
       planTime: form.planTime || undefined,
     })

@@ -57,13 +57,15 @@ const deprecatedDescriptionSections = {
   ],
 }
 
+export const TICKET_DESCRIPTION_CURSOR_PLACEHOLDER = '\u200B'
+
 export function getTicketDescriptionSections(type) {
   return descriptionSections[type] || []
 }
 
 export function getTicketDescriptionTitleTemplate(type) {
   return getTicketDescriptionSections(type)
-    .map((section) => `${section.title}：\n`)
+    .map((section) => `${section.title}：\n${TICKET_DESCRIPTION_CURSOR_PLACEHOLDER}`)
     .join('\n')
 }
 
@@ -80,6 +82,10 @@ export function cleanupDeprecatedTicketDescription(type, value) {
     nextValue = removeDeprecatedSection(nextValue, section)
   })
   return nextValue.replace(/\n{3,}/g, '\n\n').trimEnd()
+}
+
+export function cleanupTicketDescriptionForSubmit(value) {
+  return String(value || '').replaceAll(TICKET_DESCRIPTION_CURSOR_PLACEHOLDER, '').trimEnd()
 }
 
 function removeDeprecatedSection(value, section) {
