@@ -244,9 +244,13 @@ const activeTotal = computed(() => {
   return getStatusCount(1) + getStatusCount(2)
 })
 
+const statusPercentTotal = computed(() => {
+  return Math.max(0, dashboard.total - getStatusCount(3))
+})
+
 const completionRate = computed(() => {
-  if (!dashboard.total) return 0
-  return Math.round((getStatusCount(0) / dashboard.total) * 100)
+  if (!statusPercentTotal.value) return 0
+  return Math.round((getStatusCount(0) / statusPercentTotal.value) * 100)
 })
 
 const healthTagType = computed(() => {
@@ -300,7 +304,7 @@ const statusRows = computed(() => {
     return {
       ...item,
       count,
-      percent: getPercent(count, dashboard.total),
+      percent: item.value === 3 ? 0 : getPercent(count, statusPercentTotal.value),
     }
   })
 })
