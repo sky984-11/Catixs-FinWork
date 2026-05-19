@@ -150,7 +150,13 @@ class HttpAuditLogMiddleware(BaseHTTPMiddleware):
         """
         根据request和response对象获取对应的日志记录数据
         """
-        data: dict = {"path": request.url.path, "status": response.status_code, "method": request.method}
+        data: dict = {
+            "path": request.url.path,
+            "status": response.status_code,
+            "method": request.method,
+            "module": "",
+            "summary": "",
+        }
         # 路由信息
         app: FastAPI = request.app
         for route in app.routes:
@@ -159,8 +165,9 @@ class HttpAuditLogMiddleware(BaseHTTPMiddleware):
                 and route.path_regex.match(request.url.path)
                 and request.method in route.methods
             ):
-                data["module"] = ",".join(route.tags)
-                data["summary"] = route.summary
+                data["module"] = ",".join(route.tags or [])[:64]
+                data["summary"] = (route.summary or route.name or request.url.path)[:128]
+                break
         # 获取用户信息
         try:
             token = request.headers.get("token")

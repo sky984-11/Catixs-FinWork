@@ -8,7 +8,12 @@
               <span class="eyebrow">Location</span>
               <h2>区域结构</h2>
             </div>
-            <n-dropdown trigger="click" :options="createOptions" @select="handleCreateSelect">
+            <n-dropdown
+              v-if="permittedCreateOptions.length"
+              trigger="click"
+              :options="permittedCreateOptions"
+              @select="handleCreateSelect"
+            >
               <n-button secondary circle>
                 <template #icon>
                   <TheIcon icon="mdi:plus" :size="18" />
@@ -92,8 +97,8 @@
               placeholder="设备状态"
               :options="deviceStatusOptions"
             />
-            <n-button secondary @click="resetFilters">重置</n-button>
-            <n-button type="primary" @click="loadCurrentList">搜索</n-button>
+            <n-button secondary round @click="resetFilters">重置</n-button>
+            <n-button type="primary" round @click="loadCurrentList">搜索</n-button>
           </section>
 
           <section class="content-panel">
@@ -103,19 +108,29 @@
                 <h2>{{ isInventoryView ? '库存列表' : '设备列表' }}</h2>
               </div>
               <div class="toolbar-actions">
-                <n-button v-if="isInventoryView" secondary @click="categoryModal.show = true">
+                <n-button
+                  v-if="isInventoryView && canMaintainCategories"
+                  secondary
+                  round
+                  @click="categoryModal.show = true"
+                >
                   <template #icon>
                     <TheIcon icon="mdi:shape-plus-outline" :size="18" />
                   </template>
                   分类维护
                 </n-button>
-                <n-button secondary @click="openContextModal">
+                <n-button v-if="canUseContextAction" secondary round @click="openContextModal">
                   <template #icon>
                     <TheIcon :icon="contextIcon" :size="18" />
                   </template>
                   {{ contextActionText }}
                 </n-button>
-                <n-button type="primary" @click="openPrimaryModal()">
+                <n-button
+                  v-if="canUsePrimaryAction"
+                  type="primary"
+                  round
+                  @click="openPrimaryModal()"
+                >
                   <template #icon>
                     <TheIcon
                       :icon="isInventoryView ? 'mdi:package-variant-plus' : 'mdi:server-plus'"
@@ -190,15 +205,29 @@
                   :key="index"
                   class="attribute-row"
                 >
-                  <n-input v-model:value="attr.key" placeholder="属性名，如规格型号" />
+                  <n-input
+                    v-model:value="attr.key"
+                    :disabled="hasInventoryAttributeTemplate"
+                    placeholder="属性名，如规格型号"
+                  />
                   <n-input v-model:value="attr.value" placeholder="属性值" />
-                  <n-button secondary circle @click="removeInventoryAttribute(index)">
+                  <n-button
+                    v-if="!hasInventoryAttributeTemplate"
+                    secondary
+                    circle
+                    @click="removeInventoryAttribute(index)"
+                  >
                     <template #icon>
                       <TheIcon icon="mdi:minus" :size="16" />
                     </template>
                   </n-button>
                 </div>
-                <n-button secondary @click="addInventoryAttribute">
+                <n-button
+                  v-if="!hasInventoryAttributeTemplate"
+                  secondary
+                  round
+                  @click="addInventoryAttribute"
+                >
                   <template #icon>
                     <TheIcon icon="mdi:plus" :size="16" />
                   </template>
@@ -213,10 +242,13 @@
         </n-form>
         <template #footer>
           <div class="modal-footer">
-            <n-button @click="inventoryModal.show = false">取消</n-button>
-            <n-button type="primary" :loading="inventoryModal.submitting" @click="submitInventory"
-              >保存</n-button
-            >
+            <CButton
+              show-cancel
+              :show-save="canSaveInventory"
+              :save-loading="inventoryModal.submitting"
+              @cancel="inventoryModal.show = false"
+              @save="submitInventory"
+            />
           </div>
         </template>
       </n-modal>
@@ -291,13 +323,15 @@
                   </n-button>
                 </div>
                 <div class="attribute-actions">
-                  <n-button secondary @click="addDeviceAttribute">
+                  <n-button secondary round @click="addDeviceAttribute">
                     <template #icon>
                       <TheIcon icon="mdi:plus" :size="16" />
                     </template>
                     添加配置
                   </n-button>
-                  <n-button secondary @click="applyServerAttributeTemplate">服务器模板</n-button>
+                  <n-button secondary round @click="applyServerAttributeTemplate"
+                    >服务器模板</n-button
+                  >
                 </div>
               </div>
             </n-form-item-gi>
@@ -308,10 +342,13 @@
         </n-form>
         <template #footer>
           <div class="modal-footer">
-            <n-button @click="deviceModal.show = false">取消</n-button>
-            <n-button type="primary" :loading="deviceModal.submitting" @click="submitDevice"
-              >保存</n-button
-            >
+            <CButton
+              show-cancel
+              :show-save="canSaveDevice"
+              :save-loading="deviceModal.submitting"
+              @cancel="deviceModal.show = false"
+              @save="submitDevice"
+            />
           </div>
         </template>
       </n-modal>
@@ -390,8 +427,14 @@
         </div>
         <template #footer>
           <div class="modal-footer">
-            <n-button @click="deviceDetailModal.show = false">关闭</n-button>
-            <n-button type="primary" @click="openDeviceModal(deviceDetailModal.row)">编辑</n-button>
+            <n-button round @click="deviceDetailModal.show = false">关闭</n-button>
+            <n-button
+              v-if="hasAssetPermission('device', 'update')"
+              type="primary"
+              round
+              @click="openDeviceModal(deviceDetailModal.row)"
+              >编辑</n-button
+            >
           </div>
         </template>
       </n-modal>
@@ -461,14 +504,22 @@
         </n-form>
         <template #footer>
           <div class="modal-footer">
-            <n-button v-if="simpleModal.form.id" type="error" ghost @click="deleteSimple"
+            <n-button
+              v-if="simpleModal.form.id && canDeleteSimple"
+              type="error"
+              ghost
+              round
+              @click="deleteSimple"
               >删除</n-button
             >
             <span></span>
-            <n-button @click="simpleModal.show = false">取消</n-button>
-            <n-button type="primary" :loading="simpleModal.submitting" @click="submitSimple"
-              >保存</n-button
-            >
+            <CButton
+              show-cancel
+              :show-save="canSaveSimple"
+              :save-loading="simpleModal.submitting"
+              @cancel="simpleModal.show = false"
+              @save="submitSimple"
+            />
           </div>
         </template>
       </n-modal>
@@ -482,7 +533,7 @@
         <div class="category-editor">
           <div class="category-add">
             <n-input v-model:value="categoryModal.categoryName" placeholder="新增分类" />
-            <n-button type="primary" @click="addInventoryCategory">添加</n-button>
+            <n-button type="primary" round @click="addInventoryCategory">添加</n-button>
           </div>
           <div
             v-for="category in inventoryCategoryTree"
@@ -491,7 +542,7 @@
           >
             <div class="category-title">
               <strong>{{ category.label }}</strong>
-              <n-button text type="error" @click="deleteInventoryCategory(category.value)"
+              <n-button text type="error" round @click="deleteInventoryCategory(category.value)"
                 >删除</n-button
               >
             </div>
@@ -510,7 +561,9 @@
                 v-model:value="categoryModal.subtypeDrafts[category.value]"
                 placeholder="新增子类"
               />
-              <n-button secondary @click="addInventorySubtype(category.value)">添加子类</n-button>
+              <n-button secondary round @click="addInventorySubtype(category.value)"
+                >添加子类</n-button
+              >
             </div>
           </div>
         </div>
@@ -524,6 +577,7 @@ import { computed, h, onMounted, reactive, ref } from 'vue'
 import api from '@/api'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import CButton from '@/components/public/CButton.vue'
+import { usePermissionStore, useUserStore } from '@/store'
 
 defineOptions({ name: 'AssetManagement' })
 
@@ -538,6 +592,8 @@ const cabinets = ref([])
 const deviceFormRef = ref(null)
 const inventoryFormRef = ref(null)
 const simpleFormRef = ref(null)
+const permissionStore = usePermissionStore()
+const userStore = useUserStore()
 
 const loading = reactive({ tree: false, list: false })
 const filters = reactive({
@@ -595,13 +651,29 @@ const createOptions = [
   { label: '新增机柜', key: 'cabinet' },
 ]
 
+const assetResourcePathMap = {
+  region: 'region',
+  location: 'location',
+  cabinet: 'cabinet',
+  device: 'device',
+  inventory: 'inventory',
+}
+
+const assetActionMethodMap = {
+  list: 'get',
+  get: 'get',
+  create: 'post',
+  update: 'post',
+  delete: 'delete',
+}
+
 const INVENTORY_CATEGORY_STORAGE_KEY = 'asset_inventory_category_tree'
 
 const defaultInventoryCategoryTree = [
   { label: '光模块', value: '光模块', children: ['100G', '40G', '25G', '10G', '1G'] },
   { label: '光纤', value: '光纤', children: ['单模', '多模', 'MPO'] },
-  { label: '网线', value: '网线', children: [] },
-  { label: '电源线', value: '电源线', children: [] },
+  { label: '网线', value: '网线', children: ['线缆等级'] },
+  { label: '电源线', value: '电源线', children: ['接口类型'] },
   { label: '调试线', value: '调试线', children: [] },
   { label: 'DAC', value: 'DAC', children: [] },
   { label: 'AOC', value: 'AOC', children: [] },
@@ -612,6 +684,13 @@ const defaultInventoryCategoryTree = [
   },
   { label: '工具', value: '工具', children: ['螺丝刀', '扎带', '标签机', '手套'] },
 ]
+
+const inventoryAttributeTemplateMap = {
+  光模块: ['发送波长', '接收波长', '模式', '兼容性', '传输距离', '芯类型', '封装类型'],
+  光纤: ['模式', '芯类型', '封装类型', '长度'],
+  网线: ['接口类型', '长度'],
+  电源线: ['长度'],
+}
 
 const inventoryCategoryTree = ref(loadInventoryCategoryTree())
 const inventoryTypeOptions = computed(() =>
@@ -663,6 +742,9 @@ const selectedLocation = computed(() => {
   return null
 })
 const isInventoryView = computed(() => selectedLocation.value?.type === 0)
+const permittedCreateOptions = computed(() =>
+  createOptions.filter((item) => hasAssetPermission(item.key, 'create'))
+)
 
 const regionOptions = computed(() =>
   regions.value.map((item) => ({ label: `${item.name} (${item.code})`, value: item.id }))
@@ -711,6 +793,33 @@ const contextIcon = computed(() => {
   if (selectedNode.value.type === 'location') return 'mdi:warehouse'
   return 'mdi:server-network'
 })
+const canUseContextAction = computed(() => {
+  const resource = selectedNode.value?.type || 'region'
+  const action = selectedNode.value ? 'update' : 'create'
+  return hasAssetPermission(resource, action)
+})
+const canUsePrimaryAction = computed(() =>
+  hasAssetPermission(isInventoryView.value ? 'inventory' : 'device', 'create')
+)
+const canMaintainCategories = computed(
+  () =>
+    hasAssetPermission('inventory', 'create') ||
+    hasAssetPermission('inventory', 'update') ||
+    hasAssetPermission('inventory', 'delete')
+)
+const canSaveSimple = computed(() =>
+  hasAssetPermission(simpleModal.kind, simpleModal.form.id ? 'update' : 'create')
+)
+const canDeleteSimple = computed(() => hasAssetPermission(simpleModal.kind, 'delete'))
+const canSaveInventory = computed(() =>
+  hasAssetPermission('inventory', inventoryModal.form.id ? 'update' : 'create')
+)
+const canSaveDevice = computed(() =>
+  hasAssetPermission('device', deviceModal.form.id ? 'update' : 'create')
+)
+const hasInventoryAttributeTemplate = computed(() =>
+  Boolean(inventoryAttributeTemplateMap[inventoryModal.form.type])
+)
 
 const inventoryColumns = computed(() => [
   { title: '分类', key: 'type', width: 120 },
@@ -723,9 +832,9 @@ const inventoryColumns = computed(() => [
   {
     title: '扩展属性',
     key: 'attributes',
-    minWidth: 260,
+    minWidth: 360,
     render(row) {
-      return formatAttributes(row.attributes)
+      return renderInventoryAttributes(row)
     },
   },
   {
@@ -733,9 +842,15 @@ const inventoryColumns = computed(() => [
     key: 'actions',
     width: 134,
     render(row) {
+      if (
+        !hasAssetPermission('inventory', 'update') &&
+        !hasAssetPermission('inventory', 'delete')
+      ) {
+        return '-'
+      }
       return h(CButton, {
-        showEdit: true,
-        showDelete: true,
+        showEdit: hasAssetPermission('inventory', 'update'),
+        showDelete: hasAssetPermission('inventory', 'delete'),
         class: 'asset-row-actions',
         size: 'tiny',
         spaceSize: 4,
@@ -782,9 +897,12 @@ const deviceColumns = computed(() => [
     key: 'actions',
     width: 150,
     render(row) {
+      if (!hasAssetPermission('device', 'update') && !hasAssetPermission('device', 'delete')) {
+        return '-'
+      }
       return h(CButton, {
-        showEdit: true,
-        showDelete: true,
+        showEdit: hasAssetPermission('device', 'update'),
+        showDelete: hasAssetPermission('device', 'delete'),
         class: 'asset-row-actions',
         size: 'tiny',
         spaceSize: 4,
@@ -832,6 +950,23 @@ function createEmptyInventory() {
     remark: '',
     status: true,
   }
+}
+
+function assetPermissionKey(resource, action) {
+  const path = assetResourcePathMap[resource]
+  const method = assetActionMethodMap[action]
+  if (!path || !method) return ''
+  return `${method}/api/v1/asset/${path}/${action}`
+}
+
+function hasAssetPermission(resource, action) {
+  if (userStore.isSuperUser) return true
+  const permission = assetPermissionKey(resource, action)
+  return Boolean(permission && permissionStore.apis.includes(permission))
+}
+
+function warnNoPermission() {
+  window.$message?.warning('暂无资产管理操作权限')
 }
 
 async function refreshAll() {
@@ -942,15 +1077,27 @@ function resetFilters() {
 }
 
 function openPrimaryModal(row = null) {
+  if (!row && !canUsePrimaryAction.value) {
+    warnNoPermission()
+    return
+  }
   if (isInventoryView.value) openInventoryModal(row)
   else openDeviceModal(row)
 }
 
 function handleCreateSelect(kind) {
+  if (!hasAssetPermission(kind, 'create')) {
+    warnNoPermission()
+    return
+  }
   openSimpleModal(kind)
 }
 
 function openContextModal() {
+  if (!canUseContextAction.value) {
+    warnNoPermission()
+    return
+  }
   if (!selectedNode.value) openSimpleModal('region')
   else openSimpleModal(selectedNode.value.type, selectedNode.value)
 }
@@ -1012,6 +1159,10 @@ function selectedLocationId() {
 }
 
 async function submitSimple() {
+  if (!canSaveSimple.value) {
+    warnNoPermission()
+    return
+  }
   await simpleFormRef.value?.validate()
   simpleModal.submitting = true
   try {
@@ -1031,6 +1182,10 @@ async function submitSimple() {
 }
 
 async function deleteSimple() {
+  if (!canDeleteSimple.value) {
+    warnNoPermission()
+    return
+  }
   const id = simpleModal.form.id
   if (!id) return
   const map = {
@@ -1048,6 +1203,14 @@ async function deleteSimple() {
 }
 
 function openInventoryModal(row = null) {
+  if (row && !hasAssetPermission('inventory', 'update')) {
+    warnNoPermission()
+    return
+  }
+  if (!row && !hasAssetPermission('inventory', 'create')) {
+    warnNoPermission()
+    return
+  }
   inventoryModal.form = row
     ? {
         ...createEmptyInventory(),
@@ -1061,10 +1224,15 @@ function openInventoryModal(row = null) {
             ? selectedLocation.value.id
             : inventoryLocationOptions.value[0]?.value || null,
       }
+  applyInventoryAttributeTemplate()
   inventoryModal.show = true
 }
 
 async function submitInventory() {
+  if (!canSaveInventory.value) {
+    warnNoPermission()
+    return
+  }
   await inventoryFormRef.value?.validate()
   inventoryModal.submitting = true
   try {
@@ -1086,6 +1254,10 @@ async function submitInventory() {
 }
 
 async function deleteInventory(row) {
+  if (!hasAssetPermission('inventory', 'delete')) {
+    warnNoPermission()
+    return
+  }
   await api.assetApi.deleteInventory({ inventory_id: row.id })
   window.$message?.success('删除成功')
   loadInventory()
@@ -1093,6 +1265,31 @@ async function deleteInventory(row) {
 
 function addInventoryAttribute() {
   inventoryModal.form.attributeList.push({ key: '', value: '' })
+}
+
+function addMissingAttributes(attributeList, template = []) {
+  const existedKeys = new Set(attributeList.map((item) => String(item.key || '').trim()))
+  template.forEach((key) => {
+    if (!existedKeys.has(key)) {
+      attributeList.push({ key, value: '' })
+      existedKeys.add(key)
+    }
+  })
+}
+
+function applyInventoryAttributeTemplate(type = inventoryModal.form.type) {
+  const template = inventoryAttributeTemplateMap[type]
+  if (!template) return
+
+  const valueMap = inventoryModal.form.attributeList.reduce((result, item) => {
+    const key = String(item.key || '').trim()
+    if (key && !(key in result)) result[key] = item.value
+    return result
+  }, {})
+  inventoryModal.form.attributeList = template.map((key) => ({
+    key,
+    value: valueMap[key] ?? '',
+  }))
 }
 
 function cloneInventoryCategoryTree(tree = defaultInventoryCategoryTree) {
@@ -1115,7 +1312,21 @@ function normalizeInventoryCategoryTree(value) {
       : []
     result.push({ label, value: itemValue, children })
   })
-  return result.length ? result : cloneInventoryCategoryTree()
+  return result.length ? mergeDefaultInventorySubtypes(result) : cloneInventoryCategoryTree()
+}
+
+function mergeDefaultInventorySubtypes(tree) {
+  return tree.map((item) => {
+    const defaultCategory = defaultInventoryCategoryTree.find(
+      (category) => category.value === item.value
+    )
+    if (!defaultCategory) return item
+    const children = [...item.children]
+    defaultCategory.children.forEach((child) => {
+      if (!children.includes(child)) children.push(child)
+    })
+    return { ...item, children }
+  })
 }
 
 function loadInventoryCategoryTree() {
@@ -1198,6 +1409,7 @@ function handleInventoryTypeChange() {
   if (inventoryModal.form.subtype && !validValues.includes(inventoryModal.form.subtype)) {
     inventoryModal.form.subtype = ''
   }
+  applyInventoryAttributeTemplate()
 }
 
 function handleInventoryFilterTypeChange() {
@@ -1230,12 +1442,7 @@ function applyServerAttributeTemplate() {
     'IPMI用户名',
     'IPMI密码',
   ]
-  const existedKeys = new Set(deviceModal.form.attributeList.map((item) => item.key))
-  template.forEach((key) => {
-    if (!existedKeys.has(key)) {
-      deviceModal.form.attributeList.push({ key, value: '' })
-    }
-  })
+  addMissingAttributes(deviceModal.form.attributeList, template)
 }
 
 function attributesToList(attributes) {
@@ -1303,10 +1510,50 @@ function attributeListToObject(list) {
   }, {})
 }
 
-function formatAttributes(attributes) {
+function getInventoryAttributeGroups(type, attributes) {
   const list = attributesToList(attributes)
-  if (!list.length) return '-'
-  return list.map((item) => `${item.key}: ${item.value}`).join(' / ')
+  if (!list.length) return []
+
+  const template = inventoryAttributeTemplateMap[type] || []
+  if (!template.length) {
+    return [{ label: '扩展属性', items: list }]
+  }
+
+  const groupedKeys = new Set(template)
+  const templateItems = template.map((key) => list.find((item) => item.key === key)).filter(Boolean)
+  const otherItems = list.filter((item) => !groupedKeys.has(item.key))
+  const groups = []
+
+  if (templateItems.length) groups.push({ label: type, items: templateItems })
+  if (otherItems.length) groups.push({ label: '其他', items: otherItems })
+  return groups
+}
+
+function renderInventoryAttributes(row) {
+  const groups = getInventoryAttributeGroups(row.type, row.attributes)
+  if (!groups.length) return '-'
+
+  return h(
+    'div',
+    { class: 'attribute-tag-groups' },
+    groups.map((group) =>
+      h('div', { class: 'attribute-tag-group', key: group.label }, [
+        h('span', { class: 'attribute-tag-group-title' }, group.label),
+        ...group.items.map((item) => {
+          const value = item.value || '-'
+          return h(
+            'span',
+            {
+              class: 'attribute-tag',
+              key: item.key,
+              title: `${item.key}: ${value}`,
+            },
+            [h('b', item.key), h('em', value)]
+          )
+        }),
+      ])
+    )
+  )
 }
 
 function formatDeviceUPosition(row) {
@@ -1322,6 +1569,14 @@ function openDeviceDetail(row) {
 }
 
 function openDeviceModal(row = null) {
+  if (row && !hasAssetPermission('device', 'update')) {
+    warnNoPermission()
+    return
+  }
+  if (!row && !hasAssetPermission('device', 'create')) {
+    warnNoPermission()
+    return
+  }
   deviceModal.form = row
     ? {
         ...createEmptyDevice(),
@@ -1339,6 +1594,10 @@ function openDeviceModal(row = null) {
 }
 
 async function submitDevice() {
+  if (!canSaveDevice.value) {
+    warnNoPermission()
+    return
+  }
   await deviceFormRef.value?.validate()
   deviceModal.submitting = true
   try {
@@ -1358,6 +1617,10 @@ async function submitDevice() {
 }
 
 async function deleteDevice(row) {
+  if (!hasAssetPermission('device', 'delete')) {
+    warnNoPermission()
+    return
+  }
   await api.assetApi.deleteDevice({ device_id: row.id })
   window.$message?.success('删除成功')
   loadDevices()
@@ -1443,6 +1706,67 @@ onMounted(refreshAll)
   flex-flow: row nowrap !important;
   flex-wrap: nowrap;
   gap: 6px !important;
+}
+
+.content-panel :deep(.attribute-tag-groups) {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  white-space: normal;
+}
+
+.content-panel :deep(.attribute-tag-group) {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.content-panel :deep(.attribute-tag-group-title) {
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 22px;
+  padding: 0 9px;
+}
+
+.content-panel :deep(.attribute-tag) {
+  display: inline-flex;
+  overflow: hidden;
+  max-width: 220px;
+  align-items: center;
+  border: 1px solid #dbeafe;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #0f172a;
+  line-height: 22px;
+}
+
+.content-panel :deep(.attribute-tag b),
+.content-panel :deep(.attribute-tag em) {
+  overflow: hidden;
+  min-width: 0;
+  padding: 0 8px;
+  font-size: 12px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.content-panel :deep(.attribute-tag b) {
+  flex: 0 1 auto;
+  background: #eff6ff;
+  color: #2563eb;
+  font-weight: 600;
+}
+
+.content-panel :deep(.attribute-tag em) {
+  flex: 1 1 auto;
+  color: #334155;
 }
 
 .detail-link {

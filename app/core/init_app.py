@@ -242,6 +242,7 @@ async def init_menus():
             redirect="",
         )
     await ensure_ticket_route_menus()
+    await ensure_asset_menu()
 
 
 async def ensure_ticket_route_menus():
@@ -309,10 +310,39 @@ async def ensure_ticket_route_menus():
             await route_menu.save()
 
 
+async def ensure_asset_menu():
+    asset_menu = await Menu.filter(path="/asset").first()
+    if asset_menu:
+        changed = False
+        if asset_menu.name != "资产管理":
+            asset_menu.name = "资产管理"
+            changed = True
+        if asset_menu.component != "/asset":
+            asset_menu.component = "/asset"
+            changed = True
+        if asset_menu.is_hidden:
+            asset_menu.is_hidden = False
+            changed = True
+        if changed:
+            await asset_menu.save()
+        return
+
+    await Menu.create(
+        menu_type=MenuType.MENU,
+        name="资产管理",
+        path="/asset",
+        order=2,
+        parent_id=0,
+        icon="material-symbols:videogame-asset",
+        is_hidden=False,
+        component="/asset",
+        keepalive=False,
+        redirect="",
+    )
+
+
 async def init_apis():
-    apis = await api_controller.model.exists()
-    if not apis:
-        await api_controller.refresh_api()
+    await api_controller.refresh_api()
 
 
 async def ensure_asset_columns():
