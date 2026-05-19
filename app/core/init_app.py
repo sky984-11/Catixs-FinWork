@@ -1,9 +1,12 @@
+import os
 import shutil
 
 from aerich import Command
 from fastapi import FastAPI
 from fastapi.middleware import Middleware
 from fastapi.middleware.cors import CORSMiddleware
+from tortoise import Tortoise
+from tortoise.exceptions import OperationalError
 from tortoise.expressions import Q
 
 from app.api import api_router
@@ -312,6 +315,38 @@ async def init_apis():
         await api_controller.refresh_api()
 
 
+async def ensure_asset_inventory_columns():
+    if settings.DB_TYPE != "postgres":
+        return
+
+    conn = Tortoise.get_connection("postgres")
+    await conn.execute_script(
+        """
+        ALTER TABLE IF EXISTS "asset_inventory"
+            ADD COLUMN IF NOT EXISTS "subtype" VARCHAR(100),
+            ADD COLUMN IF NOT EXISTS "attributes" JSONB NOT NULL DEFAULT '{}';
+        """
+    )
+
+
+def is_ignorable_asset_inventory_migration_error(exc: Exception) -> bool:
+    message = str(exc)
+    is_duplicate_column = (
+        "already exists" in message
+        or "已经存在" in message
+        or "DuplicateColumnError" in message
+    )
+    inventory_columns = [
+        "item_name",
+        "subtype",
+        "brand",
+        "unit",
+        "min_quantity",
+        "attributes",
+    ]
+    return is_duplicate_column and any(column in message for column in inventory_columns)
+
+
 async def init_db():
     command = Command(tortoise_config=settings.TORTOISE_ORM)
     try:
@@ -320,14 +355,23 @@ async def init_db():
         pass
 
     await command.init()
-    try:
-        await command.migrate()
-    except AttributeError:
-        logger.warning("unable to retrieve model history from database, model history will be created from scratch")
-        shutil.rmtree("migrations")
-        await command.init_db(safe=True)
+    await ensure_asset_inventory_columns()
+    await Tortoise.generate_schemas(safe=True)
+    if os.getenv("AUTO_DB_MIGRATE", "false").lower() in {"1", "true", "yes", "on"}:
+        try:
+            await command.migrate()
+        except AttributeError:
+            logger.warning("unable to retrieve model history from database, model history will be created from scratch")
+            shutil.rmtree("migrations")
+            await command.init_db(safe=True)
 
-    await command.upgrade(run_in_transaction=True)
+    try:
+        await command.upgrade(run_in_transaction=True)
+    except OperationalError as exc:
+        if not is_ignorable_asset_inventory_migration_error(exc):
+            raise
+        logger.warning("asset inventory compatibility columns already exist, skipped duplicate migration")
+    logger.info("database schema checked, missing tables have been created")
 
 
 async def init_roles():

@@ -21,4 +21,11 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", "9999"))
     reload = parse_bool(os.getenv("UVICORN_RELOAD"), default=True)
 
-    uvicorn.run("app:app", host="0.0.0.0", port=port, reload=reload, log_config=LOGGING_CONFIG)
+    uvicorn.run(
+        "app:app",
+        host="0.0.0.0",
+        port=port,
+        reload=reload,
+        reload_excludes=["migrations/*", "**/__pycache__/*"],
+        log_config=LOGGING_CONFIG,
+    )
