@@ -1,15 +1,16 @@
 <script setup>
 import { ref } from 'vue'
-import { NButton, NForm, NFormItem, NInput, NTabPane, NTabs, NImage } from 'naive-ui'
+import { NAvatar, NButton, NForm, NFormItem, NInput, NTabPane, NTabs, NUpload } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import CommonPage from '@/components/page/CommonPage.vue'
 import { useUserStore } from '@/store'
 import api from '@/api'
-import { is } from '~/src/utils'
 
 const { t } = useI18n()
 const userStore = useUserStore()
 const isLoading = ref(false)
+const avatarUploading = ref(false)
+const avatarFileList = ref([])
 
 // 用户信息的表单
 const infoFormRef = ref(null)
@@ -21,11 +22,14 @@ const infoForm = ref({
 async function updateProfile() {
   isLoading.value = true
   infoFormRef.value?.validate(async (err) => {
-    if (err) return
+    if (err) {
+      isLoading.value = false
+      return
+    }
     await api
-      .updateUser({ ...infoForm.value, id: userStore.userId })
-      .then(() => {
-        userStore.setUserInfo(infoForm.value)
+      .updateProfile(infoForm.value)
+      .then((res) => {
+        userStore.setUserInfo(res.data || infoForm.value)
         isLoading.value = false
         $message.success(t('common.text.update_success'))
       })
@@ -42,6 +46,43 @@ const infoFormRules = {
       trigger: ['input', 'blur', 'change'],
     },
   ],
+}
+
+function beforeAvatarUpload({ file }) {
+  const rawFile = file.file
+  if (!rawFile) return false
+  const isImage = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'].includes(
+    rawFile.type
+  )
+  if (!isImage) {
+    $message.error('仅支持 JPG、PNG、GIF、WebP、SVG 图片')
+    return false
+  }
+  if (rawFile.size > 2 * 1024 * 1024) {
+    $message.error('头像图片不能超过 2MB')
+    return false
+  }
+  return true
+}
+
+async function uploadAvatar({ file, onFinish, onError }) {
+  if (!file.file) return
+  avatarUploading.value = true
+  try {
+    const res = await api.uploadAvatar(file.file)
+    const avatar = res.data?.avatar
+    if (avatar) {
+      infoForm.value.avatar = avatar
+      userStore.setUserInfo({ avatar })
+    }
+    avatarFileList.value = []
+    onFinish()
+    $message.success('头像上传成功')
+  } catch (error) {
+    onError()
+  } finally {
+    avatarUploading.value = false
+  }
 }
 
 // 修改密码的表单
@@ -134,7 +175,19 @@ function validatePasswordSame(rule, value) {
             class="w-400"
           >
             <NFormItem :label="$t('views.profile.label_avatar')" path="avatar">
-              <NImage width="100" :src="infoForm.avatar"></NImage>
+              <div class="avatar-uploader">
+                <NAvatar round :size="96" :src="infoForm.avatar" class="profile-avatar" />
+                <NUpload
+                  v-model:file-list="avatarFileList"
+                  :show-file-list="false"
+                  :custom-request="uploadAvatar"
+                  :max="1"
+                  accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml"
+                  :on-before-upload="beforeAvatarUpload"
+                >
+                  <NButton secondary round :loading="avatarUploading">上传头像</NButton>
+                </NUpload>
+              </div>
             </NFormItem>
             <NFormItem :label="$t('views.profile.label_username')" path="username">
               <NInput
@@ -200,3 +253,23 @@ function validatePasswordSame(rule, value) {
     </NTabs>
   </CommonPage>
 </template>
+
+<style scoped>
+.avatar-uploader {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.profile-avatar {
+  width: 96px;
+  height: 96px;
+  flex: 0 0 96px;
+}
+
+.profile-avatar :deep(img) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+</style>

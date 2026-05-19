@@ -6,6 +6,14 @@ export default {
   getUserMenu: () => request.get('/base/usermenu'),
   getUserApi: () => request.get('/base/userapi'),
   // profile
+  updateProfile: (data = {}) => request.post('/base/profile', data),
+  uploadAvatar: (file) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return request.post('/base/avatar', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
   updatePassword: (data = {}) => request.post('/base/update_password', data),
   // users
   getUserList: (params = {}) => request.get('/user/list', { params }),

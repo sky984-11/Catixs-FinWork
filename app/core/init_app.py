@@ -362,6 +362,19 @@ async def ensure_asset_columns():
     )
 
 
+async def ensure_user_columns():
+    if settings.DB_TYPE != "postgres":
+        return
+
+    conn = Tortoise.get_connection("postgres")
+    await conn.execute_script(
+        """
+        ALTER TABLE IF EXISTS "user"
+            ADD COLUMN IF NOT EXISTS "avatar" VARCHAR(255);
+        """
+    )
+
+
 def is_ignorable_asset_migration_error(exc: Exception) -> bool:
     message = str(exc)
     is_duplicate_column = (
@@ -388,6 +401,7 @@ async def init_db():
         pass
 
     await command.init()
+    await ensure_user_columns()
     await ensure_asset_columns()
     await Tortoise.generate_schemas(safe=True)
     if os.getenv("AUTO_DB_MIGRATE", "false").lower() in {"1", "true", "yes", "on"}:

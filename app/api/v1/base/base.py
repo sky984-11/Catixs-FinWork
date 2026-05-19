@@ -1,6 +1,8 @@
+import os
+import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from app.controllers.user import user_controller
 from app.core.ctx import CTX_USER_ID
@@ -8,12 +10,23 @@ from app.core.dependency import DependAuth, has_admin_role
 from app.models.admin import Api, Menu, Role, User
 from app.schemas.base import Fail, Success
 from app.schemas.login import *
-from app.schemas.users import UpdatePassword
+from app.schemas.users import UpdatePassword, UserProfileUpdate
 from app.settings import settings
 from app.utils.jwt_utils import create_access_token
 from app.utils.password import get_password_hash, verify_password
 
 router = APIRouter()
+
+DEFAULT_AVATAR = "https://avatars.githubusercontent.com/u/54677442?v=4"
+AVATAR_UPLOAD_DIR = os.path.join("uploads", "avatars")
+AVATAR_MAX_SIZE = 2 * 1024 * 1024
+AVATAR_EXT_MAP = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "image/svg+xml": ".svg",
+}
 
 
 @router.post("/access_token", summary="获取token")
@@ -42,8 +55,50 @@ async def get_userinfo():
     user_id = CTX_USER_ID.get()
     user_obj = await user_controller.get(id=user_id)
     data = await user_obj.to_dict(m2m=True, exclude_fields=["password"])
-    data["avatar"] = "https://avatars.githubusercontent.com/u/54677442?v=4"
+    data["avatar"] = data.get("avatar") or DEFAULT_AVATAR
     return Success(data=data)
+
+
+@router.post("/profile", summary="更新当前用户信息", dependencies=[DependAuth])
+async def update_user_profile(profile_in: UserProfileUpdate):
+    user_id = CTX_USER_ID.get()
+    duplicated_user = await User.filter(email=profile_in.email).exclude(id=user_id).first()
+    if duplicated_user:
+        return Fail(code=400, msg="The user with this email already exists in the system.")
+
+    user = await user_controller.get(id=user_id)
+    user.username = profile_in.username
+    user.email = str(profile_in.email)
+    user.avatar = profile_in.avatar or None
+    await user.save(update_fields=["username", "email", "avatar", "updated_at"])
+    data = await user.to_dict(m2m=True, exclude_fields=["password"])
+    data["avatar"] = data.get("avatar") or DEFAULT_AVATAR
+    return Success(msg="Updated Successfully", data=data)
+
+
+@router.post("/avatar", summary="上传当前用户头像", dependencies=[DependAuth])
+async def upload_user_avatar(file: UploadFile = File(..., description="头像图片")):
+    content_type = str(file.content_type or "").lower()
+    file_ext = AVATAR_EXT_MAP.get(content_type)
+    if not file_ext:
+        return Fail(code=400, msg="Only JPG, PNG, GIF, WebP and SVG images are allowed.")
+
+    content = await file.read()
+    if len(content) > AVATAR_MAX_SIZE:
+        return Fail(code=400, msg="Avatar image must be smaller than 2MB.")
+
+    user_id = CTX_USER_ID.get()
+    os.makedirs(AVATAR_UPLOAD_DIR, exist_ok=True)
+    filename = f"user_{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}{file_ext}"
+    file_path = os.path.join(AVATAR_UPLOAD_DIR, filename)
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    avatar_url = f"/uploads/avatars/{filename}"
+    user = await user_controller.get(id=user_id)
+    user.avatar = avatar_url
+    await user.save(update_fields=["avatar", "updated_at"])
+    return Success(msg="上传成功", data={"avatar": avatar_url})
 
 
 @router.get("/usermenu", summary="查看用户菜单", dependencies=[DependAuth])

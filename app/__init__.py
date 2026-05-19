@@ -62,8 +62,8 @@ def create_app() -> FastAPI:
     register_routers(app, prefix="/api")
 
     uploads_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
-    if os.path.exists(uploads_dir):
-        app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
+    os.makedirs(uploads_dir, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
 
     web_dist_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web", "dist")
     assets_dir = os.path.join(web_dist_dir, "assets")
