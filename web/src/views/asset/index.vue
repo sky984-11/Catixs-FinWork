@@ -891,6 +891,7 @@ const deviceColumns = computed(() => [
     },
   },
   { title: '管理IP', key: 'mgmt_ip', width: 130 },
+  { title: '业务IP', key: 'business_ip', width: 130 },
   { title: '备注', key: 'remark', minWidth: 180 },
   {
     title: '操作',
