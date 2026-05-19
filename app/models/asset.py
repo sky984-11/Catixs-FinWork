@@ -57,6 +57,7 @@ class AssetDevice(BaseModel, TimestampMixin):
     owner = fields.CharField(max_length=100, null=True, description="负责人")
     purchase_date = fields.DateField(null=True, description="采购日期")
     warranty_expire = fields.DateField(null=True, description="维保到期")
+    attributes = fields.JSONField(default=dict, description="扩展配置")
     remark = fields.CharField(max_length=500, null=True, description="备注")
 
     class Meta:

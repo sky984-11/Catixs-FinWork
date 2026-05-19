@@ -275,6 +275,32 @@
             <n-form-item-gi label="业务IP">
               <n-input v-model:value="deviceModal.form.business_ip" />
             </n-form-item-gi>
+            <n-form-item-gi :span="2" label="设备配置">
+              <div class="attribute-editor">
+                <div
+                  v-for="(attr, index) in deviceModal.form.attributeList"
+                  :key="index"
+                  class="attribute-row"
+                >
+                  <n-input v-model:value="attr.key" placeholder="配置项，如 CPU数量" />
+                  <n-input v-model:value="attr.value" placeholder="配置值" />
+                  <n-button secondary circle @click="removeDeviceAttribute(index)">
+                    <template #icon>
+                      <TheIcon icon="mdi:minus" :size="16" />
+                    </template>
+                  </n-button>
+                </div>
+                <div class="attribute-actions">
+                  <n-button secondary @click="addDeviceAttribute">
+                    <template #icon>
+                      <TheIcon icon="mdi:plus" :size="16" />
+                    </template>
+                    添加配置
+                  </n-button>
+                  <n-button secondary @click="applyServerAttributeTemplate">服务器模板</n-button>
+                </div>
+              </div>
+            </n-form-item-gi>
             <n-form-item-gi :span="2" label="备注">
               <n-input v-model:value="deviceModal.form.remark" type="textarea" />
             </n-form-item-gi>
@@ -286,6 +312,86 @@
             <n-button type="primary" :loading="deviceModal.submitting" @click="submitDevice"
               >保存</n-button
             >
+          </div>
+        </template>
+      </n-modal>
+
+      <n-modal
+        v-model:show="deviceDetailModal.show"
+        preset="card"
+        :title="deviceDetailModal.row?.name || '设备详情'"
+        class="asset-modal"
+      >
+        <n-descriptions bordered :column="2" label-placement="left" size="small">
+          <n-descriptions-item label="资产编号">
+            {{ deviceDetailModal.row?.asset_no || '-' }}
+          </n-descriptions-item>
+          <n-descriptions-item label="设备名称">
+            {{ deviceDetailModal.row?.name || '-' }}
+          </n-descriptions-item>
+          <n-descriptions-item label="类型">
+            {{ getDeviceType(deviceDetailModal.row?.type) }}
+          </n-descriptions-item>
+          <n-descriptions-item label="状态">
+            {{ getDeviceStatus(deviceDetailModal.row?.status) }}
+          </n-descriptions-item>
+          <n-descriptions-item label="区域">
+            {{ deviceDetailModal.row?.region_name || '-' }}
+          </n-descriptions-item>
+          <n-descriptions-item label="位置">
+            {{ deviceDetailModal.row?.location_name || '-' }}
+          </n-descriptions-item>
+          <n-descriptions-item label="机柜">
+            {{ deviceDetailModal.row?.cabinet_name || '-' }}
+          </n-descriptions-item>
+          <n-descriptions-item label="U位">
+            {{ formatDeviceUPosition(deviceDetailModal.row) }}
+          </n-descriptions-item>
+          <n-descriptions-item label="品牌">
+            {{ deviceDetailModal.row?.brand || '-' }}
+          </n-descriptions-item>
+          <n-descriptions-item label="型号">
+            {{ deviceDetailModal.row?.model || '-' }}
+          </n-descriptions-item>
+          <n-descriptions-item label="序列号">
+            {{ deviceDetailModal.row?.serial_no || '-' }}
+          </n-descriptions-item>
+          <n-descriptions-item label="管理IP">
+            {{ deviceDetailModal.row?.mgmt_ip || '-' }}
+          </n-descriptions-item>
+          <n-descriptions-item label="业务IP">
+            {{ deviceDetailModal.row?.business_ip || '-' }}
+          </n-descriptions-item>
+          <n-descriptions-item label="备注">
+            {{ deviceDetailModal.row?.remark || '-' }}
+          </n-descriptions-item>
+        </n-descriptions>
+        <div class="detail-section">
+          <h3>设备配置</h3>
+          <n-empty
+            v-if="!attributesToList(deviceDetailModal.row?.attributes).length"
+            description="暂无配置"
+          />
+          <div v-else class="device-config-table">
+            <div
+              v-for="row in getDeviceAttributeRows(deviceDetailModal.row?.attributes)"
+              :key="row.label"
+              class="device-config-row"
+            >
+              <div class="device-config-label">{{ row.label }}</div>
+              <div class="device-config-values">
+                <span v-for="item in row.items" :key="item.label">
+                  <strong>{{ item.label }}</strong>
+                  {{ item.value || '-' }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <template #footer>
+          <div class="modal-footer">
+            <n-button @click="deviceDetailModal.show = false">关闭</n-button>
+            <n-button type="primary" @click="openDeviceModal(deviceDetailModal.row)">编辑</n-button>
           </div>
         </template>
       </n-modal>
@@ -417,6 +523,7 @@
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import api from '@/api'
 import TheIcon from '@/components/icon/TheIcon.vue'
+import CButton from '@/components/public/CButton.vue'
 
 defineOptions({ name: 'AssetManagement' })
 
@@ -449,6 +556,7 @@ const pagination = reactive({
 })
 
 const deviceModal = reactive({ show: false, submitting: false, form: createEmptyDevice() })
+const deviceDetailModal = reactive({ show: false, row: null })
 const inventoryModal = reactive({ show: false, submitting: false, form: createEmptyInventory() })
 const simpleModal = reactive({
   show: false,
@@ -474,9 +582,8 @@ const deviceTypeOptions = [
 ]
 
 const deviceStatusOptions = [
-  { label: '库存', value: 0 },
-  { label: '上架运行', value: 1 },
-  { label: '维护中', value: 2 },
+  { label: '使用', value: 1 },
+  { label: '维护', value: 2 },
   { label: '故障', value: 3 },
   { label: '下架', value: 4 },
   { label: '报废', value: 5 },
@@ -624,35 +731,69 @@ const inventoryColumns = computed(() => [
   {
     title: '操作',
     key: 'actions',
-    width: 150,
+    width: 134,
     render(row) {
-      return h('div', { class: 'table-actions' }, [
-        h('button', { class: 'link-button', onClick: () => openInventoryModal(row) }, '编辑'),
-        h('button', { class: 'danger-button', onClick: () => deleteInventory(row) }, '删除'),
-      ])
+      return h(CButton, {
+        showEdit: true,
+        showDelete: true,
+        class: 'asset-row-actions',
+        size: 'tiny',
+        spaceSize: 4,
+        wrap: false,
+        editLoading: false,
+        deleteLoading: false,
+        onEdit: () => openInventoryModal(row),
+        onDelete: () => deleteInventory(row),
+      })
     },
   },
 ])
 
 const deviceColumns = computed(() => [
-  { title: '资产编号', key: 'asset_no', width: 150 },
-  { title: '设备名称', key: 'name', minWidth: 160 },
+  {
+    title: '设备名称',
+    key: 'name',
+    minWidth: 160,
+    render(row) {
+      return h(
+        'button',
+        {
+          class: 'detail-link',
+          onClick: () => openDeviceDetail(row),
+        },
+        row.name || '-'
+      )
+    },
+  },
   { title: '类型', key: 'type', width: 100, render: (row) => getDeviceType(row.type) },
   { title: '状态', key: 'status', width: 110, render: (row) => getDeviceStatus(row.status) },
-  { title: '区域', key: 'region_name', width: 120 },
-  { title: '位置', key: 'location_name', width: 140 },
-  { title: '机柜', key: 'cabinet_name', width: 120 },
-  { title: 'SN', key: 'serial_no', minWidth: 140 },
+  {
+    title: 'U位',
+    key: 'u_position',
+    width: 100,
+    render(row) {
+      return formatDeviceUPosition(row)
+    },
+  },
   { title: '管理IP', key: 'mgmt_ip', width: 130 },
+  { title: '备注', key: 'remark', minWidth: 180 },
   {
     title: '操作',
     key: 'actions',
     width: 150,
     render(row) {
-      return h('div', { class: 'table-actions' }, [
-        h('button', { class: 'link-button', onClick: () => openDeviceModal(row) }, '编辑'),
-        h('button', { class: 'danger-button', onClick: () => deleteDevice(row) }, '删除'),
-      ])
+      return h(CButton, {
+        showEdit: true,
+        showDelete: true,
+        class: 'asset-row-actions',
+        size: 'tiny',
+        spaceSize: 4,
+        wrap: false,
+        editLoading: false,
+        deleteLoading: false,
+        onEdit: () => openDeviceModal(row),
+        onDelete: () => deleteDevice(row),
+      })
     },
   },
 ])
@@ -674,6 +815,8 @@ function createEmptyDevice() {
     owner: '',
     purchase_date: null,
     warranty_expire: null,
+    attributes: {},
+    attributeList: [],
     remark: '',
   }
 }
@@ -1068,9 +1211,88 @@ function removeInventoryAttribute(index) {
   inventoryModal.form.attributeList.splice(index, 1)
 }
 
+function addDeviceAttribute() {
+  deviceModal.form.attributeList.push({ key: '', value: '' })
+}
+
+function removeDeviceAttribute(index) {
+  deviceModal.form.attributeList.splice(index, 1)
+}
+
+function applyServerAttributeTemplate() {
+  const template = [
+    'CPU数量',
+    'CPU型号',
+    '内存数量',
+    '内存大小',
+    '磁盘数量',
+    '磁盘大小',
+    'IPMI用户名',
+    'IPMI密码',
+  ]
+  const existedKeys = new Set(deviceModal.form.attributeList.map((item) => item.key))
+  template.forEach((key) => {
+    if (!existedKeys.has(key)) {
+      deviceModal.form.attributeList.push({ key, value: '' })
+    }
+  })
+}
+
 function attributesToList(attributes) {
   if (!attributes || typeof attributes !== 'object') return []
   return Object.entries(attributes).map(([key, value]) => ({ key, value: String(value ?? '') }))
+}
+
+function getAttributeValue(attributes, key) {
+  return String(attributes?.[key] ?? '')
+}
+
+function getDeviceAttributeRows(attributes) {
+  const groupedKeys = new Set([
+    'CPU数量',
+    'CPU型号',
+    '内存数量',
+    '内存大小',
+    '磁盘数量',
+    '磁盘大小',
+    'IPMI用户名',
+    'IPMI密码',
+  ])
+  const rows = [
+    {
+      label: 'CPU',
+      items: [
+        { label: '数量', value: getAttributeValue(attributes, 'CPU数量') },
+        { label: '型号', value: getAttributeValue(attributes, 'CPU型号') },
+      ],
+    },
+    {
+      label: '内存',
+      items: [
+        { label: '数量', value: getAttributeValue(attributes, '内存数量') },
+        { label: '大小', value: getAttributeValue(attributes, '内存大小') },
+      ],
+    },
+    {
+      label: '磁盘',
+      items: [
+        { label: '数量', value: getAttributeValue(attributes, '磁盘数量') },
+        { label: '大小', value: getAttributeValue(attributes, '磁盘大小') },
+      ],
+    },
+    {
+      label: 'IPMI',
+      items: [
+        { label: '用户名', value: getAttributeValue(attributes, 'IPMI用户名') },
+        { label: '密码', value: getAttributeValue(attributes, 'IPMI密码') },
+      ],
+    },
+  ]
+  const extraItems = attributesToList(attributes)
+    .filter((item) => !groupedKeys.has(item.key))
+    .map((item) => ({ label: item.key, value: item.value }))
+  if (extraItems.length) rows.push({ label: '其他配置', items: extraItems })
+  return rows
 }
 
 function attributeListToObject(list) {
@@ -1087,9 +1309,25 @@ function formatAttributes(attributes) {
   return list.map((item) => `${item.key}: ${item.value}`).join(' / ')
 }
 
+function formatDeviceUPosition(row) {
+  if (!row?.u_position) return '-'
+  return row.u_height > 1
+    ? `${row.u_position}-${row.u_position + row.u_height - 1}U`
+    : `${row.u_position}U`
+}
+
+function openDeviceDetail(row) {
+  deviceDetailModal.row = row
+  deviceDetailModal.show = true
+}
+
 function openDeviceModal(row = null) {
   deviceModal.form = row
-    ? { ...createEmptyDevice(), ...row }
+    ? {
+        ...createEmptyDevice(),
+        ...row,
+        attributeList: attributesToList(row.attributes),
+      }
     : {
         ...createEmptyDevice(),
         cabinet_id:
@@ -1105,7 +1343,12 @@ async function submitDevice() {
   deviceModal.submitting = true
   try {
     const submit = deviceModal.form.id ? api.assetApi.updateDevice : api.assetApi.createDevice
-    await submit(deviceModal.form)
+    const payload = {
+      ...deviceModal.form,
+      attributes: attributeListToObject(deviceModal.form.attributeList),
+    }
+    delete payload.attributeList
+    await submit(payload)
     window.$message?.success('保存成功')
     deviceModal.show = false
     await loadDevices()
@@ -1171,7 +1414,6 @@ onMounted(refreshAll)
 }
 
 .toolbar-actions,
-.table-actions,
 .modal-footer {
   display: flex;
   align-items: center;
@@ -1188,6 +1430,88 @@ onMounted(refreshAll)
 .asset-sidebar,
 .content-panel {
   padding: 16px;
+}
+
+.content-panel :deep(.n-data-table-th__title),
+.content-panel :deep(.n-data-table-td) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.content-panel :deep(.asset-row-actions) {
+  flex-flow: row nowrap !important;
+  flex-wrap: nowrap;
+  gap: 6px !important;
+}
+
+.detail-link {
+  max-width: 100%;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: #2563eb;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-section {
+  margin-top: 16px;
+}
+
+.detail-section h3 {
+  margin: 0 0 10px;
+  color: #0f172a;
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+.device-config-table {
+  overflow: hidden;
+  border: 1px solid #efeff5;
+  border-radius: 3px;
+}
+
+.device-config-row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  border-bottom: 1px solid #efeff5;
+}
+
+.device-config-row:last-child {
+  border-bottom: 0;
+}
+
+.device-config-label {
+  display: flex;
+  align-items: center;
+  background: #fafafc;
+  color: #1f2937;
+  font-weight: 600;
+  padding: 9px 12px;
+}
+
+.device-config-values {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 18px;
+  padding: 9px 12px;
+}
+
+.device-config-values span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-config-values strong {
+  margin-right: 6px;
+  color: #64748b;
+  font-weight: 500;
 }
 
 .asset-main {
@@ -1237,19 +1561,6 @@ onMounted(refreshAll)
   gap: 10px;
 }
 
-.link-button,
-.danger-button {
-  border: 0;
-  background: transparent;
-  color: #2563eb;
-  cursor: pointer;
-  font: inherit;
-}
-
-.danger-button {
-  color: #dc2626;
-}
-
 .attribute-editor {
   display: flex;
   width: 100%;
@@ -1260,6 +1571,12 @@ onMounted(refreshAll)
 .attribute-row {
   display: grid;
   grid-template-columns: minmax(120px, 1fr) minmax(160px, 1.4fr) 34px;
+  gap: 8px;
+}
+
+.attribute-actions {
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 

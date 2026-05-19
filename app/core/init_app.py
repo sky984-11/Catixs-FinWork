@@ -315,7 +315,7 @@ async def init_apis():
         await api_controller.refresh_api()
 
 
-async def ensure_asset_inventory_columns():
+async def ensure_asset_columns():
     if settings.DB_TYPE != "postgres":
         return
 
@@ -325,11 +325,14 @@ async def ensure_asset_inventory_columns():
         ALTER TABLE IF EXISTS "asset_inventory"
             ADD COLUMN IF NOT EXISTS "subtype" VARCHAR(100),
             ADD COLUMN IF NOT EXISTS "attributes" JSONB NOT NULL DEFAULT '{}';
+
+        ALTER TABLE IF EXISTS "asset_device"
+            ADD COLUMN IF NOT EXISTS "attributes" JSONB NOT NULL DEFAULT '{}';
         """
     )
 
 
-def is_ignorable_asset_inventory_migration_error(exc: Exception) -> bool:
+def is_ignorable_asset_migration_error(exc: Exception) -> bool:
     message = str(exc)
     is_duplicate_column = (
         "already exists" in message
@@ -355,7 +358,7 @@ async def init_db():
         pass
 
     await command.init()
-    await ensure_asset_inventory_columns()
+    await ensure_asset_columns()
     await Tortoise.generate_schemas(safe=True)
     if os.getenv("AUTO_DB_MIGRATE", "false").lower() in {"1", "true", "yes", "on"}:
         try:
@@ -368,9 +371,9 @@ async def init_db():
     try:
         await command.upgrade(run_in_transaction=True)
     except OperationalError as exc:
-        if not is_ignorable_asset_inventory_migration_error(exc):
+        if not is_ignorable_asset_migration_error(exc):
             raise
-        logger.warning("asset inventory compatibility columns already exist, skipped duplicate migration")
+        logger.warning("asset compatibility columns already exist, skipped duplicate migration")
     logger.info("database schema checked, missing tables have been created")
 
 

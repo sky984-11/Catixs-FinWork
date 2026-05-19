@@ -45,7 +45,7 @@ class AssetDeviceController(CRUDBase[AssetDevice, AssetDeviceCreate, AssetDevice
         super().__init__(model=AssetDevice)
 
     async def list_devices(self, page: int, page_size: int, search: Q = Q()):
-        return await self.list(page=page, page_size=page_size, search=search, order=["asset_no", "id"])
+        return await self.list(page=page, page_size=page_size, search=search, order=["-u_position", "-id"])
 
     async def create_device(self, obj_in: AssetDeviceCreate) -> AssetDevice:
         data = obj_in.model_dump()

@@ -1,10 +1,11 @@
 <template>
-  <n-space :size="12">
+  <n-space :size="spaceSize" :wrap="wrap">
     <n-button
       v-if="showCancel"
       class="c-button-cancel"
       round
       secondary
+      :size="size"
       :loading="cancelLoading"
       :disabled="disabled"
       @click="handleCancel"
@@ -12,10 +13,16 @@
       <template #icon>
         <n-icon>
           <svg v-if="!cancelLoading" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-            <path d="M18.3 5.71L12 12l6.3 6.29l-1.41 1.42L10.59 13.41L4.29 19.71L2.88 18.29L9.17 12L2.88 5.71L4.29 4.29l6.3 6.3l6.3-6.3l1.41 1.42z" fill="currentColor"/>
+            <path
+              d="M18.3 5.71L12 12l6.3 6.29l-1.41 1.42L10.59 13.41L4.29 19.71L2.88 18.29L9.17 12L2.88 5.71L4.29 4.29l6.3 6.3l6.3-6.3l1.41 1.42z"
+              fill="currentColor"
+            />
           </svg>
           <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-            <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" fill="currentColor"/>
+            <path
+              d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"
+              fill="currentColor"
+            />
           </svg>
         </n-icon>
       </template>
@@ -26,6 +33,7 @@
       type="info"
       round
       secondary
+      :size="size"
       :loading="saveLoading"
       :disabled="disabled"
       @click="handleSave"
@@ -33,10 +41,13 @@
       <template #icon>
         <n-icon>
           <svg v-if="!saveLoading" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19L21 7l-1.41-1.41z" fill="currentColor"/>
+            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19L21 7l-1.41-1.41z" fill="currentColor" />
           </svg>
           <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-            <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" fill="currentColor"/>
+            <path
+              d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"
+              fill="currentColor"
+            />
           </svg>
         </n-icon>
       </template>
@@ -47,6 +58,7 @@
       type="info"
       round
       secondary
+      :size="size"
       :loading="editLoading"
       :disabled="disabled"
       @click="handleEdit"
@@ -66,7 +78,10 @@
             ></path>
           </svg>
           <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-            <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" fill="currentColor"/>
+            <path
+              d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"
+              fill="currentColor"
+            />
           </svg>
         </n-icon>
       </template>
@@ -77,6 +92,7 @@
       type="error"
       round
       secondary
+      :size="size"
       :loading="deleteLoading"
       :disabled="disabled"
       @click="handleDelete"
@@ -96,7 +112,10 @@
           </g>
         </svg>
         <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-          <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" fill="currentColor"/>
+          <path
+            d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"
+            fill="currentColor"
+          />
         </svg>
       </template>
       {{ deleteLoading ? '处理中' : '删除' }}
@@ -106,6 +125,7 @@
       class="c-button-send"
       round
       secondary
+      :size="size"
       :loading="sendLoading"
       :disabled="disabled"
       @click="handleSend"
@@ -113,10 +133,13 @@
       <template #icon>
         <n-icon>
           <svg v-if="!sendLoading" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-            <path d="M2.01 21L23 12L2.01 3L2 10L17 12L2 14L2.01 21Z" fill="currentColor"/>
+            <path d="M2.01 21L23 12L2.01 3L2 10L17 12L2 14L2.01 21Z" fill="currentColor" />
           </svg>
           <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-            <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" fill="currentColor"/>
+            <path
+              d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"
+              fill="currentColor"
+            />
           </svg>
         </n-icon>
       </template>
@@ -132,68 +155,83 @@ defineProps({
   // 是否显示取消按钮
   showCancel: {
     type: Boolean,
-    default: false
+    default: false,
   },
   // 是否显示保存按钮
   showSave: {
     type: Boolean,
-    default: false
+    default: false,
   },
   // 是否显示编辑按钮
   showEdit: {
     type: Boolean,
-    default: false
+    default: false,
   },
   // 是否显示删除按钮
   showDelete: {
     type: Boolean,
-    default: false
+    default: false,
   },
   // 禁用所有按钮
   disabled: {
     type: Boolean,
-    default: false
+    default: false,
+  },
+  // 按钮尺寸
+  size: {
+    type: String,
+    default: 'medium',
+  },
+  // 按钮间距
+  spaceSize: {
+    type: [Number, String, Array],
+    default: 12,
+  },
+  // 是否允许换行
+  wrap: {
+    type: Boolean,
+    default: true,
   },
   // 编辑按钮loading状态
   editLoading: {
     type: Boolean,
-    default: false
+    default: false,
   },
   // 删除按钮loading状态
   deleteLoading: {
     type: Boolean,
-    default: false
+    default: false,
   },
   // 是否显示发送按钮
   showSend: {
     type: Boolean,
-    default: false
+    default: false,
   },
   // 发送按钮loading状态
   sendLoading: {
     type: Boolean,
-    default: false
+    default: false,
   },
   // 保存按钮loading状态
   saveLoading: {
     type: Boolean,
-    default: false
+    default: false,
   },
   // 取消按钮loading状态
   cancelLoading: {
     type: Boolean,
-    default: false
+    default: false,
   },
   // 保存按钮文案
   saveText: {
     type: String,
-    default: '保存'
+    default: '保存',
   },
   // 取消按钮文案
   cancelText: {
     type: String,
-    default: '取消'
-  }
+    default: '取消',
+  },
 })
 
 const handleCancel = () => {

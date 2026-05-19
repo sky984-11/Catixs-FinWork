@@ -71,6 +71,10 @@ class AssetDeviceBase(BaseModel):
     owner: str = Field("", example="")
     purchase_date: Optional[date] = None
     warranty_expire: Optional[date] = None
+    attributes: dict[str, Any] = Field(
+        default_factory=dict,
+        example={"CPU数量": "2", "CPU型号": "Intel Xeon Gold 5118", "内存数量": "8", "内存大小": "32G", "IPMI用户名": "admin"},
+    )
     remark: str = Field("", example="")
 
 
