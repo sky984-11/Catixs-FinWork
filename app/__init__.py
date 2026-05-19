@@ -20,6 +20,20 @@ except ImportError:
     raise SettingNotFound("Can not import settings")
 
 
+class FrontendStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        if path.endswith((".js", ".css", ".html")):
+            response.headers["Cache-Control"] = "no-cache, max-age=0, must-revalidate"
+        return response
+
+
+def frontend_file_response(path: str) -> FileResponse:
+    response = FileResponse(path)
+    response.headers["Cache-Control"] = "no-cache, max-age=0, must-revalidate"
+    return response
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print(
@@ -56,20 +70,20 @@ def create_app() -> FastAPI:
     index_file = os.path.join(web_dist_dir, "index.html")
 
     if os.path.exists(assets_dir):
-        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+        app.mount("/assets", FrontendStaticFiles(directory=assets_dir), name="assets")
 
     if os.path.exists(index_file):
         @app.get("/")
         async def spa_index():
-            return FileResponse(index_file)
+            return frontend_file_response(index_file)
 
         @app.get("/{path:path}")
         async def spa_fallback(path: str):
             file_path = os.path.abspath(os.path.join(web_dist_dir, path))
             web_dist_root = os.path.abspath(web_dist_dir)
             if file_path.startswith(web_dist_root) and os.path.isfile(file_path):
-                return FileResponse(file_path)
-            return FileResponse(index_file)
+                return frontend_file_response(file_path)
+            return frontend_file_response(index_file)
     
     return app
 
