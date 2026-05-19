@@ -149,6 +149,7 @@
               :data="isInventoryView ? inventoryItems : devices"
               :pagination="pagination"
               :row-key="(row) => row.id"
+              :row-class-name="() => 'asset-table-row'"
               @update:page="handlePageChange"
               @update:page-size="handlePageSizeChange"
             />
@@ -868,31 +869,19 @@ const deviceColumns = computed(() => [
   {
     title: '设备名称',
     key: 'name',
-    minWidth: 160,
-    render(row) {
-      return h(
-        'button',
-        {
-          class: 'detail-link',
-          onClick: () => openDeviceDetail(row),
-        },
-        row.name || '-'
-      )
-    },
+    minWidth: 230,
+    render: renderDeviceName,
   },
-  { title: '类型', key: 'type', width: 100, render: (row) => getDeviceType(row.type) },
-  { title: '状态', key: 'status', width: 110, render: (row) => getDeviceStatus(row.status) },
+  { title: '类型', key: 'type', width: 120, render: renderDeviceType },
+  { title: '状态', key: 'status', width: 110, render: renderDeviceStatus },
   {
     title: 'U位',
     key: 'u_position',
     width: 100,
-    render(row) {
-      return formatDeviceUPosition(row)
-    },
+    render: renderDeviceUPosition,
   },
-  { title: '管理IP', key: 'mgmt_ip', width: 130 },
-  { title: '业务IP', key: 'business_ip', width: 130 },
-  { title: '备注', key: 'remark', minWidth: 180 },
+  { title: 'IP 信息', key: 'ip', minWidth: 210, render: renderDeviceIpGroup },
+  { title: '备注', key: 'remark', minWidth: 170, render: renderDeviceRemark },
   {
     title: '操作',
     key: 'actions',
@@ -1557,6 +1546,69 @@ function renderInventoryAttributes(row) {
   )
 }
 
+function renderDeviceName(row) {
+  return h('div', { class: 'device-name-cell' }, [
+    h(
+      'button',
+      {
+        class: 'detail-link',
+        title: row.name || '-',
+        onClick: () => openDeviceDetail(row),
+      },
+      row.name || '-'
+    ),
+    h('div', { class: 'device-meta-line' }, [
+      h('span', row.asset_no || '未填写资产编号'),
+      row.serial_no ? h('span', `SN ${row.serial_no}`) : null,
+    ]),
+  ])
+}
+
+function renderDeviceType(row) {
+  return h('span', { class: `device-type-badge device-type-${Number(row.type)}` }, [
+    h('span', { class: 'device-type-dot' }),
+    getDeviceType(row.type),
+  ])
+}
+
+function renderDeviceStatus(row) {
+  return h(
+    'span',
+    { class: `device-status-badge device-status-${Number(row.status)}` },
+    getDeviceStatus(row.status)
+  )
+}
+
+function renderDeviceUPosition(row) {
+  const value = formatDeviceUPosition(row)
+  return h('span', { class: ['device-u-badge', value === '-' ? 'is-empty' : ''] }, value)
+}
+
+function renderDeviceIpGroup(row) {
+  const items = [
+    { label: '管理', value: row.mgmt_ip },
+    { label: '业务', value: row.business_ip },
+  ].filter((item) => item.value)
+
+  if (!items.length) return h('span', { class: 'muted-cell' }, '-')
+
+  return h(
+    'div',
+    { class: 'device-ip-group' },
+    items.map((item) =>
+      h('span', { class: 'device-ip-item', key: item.label, title: item.value }, [
+        h('b', item.label),
+        h('em', item.value),
+      ])
+    )
+  )
+}
+
+function renderDeviceRemark(row) {
+  if (!row.remark) return h('span', { class: 'muted-cell' }, '暂无备注')
+  return h('span', { class: 'device-remark', title: row.remark }, row.remark)
+}
+
 function formatDeviceUPosition(row) {
   if (!row?.u_position) return '-'
   return row.u_height > 1
@@ -1703,6 +1755,31 @@ onMounted(refreshAll)
   white-space: nowrap;
 }
 
+.content-panel :deep(.n-data-table) {
+  border-radius: 8px;
+}
+
+.content-panel :deep(.n-data-table-th) {
+  background: #f8fafc;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.content-panel :deep(.n-data-table-td) {
+  color: #1f2937;
+  vertical-align: middle;
+}
+
+.content-panel :deep(.asset-table-row .n-data-table-td) {
+  height: 62px;
+  border-bottom-color: #eef2f7;
+}
+
+.content-panel :deep(.asset-table-row:hover .n-data-table-td) {
+  background: #f8fbff;
+}
+
 .content-panel :deep(.asset-row-actions) {
   flex-flow: row nowrap !important;
   flex-wrap: nowrap;
@@ -1770,6 +1847,13 @@ onMounted(refreshAll)
   color: #334155;
 }
 
+.content-panel :deep(.device-name-cell) {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
 .detail-link {
   max-width: 100%;
   overflow: hidden;
@@ -1779,6 +1863,157 @@ onMounted(refreshAll)
   cursor: pointer;
   font: inherit;
   text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-link:hover {
+  color: #1d4ed8;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.content-panel :deep(.device-meta-line) {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.content-panel :deep(.device-meta-line span) {
+  overflow: hidden;
+  max-width: 150px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.content-panel :deep(.device-type-badge),
+.content-panel :deep(.device-status-badge),
+.content-panel :deep(.device-u-badge) {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 24px;
+}
+
+.content-panel :deep(.device-type-badge) {
+  gap: 6px;
+  border: 1px solid #dbeafe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 0 10px;
+}
+
+.content-panel :deep(.device-type-1),
+.content-panel :deep(.device-type-2) {
+  border-color: #d1fae5;
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.content-panel :deep(.device-type-3),
+.content-panel :deep(.device-type-4) {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.content-panel :deep(.device-type-5),
+.content-panel :deep(.device-type-99) {
+  border-color: #e5e7eb;
+  background: #f9fafb;
+  color: #4b5563;
+}
+
+.content-panel :deep(.device-type-dot) {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.content-panel :deep(.device-status-badge) {
+  background: #dcfce7;
+  color: #15803d;
+  padding: 0 11px;
+}
+
+.content-panel :deep(.device-status-2) {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.content-panel :deep(.device-status-3),
+.content-panel :deep(.device-status-5) {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.content-panel :deep(.device-status-4) {
+  background: #e5e7eb;
+  color: #4b5563;
+}
+
+.content-panel :deep(.device-u-badge) {
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #334155;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  padding: 0 9px;
+}
+
+.content-panel :deep(.device-u-badge.is-empty),
+.content-panel :deep(.muted-cell) {
+  color: #94a3b8;
+}
+
+.content-panel :deep(.device-ip-group) {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.content-panel :deep(.device-ip-item) {
+  display: inline-flex;
+  overflow: hidden;
+  max-width: 190px;
+  align-items: center;
+  line-height: 21px;
+}
+
+.content-panel :deep(.device-ip-item b) {
+  flex: 0 0 auto;
+  border-radius: 4px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0 5px;
+}
+
+.content-panel :deep(.device-ip-item em) {
+  overflow: hidden;
+  min-width: 0;
+  margin-left: 6px;
+  color: #334155;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.content-panel :deep(.device-remark) {
+  display: inline-block;
+  overflow: hidden;
+  max-width: 100%;
+  color: #475569;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
