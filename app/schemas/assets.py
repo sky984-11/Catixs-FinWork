@@ -104,6 +104,21 @@ class AssetInventoryUpdate(AssetInventoryBase):
     id: int
 
 
+class AssetInventoryCategoryBase(BaseModel):
+    name: str = Field(..., example="光模块", description="分类名称")
+    parent_id: Optional[int] = Field(None, example=None, description="父级分类ID")
+    sort: int = Field(0, example=0)
+    status: bool = Field(True, example=True)
+
+
+class AssetInventoryCategoryCreate(AssetInventoryCategoryBase):
+    pass
+
+
+class AssetInventoryCategoryUpdate(AssetInventoryCategoryBase):
+    id: int
+
+
 class AssetTreeNode(BaseModel):
     id: int | str
     label: str

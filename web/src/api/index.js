@@ -127,8 +127,22 @@ export default {
     deleteDevice: (params = {}) => request.delete('/asset/device/delete', { params }),
     inventory: (params = {}) => request.get('/asset/inventory/list', { params }),
     getInventory: (params = {}) => request.get('/asset/inventory/get', { params }),
+    exportInventory: () =>
+      request.get('/asset/inventory/export', { responseType: 'blob', skipErrorHandle: true }),
+    importInventory: (file) => {
+      const formData = new FormData()
+      formData.append('file', file)
+      return request.post('/asset/inventory/import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+    },
     createInventory: (data = {}) => request.post('/asset/inventory/create', data),
     updateInventory: (data = {}) => request.post('/asset/inventory/update', data),
     deleteInventory: (params = {}) => request.delete('/asset/inventory/delete', { params }),
+    inventoryCategories: () => request.get('/asset/inventory-category/list'),
+    createInventoryCategory: (data = {}) => request.post('/asset/inventory-category/create', data),
+    updateInventoryCategory: (data = {}) => request.post('/asset/inventory-category/update', data),
+    deleteInventoryCategory: (params = {}) =>
+      request.delete('/asset/inventory-category/delete', { params }),
   },
 }

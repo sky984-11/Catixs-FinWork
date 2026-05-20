@@ -108,6 +108,37 @@
                 <h2>{{ isInventoryView ? '库存列表' : '设备列表' }}</h2>
               </div>
               <div class="toolbar-actions">
+                <input
+                  ref="inventoryImportInputRef"
+                  class="hidden-file-input"
+                  type="file"
+                  accept=".csv,text/csv"
+                  @change="handleInventoryImport"
+                />
+                <n-button
+                  v-if="isInventoryView && canExportInventory"
+                  secondary
+                  round
+                  :loading="loading.inventoryExport"
+                  @click="exportInventory"
+                >
+                  <template #icon>
+                    <TheIcon icon="mdi:download" :size="18" />
+                  </template>
+                  导出
+                </n-button>
+                <n-button
+                  v-if="isInventoryView && canImportInventory"
+                  secondary
+                  round
+                  :loading="loading.inventoryImport"
+                  @click="triggerInventoryImport"
+                >
+                  <template #icon>
+                    <TheIcon icon="mdi:upload" :size="18" />
+                  </template>
+                  导入
+                </n-button>
                 <n-button
                   v-if="isInventoryView && canMaintainCategories"
                   secondary
@@ -152,6 +183,7 @@
               :row-class-name="() => 'asset-table-row'"
               @update:page="handlePageChange"
               @update:page-size="handlePageSizeChange"
+              @update:sorter="handleSorterChange"
             />
           </section>
         </main>
@@ -542,23 +574,23 @@
           </div>
           <div
             v-for="category in inventoryCategoryTree"
-            :key="category.value"
+            :key="category.id || category.value"
             class="category-block"
           >
             <div class="category-title">
               <strong>{{ category.label }}</strong>
-              <n-button text type="error" round @click="deleteInventoryCategory(category.value)"
+              <n-button text type="error" round @click="deleteInventoryCategory(category)"
                 >删除</n-button
               >
             </div>
             <div class="subcategory-list">
               <n-tag
                 v-for="child in category.children"
-                :key="child"
+                :key="child.id || child.value"
                 closable
-                @close="deleteInventorySubtype(category.value, child)"
+                @close="deleteInventorySubtype(category, child)"
               >
-                {{ child }}
+                {{ child.label }}
               </n-tag>
             </div>
             <div class="category-add">
@@ -566,9 +598,7 @@
                 v-model:value="categoryModal.subtypeDrafts[category.value]"
                 placeholder="新增子类"
               />
-              <n-button secondary round @click="addInventorySubtype(category.value)"
-                >添加子类</n-button
-              >
+              <n-button secondary round @click="addInventorySubtype(category)">添加子类</n-button>
             </div>
           </div>
         </div>
@@ -579,6 +609,7 @@
 
 <script setup>
 import { computed, h, onMounted, reactive, ref } from 'vue'
+import { NButton } from 'naive-ui'
 import api from '@/api'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import CButton from '@/components/public/CButton.vue'
@@ -597,16 +628,26 @@ const cabinets = ref([])
 const deviceFormRef = ref(null)
 const inventoryFormRef = ref(null)
 const simpleFormRef = ref(null)
+const inventoryImportInputRef = ref(null)
 const permissionStore = usePermissionStore()
 const userStore = useUserStore()
 
-const loading = reactive({ tree: false, list: false })
+const loading = reactive({
+  tree: false,
+  list: false,
+  inventoryExport: false,
+  inventoryImport: false,
+})
 const filters = reactive({
   keyword: '',
   deviceType: null,
   deviceStatus: null,
   inventoryType: '',
   inventorySubtype: '',
+})
+const inventorySorter = reactive({
+  columnKey: '',
+  order: '',
 })
 const pagination = reactive({
   page: 1,
@@ -662,6 +703,7 @@ const assetResourcePathMap = {
   cabinet: 'cabinet',
   device: 'device',
   inventory: 'inventory',
+  inventoryCategory: 'inventory-category',
 }
 
 const assetActionMethodMap = {
@@ -670,34 +712,18 @@ const assetActionMethodMap = {
   create: 'post',
   update: 'post',
   delete: 'delete',
+  export: 'get',
+  import: 'post',
 }
 
-const INVENTORY_CATEGORY_STORAGE_KEY = 'asset_inventory_category_tree'
-
-const defaultInventoryCategoryTree = [
-  { label: '光模块', value: '光模块', children: ['100G', '40G', '25G', '10G', '1G'] },
-  { label: '光纤', value: '光纤', children: ['单模', '多模', 'MPO'] },
-  { label: '网线', value: '网线', children: ['线缆等级'] },
-  { label: '电源线', value: '电源线', children: ['接口类型'] },
-  { label: '调试线', value: '调试线', children: [] },
-  { label: 'DAC', value: 'DAC', children: [] },
-  { label: 'AOC', value: 'AOC', children: [] },
-  {
-    label: '服务器配件',
-    value: '服务器配件',
-    children: ['CPU', '内存', '硬盘', '网卡', '导轨', '背板'],
-  },
-  { label: '工具', value: '工具', children: ['螺丝刀', '扎带', '标签机', '手套'] },
-]
-
 const inventoryAttributeTemplateMap = {
-  光模块: ['发送波长', '接收波长', '模式', '兼容性', '传输距离', '芯类型', '封装类型'],
-  光纤: ['模式', '芯类型', '封装类型', '长度'],
+  光模块: ['发送波长', '接收波长', '模式', '兼容性', '传输距离'],
+  光纤: ['芯类型', '封装类型', '长度'],
   网线: ['接口类型', '长度'],
   电源线: ['长度'],
 }
 
-const inventoryCategoryTree = ref(loadInventoryCategoryTree())
+const inventoryCategoryTree = ref([])
 const inventoryTypeOptions = computed(() =>
   inventoryCategoryTree.value.map(({ label, value }) => ({ label, value }))
 )
@@ -808,9 +834,9 @@ const canUsePrimaryAction = computed(() =>
 )
 const canMaintainCategories = computed(
   () =>
-    hasAssetPermission('inventory', 'create') ||
-    hasAssetPermission('inventory', 'update') ||
-    hasAssetPermission('inventory', 'delete')
+    hasAssetPermission('inventoryCategory', 'create') ||
+    hasAssetPermission('inventoryCategory', 'update') ||
+    hasAssetPermission('inventoryCategory', 'delete')
 )
 const canSaveSimple = computed(() =>
   hasAssetPermission(simpleModal.kind, simpleModal.form.id ? 'update' : 'create')
@@ -819,6 +845,8 @@ const canDeleteSimple = computed(() => hasAssetPermission(simpleModal.kind, 'del
 const canSaveInventory = computed(() =>
   hasAssetPermission('inventory', inventoryModal.form.id ? 'update' : 'create')
 )
+const canExportInventory = computed(() => hasAssetPermission('inventory', 'export'))
+const canImportInventory = computed(() => hasAssetPermission('inventory', 'import'))
 const canSaveDevice = computed(() =>
   hasAssetPermission('device', deviceModal.form.id ? 'update' : 'create')
 )
@@ -827,12 +855,26 @@ const hasInventoryAttributeTemplate = computed(() =>
 )
 
 const inventoryColumns = computed(() => [
-  { title: '分类', key: 'type', width: 120 },
-  { title: '子类', key: 'subtype', width: 120 },
+  {
+    title: '分类',
+    key: 'type',
+    width: 120,
+    sorter: true,
+    sortOrder: inventorySorter.columnKey === 'type' ? inventorySorter.order : false,
+  },
+  {
+    title: '子类',
+    key: 'subtype',
+    width: 120,
+    sorter: true,
+    sortOrder: inventorySorter.columnKey === 'subtype' ? inventorySorter.order : false,
+  },
   {
     title: '数量',
     key: 'quantity',
     width: 110,
+    sorter: true,
+    sortOrder: inventorySorter.columnKey === 'quantity' ? inventorySorter.order : false,
   },
   {
     title: '扩展属性',
@@ -845,29 +887,72 @@ const inventoryColumns = computed(() => [
   {
     title: '操作',
     key: 'actions',
-    width: 134,
+    width: 210,
     render(row) {
-      if (
-        !hasAssetPermission('inventory', 'update') &&
-        !hasAssetPermission('inventory', 'delete')
-      ) {
-        return '-'
-      }
-      return h(CButton, {
-        showEdit: hasAssetPermission('inventory', 'update'),
-        showDelete: hasAssetPermission('inventory', 'delete'),
-        class: 'asset-row-actions',
-        size: 'tiny',
-        spaceSize: 4,
-        wrap: false,
-        editLoading: false,
-        deleteLoading: false,
-        onEdit: () => openInventoryModal(row),
-        onDelete: () => deleteInventory(row),
-      })
+      return renderInventoryActions(row)
     },
   },
 ])
+
+function renderInventoryActions(row) {
+  const actions = []
+  if (hasAssetPermission('inventory', 'create')) {
+    actions.push(
+      h(
+        NButton,
+        {
+          size: 'tiny',
+          type: 'success',
+          secondary: true,
+          round: true,
+          onClick: () => cloneInventory(row),
+        },
+        {
+          icon: () => h(TheIcon, { icon: 'mdi:content-copy', size: 14 }),
+          default: () => '克隆',
+        }
+      )
+    )
+  }
+  if (hasAssetPermission('inventory', 'update')) {
+    actions.push(
+      h(
+        NButton,
+        {
+          size: 'tiny',
+          type: 'info',
+          secondary: true,
+          round: true,
+          onClick: () => openInventoryModal(row),
+        },
+        {
+          icon: () => h(TheIcon, { icon: 'material-symbols:edit-outline-rounded', size: 14 }),
+          default: () => '编辑',
+        }
+      )
+    )
+  }
+  if (hasAssetPermission('inventory', 'delete')) {
+    actions.push(
+      h(
+        NButton,
+        {
+          size: 'tiny',
+          type: 'error',
+          secondary: true,
+          round: true,
+          onClick: () => deleteInventory(row),
+        },
+        {
+          icon: () => h(TheIcon, { icon: 'material-symbols:delete-outline-rounded', size: 14 }),
+          default: () => '删除',
+        }
+      )
+    )
+  }
+  if (!actions.length) return '-'
+  return h('div', { class: 'asset-row-actions' }, actions)
+}
 
 const deviceColumns = computed(() => [
   {
@@ -973,10 +1058,20 @@ async function loadMeta() {
     api.assetApi.regions({ page_size: 1000 }),
     api.assetApi.locations({ page_size: 1000 }),
     api.assetApi.cabinets({ page_size: 1000 }),
+    loadInventoryCategories(),
   ])
   regions.value = regionRes.data || []
   locations.value = locationRes.data || []
   cabinets.value = cabinetRes.data || []
+}
+
+async function loadInventoryCategories() {
+  try {
+    const res = await api.assetApi.inventoryCategories()
+    inventoryCategoryTree.value = normalizeInventoryCategoryTree(res.data || [])
+  } catch {
+    inventoryCategoryTree.value = []
+  }
 }
 
 async function loadTree() {
@@ -1024,6 +1119,8 @@ async function loadInventory() {
       keyword: filters.keyword || undefined,
       type: filters.inventoryType || undefined,
       subtype: filters.inventorySubtype || undefined,
+      sort_by: inventorySorter.columnKey || undefined,
+      sort_order: inventorySorter.order || undefined,
       ...getSelectedParams(),
     })
     inventoryItems.value = res.data || []
@@ -1060,12 +1157,23 @@ function handlePageSizeChange(pageSize) {
   loadCurrentList()
 }
 
+function handleSorterChange(sorter) {
+  if (!isInventoryView.value) return
+  const currentSorter = Array.isArray(sorter) ? sorter[0] : sorter
+  inventorySorter.columnKey = currentSorter?.order ? currentSorter.columnKey || '' : ''
+  inventorySorter.order = currentSorter?.order || ''
+  pagination.page = 1
+  loadInventory()
+}
+
 function resetFilters() {
   filters.keyword = ''
   filters.deviceType = null
   filters.deviceStatus = null
   filters.inventoryType = ''
   filters.inventorySubtype = ''
+  inventorySorter.columnKey = ''
+  inventorySorter.order = ''
   pagination.page = 1
   loadCurrentList()
 }
@@ -1222,6 +1330,23 @@ function openInventoryModal(row = null) {
   inventoryModal.show = true
 }
 
+function cloneInventory(row) {
+  if (!hasAssetPermission('inventory', 'create')) {
+    warnNoPermission()
+    return
+  }
+  const cloned = {
+    ...createEmptyInventory(),
+    ...row,
+    attributes: { ...(row.attributes || {}) },
+    attributeList: attributesToList(row.attributes),
+  }
+  delete cloned.id
+  inventoryModal.form = cloned
+  applyInventoryAttributeTemplate()
+  inventoryModal.show = true
+}
+
 async function submitInventory() {
   if (!canSaveInventory.value) {
     warnNoPermission()
@@ -1257,6 +1382,57 @@ async function deleteInventory(row) {
   loadInventory()
 }
 
+function triggerInventoryImport() {
+  inventoryImportInputRef.value?.click()
+}
+
+async function exportInventory() {
+  if (!canExportInventory.value) {
+    warnNoPermission()
+    return
+  }
+  loading.inventoryExport = true
+  try {
+    const response = await api.assetApi.exportInventory()
+    const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8;' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `库存_${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+  } finally {
+    loading.inventoryExport = false
+  }
+}
+
+async function handleInventoryImport(event) {
+  const file = event.target.files?.[0]
+  if (!file) return
+  if (!file.name.toLowerCase().endsWith('.csv')) {
+    window.$message?.error('请选择 CSV 文件')
+    event.target.value = ''
+    return
+  }
+  if (!canSaveInventory.value) {
+    warnNoPermission()
+    event.target.value = ''
+    return
+  }
+
+  loading.inventoryImport = true
+  try {
+    const res = await api.assetApi.importInventory(file)
+    window.$message?.success(res?.msg || '导入成功')
+    await loadInventory()
+  } finally {
+    loading.inventoryImport = false
+    event.target.value = ''
+  }
+}
+
 function addInventoryAttribute() {
   inventoryModal.form.attributeList.push({ key: '', value: '' })
 }
@@ -1286,71 +1462,53 @@ function applyInventoryAttributeTemplate(type = inventoryModal.form.type) {
   }))
 }
 
-function cloneInventoryCategoryTree(tree = defaultInventoryCategoryTree) {
-  return tree.map((item) => ({
-    label: item.label,
-    value: item.value,
-    children: [...(item.children || [])],
-  }))
-}
-
 function normalizeInventoryCategoryTree(value) {
-  if (!Array.isArray(value)) return cloneInventoryCategoryTree()
+  if (!Array.isArray(value)) return []
   const result = []
   value.forEach((item) => {
-    const label = String(item?.label || item?.value || '').trim()
-    const itemValue = String(item?.value || label).trim()
-    if (!label || !itemValue || result.some((category) => category.value === itemValue)) return
+    const label = String(item?.label || item?.name || item?.value || '').trim()
+    const itemValue = String(item?.value || item?.name || label).trim()
+    if (!label || !itemValue) return
     const children = Array.isArray(item.children)
-      ? [...new Set(item.children.map((child) => String(child || '').trim()).filter(Boolean))]
+      ? item.children
+          .map((child) => {
+            const childLabel = String(child?.label || child?.name || child?.value || '').trim()
+            const childValue = String(child?.value || child?.name || childLabel).trim()
+            if (!childLabel || !childValue) return null
+            return { ...child, label: childLabel, value: childValue }
+          })
+          .filter(Boolean)
       : []
-    result.push({ label, value: itemValue, children })
+    result.push({ ...item, label, value: itemValue, children })
   })
-  return result.length ? mergeDefaultInventorySubtypes(result) : cloneInventoryCategoryTree()
+  return result
 }
 
-function mergeDefaultInventorySubtypes(tree) {
-  return tree.map((item) => {
-    const defaultCategory = defaultInventoryCategoryTree.find(
-      (category) => category.value === item.value
-    )
-    if (!defaultCategory) return item
-    const children = [...item.children]
-    defaultCategory.children.forEach((child) => {
-      if (!children.includes(child)) children.push(child)
-    })
-    return { ...item, children }
-  })
-}
-
-function loadInventoryCategoryTree() {
-  try {
-    const raw = localStorage.getItem(INVENTORY_CATEGORY_STORAGE_KEY)
-    return raw ? normalizeInventoryCategoryTree(JSON.parse(raw)) : cloneInventoryCategoryTree()
-  } catch {
-    return cloneInventoryCategoryTree()
+async function addInventoryCategory() {
+  if (!hasAssetPermission('inventoryCategory', 'create')) {
+    warnNoPermission()
+    return
   }
-}
-
-function saveInventoryCategoryTree() {
-  localStorage.setItem(INVENTORY_CATEGORY_STORAGE_KEY, JSON.stringify(inventoryCategoryTree.value))
-}
-
-function addInventoryCategory() {
   const name = categoryModal.categoryName.trim()
   if (!name) return
   if (inventoryCategoryTree.value.some((item) => item.value === name)) {
     window.$message?.warning('分类已存在')
     return
   }
-  inventoryCategoryTree.value.push({ label: name, value: name, children: [] })
+  const res = await api.assetApi.createInventoryCategory({ name, parent_id: null })
+  inventoryCategoryTree.value = normalizeInventoryCategoryTree(res.data || [])
   categoryModal.categoryName = ''
-  saveInventoryCategoryTree()
   window.$message?.success('分类已添加')
 }
 
-function deleteInventoryCategory(value) {
-  inventoryCategoryTree.value = inventoryCategoryTree.value.filter((item) => item.value !== value)
+async function deleteInventoryCategory(category) {
+  if (!hasAssetPermission('inventoryCategory', 'delete')) {
+    warnNoPermission()
+    return
+  }
+  const value = category.value
+  const res = await api.assetApi.deleteInventoryCategory({ category_id: category.id })
+  inventoryCategoryTree.value = normalizeInventoryCategoryTree(res.data || [])
   if (filters.inventoryType === value) {
     filters.inventoryType = ''
     filters.inventorySubtype = ''
@@ -1360,42 +1518,51 @@ function deleteInventoryCategory(value) {
     inventoryModal.form.subtype = ''
   }
   delete categoryModal.subtypeDrafts[value]
-  saveInventoryCategoryTree()
   window.$message?.success('分类已删除')
 }
 
-function addInventorySubtype(parentValue) {
+async function addInventorySubtype(category) {
+  if (!hasAssetPermission('inventoryCategory', 'create')) {
+    warnNoPermission()
+    return
+  }
+  const parentValue = category.value
   const subtype = String(categoryModal.subtypeDrafts[parentValue] || '').trim()
   if (!subtype) return
-  const category = inventoryCategoryTree.value.find((item) => item.value === parentValue)
-  if (!category) return
-  if (category.children.includes(subtype)) {
+  if (category.children.some((item) => item.value === subtype)) {
     window.$message?.warning('子类已存在')
     return
   }
-  category.children.push(subtype)
+  const res = await api.assetApi.createInventoryCategory({
+    name: subtype,
+    parent_id: category.id,
+  })
+  inventoryCategoryTree.value = normalizeInventoryCategoryTree(res.data || [])
   categoryModal.subtypeDrafts[parentValue] = ''
-  saveInventoryCategoryTree()
   window.$message?.success('子类已添加')
 }
 
-function deleteInventorySubtype(parentValue, subtype) {
-  const category = inventoryCategoryTree.value.find((item) => item.value === parentValue)
-  if (!category) return
-  category.children = category.children.filter((item) => item !== subtype)
-  if (filters.inventoryType === parentValue && filters.inventorySubtype === subtype) {
+async function deleteInventorySubtype(category, subtype) {
+  if (!hasAssetPermission('inventoryCategory', 'delete')) {
+    warnNoPermission()
+    return
+  }
+  const parentValue = category.value
+  const subtypeValue = subtype.value
+  const res = await api.assetApi.deleteInventoryCategory({ category_id: subtype.id })
+  inventoryCategoryTree.value = normalizeInventoryCategoryTree(res.data || [])
+  if (filters.inventoryType === parentValue && filters.inventorySubtype === subtypeValue) {
     filters.inventorySubtype = ''
   }
-  if (inventoryModal.form.type === parentValue && inventoryModal.form.subtype === subtype) {
+  if (inventoryModal.form.type === parentValue && inventoryModal.form.subtype === subtypeValue) {
     inventoryModal.form.subtype = ''
   }
-  saveInventoryCategoryTree()
   window.$message?.success('子类已删除')
 }
 
 function getInventorySubtypeOptions(type) {
   const category = inventoryCategoryTree.value.find((item) => item.value === type)
-  return (category?.children || []).map((item) => ({ label: item, value: item }))
+  return (category?.children || []).map((item) => ({ label: item.label, value: item.value }))
 }
 
 function handleInventoryTypeChange() {
@@ -1744,6 +1911,10 @@ onMounted(refreshAll)
   gap: 10px;
 }
 
+.hidden-file-input {
+  display: none;
+}
+
 .asset-layout {
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
@@ -1789,6 +1960,8 @@ onMounted(refreshAll)
 }
 
 .content-panel :deep(.asset-row-actions) {
+  display: flex;
+  align-items: center;
   flex-flow: row nowrap !important;
   flex-wrap: nowrap;
   gap: 6px !important;

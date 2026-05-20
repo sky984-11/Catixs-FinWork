@@ -1,12 +1,21 @@
 from tortoise.expressions import Q
 
 from app.core.crud import CRUDBase
-from app.models.asset import AssetCabinet, AssetDevice, AssetInventory, AssetLocation, AssetRegion
+from app.models.asset import (
+    AssetCabinet,
+    AssetDevice,
+    AssetInventory,
+    AssetInventoryCategory,
+    AssetLocation,
+    AssetRegion,
+)
 from app.schemas.assets import (
     AssetCabinetCreate,
     AssetCabinetUpdate,
     AssetDeviceCreate,
     AssetDeviceUpdate,
+    AssetInventoryCategoryCreate,
+    AssetInventoryCategoryUpdate,
     AssetInventoryCreate,
     AssetInventoryUpdate,
     AssetLocationCreate,
@@ -69,8 +78,13 @@ class AssetInventoryController(CRUDBase[AssetInventory, AssetInventoryCreate, As
     def __init__(self):
         super().__init__(model=AssetInventory)
 
-    async def list_inventory(self, page: int, page_size: int, search: Q = Q()):
-        return await self.list(page=page, page_size=page_size, search=search, order=["type", "subtype", "id"])
+    async def list_inventory(self, page: int, page_size: int, search: Q = Q(), order: list | None = None):
+        return await self.list(
+            page=page,
+            page_size=page_size,
+            search=search,
+            order=order or ["type", "subtype", "id"],
+        )
 
     async def create_inventory(self, obj_in: AssetInventoryCreate) -> AssetInventory:
         data = obj_in.model_dump()
@@ -88,8 +102,19 @@ class AssetInventoryController(CRUDBase[AssetInventory, AssetInventoryCreate, As
         data["region_id"] = location.region_id
 
 
+class AssetInventoryCategoryController(
+    CRUDBase[AssetInventoryCategory, AssetInventoryCategoryCreate, AssetInventoryCategoryUpdate]
+):
+    def __init__(self):
+        super().__init__(model=AssetInventoryCategory)
+
+    async def list_categories(self):
+        return await AssetInventoryCategory.filter(status=True).order_by("parent_id", "sort", "id")
+
+
 asset_region_controller = AssetRegionController()
 asset_location_controller = AssetLocationController()
 asset_cabinet_controller = AssetCabinetController()
 asset_device_controller = AssetDeviceController()
 asset_inventory_controller = AssetInventoryController()
+asset_inventory_category_controller = AssetInventoryCategoryController()

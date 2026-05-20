@@ -76,3 +76,13 @@ class AssetInventory(BaseModel, TimestampMixin):
 
     class Meta:
         table = "asset_inventory"
+
+
+class AssetInventoryCategory(BaseModel, TimestampMixin):
+    name = fields.CharField(max_length=100, description="分类名称", index=True)
+    parent_id = fields.IntField(null=True, description="父级分类ID", index=True)
+    sort = fields.IntField(default=0, description="排序")
+    status = fields.BooleanField(default=True, description="启用状态", index=True)
+
+    class Meta:
+        table = "asset_inventory_category"

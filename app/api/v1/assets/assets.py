@@ -9,11 +9,12 @@ from tortoise.expressions import Q
 from app.controllers.asset import (
     asset_cabinet_controller,
     asset_device_controller,
+    asset_inventory_category_controller,
     asset_inventory_controller,
     asset_location_controller,
     asset_region_controller,
 )
-from app.models.asset import AssetCabinet, AssetDevice, AssetInventory, AssetLocation, AssetRegion
+from app.models.asset import AssetCabinet, AssetDevice, AssetInventory, AssetInventoryCategory, AssetLocation, AssetRegion
 from app.core.ctx import CTX_USER_ID
 from app.models.admin import User
 from app.schemas.assets import (
@@ -21,6 +22,8 @@ from app.schemas.assets import (
     AssetCabinetUpdate,
     AssetDeviceCreate,
     AssetDeviceUpdate,
+    AssetInventoryCategoryCreate,
+    AssetInventoryCategoryUpdate,
     AssetInventoryCreate,
     AssetInventoryUpdate,
     AssetLocationCreate,
@@ -37,8 +40,6 @@ MASKED_DEVICE_SECRET = "******"
 DEVICE_SECRET_VIEW_ROLE_NAMES = {"admin", "noc"}
 DEVICE_SECRET_VIEW_ACCOUNT_NAMES = {"admin", "noc"}
 INVENTORY_IMPORT_BASE_COLUMNS = {
-    "ID",
-    "库存位置ID",
     "区域",
     "位置",
     "分类",
@@ -48,6 +49,18 @@ INVENTORY_IMPORT_BASE_COLUMNS = {
     "备注",
     "状态",
 }
+
+DEFAULT_INVENTORY_CATEGORY_TREE = [
+    {"name": "光模块", "children": ["100G", "40G", "25G", "10G", "1G"]},
+    {"name": "光纤", "children": ["单模", "多模", "MPO"]},
+    {"name": "网线", "children": []},
+    {"name": "电源线", "children": ["接口类型"]},
+    {"name": "调试线", "children": []},
+    {"name": "DAC", "children": []},
+    {"name": "AOC", "children": []},
+    {"name": "服务器配件", "children": ["CPU", "内存", "硬盘", "网卡", "导轨", "背板"]},
+    {"name": "工具", "children": ["螺丝刀", "扎带", "标签机", "手套"]},
+]
 
 
 async def can_view_device_secrets() -> bool:
@@ -125,6 +138,71 @@ async def inventory_to_dict(item: AssetInventory) -> dict:
     return data
 
 
+async def ensure_default_inventory_categories() -> None:
+    if await AssetInventoryCategory.exists():
+        return
+
+    for sort, item in enumerate(DEFAULT_INVENTORY_CATEGORY_TREE, start=1):
+        parent = await AssetInventoryCategory.create(name=item["name"], parent_id=None, sort=sort, status=True)
+        for child_sort, child_name in enumerate(item["children"], start=1):
+            await AssetInventoryCategory.create(
+                name=child_name,
+                parent_id=parent.id,
+                sort=child_sort,
+                status=True,
+            )
+
+
+def category_to_dict(item: AssetInventoryCategory) -> dict:
+    return {
+        "id": item.id,
+        "label": item.name,
+        "value": item.name,
+        "name": item.name,
+        "parent_id": item.parent_id,
+        "sort": item.sort,
+        "status": item.status,
+        "children": [],
+    }
+
+
+async def inventory_category_tree() -> list[dict]:
+    await ensure_default_inventory_categories()
+    categories = await asset_inventory_category_controller.list_categories()
+    parents = [category_to_dict(item) for item in categories if item.parent_id is None]
+    parent_map = {item["id"]: item for item in parents}
+    for item in categories:
+        if item.parent_id is None:
+            continue
+        parent = parent_map.get(item.parent_id)
+        if parent:
+            parent["children"].append(category_to_dict(item))
+    return parents
+
+
+def get_inventory_order(sort_by: str = "", sort_order: str = "") -> list[str]:
+    sortable_fields = {"type", "subtype", "quantity"}
+    if sort_by not in sortable_fields:
+        return ["type", "subtype", "id"]
+    prefix = "-" if sort_order == "descend" else ""
+    return [f"{prefix}{sort_by}", "id"]
+
+
+def inventory_matches_keyword(item: AssetInventory, keyword: str) -> bool:
+    text = keyword.strip().lower()
+    if not text:
+        return True
+    attributes_text = json.dumps(item.attributes or {}, ensure_ascii=False).lower()
+    values = [
+        item.type,
+        item.subtype,
+        str(item.quantity),
+        item.remark,
+        attributes_text,
+    ]
+    return any(text in str(value or "").lower() for value in values)
+
+
 def parse_bool_status(value: str | None, default: bool = True) -> bool:
     text = str(value or "").strip().lower()
     if not text:
@@ -156,12 +234,6 @@ def parse_inventory_attributes(row: dict) -> dict:
 
 
 async def resolve_inventory_location_id(row: dict) -> int | None:
-    location_id_text = str(row.get("库存位置ID", "") or "").strip()
-    if location_id_text.isdigit():
-        location = await AssetLocation.get_or_none(id=int(location_id_text))
-        if location:
-            return location.id
-
     location_name = str(row.get("位置", "") or "").strip()
     if not location_name:
         return None
@@ -419,6 +491,57 @@ async def delete_device(device_id: int = Query(...)):
     return Success(msg="Deleted Successfully")
 
 
+@router.get("/inventory-category/list", summary="库存分类列表")
+async def list_inventory_categories():
+    return Success(data=await inventory_category_tree())
+
+
+@router.post("/inventory-category/create", summary="创建库存分类")
+async def create_inventory_category(category_in: AssetInventoryCategoryCreate):
+    name = category_in.name.strip()
+    if not name:
+        return Success(msg="分类名称不能为空", code=400)
+    parent_id = category_in.parent_id
+    if parent_id is not None:
+        parent = await AssetInventoryCategory.get_or_none(id=parent_id, parent_id=None)
+        if not parent:
+            return Success(msg="父级分类不存在", code=400)
+
+    existed = await AssetInventoryCategory.get_or_none(name=name, parent_id=parent_id)
+    if existed:
+        return Success(msg="分类已存在", code=400)
+
+    data = category_in.model_dump()
+    data["name"] = name
+    if not data.get("sort"):
+        data["sort"] = await AssetInventoryCategory.filter(parent_id=parent_id).count() + 1
+    await asset_inventory_category_controller.create(data)
+    return Success(msg="Created Successfully", data=await inventory_category_tree())
+
+
+@router.post("/inventory-category/update", summary="更新库存分类")
+async def update_inventory_category(category_in: AssetInventoryCategoryUpdate):
+    name = category_in.name.strip()
+    if not name:
+        return Success(msg="分类名称不能为空", code=400)
+    existed = await AssetInventoryCategory.get_or_none(name=name, parent_id=category_in.parent_id)
+    if existed and existed.id != category_in.id:
+        return Success(msg="分类已存在", code=400)
+    data = category_in.model_dump(exclude={"id"})
+    data["name"] = name
+    await asset_inventory_category_controller.update(id=category_in.id, obj_in=data)
+    return Success(msg="Updated Successfully", data=await inventory_category_tree())
+
+
+@router.delete("/inventory-category/delete", summary="删除库存分类")
+async def delete_inventory_category(category_id: int = Query(...)):
+    category = await asset_inventory_category_controller.get(id=category_id)
+    if category.parent_id is None:
+        await AssetInventoryCategory.filter(parent_id=category.id).delete()
+    await category.delete()
+    return Success(msg="Deleted Successfully", data=await inventory_category_tree())
+
+
 @router.get("/inventory/list", summary="库存列表")
 async def list_inventory(
     page: int = Query(1),
@@ -429,6 +552,8 @@ async def list_inventory(
     type: str = Query(""),
     subtype: str = Query(""),
     status: bool | None = Query(None),
+    sort_by: str = Query(""),
+    sort_order: str = Query(""),
 ):
     q = Q()
     if region_id is not None:
@@ -441,13 +566,23 @@ async def list_inventory(
         q &= Q(subtype__contains=subtype)
     if status is not None:
         q &= Q(status=status)
+    order = get_inventory_order(sort_by, sort_order)
     if keyword:
-        q &= (
-            Q(type__contains=keyword)
-            | Q(subtype__contains=keyword)
-            | Q(remark__contains=keyword)
+        matched_items = [
+            item
+            for item in await AssetInventory.filter(q).order_by(*order)
+            if inventory_matches_keyword(item, keyword)
+        ]
+        total = len(matched_items)
+        start = (page - 1) * page_size
+        objs = matched_items[start : start + page_size]
+    else:
+        total, objs = await asset_inventory_controller.list_inventory(
+            page=page,
+            page_size=page_size,
+            search=q,
+            order=order,
         )
-    total, objs = await asset_inventory_controller.list_inventory(page=page, page_size=page_size, search=q)
     data = [await inventory_to_dict(obj) for obj in objs]
     return SuccessExtra(data=data, total=total, page=page, page_size=page_size)
 
@@ -456,6 +591,127 @@ async def list_inventory(
 async def get_inventory(inventory_id: int = Query(...)):
     obj = await asset_inventory_controller.get(id=inventory_id)
     return Success(data=await inventory_to_dict(obj))
+
+
+@router.get("/inventory/export", summary="导出库存")
+async def export_inventory():
+    items = await AssetInventory.all().order_by("type", "subtype", "id")
+    locations = await AssetLocation.all()
+    regions = await AssetRegion.all()
+    location_map = {location.id: location for location in locations}
+    region_map = {region.id: region for region in regions}
+
+    attribute_keys = []
+    for item in items:
+        for key in dict(item.attributes or {}).keys():
+            if key not in attribute_keys:
+                attribute_keys.append(key)
+
+    headers = [
+        "区域",
+        "位置",
+        "分类",
+        "子类",
+        "数量",
+        *[f"属性:{key}" for key in attribute_keys],
+        "扩展属性(JSON)",
+        "备注",
+        "状态",
+    ]
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(headers)
+    for item in items:
+        location = location_map.get(item.location_id)
+        region = region_map.get(item.region_id)
+        attributes = dict(item.attributes or {})
+        writer.writerow(
+            [
+                region.name if region else "",
+                location.name if location else "",
+                item.type or "",
+                item.subtype or "",
+                item.quantity,
+                *[attributes.get(key, "") for key in attribute_keys],
+                json.dumps(attributes, ensure_ascii=False),
+                item.remark or "",
+                "启用" if item.status else "禁用",
+            ]
+        )
+
+    output.seek(0)
+    filename = "asset_inventory.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@router.post("/inventory/import", summary="导入库存")
+async def import_inventory(file: UploadFile = File(..., description="CSV文件")):
+    if not file.filename.lower().endswith(".csv"):
+        return Success(msg="请上传 CSV 文件", code=400)
+
+    content = await file.read()
+    try:
+        decoded = content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        try:
+            decoded = content.decode("gbk")
+        except UnicodeDecodeError:
+            return Success(msg="文件编码不支持，请使用 UTF-8 或 GBK 编码", code=400)
+
+    reader = csv.DictReader(io.StringIO(decoded))
+    success_count = 0
+    error_rows = []
+
+    for row_num, row in enumerate(reader, start=2):
+        try:
+            location_id = await resolve_inventory_location_id(row)
+            if not location_id:
+                raise ValueError("库存位置不存在，请填写区域+位置")
+
+            type_name = str(row.get("分类", "") or "").strip()
+            if not type_name:
+                raise ValueError("分类不能为空")
+
+            quantity_text = str(row.get("数量", "") or "0").strip()
+            quantity = int(quantity_text) if quantity_text else 0
+            attributes = parse_inventory_attributes(row)
+            inventory_data = {
+                "location_id": location_id,
+                "type": type_name,
+                "subtype": str(row.get("子类", "") or "").strip(),
+                "quantity": quantity,
+                "attributes": attributes,
+                "remark": str(row.get("备注", "") or "").strip(),
+                "status": parse_bool_status(row.get("状态"), default=True),
+            }
+
+            existed = await AssetInventory.get_or_none(
+                location_id=location_id,
+                type=inventory_data["type"],
+                subtype=inventory_data["subtype"],
+            )
+            if existed:
+                await asset_inventory_controller.update_inventory(
+                    id=existed.id,
+                    obj_in=AssetInventoryUpdate(id=existed.id, **inventory_data),
+                )
+            else:
+                await asset_inventory_controller.create_inventory(AssetInventoryCreate(**inventory_data))
+            success_count += 1
+        except Exception as exc:
+            error_rows.append(f"第{row_num}行: {exc}")
+
+    msg = f"导入成功 {success_count} 条"
+    if error_rows:
+        msg += f"，错误: {'; '.join(error_rows[:5])}"
+        if len(error_rows) > 5:
+            msg += f" 等 {len(error_rows)} 条"
+    return Success(msg=msg, data={"success_count": success_count, "errors": error_rows})
 
 
 @router.post("/inventory/create", summary="创建库存")
