@@ -1,4 +1,9 @@
-from fastapi import APIRouter, Query
+import csv
+import io
+import json
+
+from fastapi import APIRouter, File, Query, UploadFile
+from fastapi.responses import StreamingResponse
 from tortoise.expressions import Q
 
 from app.controllers.asset import (
@@ -9,6 +14,8 @@ from app.controllers.asset import (
     asset_region_controller,
 )
 from app.models.asset import AssetCabinet, AssetDevice, AssetInventory, AssetLocation, AssetRegion
+from app.core.ctx import CTX_USER_ID
+from app.models.admin import User
 from app.schemas.assets import (
     AssetCabinetCreate,
     AssetCabinetUpdate,
@@ -25,9 +32,81 @@ from app.schemas.base import Success, SuccessExtra
 
 router = APIRouter()
 
+SENSITIVE_DEVICE_ATTRIBUTE_KEYS = {"IPMI密码"}
+MASKED_DEVICE_SECRET = "******"
+DEVICE_SECRET_VIEW_ROLE_NAMES = {"admin", "noc"}
+DEVICE_SECRET_VIEW_ACCOUNT_NAMES = {"admin", "noc"}
+INVENTORY_IMPORT_BASE_COLUMNS = {
+    "ID",
+    "库存位置ID",
+    "区域",
+    "位置",
+    "分类",
+    "子类",
+    "数量",
+    "扩展属性(JSON)",
+    "备注",
+    "状态",
+}
 
-async def device_to_dict(device: AssetDevice) -> dict:
+
+async def can_view_device_secrets() -> bool:
+    user_id = CTX_USER_ID.get()
+    user = await User.get_or_none(id=user_id)
+    if not user:
+        return False
+    if user.is_superuser:
+        return True
+
+    user_names = {
+        str(user.username or "").strip().lower(),
+        str(user.alias or "").strip().lower(),
+    }
+    email_local = str(user.email or "").split("@", 1)[0].strip().lower()
+    if email_local:
+        user_names.add(email_local)
+    if user_names & DEVICE_SECRET_VIEW_ACCOUNT_NAMES:
+        return True
+
+    roles = await user.roles.all()
+    role_names = {str(role.name or "").strip().lower() for role in roles}
+    return bool(role_names & DEVICE_SECRET_VIEW_ROLE_NAMES)
+
+
+def mask_device_secret_attributes(attributes: dict | None) -> dict:
+    if not isinstance(attributes, dict):
+        return {}
+    result = dict(attributes)
+    for key in SENSITIVE_DEVICE_ATTRIBUTE_KEYS:
+        if result.get(key):
+            result[key] = MASKED_DEVICE_SECRET
+    return result
+
+
+async def prepare_device_attributes_for_save(device_in: AssetDeviceCreate | AssetDeviceUpdate) -> None:
+    attributes = dict(device_in.attributes or {})
+    if await can_view_device_secrets():
+        device_in.attributes = attributes
+        return
+
+    if isinstance(device_in, AssetDeviceUpdate):
+        existed_device = await asset_device_controller.get(id=device_in.id)
+        existed_attributes = dict(existed_device.attributes or {})
+    else:
+        existed_attributes = {}
+
+    for key in SENSITIVE_DEVICE_ATTRIBUTE_KEYS:
+        if key in existed_attributes:
+            attributes[key] = existed_attributes[key]
+        else:
+            attributes.pop(key, None)
+    device_in.attributes = attributes
+
+
+async def device_to_dict(device: AssetDevice, can_view_secrets: bool = False) -> dict:
     data = await device.to_dict()
+    if not can_view_secrets:
+        data["attributes"] = mask_device_secret_attributes(data.get("attributes"))
     cabinet = await AssetCabinet.get_or_none(id=device.cabinet_id)
     location = await AssetLocation.get_or_none(id=device.location_id)
     region = await AssetRegion.get_or_none(id=device.region_id)
@@ -44,6 +123,57 @@ async def inventory_to_dict(item: AssetInventory) -> dict:
     data["location_name"] = location.name if location else ""
     data["region_name"] = region.name if region else ""
     return data
+
+
+def parse_bool_status(value: str | None, default: bool = True) -> bool:
+    text = str(value or "").strip().lower()
+    if not text:
+        return default
+    if text in {"禁用", "停用", "否", "false", "0", "disabled", "inactive", "no"}:
+        return False
+    return True
+
+
+def parse_inventory_attributes(row: dict) -> dict:
+    attributes = {}
+    json_text = str(row.get("扩展属性(JSON)", "") or "").strip()
+    if json_text:
+        try:
+            parsed = json.loads(json_text)
+            if isinstance(parsed, dict):
+                attributes.update({str(key): str(value) for key, value in parsed.items()})
+        except json.JSONDecodeError:
+            pass
+
+    for key, value in row.items():
+        if not key.startswith("属性:"):
+            continue
+        attr_key = key.split(":", 1)[1].strip()
+        attr_value = str(value or "").strip()
+        if attr_key and attr_value:
+            attributes[attr_key] = attr_value
+    return attributes
+
+
+async def resolve_inventory_location_id(row: dict) -> int | None:
+    location_id_text = str(row.get("库存位置ID", "") or "").strip()
+    if location_id_text.isdigit():
+        location = await AssetLocation.get_or_none(id=int(location_id_text))
+        if location:
+            return location.id
+
+    location_name = str(row.get("位置", "") or "").strip()
+    if not location_name:
+        return None
+
+    query = AssetLocation.filter(name=location_name, type=0)
+    region_name = str(row.get("区域", "") or "").strip()
+    if region_name:
+        region = await AssetRegion.get_or_none(name=region_name)
+        if region:
+            query = query.filter(region_id=region.id)
+    location = await query.first()
+    return location.id if location else None
 
 
 @router.get("/tree", summary="资产位置树")
@@ -258,26 +388,29 @@ async def list_device(
             | Q(business_ip__contains=keyword)
         )
     total, objs = await asset_device_controller.list_devices(page=page, page_size=page_size, search=q)
-    data = [await device_to_dict(obj) for obj in objs]
+    can_view_secrets = await can_view_device_secrets()
+    data = [await device_to_dict(obj, can_view_secrets=can_view_secrets) for obj in objs]
     return SuccessExtra(data=data, total=total, page=page, page_size=page_size)
 
 
 @router.get("/device/get", summary="设备详情")
 async def get_device(device_id: int = Query(...)):
     obj = await asset_device_controller.get(id=device_id)
-    return Success(data=await device_to_dict(obj))
+    return Success(data=await device_to_dict(obj, can_view_secrets=await can_view_device_secrets()))
 
 
 @router.post("/device/create", summary="创建设备")
 async def create_device(device_in: AssetDeviceCreate):
+    await prepare_device_attributes_for_save(device_in)
     obj = await asset_device_controller.create_device(device_in)
-    return Success(msg="Created Successfully", data=await device_to_dict(obj))
+    return Success(data=await device_to_dict(obj, can_view_secrets=await can_view_device_secrets()), msg="Created Successfully")
 
 
 @router.post("/device/update", summary="更新设备")
 async def update_device(device_in: AssetDeviceUpdate):
+    await prepare_device_attributes_for_save(device_in)
     obj = await asset_device_controller.update_device(id=device_in.id, obj_in=device_in)
-    return Success(msg="Updated Successfully", data=await device_to_dict(obj))
+    return Success(data=await device_to_dict(obj, can_view_secrets=await can_view_device_secrets()), msg="Updated Successfully")
 
 
 @router.delete("/device/delete", summary="删除设备")

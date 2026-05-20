@@ -418,9 +418,13 @@
             >
               <div class="device-config-label">{{ row.label }}</div>
               <div class="device-config-values">
-                <span v-for="item in row.items" :key="item.label">
+                <span
+                  v-for="item in row.items"
+                  :key="item.label"
+                  :class="{ 'is-sensitive': item.sensitive }"
+                >
                   <strong>{{ item.label }}</strong>
-                  {{ item.value || '-' }}
+                  {{ item.sensitive ? '仅 NOC / Admin 可见' : item.value || '-' }}
                 </span>
               </div>
             </div>
@@ -1481,7 +1485,11 @@ function getDeviceAttributeRows(attributes) {
       label: 'IPMI',
       items: [
         { label: '用户名', value: getAttributeValue(attributes, 'IPMI用户名') },
-        { label: '密码', value: getAttributeValue(attributes, 'IPMI密码') },
+        {
+          label: '密码',
+          value: getAttributeValue(attributes, 'IPMI密码'),
+          sensitive: getAttributeValue(attributes, 'IPMI密码') === '******',
+        },
       ],
     },
   ]
@@ -2072,6 +2080,20 @@ onMounted(refreshAll)
   margin-right: 6px;
   color: #64748b;
   font-weight: 500;
+}
+
+.device-config-values span.is-sensitive {
+  color: #b45309;
+}
+
+.device-config-values span.is-sensitive::after {
+  margin-left: 6px;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  content: '受限';
+  font-size: 12px;
+  padding: 1px 7px;
 }
 
 .asset-main {
