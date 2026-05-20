@@ -19,4 +19,5 @@ db.sqlite3-wal
 
 uv.lock
 uploads/tickets/
+uploads/avatars/
 

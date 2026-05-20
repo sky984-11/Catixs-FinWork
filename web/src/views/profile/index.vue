@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import CommonPage from '@/components/page/CommonPage.vue'
 import { useUserStore } from '@/store'
 import api from '@/api'
+import { fileToBase64Payload } from '../ticket/utils/fileBase64'
 
 const { t } = useI18n()
 const userStore = useUserStore()
@@ -69,7 +70,7 @@ async function uploadAvatar({ file, onFinish, onError }) {
   if (!file.file) return
   avatarUploading.value = true
   try {
-    const res = await api.uploadAvatar(file.file)
+    const res = await api.uploadAvatar(await fileToBase64Payload(file.file))
     const avatar = res.data?.avatar
     if (avatar) {
       infoForm.value.avatar = avatar

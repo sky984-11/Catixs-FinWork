@@ -51,3 +51,9 @@ class UserProfileUpdate(BaseModel):
     username: str = Field(example="admin")
     email: EmailStr = Field(example="admin@qq.com")
     avatar: Optional[str] = None
+
+
+class UserAvatarUpload(BaseModel):
+    filename: str = Field(..., description="原始文件名", example="avatar.jpg")
+    content_type: str = Field(..., description="文件 MIME 类型", example="image/jpeg")
+    data: str = Field(..., description="Base64 内容，支持纯 base64 或 data URL")

@@ -1,8 +1,10 @@
+import base64
+import binascii
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, HTTPException
 
 from app.controllers.user import user_controller
 from app.core.ctx import CTX_USER_ID
@@ -10,7 +12,7 @@ from app.core.dependency import DependAuth, has_admin_role
 from app.models.admin import Api, Menu, Role, User
 from app.schemas.base import Fail, Success
 from app.schemas.login import *
-from app.schemas.users import UpdatePassword, UserProfileUpdate
+from app.schemas.users import UpdatePassword, UserAvatarUpload, UserProfileUpdate
 from app.settings import settings
 from app.utils.jwt_utils import create_access_token
 from app.utils.password import get_password_hash, verify_password
@@ -76,14 +78,36 @@ async def update_user_profile(profile_in: UserProfileUpdate):
     return Success(msg="Updated Successfully", data=data)
 
 
+def decode_avatar_image(upload: UserAvatarUpload) -> tuple[bytes, str]:
+    content_type = str(upload.content_type or "").strip().lower()
+    base64_data = str(upload.data or "").strip()
+
+    if base64_data.startswith("data:"):
+        header, _, payload = base64_data.partition(",")
+        if not payload:
+            return b"", content_type
+        if ";" in header:
+            content_type = header[5:].split(";", 1)[0].strip().lower() or content_type
+        base64_data = payload
+
+    if content_type not in AVATAR_EXT_MAP:
+        return b"", content_type
+
+    try:
+        content = base64.b64decode(base64_data, validate=True)
+    except (binascii.Error, ValueError):
+        return b"", content_type
+
+    return content, content_type
+
+
 @router.post("/avatar", summary="上传当前用户头像", dependencies=[DependAuth])
-async def upload_user_avatar(file: UploadFile = File(..., description="头像图片")):
-    content_type = str(file.content_type or "").lower()
+async def upload_user_avatar(upload: UserAvatarUpload):
+    content, content_type = decode_avatar_image(upload)
     file_ext = AVATAR_EXT_MAP.get(content_type)
-    if not file_ext:
+    if not content or not file_ext:
         return Fail(code=400, msg="Only JPG, PNG, GIF, WebP and SVG images are allowed.")
 
-    content = await file.read()
     if len(content) > AVATAR_MAX_SIZE:
         return Fail(code=400, msg="Avatar image must be smaller than 2MB.")
 
