@@ -61,8 +61,12 @@
             <n-input
               v-model:value="filters.keyword"
               clearable
-              :placeholder="isInventoryView ? '分类 / 子类 / 备注' : '资产编号 / 名称 / SN / IP'"
-              @keyup.enter="loadCurrentList"
+              :placeholder="
+                isInventoryView
+                  ? '全局搜索：分类 / 子类 / 数量 / 扩展属性'
+                  : '全局搜索：资产编号 / 名称 / SN / IP'
+              "
+              @keyup.enter="searchCurrentList"
             >
               <template #prefix>
                 <TheIcon icon="mdi:magnify" :size="18" />
@@ -98,7 +102,7 @@
               :options="deviceStatusOptions"
             />
             <n-button secondary round @click="resetFilters">重置</n-button>
-            <n-button type="primary" round @click="loadCurrentList">搜索</n-button>
+            <n-button type="primary" round @click="searchCurrentList">搜索</n-button>
           </section>
 
           <section class="content-panel">
@@ -238,29 +242,15 @@
                   :key="index"
                   class="attribute-row"
                 >
-                  <n-input
-                    v-model:value="attr.key"
-                    :disabled="hasInventoryAttributeTemplate"
-                    placeholder="属性名，如规格型号"
-                  />
+                  <n-input v-model:value="attr.key" placeholder="属性名，如规格型号" />
                   <n-input v-model:value="attr.value" placeholder="属性值" />
-                  <n-button
-                    v-if="!hasInventoryAttributeTemplate"
-                    secondary
-                    circle
-                    @click="removeInventoryAttribute(index)"
-                  >
+                  <n-button secondary circle @click="removeInventoryAttribute(index)">
                     <template #icon>
                       <TheIcon icon="mdi:minus" :size="16" />
                     </template>
                   </n-button>
                 </div>
-                <n-button
-                  v-if="!hasInventoryAttributeTemplate"
-                  secondary
-                  round
-                  @click="addInventoryAttribute"
-                >
+                <n-button secondary round @click="addInventoryAttribute">
                   <template #icon>
                     <TheIcon icon="mdi:plus" :size="16" />
                   </template>
@@ -850,9 +840,7 @@ const canImportInventory = computed(() => hasAssetPermission('inventory', 'impor
 const canSaveDevice = computed(() =>
   hasAssetPermission('device', deviceModal.form.id ? 'update' : 'create')
 )
-const hasInventoryAttributeTemplate = computed(() =>
-  Boolean(inventoryAttributeTemplateMap[inventoryModal.form.type])
-)
+const hasGlobalKeyword = computed(() => Boolean(String(filters.keyword || '').trim()))
 
 const inventoryColumns = computed(() => [
   {
@@ -869,6 +857,16 @@ const inventoryColumns = computed(() => [
     sorter: true,
     sortOrder: inventorySorter.columnKey === 'subtype' ? inventorySorter.order : false,
   },
+  ...(hasGlobalKeyword.value
+    ? [
+        {
+          title: '区域 / 库房',
+          key: 'location',
+          width: 190,
+          render: renderInventoryLocation,
+        },
+      ]
+    : []),
   {
     title: '数量',
     key: 'quantity',
@@ -893,6 +891,21 @@ const inventoryColumns = computed(() => [
     },
   },
 ])
+
+function renderInventoryLocation(row) {
+  return h('div', { class: 'inventory-location-cell' }, [
+    h('span', { class: 'device-meta-line' }, row.region_name || '-'),
+    h(
+      'button',
+      {
+        class: 'detail-link location-link',
+        title: row.location_name || '-',
+        onClick: () => selectInventoryLocation(row),
+      },
+      row.location_name || '-'
+    ),
+  ])
+}
 
 function renderInventoryActions(row) {
   const actions = []
@@ -1101,7 +1114,7 @@ async function loadDevices() {
       keyword: filters.keyword || undefined,
       type: filters.deviceType ?? undefined,
       status: filters.deviceStatus ?? undefined,
-      ...getSelectedParams(),
+      ...getSelectedParams({ ignoreSelection: hasGlobalKeyword.value }),
     })
     devices.value = res.data || []
     pagination.itemCount = res.total || 0
@@ -1121,7 +1134,7 @@ async function loadInventory() {
       subtype: filters.inventorySubtype || undefined,
       sort_by: inventorySorter.columnKey || undefined,
       sort_order: inventorySorter.order || undefined,
-      ...getSelectedParams(),
+      ...getSelectedParams({ ignoreSelection: hasGlobalKeyword.value }),
     })
     inventoryItems.value = res.data || []
     pagination.itemCount = res.total || 0
@@ -1130,8 +1143,8 @@ async function loadInventory() {
   }
 }
 
-function getSelectedParams() {
-  if (!selectedNode.value) return {}
+function getSelectedParams({ ignoreSelection = false } = {}) {
+  if (ignoreSelection || !selectedNode.value) return {}
   if (isInventoryView.value && selectedNode.value.type === 'cabinet') {
     return { location_id: selectedLocation.value?.id }
   }
@@ -1142,8 +1155,25 @@ function getSelectedParams() {
 function handleTreeSelect(keys, options) {
   selectedKeys.value = keys
   selectedNode.value = options?.[0] || null
+  if (hasGlobalKeyword.value) {
+    filters.keyword = ''
+  }
   pagination.page = 1
   loadCurrentList()
+}
+
+function selectInventoryLocation(row) {
+  if (!row.location_id) return
+  filters.keyword = ''
+  selectedKeys.value = [`location-${row.location_id}`]
+  selectedNode.value = {
+    id: `location-${row.location_id}`,
+    raw_id: row.location_id,
+    label: row.location_name || '库房',
+    type: 'location',
+  }
+  pagination.page = 1
+  loadInventory()
 }
 
 function handlePageChange(page) {
@@ -1153,6 +1183,11 @@ function handlePageChange(page) {
 
 function handlePageSizeChange(pageSize) {
   pagination.pageSize = pageSize
+  pagination.page = 1
+  loadCurrentList()
+}
+
+function searchCurrentList() {
   pagination.page = 1
   loadCurrentList()
 }
@@ -1326,7 +1361,7 @@ function openInventoryModal(row = null) {
             ? selectedLocation.value.id
             : inventoryLocationOptions.value[0]?.value || null,
       }
-  applyInventoryAttributeTemplate()
+  if (!row) applyInventoryAttributeTemplate()
   inventoryModal.show = true
 }
 
@@ -1343,7 +1378,6 @@ function cloneInventory(row) {
   }
   delete cloned.id
   inventoryModal.form = cloned
-  applyInventoryAttributeTemplate()
   inventoryModal.show = true
 }
 
@@ -1450,16 +1484,7 @@ function addMissingAttributes(attributeList, template = []) {
 function applyInventoryAttributeTemplate(type = inventoryModal.form.type) {
   const template = inventoryAttributeTemplateMap[type]
   if (!template) return
-
-  const valueMap = inventoryModal.form.attributeList.reduce((result, item) => {
-    const key = String(item.key || '').trim()
-    if (key && !(key in result)) result[key] = item.value
-    return result
-  }, {})
-  inventoryModal.form.attributeList = template.map((key) => ({
-    key,
-    value: valueMap[key] ?? '',
-  }))
+  addMissingAttributes(inventoryModal.form.attributeList, template)
 }
 
 function normalizeInventoryCategoryTree(value) {
