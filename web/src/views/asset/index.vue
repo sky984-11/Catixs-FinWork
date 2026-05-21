@@ -376,7 +376,14 @@
                     </template>
                     添加配置
                   </n-button>
-                  <n-button secondary round @click="applyDeviceAttributeTemplate()"
+                  <n-button
+                    secondary
+                    round
+                    @click="
+                      deviceModal.form.id
+                        ? applyDeviceAttributeTemplate()
+                        : syncDeviceAttributeTemplate()
+                    "
                     >应用类型模板</n-button
                   >
                 </div>
@@ -796,6 +803,7 @@ const deviceAttributeTemplateMap = {
   ],
   1: ['版本', '补丁', 'snmp版本', 'snmp团体名'],
 }
+const deviceAttributeTemplateKeys = new Set(Object.values(deviceAttributeTemplateMap).flat())
 
 const inventoryCategoryTree = ref([])
 const inventoryTypeOptions = computed(() =>
@@ -1804,7 +1812,11 @@ function handleDeviceBrandChange() {
 }
 
 function handleDeviceTypeChange() {
-  applyDeviceAttributeTemplate()
+  if (deviceModal.form.id) {
+    applyDeviceAttributeTemplate()
+  } else {
+    syncDeviceAttributeTemplate()
+  }
 }
 
 function removeInventoryAttribute(index) {
@@ -1823,6 +1835,22 @@ function applyDeviceAttributeTemplate(type = deviceModal.form.type) {
   const template = deviceAttributeTemplateMap[Number(type)] || []
   if (!template.length) return
   addMissingAttributes(deviceModal.form.attributeList, template)
+}
+
+function syncDeviceAttributeTemplate(type = deviceModal.form.type) {
+  const template = deviceAttributeTemplateMap[Number(type)] || []
+  const valueMap = deviceModal.form.attributeList.reduce((result, item) => {
+    const key = String(item.key || '').trim()
+    if (key && !(key in result)) result[key] = item.value
+    return result
+  }, {})
+  const customAttributes = deviceModal.form.attributeList.filter(
+    (item) => item.key && !deviceAttributeTemplateKeys.has(item.key)
+  )
+  deviceModal.form.attributeList = [
+    ...template.map((key) => ({ key, value: valueMap[key] ?? '' })),
+    ...customAttributes,
+  ]
 }
 
 function attributesToList(attributes) {
@@ -2049,7 +2077,7 @@ function openDeviceModal(row = null) {
             ? selectedNode.value.raw_id
             : cabinetOptions.value[0]?.value || null,
       }
-  if (!row) applyDeviceAttributeTemplate()
+  if (!row) syncDeviceAttributeTemplate()
   deviceModal.show = true
 }
 
