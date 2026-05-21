@@ -8,19 +8,32 @@ from tortoise.expressions import Q
 
 from app.controllers.asset import (
     asset_cabinet_controller,
+    asset_device_brand_controller,
     asset_device_controller,
+    asset_device_model_controller,
     asset_inventory_category_controller,
     asset_inventory_controller,
     asset_location_controller,
     asset_region_controller,
 )
-from app.models.asset import AssetCabinet, AssetDevice, AssetInventory, AssetInventoryCategory, AssetLocation, AssetRegion
+from app.models.asset import (
+    AssetCabinet,
+    AssetDevice,
+    AssetDeviceBrand,
+    AssetDeviceModel,
+    AssetInventory,
+    AssetInventoryCategory,
+    AssetLocation,
+    AssetRegion,
+)
 from app.core.ctx import CTX_USER_ID
 from app.models.admin import User
 from app.schemas.assets import (
     AssetCabinetCreate,
     AssetCabinetUpdate,
+    AssetDeviceBrandCreate,
     AssetDeviceCreate,
+    AssetDeviceModelCreate,
     AssetDeviceUpdate,
     AssetInventoryCategoryCreate,
     AssetInventoryCategoryUpdate,
@@ -60,6 +73,15 @@ DEFAULT_INVENTORY_CATEGORY_TREE = [
     {"name": "AOC", "children": []},
     {"name": "服务器配件", "children": ["CPU", "内存", "硬盘", "网卡", "导轨", "背板"]},
     {"name": "工具", "children": ["螺丝刀", "扎带", "标签机", "手套"]},
+]
+
+DEFAULT_DEVICE_BRAND_TREE = [
+    {"name": "戴尔", "models": ["R640", "R740", "R750", "R760"]},
+    {"name": "华为", "models": ["RH2288H V5", "2288H V5", "2288H V6"]},
+    {"name": "浪潮", "models": ["NF5280M5", "NF5280M6"]},
+    {"name": "新华三", "models": ["R4900 G3", "R4900 G5"]},
+    {"name": "联想", "models": ["SR650", "SR650 V2"]},
+    {"name": "Cisco", "models": ["UCS C220", "UCS C240"]},
 ]
 
 
@@ -178,6 +200,75 @@ async def inventory_category_tree() -> list[dict]:
         if parent:
             parent["children"].append(category_to_dict(item))
     return parents
+
+
+async def ensure_device_brand_models() -> None:
+    if not await AssetDeviceBrand.exists():
+        for sort, item in enumerate(DEFAULT_DEVICE_BRAND_TREE, start=1):
+            brand = await asset_device_brand_controller.create(
+                AssetDeviceBrandCreate(name=item["name"], sort=sort, status=True)
+            )
+            for model_sort, model_name in enumerate(item["models"], start=1):
+                await asset_device_model_controller.create(
+                    AssetDeviceModelCreate(
+                        brand_id=brand.id,
+                        name=model_name,
+                        sort=model_sort,
+                        status=True,
+                    )
+                )
+
+    devices = await AssetDevice.all()
+    for device in devices:
+        brand_name = str(device.brand or "").strip()
+        model_name = str(device.model or "").strip()
+        if not brand_name:
+            continue
+        brand = await AssetDeviceBrand.get_or_none(name=brand_name)
+        if not brand:
+            brand = await asset_device_brand_controller.create(
+                AssetDeviceBrandCreate(
+                    name=brand_name,
+                    sort=await AssetDeviceBrand.all().count() + 1,
+                    status=True,
+                )
+            )
+        if model_name and not await AssetDeviceModel.get_or_none(brand_id=brand.id, name=model_name):
+            await asset_device_model_controller.create(
+                AssetDeviceModelCreate(
+                    brand_id=brand.id,
+                    name=model_name,
+                    sort=await AssetDeviceModel.filter(brand_id=brand.id).count() + 1,
+                    status=True,
+                )
+            )
+
+
+async def device_brand_tree() -> list[dict]:
+    await ensure_device_brand_models()
+    brands = await asset_device_brand_controller.list_brands()
+    models = await asset_device_model_controller.list_models()
+    model_map: dict[int, list[dict]] = {}
+    for item in models:
+        model_map.setdefault(item.brand_id, []).append(
+            {
+                "id": item.id,
+                "label": item.name,
+                "value": item.name,
+                "name": item.name,
+                "brand_id": item.brand_id,
+            }
+        )
+    return [
+        {
+            "id": brand.id,
+            "label": brand.name,
+            "value": brand.name,
+            "name": brand.name,
+            "models": model_map.get(brand.id, []),
+        }
+        for brand in brands
+    ]
 
 
 def get_inventory_order(sort_by: str = "", sort_order: str = "") -> list[str]:
@@ -427,6 +518,56 @@ async def update_cabinet(cabinet_in: AssetCabinetUpdate):
 async def delete_cabinet(cabinet_id: int = Query(...)):
     await asset_cabinet_controller.remove(id=cabinet_id)
     return Success(msg="Deleted Successfully")
+
+
+@router.get("/device-brand/list", summary="设备品牌型号列表")
+async def list_device_brands():
+    return Success(data=await device_brand_tree())
+
+
+@router.post("/device-brand/create", summary="创建设备品牌")
+async def create_device_brand(brand_in: AssetDeviceBrandCreate):
+    name = brand_in.name.strip()
+    if not name:
+        return Success(msg="品牌名称不能为空", code=400)
+    if await AssetDeviceBrand.get_or_none(name=name):
+        return Success(msg="品牌已存在", code=400)
+    data = brand_in.model_dump()
+    data["name"] = name
+    if not data.get("sort"):
+        data["sort"] = await AssetDeviceBrand.all().count() + 1
+    await asset_device_brand_controller.create(data)
+    return Success(msg="Created Successfully", data=await device_brand_tree())
+
+
+@router.delete("/device-brand/delete", summary="删除设备品牌")
+async def delete_device_brand(brand_id: int = Query(...)):
+    await AssetDeviceModel.filter(brand_id=brand_id).delete()
+    await asset_device_brand_controller.remove(id=brand_id)
+    return Success(msg="Deleted Successfully", data=await device_brand_tree())
+
+
+@router.post("/device-model/create", summary="创建设备型号")
+async def create_device_model(model_in: AssetDeviceModelCreate):
+    name = model_in.name.strip()
+    if not name:
+        return Success(msg="型号名称不能为空", code=400)
+    if not await AssetDeviceBrand.get_or_none(id=model_in.brand_id):
+        return Success(msg="品牌不存在", code=400)
+    if await AssetDeviceModel.get_or_none(brand_id=model_in.brand_id, name=name):
+        return Success(msg="型号已存在", code=400)
+    data = model_in.model_dump()
+    data["name"] = name
+    if not data.get("sort"):
+        data["sort"] = await AssetDeviceModel.filter(brand_id=model_in.brand_id).count() + 1
+    await asset_device_model_controller.create(data)
+    return Success(msg="Created Successfully", data=await device_brand_tree())
+
+
+@router.delete("/device-model/delete", summary="删除设备型号")
+async def delete_device_model(model_id: int = Query(...)):
+    await asset_device_model_controller.remove(id=model_id)
+    return Success(msg="Deleted Successfully", data=await device_brand_tree())
 
 
 @router.get("/device/list", summary="设备列表")

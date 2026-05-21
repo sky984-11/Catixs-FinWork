@@ -4,6 +4,8 @@ from app.core.crud import CRUDBase
 from app.models.asset import (
     AssetCabinet,
     AssetDevice,
+    AssetDeviceBrand,
+    AssetDeviceModel,
     AssetInventory,
     AssetInventoryCategory,
     AssetLocation,
@@ -13,6 +15,10 @@ from app.schemas.assets import (
     AssetCabinetCreate,
     AssetCabinetUpdate,
     AssetDeviceCreate,
+    AssetDeviceBrandCreate,
+    AssetDeviceBrandUpdate,
+    AssetDeviceModelCreate,
+    AssetDeviceModelUpdate,
     AssetDeviceUpdate,
     AssetInventoryCategoryCreate,
     AssetInventoryCategoryUpdate,
@@ -74,6 +80,22 @@ class AssetDeviceController(CRUDBase[AssetDevice, AssetDeviceCreate, AssetDevice
         data["region_id"] = location.region_id
 
 
+class AssetDeviceBrandController(CRUDBase[AssetDeviceBrand, AssetDeviceBrandCreate, AssetDeviceBrandUpdate]):
+    def __init__(self):
+        super().__init__(model=AssetDeviceBrand)
+
+    async def list_brands(self):
+        return await AssetDeviceBrand.filter(status=True).order_by("sort", "id")
+
+
+class AssetDeviceModelController(CRUDBase[AssetDeviceModel, AssetDeviceModelCreate, AssetDeviceModelUpdate]):
+    def __init__(self):
+        super().__init__(model=AssetDeviceModel)
+
+    async def list_models(self):
+        return await AssetDeviceModel.filter(status=True).order_by("brand_id", "sort", "id")
+
+
 class AssetInventoryController(CRUDBase[AssetInventory, AssetInventoryCreate, AssetInventoryUpdate]):
     def __init__(self):
         super().__init__(model=AssetInventory)
@@ -116,5 +138,7 @@ asset_region_controller = AssetRegionController()
 asset_location_controller = AssetLocationController()
 asset_cabinet_controller = AssetCabinetController()
 asset_device_controller = AssetDeviceController()
+asset_device_brand_controller = AssetDeviceBrandController()
+asset_device_model_controller = AssetDeviceModelController()
 asset_inventory_controller = AssetInventoryController()
 asset_inventory_category_controller = AssetInventoryCategoryController()

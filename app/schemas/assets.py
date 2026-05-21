@@ -65,7 +65,7 @@ class AssetDeviceBase(BaseModel):
     serial_no: str = Field("", example="")
     u_position: Optional[int] = Field(None, example=1)
     u_height: int = Field(1, example=1)
-    status: int = Field(0, example=0)
+    status: int = Field(1, example=1)
     mgmt_ip: str = Field("", example="")
     business_ip: str = Field("", example="")
     owner: str = Field("", example="")
@@ -83,6 +83,35 @@ class AssetDeviceCreate(AssetDeviceBase):
 
 
 class AssetDeviceUpdate(AssetDeviceBase):
+    id: int
+
+
+class AssetDeviceBrandBase(BaseModel):
+    name: str = Field(..., example="Dell", description="品牌名称")
+    sort: int = Field(0, example=0)
+    status: bool = Field(True, example=True)
+
+
+class AssetDeviceBrandCreate(AssetDeviceBrandBase):
+    pass
+
+
+class AssetDeviceBrandUpdate(AssetDeviceBrandBase):
+    id: int
+
+
+class AssetDeviceModelBase(BaseModel):
+    brand_id: int
+    name: str = Field(..., example="R640", description="型号名称")
+    sort: int = Field(0, example=0)
+    status: bool = Field(True, example=True)
+
+
+class AssetDeviceModelCreate(AssetDeviceModelBase):
+    pass
+
+
+class AssetDeviceModelUpdate(AssetDeviceModelBase):
     id: int
 
 

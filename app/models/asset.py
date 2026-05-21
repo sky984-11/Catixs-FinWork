@@ -64,6 +64,26 @@ class AssetDevice(BaseModel, TimestampMixin):
         table = "asset_device"
 
 
+class AssetDeviceBrand(BaseModel, TimestampMixin):
+    name = fields.CharField(max_length=100, description="品牌名称", unique=True, index=True)
+    sort = fields.IntField(default=0, description="排序")
+    status = fields.BooleanField(default=True, description="启用状态", index=True)
+
+    class Meta:
+        table = "asset_device_brand"
+
+
+class AssetDeviceModel(BaseModel, TimestampMixin):
+    brand = fields.ForeignKeyField("models.AssetDeviceBrand", related_name="models", description="所属品牌")
+    name = fields.CharField(max_length=100, description="型号名称", index=True)
+    sort = fields.IntField(default=0, description="排序")
+    status = fields.BooleanField(default=True, description="启用状态", index=True)
+
+    class Meta:
+        table = "asset_device_model"
+        unique_together = (("brand", "name"),)
+
+
 class AssetInventory(BaseModel, TimestampMixin):
     region = fields.ForeignKeyField("models.AssetRegion", related_name="inventory_items", description="所属区域")
     location = fields.ForeignKeyField("models.AssetLocation", related_name="inventory_items", description="所属库存位置")

@@ -64,7 +64,7 @@
               :placeholder="
                 isInventoryView
                   ? '全局搜索：分类 / 子类 / 数量 / 扩展属性'
-                  : '全局搜索：资产编号 / 名称 / SN / IP'
+                  : '全局搜索：设备名称 / SN / IP'
               "
               @keyup.enter="searchCurrentList"
             >
@@ -153,6 +153,17 @@
                     <TheIcon icon="mdi:shape-plus-outline" :size="18" />
                   </template>
                   分类维护
+                </n-button>
+                <n-button
+                  v-if="!isInventoryView && canMaintainDeviceBrands"
+                  secondary
+                  round
+                  @click="brandModal.show = true"
+                >
+                  <template #icon>
+                    <TheIcon icon="mdi:tag-multiple-outline" :size="18" />
+                  </template>
+                  品牌型号维护
                 </n-button>
                 <n-button v-if="canUseContextAction" secondary round @click="openContextModal">
                   <template #icon>
@@ -297,20 +308,33 @@
                 :options="cabinetOptions"
               />
             </n-form-item-gi>
-            <n-form-item-gi label="资产编号" path="asset_no">
-              <n-input v-model:value="deviceModal.form.asset_no" />
-            </n-form-item-gi>
             <n-form-item-gi label="设备名称" path="name">
               <n-input v-model:value="deviceModal.form.name" />
             </n-form-item-gi>
             <n-form-item-gi label="设备类型">
-              <n-select v-model:value="deviceModal.form.type" :options="deviceTypeOptions" />
+              <n-select
+                v-model:value="deviceModal.form.type"
+                :options="deviceTypeOptions"
+                @update:value="handleDeviceTypeChange"
+              />
             </n-form-item-gi>
             <n-form-item-gi label="品牌">
-              <n-input v-model:value="deviceModal.form.brand" />
+              <n-select
+                v-model:value="deviceModal.form.brand"
+                clearable
+                filterable
+                :options="deviceBrandOptions"
+                @update:value="handleDeviceBrandChange"
+              />
             </n-form-item-gi>
             <n-form-item-gi label="型号">
-              <n-input v-model:value="deviceModal.form.model" />
+              <n-select
+                v-model:value="deviceModal.form.model"
+                clearable
+                filterable
+                :disabled="!deviceModal.form.brand"
+                :options="deviceModelOptions"
+              />
             </n-form-item-gi>
             <n-form-item-gi label="序列号">
               <n-input v-model:value="deviceModal.form.serial_no" />
@@ -352,8 +376,8 @@
                     </template>
                     添加配置
                   </n-button>
-                  <n-button secondary round @click="applyServerAttributeTemplate"
-                    >服务器模板</n-button
+                  <n-button secondary round @click="applyDeviceAttributeTemplate()"
+                    >应用类型模板</n-button
                   >
                 </div>
               </div>
@@ -383,9 +407,6 @@
         class="asset-modal"
       >
         <n-descriptions bordered :column="2" label-placement="left" size="small">
-          <n-descriptions-item label="资产编号">
-            {{ deviceDetailModal.row?.asset_no || '-' }}
-          </n-descriptions-item>
           <n-descriptions-item label="设备名称">
             {{ deviceDetailModal.row?.name || '-' }}
           </n-descriptions-item>
@@ -434,7 +455,10 @@
           />
           <div v-else class="device-config-table">
             <div
-              v-for="row in getDeviceAttributeRows(deviceDetailModal.row?.attributes)"
+              v-for="row in getDeviceAttributeRows(
+                deviceDetailModal.row?.attributes,
+                deviceDetailModal.row?.type
+              )"
               :key="row.label"
               class="device-config-row"
             >
@@ -552,6 +576,44 @@
       </n-modal>
 
       <n-modal
+        v-model:show="brandModal.show"
+        preset="card"
+        title="品牌型号维护"
+        class="simple-modal"
+      >
+        <div class="category-editor">
+          <div class="category-add">
+            <n-input v-model:value="brandModal.brandName" placeholder="新增品牌" />
+            <n-button type="primary" round @click="addDeviceBrand">添加</n-button>
+          </div>
+          <div
+            v-for="brand in deviceBrandTree"
+            :key="brand.id || brand.value"
+            class="category-block"
+          >
+            <div class="category-title">
+              <strong>{{ brand.label }}</strong>
+              <n-button text type="error" round @click="deleteDeviceBrand(brand)">删除</n-button>
+            </div>
+            <div class="subcategory-list">
+              <n-tag
+                v-for="model in brand.models"
+                :key="model.id || model.value"
+                closable
+                @close="deleteDeviceModel(model)"
+              >
+                {{ model.label }}
+              </n-tag>
+            </div>
+            <div class="category-add">
+              <n-input v-model:value="brandModal.modelDrafts[brand.value]" placeholder="新增型号" />
+              <n-button secondary round @click="addDeviceModel(brand)">添加型号</n-button>
+            </div>
+          </div>
+        </div>
+      </n-modal>
+
+      <n-modal
         v-model:show="categoryModal.show"
         preset="card"
         title="分类维护"
@@ -615,6 +677,7 @@ const inventoryItems = ref([])
 const regions = ref([])
 const locations = ref([])
 const cabinets = ref([])
+const deviceBrandTree = ref([])
 const deviceFormRef = ref(null)
 const inventoryFormRef = ref(null)
 const simpleFormRef = ref(null)
@@ -662,6 +725,11 @@ const categoryModal = reactive({
   categoryName: '',
   subtypeDrafts: {},
 })
+const brandModal = reactive({
+  show: false,
+  brandName: '',
+  modelDrafts: {},
+})
 
 const deviceTypeOptions = [
   { label: '服务器', value: 0 },
@@ -692,6 +760,8 @@ const assetResourcePathMap = {
   location: 'location',
   cabinet: 'cabinet',
   device: 'device',
+  deviceBrand: 'device-brand',
+  deviceModel: 'device-model',
   inventory: 'inventory',
   inventoryCategory: 'inventory-category',
 }
@@ -713,10 +783,31 @@ const inventoryAttributeTemplateMap = {
   电源线: ['长度'],
 }
 
+const deviceAttributeTemplateMap = {
+  0: [
+    'CPU数量',
+    'CPU型号',
+    '内存数量',
+    '内存大小',
+    '磁盘数量',
+    '磁盘大小',
+    'IPMI用户名',
+    'IPMI密码',
+  ],
+  1: ['版本', '补丁', 'snmp版本', 'snmp团体名'],
+}
+
 const inventoryCategoryTree = ref([])
 const inventoryTypeOptions = computed(() =>
   inventoryCategoryTree.value.map(({ label, value }) => ({ label, value }))
 )
+const deviceBrandOptions = computed(() =>
+  deviceBrandTree.value.map(({ label, value }) => ({ label, value }))
+)
+const deviceModelOptions = computed(() => {
+  const brand = deviceBrandTree.value.find((item) => item.value === deviceModal.form.brand)
+  return (brand?.models || []).map(({ label, value }) => ({ label, value }))
+})
 
 const deviceRules = {
   cabinet_id: {
@@ -725,7 +816,6 @@ const deviceRules = {
     message: '请选择机柜',
     trigger: ['change', 'blur'],
   },
-  asset_no: { required: true, message: '请输入资产编号', trigger: ['input', 'blur'] },
   name: { required: true, message: '请输入设备名称', trigger: ['input', 'blur'] },
 }
 
@@ -827,6 +917,13 @@ const canMaintainCategories = computed(
     hasAssetPermission('inventoryCategory', 'create') ||
     hasAssetPermission('inventoryCategory', 'update') ||
     hasAssetPermission('inventoryCategory', 'delete')
+)
+const canMaintainDeviceBrands = computed(
+  () =>
+    hasAssetPermission('deviceBrand', 'create') ||
+    hasAssetPermission('deviceBrand', 'delete') ||
+    hasAssetPermission('deviceModel', 'create') ||
+    hasAssetPermission('deviceModel', 'delete')
 )
 const canSaveSimple = computed(() =>
   hasAssetPermission(simpleModal.kind, simpleModal.form.id ? 'update' : 'create')
@@ -1019,7 +1116,7 @@ function createEmptyDevice() {
     serial_no: '',
     u_position: null,
     u_height: 1,
-    status: 0,
+    status: 1,
     mgmt_ip: '',
     business_ip: '',
     owner: '',
@@ -1072,6 +1169,7 @@ async function loadMeta() {
     api.assetApi.locations({ page_size: 1000 }),
     api.assetApi.cabinets({ page_size: 1000 }),
     loadInventoryCategories(),
+    loadDeviceBrands(),
   ])
   regions.value = regionRes.data || []
   locations.value = locationRes.data || []
@@ -1084,6 +1182,15 @@ async function loadInventoryCategories() {
     inventoryCategoryTree.value = normalizeInventoryCategoryTree(res.data || [])
   } catch {
     inventoryCategoryTree.value = []
+  }
+}
+
+async function loadDeviceBrands() {
+  try {
+    const res = await api.assetApi.deviceBrands()
+    deviceBrandTree.value = normalizeDeviceBrandTree(res.data || [])
+  } catch {
+    deviceBrandTree.value = []
   }
 }
 
@@ -1509,6 +1616,90 @@ function normalizeInventoryCategoryTree(value) {
   return result
 }
 
+function normalizeDeviceBrandTree(value) {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => {
+      const label = String(item?.label || item?.name || item?.value || '').trim()
+      const itemValue = String(item?.value || item?.name || label).trim()
+      if (!label || !itemValue) return null
+      const models = Array.isArray(item.models)
+        ? item.models
+            .map((model) => {
+              const modelLabel = String(model?.label || model?.name || model?.value || '').trim()
+              const modelValue = String(model?.value || model?.name || modelLabel).trim()
+              if (!modelLabel || !modelValue) return null
+              return { ...model, label: modelLabel, value: modelValue }
+            })
+            .filter(Boolean)
+        : []
+      return { ...item, label, value: itemValue, models }
+    })
+    .filter(Boolean)
+}
+
+async function addDeviceBrand() {
+  if (!hasAssetPermission('deviceBrand', 'create')) {
+    warnNoPermission()
+    return
+  }
+  const name = brandModal.brandName.trim()
+  if (!name) return
+  if (deviceBrandTree.value.some((item) => item.value === name)) {
+    window.$message?.warning('品牌已存在')
+    return
+  }
+  const res = await api.assetApi.createDeviceBrand({ name })
+  deviceBrandTree.value = normalizeDeviceBrandTree(res.data || [])
+  brandModal.brandName = ''
+  window.$message?.success('品牌已添加')
+}
+
+async function deleteDeviceBrand(brand) {
+  if (!hasAssetPermission('deviceBrand', 'delete')) {
+    warnNoPermission()
+    return
+  }
+  const res = await api.assetApi.deleteDeviceBrand({ brand_id: brand.id })
+  deviceBrandTree.value = normalizeDeviceBrandTree(res.data || [])
+  if (deviceModal.form.brand === brand.value) {
+    deviceModal.form.brand = ''
+    deviceModal.form.model = ''
+  }
+  delete brandModal.modelDrafts[brand.value]
+  window.$message?.success('品牌已删除')
+}
+
+async function addDeviceModel(brand) {
+  if (!hasAssetPermission('deviceModel', 'create')) {
+    warnNoPermission()
+    return
+  }
+  const name = String(brandModal.modelDrafts[brand.value] || '').trim()
+  if (!name) return
+  if (brand.models.some((item) => item.value === name)) {
+    window.$message?.warning('型号已存在')
+    return
+  }
+  const res = await api.assetApi.createDeviceModel({ brand_id: brand.id, name })
+  deviceBrandTree.value = normalizeDeviceBrandTree(res.data || [])
+  brandModal.modelDrafts[brand.value] = ''
+  window.$message?.success('型号已添加')
+}
+
+async function deleteDeviceModel(model) {
+  if (!hasAssetPermission('deviceModel', 'delete')) {
+    warnNoPermission()
+    return
+  }
+  const res = await api.assetApi.deleteDeviceModel({ model_id: model.id })
+  deviceBrandTree.value = normalizeDeviceBrandTree(res.data || [])
+  if (deviceModal.form.model === model.value) {
+    deviceModal.form.model = ''
+  }
+  window.$message?.success('型号已删除')
+}
+
 async function addInventoryCategory() {
   if (!hasAssetPermission('inventoryCategory', 'create')) {
     warnNoPermission()
@@ -1605,6 +1796,17 @@ function handleInventoryFilterTypeChange() {
   }
 }
 
+function handleDeviceBrandChange() {
+  const validValues = deviceModelOptions.value.map((item) => item.value)
+  if (deviceModal.form.model && !validValues.includes(deviceModal.form.model)) {
+    deviceModal.form.model = ''
+  }
+}
+
+function handleDeviceTypeChange() {
+  applyDeviceAttributeTemplate()
+}
+
 function removeInventoryAttribute(index) {
   inventoryModal.form.attributeList.splice(index, 1)
 }
@@ -1617,17 +1819,9 @@ function removeDeviceAttribute(index) {
   deviceModal.form.attributeList.splice(index, 1)
 }
 
-function applyServerAttributeTemplate() {
-  const template = [
-    'CPU数量',
-    'CPU型号',
-    '内存数量',
-    '内存大小',
-    '磁盘数量',
-    '磁盘大小',
-    'IPMI用户名',
-    'IPMI密码',
-  ]
+function applyDeviceAttributeTemplate(type = deviceModal.form.type) {
+  const template = deviceAttributeTemplateMap[Number(type)] || []
+  if (!template.length) return
   addMissingAttributes(deviceModal.form.attributeList, template)
 }
 
@@ -1640,51 +1834,57 @@ function getAttributeValue(attributes, key) {
   return String(attributes?.[key] ?? '')
 }
 
-function getDeviceAttributeRows(attributes) {
-  const groupedKeys = new Set([
-    'CPU数量',
-    'CPU型号',
-    '内存数量',
-    '内存大小',
-    '磁盘数量',
-    '磁盘大小',
-    'IPMI用户名',
-    'IPMI密码',
-  ])
-  const rows = [
-    {
-      label: 'CPU',
-      items: [
-        { label: '数量', value: getAttributeValue(attributes, 'CPU数量') },
-        { label: '型号', value: getAttributeValue(attributes, 'CPU型号') },
-      ],
-    },
-    {
-      label: '内存',
-      items: [
-        { label: '数量', value: getAttributeValue(attributes, '内存数量') },
-        { label: '大小', value: getAttributeValue(attributes, '内存大小') },
-      ],
-    },
-    {
-      label: '磁盘',
-      items: [
-        { label: '数量', value: getAttributeValue(attributes, '磁盘数量') },
-        { label: '大小', value: getAttributeValue(attributes, '磁盘大小') },
-      ],
-    },
-    {
-      label: 'IPMI',
-      items: [
-        { label: '用户名', value: getAttributeValue(attributes, 'IPMI用户名') },
+function getDeviceAttributeRows(attributes, type) {
+  const isSwitch = Number(type) === 1
+  const groupedKeys = new Set(
+    isSwitch ? deviceAttributeTemplateMap[1] : deviceAttributeTemplateMap[0]
+  )
+  const rows = isSwitch
+    ? [
         {
-          label: '密码',
-          value: getAttributeValue(attributes, 'IPMI密码'),
-          sensitive: getAttributeValue(attributes, 'IPMI密码') === '******',
+          label: '交换机',
+          items: [
+            { label: '版本', value: getAttributeValue(attributes, '版本') },
+            { label: '补丁', value: getAttributeValue(attributes, '补丁') },
+            { label: 'SNMP版本', value: getAttributeValue(attributes, 'snmp版本') },
+            { label: 'SNMP团体名', value: getAttributeValue(attributes, 'snmp团体名') },
+          ],
         },
-      ],
-    },
-  ]
+      ]
+    : [
+        {
+          label: 'CPU',
+          items: [
+            { label: '数量', value: getAttributeValue(attributes, 'CPU数量') },
+            { label: '型号', value: getAttributeValue(attributes, 'CPU型号') },
+          ],
+        },
+        {
+          label: '内存',
+          items: [
+            { label: '数量', value: getAttributeValue(attributes, '内存数量') },
+            { label: '大小', value: getAttributeValue(attributes, '内存大小') },
+          ],
+        },
+        {
+          label: '磁盘',
+          items: [
+            { label: '数量', value: getAttributeValue(attributes, '磁盘数量') },
+            { label: '大小', value: getAttributeValue(attributes, '磁盘大小') },
+          ],
+        },
+        {
+          label: 'IPMI',
+          items: [
+            { label: '用户名', value: getAttributeValue(attributes, 'IPMI用户名') },
+            {
+              label: '密码',
+              value: getAttributeValue(attributes, 'IPMI密码'),
+              sensitive: getAttributeValue(attributes, 'IPMI密码') === '******',
+            },
+          ],
+        },
+      ]
   const extraItems = attributesToList(attributes)
     .filter((item) => !groupedKeys.has(item.key))
     .map((item) => ({ label: item.key, value: item.value }))
@@ -1747,6 +1947,10 @@ function renderInventoryAttributes(row) {
 }
 
 function renderDeviceName(row) {
+  const metaItems = [
+    row.brand || row.model ? [row.brand, row.model].filter(Boolean).join(' / ') : '',
+    row.serial_no ? `SN ${row.serial_no}` : '',
+  ].filter(Boolean)
   return h('div', { class: 'device-name-cell' }, [
     h(
       'button',
@@ -1757,10 +1961,11 @@ function renderDeviceName(row) {
       },
       row.name || '-'
     ),
-    h('div', { class: 'device-meta-line' }, [
-      h('span', row.asset_no || '未填写资产编号'),
-      row.serial_no ? h('span', `SN ${row.serial_no}`) : null,
-    ]),
+    h(
+      'div',
+      { class: 'device-meta-line' },
+      metaItems.length ? metaItems.map((item) => h('span', item)) : [h('span', '未填写设备信息')]
+    ),
   ])
 }
 
@@ -1834,6 +2039,7 @@ function openDeviceModal(row = null) {
     ? {
         ...createEmptyDevice(),
         ...row,
+        status: Number(row.status) || 1,
         attributeList: attributesToList(row.attributes),
       }
     : {
@@ -1843,6 +2049,7 @@ function openDeviceModal(row = null) {
             ? selectedNode.value.raw_id
             : cabinetOptions.value[0]?.value || null,
       }
+  if (!row) applyDeviceAttributeTemplate()
   deviceModal.show = true
 }
 
@@ -1852,6 +2059,7 @@ async function submitDevice() {
     return
   }
   await deviceFormRef.value?.validate()
+  deviceModal.form.asset_no = deviceModal.form.name
   deviceModal.submitting = true
   try {
     const submit = deviceModal.form.id ? api.assetApi.updateDevice : api.assetApi.createDevice
