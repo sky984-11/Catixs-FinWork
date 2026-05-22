@@ -16,22 +16,27 @@ router = APIRouter()
 async def list_company(
     page: int = Query(1, description="页码"),
     page_size: int = Query(10, description="每页数量"),
-    name: str = Query("", description="公司名称，用于搜索"),
+    name: str = Query("", description="公司简称/全称，用于搜索"),
     code: str = Query("", description="公司编号"),
     role: int | None = Query(None, description="角色：0=签约主体, 1=客户, 2=供应商"),
     status: bool | None = Query(None, description="启用状态"),
+    business_only: bool = Query(False, description="仅查询客户和供应商"),
 ):
     q = Q()
     if name:
-        q &= Q(name__contains=name)
+        q &= Q(name__contains=name) | Q(legal_name__contains=name)
     if code:
         q &= Q(code__contains=code)
     if role is not None:
         q &= Q(role=role)
+    elif business_only:
+        q &= Q(role__in=[1, 2])
     if status is not None:
         q &= Q(status=status)
 
-    total, company_objs = await company_controller.list_companies(page=page, page_size=page_size, search=q)
+    total, company_objs = await company_controller.list_companies(
+        page=page, page_size=page_size, search=q
+    )
     data = [await obj.to_dict() for obj in company_objs]
     return SuccessExtra(data=data, total=total, page=page, page_size=page_size)
 
@@ -56,7 +61,9 @@ async def create_company(
 async def update_company(
     company_in: CompanyUpdate,
 ):
-    company_obj = await company_controller.update(id=company_in.id, obj_in=company_in.model_dump(exclude_unset=True, exclude={"id"}))
+    company_obj = await company_controller.update(
+        id=company_in.id, obj_in=company_in.model_dump(exclude_unset=True, exclude={"id"})
+    )
     return Success(msg="Updated Successfully", data=await company_obj.to_dict())
 
 

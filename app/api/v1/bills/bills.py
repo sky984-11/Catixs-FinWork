@@ -3,10 +3,10 @@ import os
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, File, Query, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from tortoise.expressions import Q
 
-from app.controllers.bill import bill_controller
+from app.controllers.bill import bill_controller, bill_item_controller
 from app.schemas.base import Success, SuccessExtra
 from app.schemas.bills import BillCreate, BillUpdate
 
@@ -14,23 +14,96 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# 文件上传目录
 UPLOAD_DIR = "uploads/bills"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+
+def build_invoice_no(customer_name: str | None, owner: str | None, bill_month) -> str:
+    if not customer_name or not owner or not bill_month:
+        return ""
+    month_text = str(bill_month)
+    if len(month_text) < 7:
+        return ""
+    return f"{customer_name}_INV{owner}_{month_text[2:4]}.{month_text[5:7]}"
+
+
+def sync_settled_status(payload: dict):
+    if "unpaid_amount" not in payload:
+        return
+    try:
+        payload["is_settled"] = float(payload.get("unpaid_amount") or 0) <= 0
+    except (TypeError, ValueError):
+        payload["is_settled"] = False
+
+
+def sync_bill_amounts(payload: dict, items: list):
+    item_total = sum((item.nrc_amount or 0) + (item.mrc_amount or 0) for item in items)
+    net_amount = float(payload.get("net_amount") or 0)
+    vat_amount = float(payload.get("vat_amount") or 0)
+    paid_amount = float(payload.get("paid_amount") or 0)
+    total_amount = net_amount + vat_amount
+    if abs(total_amount - item_total) >= 0.01:
+        raise HTTPException(status_code=400, detail="Total Amount must equal Invoice Summary NRC + MRC total")
+    payload["net_amount"] = net_amount
+    payload["total_amount"] = item_total
+    payload["unpaid_amount"] = max(total_amount - paid_amount, 0)
+
+
+async def bill_to_dict(obj, include_items: bool = False):
+    data = await obj.to_dict()
+    if include_items:
+        items = await bill_item_controller.model.filter(bill_id=obj.id).order_by("id")
+        data["items"] = [await item.to_dict() for item in items]
+    return data
+
+
+async def replace_bill_items(bill_id: int, items: list):
+    await bill_item_controller.model.filter(bill_id=bill_id).delete()
+    if not items:
+        return
+    await bill_item_controller.model.bulk_create(
+        [
+            bill_item_controller.model(
+                bill_id=bill_id,
+                service_id=str(index + 1),
+                service=item.service or "",
+                item=item.item or "",
+                location=item.location or "",
+                start_date=item.start_date,
+                end_date=item.end_date,
+                nrc_amount=item.nrc_amount or 0,
+                mrc_amount=item.mrc_amount or 0,
+                amount=(item.nrc_amount or 0) + (item.mrc_amount or 0),
+            )
+            for index, item in enumerate(items)
+        ]
+    )
 
 
 @router.get("/list", summary="查看账单列表")
 async def list_bill(
     page: int = Query(1, description="页码"),
     page_size: int = Query(10, description="每页数量"),
-    company_id: int = Query(..., description="公司ID"),
+    company_id: int | None = Query(None, description="公司ID"),
     bill_type: int | None = Query(None, description="账单类型(1客户/2供应商)"),
+    invoice_no: str = Query("", description="账单编号"),
+    customer_name: str = Query("", description="客户/供应商名称"),
+    is_settled: bool | None = Query(None, description="是否结清"),
 ):
-    q = Q(company_id=company_id)
+    q = Q()
+    if company_id is not None:
+        q &= Q(company_id=company_id)
     if bill_type is not None:
         q &= Q(bill_type=bill_type)
+    if invoice_no:
+        q &= Q(invoice_no__contains=invoice_no)
+    if customer_name:
+        q &= Q(customer_name__contains=customer_name)
+    if is_settled is not None:
+        q &= Q(is_settled=is_settled)
+
     total, objs = await bill_controller.list(page=page, page_size=page_size, search=q, order=["-id"])
-    data = [await obj.to_dict() for obj in objs]
+    data = [await bill_to_dict(obj) for obj in objs]
     return SuccessExtra(data=data, total=total, page=page, page_size=page_size)
 
 
@@ -39,23 +112,39 @@ async def get_bill(
     bill_id: int = Query(..., description="账单ID"),
 ):
     obj = await bill_controller.get(id=bill_id)
-    return Success(data=await obj.to_dict())
+    return Success(data=await bill_to_dict(obj, include_items=True))
 
 
 @router.post("/create", summary="创建账单")
 async def create_bill(
     obj_in: BillCreate,
 ):
-    obj = await bill_controller.create(obj_in)
-    return Success(msg="Created Successfully", data=await obj.to_dict())
+    payload = obj_in.model_dump(exclude={"items"})
+    if not payload.get("invoice_no"):
+        payload["invoice_no"] = build_invoice_no(
+            payload.get("customer_name"), payload.get("owner"), payload.get("bill_month")
+        )
+    sync_bill_amounts(payload, obj_in.items)
+    sync_settled_status(payload)
+    obj = await bill_controller.create(payload)
+    await replace_bill_items(obj.id, obj_in.items)
+    return Success(msg="Created Successfully", data=await bill_to_dict(obj, include_items=True))
 
 
 @router.post("/update", summary="更新账单")
 async def update_bill(
     obj_in: BillUpdate,
 ):
-    obj = await bill_controller.update(id=obj_in.id, obj_in=obj_in)
-    return Success(msg="Updated Successfully", data=await obj.to_dict())
+    payload = obj_in.model_dump(exclude_unset=True, exclude={"id", "items"})
+    if not payload.get("invoice_no"):
+        payload["invoice_no"] = build_invoice_no(
+            payload.get("customer_name"), payload.get("owner"), payload.get("bill_month")
+        )
+    sync_bill_amounts(payload, obj_in.items)
+    sync_settled_status(payload)
+    obj = await bill_controller.update(id=obj_in.id, obj_in=payload)
+    await replace_bill_items(obj.id, obj_in.items)
+    return Success(msg="Updated Successfully", data=await bill_to_dict(obj, include_items=True))
 
 
 @router.delete("/delete", summary="删除账单")
@@ -66,28 +155,24 @@ async def delete_bill(
     return Success(msg="Deleted Successfully")
 
 
-@router.post("/upload", summary="上传账单PDF")
-async def upload_bill_pdf(
-    bill_id: int = Query(..., description="账单ID"),
-    file: UploadFile = File(..., description="PDF文件"),
-):
-    # 检查文件类型
-    if not file.filename.lower().endswith('.pdf'):
-        return Success(msg="Only PDF files are allowed", code=400)
-    
-    # 生成唯一文件名
+async def save_bill_file(file: UploadFile):
     file_ext = os.path.splitext(file.filename)[1]
     unique_filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}{file_ext}"
     file_path = os.path.join(UPLOAD_DIR, unique_filename)
-    
-    # 保存文件
     content = await file.read()
     with open(file_path, "wb") as f:
         f.write(content)
-    
-    # 返回的URL路径
-    invoice_url = f"/uploads/bills/{unique_filename}"
-    await bill_controller.update(id=bill_id, obj_in={"invoice_url": invoice_url})
-    
-    return Success(msg="Upload Successfully", data={"invoice_url": invoice_url})
+    return f"/uploads/bills/{unique_filename}"
 
+
+@router.post("/upload_voucher", summary="上传付款凭证")
+async def upload_payment_voucher(
+    bill_id: int = Query(..., description="账单ID"),
+    file: UploadFile = File(..., description="付款凭证"),
+):
+    if not str(file.content_type or "").startswith("image/"):
+        return Success(msg="Only image files are allowed", code=400)
+
+    payment_voucher_url = await save_bill_file(file)
+    await bill_controller.update(id=bill_id, obj_in={"payment_voucher_url": payment_voucher_url})
+    return Success(msg="Upload Successfully", data={"payment_voucher_url": payment_voucher_url})

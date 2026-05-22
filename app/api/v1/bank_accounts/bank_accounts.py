@@ -27,6 +27,10 @@ async def list_bank_account(
         d = await obj.to_dict()
         d["bank_id"] = obj.bank_id
         d["bank_name"] = getattr(getattr(obj, "bank", None), "name", None)
+        d["bank_swift_code"] = getattr(getattr(obj, "bank", None), "swift_code", None)
+        d["bank_address"] = getattr(getattr(obj, "bank", None), "bank_address", None)
+        if not d.get("swift_code"):
+            d["swift_code"] = d["bank_swift_code"]
         data.append(d)
     return SuccessExtra(data=data, total=total, page=page, page_size=page_size)
 

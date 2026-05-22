@@ -4,11 +4,12 @@ from .base import BaseModel, TimestampMixin
 
 
 class Company(BaseModel, TimestampMixin):
-    # 0：internal  1：客户  2：供应商
+    # 0=internal, 1=customer, 2=vendor
     role = fields.IntField(default=0, description="角色", index=True)
-
-    name = fields.CharField(max_length=100, null=True, description="公司名称", index=True)
-    code = fields.CharField(max_length=50, null=True, description="公司编码", index=True, unique=True)
+    name = fields.CharField(max_length=100, null=True, description="公司简称", index=True)
+    legal_name = fields.CharField(max_length=200, null=True, description="公司全称", index=True)
+    logo_url = fields.CharField(max_length=255, null=True, description="公司Logo")
+    code = fields.CharField(max_length=50, null=True, description="公司编号", index=True, unique=True)
     country = fields.CharField(max_length=50, null=True, description="国家/地区", index=True)
     address = fields.CharField(max_length=255, null=True, description="地址")
     noc_email = fields.CharField(max_length=100, null=True, description="NOC邮箱")
@@ -16,19 +17,17 @@ class Company(BaseModel, TimestampMixin):
     remark = fields.CharField(max_length=500, null=True, description="备注")
     status = fields.BooleanField(default=True, description="状态", index=True)
     tax_no = fields.CharField(max_length=50, null=True, description="税号")
-    # 公司邮箱
     company_email = fields.CharField(max_length=100, null=True, description="公司邮箱")
-    # 公司电话
+    bill_email = fields.CharField(max_length=100, null=True, description="财务邮箱")
+    contact_person = fields.CharField(max_length=100, null=True, description="财务联系人")
     company_phone = fields.CharField(max_length=50, null=True, description="公司电话")
-    # 公司注册号
     registration_no = fields.CharField(max_length=50, null=True, description="公司注册号")
-    # 签约主体公司ID（role=0的公司）
     contract_company = fields.ForeignKeyField(
         "models.Company",
         related_name="contract_companies",
         null=True,
         on_delete=fields.SET_NULL,
-        description="签约主体公司"
+        description="签约主体公司",
     )
 
     class Meta:
@@ -60,7 +59,7 @@ class BankAccount(BaseModel, TimestampMixin):
     bank_code = fields.CharField(max_length=50, null=True, description="银行编号")
     branch_code = fields.CharField(max_length=50, null=True, description="分行编号")
     account_name = fields.CharField(max_length=100, null=True, description="账户名")
-    account_number = fields.CharField(max_length=100, null=True, description="账号编号")
+    account_number = fields.CharField(max_length=100, null=True, description="账号")
     swift_code = fields.CharField(max_length=50, null=True, description="SWIFT")
     iban = fields.CharField(max_length=50, null=True, description="IBAN")
     sort_code = fields.CharField(max_length=50, null=True, description="SORT CODE")
@@ -78,18 +77,22 @@ class Bill(BaseModel, TimestampMixin):
     )
     invoice_no = fields.CharField(max_length=100, null=True, description="账单编号", index=True)
     customer_name = fields.CharField(max_length=100, null=True, description="客户名")
-    bill_month = fields.DateField(null=True, description="账单月份(如2026-03)")
+    bill_month = fields.DateField(null=True, description="月份")
     invoice_date = fields.DateField(null=True, description="账单日期")
     due_date = fields.DateField(null=True, description="截止日期")
     billing_start_date = fields.DateField(null=True, description="计费开始日期")
     billing_end_date = fields.DateField(null=True, description="计费结束日期")
     currency = fields.CharField(max_length=10, null=True, description="币种")
+    net_amount = fields.FloatField(null=True, description="Net Amount")
+    vat_amount = fields.FloatField(null=True, description="VAT Amount")
     total_amount = fields.FloatField(null=True, description="账单金额")
     paid_amount = fields.FloatField(null=True, description="已付金额")
     unpaid_amount = fields.FloatField(null=True, description="欠费金额")
     is_settled = fields.BooleanField(default=False, description="是否结清", index=True)
-    invoice_url = fields.CharField(max_length=255, null=True, description="发票文件链接")
-    # 1：客户账单  2：供应商账单
+    payment_voucher_url = fields.CharField(max_length=255, null=True, description="付款凭证")
+    owner = fields.CharField(max_length=100, null=True, description="负责人")
+    remark = fields.CharField(max_length=500, null=True, description="备注")
+    # 1=customer bill, 2=vendor bill
     bill_type = fields.IntField(default=1, description="账单类型", index=True)
 
     class Meta:
@@ -102,11 +105,14 @@ class BillItem(BaseModel, TimestampMixin):
         related_name="items",
         on_delete=fields.CASCADE,
     )
+    service_id = fields.CharField(max_length=100, null=True, description="服务ID")
     service = fields.CharField(max_length=100, null=True, description="服务")
     item = fields.CharField(max_length=100, null=True, description="项目")
     location = fields.CharField(max_length=100, null=True, description="位置")
     start_date = fields.DateField(null=True, description="开始日期")
     end_date = fields.DateField(null=True, description="结束日期")
+    nrc_amount = fields.FloatField(null=True, description="NRC金额")
+    mrc_amount = fields.FloatField(null=True, description="MRC金额")
     amount = fields.FloatField(null=True, description="金额")
 
     class Meta:

@@ -219,13 +219,13 @@ async def init_menus():
         )
         await Menu.create(
             menu_type=MenuType.MENU,
-            name="供应商管理",
+            name="客户/供应商",
             path="/vendor",
             order=2,
             parent_id=0,
-            icon="material-symbols:assured-workload-outline",
+            icon="mdi:account-group-outline",
             is_hidden=False,
-            component="/vendor",
+            component="/company",
             keepalive=False,
             redirect="",
         )
@@ -241,8 +241,22 @@ async def init_menus():
             keepalive=False,
             redirect="",
         )
+        await Menu.create(
+            menu_type=MenuType.MENU,
+            name="账单管理",
+            path="/bill",
+            order=3,
+            parent_id=0,
+            icon="mdi:file-document-multiple-outline",
+            is_hidden=False,
+            component="/bill",
+            keepalive=False,
+            redirect="",
+        )
     await ensure_ticket_route_menus()
     await ensure_asset_menu()
+    await ensure_business_party_menu()
+    await ensure_bill_menu()
 
 
 async def ensure_ticket_route_menus():
@@ -341,8 +355,124 @@ async def ensure_asset_menu():
     )
 
 
+async def ensure_bill_menu():
+    bill_menu = await Menu.filter(path="/bill").first()
+    if bill_menu:
+        changed = False
+        if bill_menu.name != "账单管理":
+            bill_menu.name = "账单管理"
+            changed = True
+        if bill_menu.component != "/bill":
+            bill_menu.component = "/bill"
+            changed = True
+        if bill_menu.icon != "mdi:file-document-multiple-outline":
+            bill_menu.icon = "mdi:file-document-multiple-outline"
+            changed = True
+        if bill_menu.order != 3:
+            bill_menu.order = 3
+            changed = True
+        if bill_menu.is_hidden:
+            bill_menu.is_hidden = False
+            changed = True
+        if changed:
+            await bill_menu.save()
+    else:
+        bill_menu = await Menu.create(
+            menu_type=MenuType.MENU,
+            name="账单管理",
+            path="/bill",
+            order=3,
+            parent_id=0,
+            icon="mdi:file-document-multiple-outline",
+            is_hidden=False,
+            component="/bill",
+            keepalive=False,
+            redirect="",
+        )
+
+    roles = await Role.all()
+    for role in roles:
+        has_menu = await role.menus.filter(id=bill_menu.id).exists()
+        if not has_menu:
+            await role.menus.add(bill_menu)
+
+
+async def ensure_business_party_menu():
+    company_menu = await Menu.filter(path="/vendor").first()
+    if company_menu:
+        changed = False
+        if company_menu.name != "客户/供应商":
+            company_menu.name = "客户/供应商"
+            changed = True
+        if company_menu.component != "/company":
+            company_menu.component = "/company"
+            changed = True
+        if company_menu.icon != "mdi:account-group-outline":
+            company_menu.icon = "mdi:account-group-outline"
+            changed = True
+        if company_menu.order != 2:
+            company_menu.order = 2
+            changed = True
+        if company_menu.is_hidden:
+            company_menu.is_hidden = False
+            changed = True
+        if changed:
+            await company_menu.save()
+    else:
+        company_menu = await Menu.create(
+            menu_type=MenuType.MENU,
+            name="客户/供应商",
+            path="/vendor",
+            order=2,
+            parent_id=0,
+            icon="mdi:account-group-outline",
+            is_hidden=False,
+            component="/company",
+            keepalive=False,
+            redirect="",
+        )
+
+    roles = await Role.all()
+    for role in roles:
+        has_menu = await role.menus.filter(id=company_menu.id).exists()
+        if not has_menu:
+            await role.menus.add(company_menu)
+
+    legacy_company_menu = await Menu.filter(path="/company").first()
+    if legacy_company_menu and not legacy_company_menu.is_hidden:
+        legacy_company_menu.is_hidden = True
+        await legacy_company_menu.save()
+
+
 async def init_apis():
     await api_controller.refresh_api()
+
+
+def is_admin_role_name(name: str | None) -> bool:
+    role_name = str(name or "").strip().lower()
+    return role_name in {"admin", "管理员", "noc"}
+
+
+async def ensure_business_api_permissions():
+    roles = await Role.all()
+    if not roles:
+        return
+
+    read_apis = await Api.filter(
+        Q(method="GET", path="/api/v1/company/list")
+        | Q(method="GET", path="/api/v1/bill/list")
+        | Q(method="GET", path="/api/v1/bank_account/list")
+    )
+    manage_apis = await Api.filter(
+        Q(path__startswith="/api/v1/company/")
+        | Q(path__startswith="/api/v1/bill/")
+    )
+
+    for role in roles:
+        if read_apis:
+            await role.apis.add(*read_apis)
+        if is_admin_role_name(role.name) and manage_apis:
+            await role.apis.add(*manage_apis)
 
 
 async def ensure_asset_columns():
@@ -360,6 +490,63 @@ async def ensure_asset_columns():
             ADD COLUMN IF NOT EXISTS "attributes" JSONB NOT NULL DEFAULT '{}';
         """
     )
+
+
+async def ensure_bill_columns():
+    if settings.DB_TYPE != "postgres":
+        return
+
+    conn = Tortoise.get_connection("postgres")
+    await conn.execute_script(
+        """
+        ALTER TABLE IF EXISTS "bill"
+            ADD COLUMN IF NOT EXISTS "payment_voucher_url" VARCHAR(255),
+            ADD COLUMN IF NOT EXISTS "owner" VARCHAR(100),
+            ADD COLUMN IF NOT EXISTS "remark" VARCHAR(500),
+            ADD COLUMN IF NOT EXISTS "net_amount" DOUBLE PRECISION,
+            ADD COLUMN IF NOT EXISTS "vat_amount" DOUBLE PRECISION;
+
+        ALTER TABLE IF EXISTS "bill_item"
+            ADD COLUMN IF NOT EXISTS "service_id" VARCHAR(100),
+            ADD COLUMN IF NOT EXISTS "nrc_amount" DOUBLE PRECISION,
+            ADD COLUMN IF NOT EXISTS "mrc_amount" DOUBLE PRECISION;
+        """
+    )
+
+
+async def ensure_company_columns():
+    if settings.DB_TYPE != "postgres":
+        return
+
+    conn = Tortoise.get_connection("postgres")
+    await conn.execute_script(
+        """
+        ALTER TABLE IF EXISTS "company"
+            ADD COLUMN IF NOT EXISTS "legal_name" VARCHAR(200),
+            ADD COLUMN IF NOT EXISTS "logo_url" VARCHAR(255),
+            ADD COLUMN IF NOT EXISTS "bill_email" VARCHAR(100),
+            ADD COLUMN IF NOT EXISTS "contact_person" VARCHAR(100);
+        """
+    )
+
+
+async def ensure_company_branding():
+    companies = [
+        ("Catixs Ltd", {"logo_url": "/logos/catixs.png", "legal_name": "Catixs Ltd"}),
+        ("77 Telecom Ltd", {"logo_url": "/logos/77-telecom.png", "legal_name": "77 Telecom Ltd"}),
+        ("深圳市科特思网络科技有限公司", {"logo_url": "/logos/catixs.png", "legal_name": "深圳市科特思网络科技有限公司"}),
+    ]
+    for name, values in companies:
+        company = await Company.filter(name=name, role=0).first()
+        if not company:
+            continue
+        changed = False
+        for field, value in values.items():
+            if getattr(company, field, None) != value:
+                setattr(company, field, value)
+                changed = True
+        if changed:
+            await company.save()
 
 
 async def ensure_user_columns():
@@ -402,7 +589,9 @@ async def init_db():
 
     await command.init()
     await ensure_user_columns()
+    await ensure_company_columns()
     await ensure_asset_columns()
+    await ensure_bill_columns()
     await Tortoise.generate_schemas(safe=True)
     if os.getenv("AUTO_DB_MIGRATE", "false").lower() in {"1", "true", "yes", "on"}:
         try:
@@ -457,6 +646,8 @@ async def init_companies():
     # 1. 77 Telecom Ltd (香港)
     company_77 = await Company.create(
         name="77 Telecom Ltd",
+        legal_name="77 Telecom Ltd",
+        logo_url="/logos/77-telecom.png",
         code="H",
         role=0,
         country="Hong Kong",
@@ -488,6 +679,8 @@ async def init_companies():
     # 2. 深圳市科特思网络科技有限公司 (中国)
     company_cn = await Company.create(
         name="深圳市科特思网络科技有限公司",
+        legal_name="深圳市科特思网络科技有限公司",
+        logo_url="/logos/catixs.png",
         code="C",
         role=0,
         country="China",
@@ -517,6 +710,8 @@ async def init_companies():
     # 3. Catixs Ltd (英国)
     company_uk = await Company.create(
         name="Catixs Ltd",
+        legal_name="Catixs Ltd",
+        logo_url="/logos/catixs.png",
         code="U",
         role=0,
         country="United Kingdom",
@@ -580,5 +775,7 @@ async def init_data():
     await init_superuser()
     await init_menus()
     await init_apis()
+    await ensure_business_api_permissions()
     await init_roles()
     await init_companies()
+    await ensure_company_branding()
