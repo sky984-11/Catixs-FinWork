@@ -48,7 +48,7 @@ from app.schemas.base import Success, SuccessExtra
 
 router = APIRouter()
 
-SENSITIVE_DEVICE_ATTRIBUTE_KEYS = {"IPMI密码"}
+SENSITIVE_DEVICE_ATTRIBUTE_KEYS = {"IPMI密码", "snmp团体名"}
 MASKED_DEVICE_SECRET = "******"
 DEVICE_SECRET_VIEW_ROLE_NAMES = {"admin", "noc"}
 DEVICE_SECRET_VIEW_ACCOUNT_NAMES = {"admin", "noc"}

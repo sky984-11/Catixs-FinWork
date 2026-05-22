@@ -1875,7 +1875,11 @@ function getDeviceAttributeRows(attributes, type) {
             { label: '版本', value: getAttributeValue(attributes, '版本') },
             { label: '补丁', value: getAttributeValue(attributes, '补丁') },
             { label: 'SNMP版本', value: getAttributeValue(attributes, 'snmp版本') },
-            { label: 'SNMP团体名', value: getAttributeValue(attributes, 'snmp团体名') },
+            {
+              label: 'SNMP团体名',
+              value: getAttributeValue(attributes, 'snmp团体名'),
+              sensitive: getAttributeValue(attributes, 'snmp团体名') === '******',
+            },
           ],
         },
       ]
