@@ -503,6 +503,8 @@ async def ensure_bill_columns():
             ADD COLUMN IF NOT EXISTS "payment_voucher_url" VARCHAR(255),
             ADD COLUMN IF NOT EXISTS "owner" VARCHAR(100),
             ADD COLUMN IF NOT EXISTS "remark" VARCHAR(500),
+            ADD COLUMN IF NOT EXISTS "conversion_currency" VARCHAR(10),
+            ADD COLUMN IF NOT EXISTS "exchange_rate" DOUBLE PRECISION,
             ADD COLUMN IF NOT EXISTS "net_amount" DOUBLE PRECISION,
             ADD COLUMN IF NOT EXISTS "vat_amount" DOUBLE PRECISION;
 

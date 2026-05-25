@@ -28,6 +28,8 @@ class BaseBill(BaseModel):
     billing_start_date: Optional[date] = None
     billing_end_date: Optional[date] = None
     currency: Optional[str] = None
+    conversion_currency: Optional[str] = None
+    exchange_rate: Optional[float] = None
     net_amount: Optional[float] = None
     vat_amount: Optional[float] = None
     total_amount: Optional[float] = None
@@ -53,6 +55,8 @@ class BillCreate(BaseModel):
     billing_start_date: Optional[date] = Field(None, example="2026-05-01")
     billing_end_date: Optional[date] = Field(None, example="2026-05-31")
     currency: str = Field("USD", example="USD")
+    conversion_currency: str = Field("USD", example="USD")
+    exchange_rate: Optional[float] = Field(1, example=1)
     net_amount: Optional[float] = Field(None, example=9175)
     vat_amount: Optional[float] = Field(None, example=0)
     total_amount: Optional[float] = Field(None, example=9175)

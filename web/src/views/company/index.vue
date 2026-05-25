@@ -35,7 +35,6 @@ const queryItems = ref({
   business_only: true,
   role: null,
   name: '',
-  code: '',
   status: null,
 })
 
@@ -69,7 +68,6 @@ const columns = [
       return h('div', { class: 'company-name-cell' }, [
         h('strong', row.name || '-'),
         h('span', row.legal_name || '未设置公司全称'),
-        h('span', row.code || '未设置编号'),
       ])
     },
   },
@@ -166,7 +164,6 @@ function createEmptyForm() {
     role: 1,
     name: '',
     legal_name: '',
-    code: '',
     country: '',
     address: '',
     company_email: '',
@@ -244,7 +241,6 @@ async function handleSave() {
     modalLoading.value = true
     await modalFormRef.value?.validate()
     const payload = { ...modalForm }
-    if (!payload.code) delete payload.code
     if (modalAction.value === 'add') {
       delete payload.id
       await api.createCompany(payload)
@@ -322,14 +318,6 @@ onMounted(async () => {
             @keypress.enter="$table?.handleSearch()"
           />
         </QueryBarItem>
-        <QueryBarItem label="编号" :label-width="50">
-          <NInput
-            v-model:value="queryItems.code"
-            clearable
-            placeholder="编号"
-            @keypress.enter="$table?.handleSearch()"
-          />
-        </QueryBarItem>
         <QueryBarItem label="状态" :label-width="50">
           <NSelect
             v-model:value="queryItems.status"
@@ -374,9 +362,6 @@ onMounted(async () => {
           </NFormItemGi>
           <NFormItemGi label="公司全称" path="legal_name">
             <NInput v-model:value="modalForm.legal_name" clearable placeholder="例如：263 Global Communications Limited" />
-          </NFormItemGi>
-          <NFormItemGi label="编号" path="code">
-            <NInput v-model:value="modalForm.code" clearable placeholder="留空则不设置" />
           </NFormItemGi>
           <NFormItemGi label="国家/地区" path="country">
             <NInput v-model:value="modalForm.country" clearable />

@@ -57,6 +57,10 @@ def sync_bill_amounts(payload: dict, items: list):
     net_amount = float(payload.get("net_amount") or 0)
     vat_amount = float(payload.get("vat_amount") or 0)
     paid_amount = float(payload.get("paid_amount") or 0)
+    if not payload.get("conversion_currency"):
+        payload["conversion_currency"] = payload.get("currency") or "USD"
+    if not payload.get("exchange_rate"):
+        payload["exchange_rate"] = 1
     total_amount = net_amount + vat_amount
     if abs(total_amount - item_total) >= 0.01:
         raise HTTPException(status_code=400, detail="Total Amount must equal Invoice Summary NRC + MRC total")
@@ -74,17 +78,53 @@ def build_bill_order(sort_field: str = "", sort_order: str = "") -> list[str]:
 
 async def build_bill_summary(q: Q) -> dict:
     rows = await bill_controller.model.filter(q).values(
-        "total_amount", "paid_amount", "unpaid_amount", "currency"
+        "total_amount",
+        "paid_amount",
+        "unpaid_amount",
+        "currency",
+        "conversion_currency",
+        "exchange_rate",
     )
-    currencies = {row.get("currency") for row in rows if row.get("currency")}
-    mixed_currency = len(currencies) > 1
+    by_currency = {}
+    converted_by_currency = {}
+    converted_currencies = set()
+    converted = {"total": 0, "paid": 0, "unpaid": 0}
+    for row in rows:
+        currency = row.get("currency") or "-"
+        bucket = by_currency.setdefault(currency, {"currency": currency, "total": 0, "paid": 0, "unpaid": 0, "count": 0})
+        total_amount = float(row.get("total_amount") or 0)
+        paid_amount = float(row.get("paid_amount") or 0)
+        unpaid_amount = float(row.get("unpaid_amount") or 0)
+        bucket["total"] += total_amount
+        bucket["paid"] += paid_amount
+        bucket["unpaid"] += unpaid_amount
+        bucket["count"] += 1
+
+        conversion_currency = row.get("conversion_currency") or currency
+        exchange_rate = float(row.get("exchange_rate") or 1)
+        converted_currencies.add(conversion_currency)
+        converted_total = total_amount * exchange_rate
+        converted_paid = paid_amount * exchange_rate
+        converted_unpaid = unpaid_amount * exchange_rate
+        converted["total"] += converted_total
+        converted["paid"] += converted_paid
+        converted["unpaid"] += converted_unpaid
+        converted_bucket = converted_by_currency.setdefault(
+            conversion_currency,
+            {"currency": conversion_currency, "total": 0, "paid": 0, "unpaid": 0, "count": 0},
+        )
+        converted_bucket["total"] += converted_total
+        converted_bucket["paid"] += converted_paid
+        converted_bucket["unpaid"] += converted_unpaid
+        converted_bucket["count"] += 1
+    mixed_conversion_currency = len(converted_currencies) > 1
     return {
-        "total": sum(float(row.get("total_amount") or 0) for row in rows),
-        "paid": sum(float(row.get("paid_amount") or 0) for row in rows),
-        "unpaid": sum(float(row.get("unpaid_amount") or 0) for row in rows),
         "count": len(rows),
-        "currency": next(iter(currencies)) if len(currencies) == 1 else "USD",
-        "mixed_currency": mixed_currency,
+        "by_currency": sorted(by_currency.values(), key=lambda item: item["currency"]),
+        "converted": converted,
+        "converted_by_currency": sorted(converted_by_currency.values(), key=lambda item: item["currency"]),
+        "conversion_currency": next(iter(converted_currencies)) if len(converted_currencies) == 1 else "MULTI",
+        "mixed_conversion_currency": mixed_conversion_currency,
     }
 
 
