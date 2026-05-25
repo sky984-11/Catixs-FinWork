@@ -41,6 +41,14 @@ const companyList = ref([])
 const issuerCompanyList = ref([])
 const issuerBankAccounts = ref({})
 const tableRows = ref([])
+const summary = ref({
+  total: 0,
+  paid: 0,
+  unpaid: 0,
+  count: 0,
+  currency: 'USD',
+  mixed_currency: false,
+})
 
 const queryItems = ref({
   company_id: null,
@@ -90,6 +98,7 @@ const columns = [
     key: 'customer_name',
     width: 190,
     fixed: 'left',
+    sorter: true,
     ellipsis: { tooltip: true },
     render(row) {
       return h('div', { class: 'bill-customer-cell' }, [
@@ -103,6 +112,7 @@ const columns = [
     key: 'bill_month',
     width: 92,
     align: 'center',
+    sorter: true,
     render: (row) => h('span', { class: 'date-pill' }, formatMonth(row.bill_month)),
   },
   {
@@ -110,6 +120,7 @@ const columns = [
     key: 'is_settled',
     width: 92,
     align: 'center',
+    sorter: true,
     render(row) {
       return h(
         NTag,
@@ -122,18 +133,20 @@ const columns = [
     title: '账单编号',
     key: 'invoice_no',
     width: 220,
+    sorter: true,
     ellipsis: { tooltip: true },
     render: (row) => h('span', { class: 'invoice-no-cell' }, row.invoice_no || '-'),
   },
-  { title: '账单日期', key: 'invoice_date', width: 112, align: 'center', render: (row) => renderDateCell(row.invoice_date) },
-  { title: '截止日期', key: 'due_date', width: 112, align: 'center', render: (row) => renderDateCell(row.due_date) },
-  { title: '计费开始', key: 'billing_start_date', width: 112, align: 'center', render: (row) => renderDateCell(row.billing_start_date) },
-  { title: '计费结束', key: 'billing_end_date', width: 112, align: 'center', render: (row) => renderDateCell(row.billing_end_date) },
+  { title: '账单日期', key: 'invoice_date', width: 112, align: 'center', sorter: true, render: (row) => renderDateCell(row.invoice_date) },
+  { title: '截止日期', key: 'due_date', width: 112, align: 'center', sorter: true, render: (row) => renderDateCell(row.due_date) },
+  { title: '计费开始', key: 'billing_start_date', width: 112, align: 'center', sorter: true, render: (row) => renderDateCell(row.billing_start_date) },
+  { title: '计费结束', key: 'billing_end_date', width: 112, align: 'center', sorter: true, render: (row) => renderDateCell(row.billing_end_date) },
   {
     title: '币种',
     key: 'currency',
     width: 80,
     align: 'center',
+    sorter: true,
     render(row) {
       return row.currency
         ? h(NTag, { type: 'info', round: true, bordered: false }, { default: () => row.currency })
@@ -145,6 +158,7 @@ const columns = [
     key: 'total_amount',
     width: 116,
     align: 'right',
+    sorter: true,
     render: (row) => renderMoneyCell(row.total_amount, row.currency),
   },
   {
@@ -152,6 +166,7 @@ const columns = [
     key: 'paid_amount',
     width: 116,
     align: 'right',
+    sorter: true,
     render: (row) => renderMoneyCell(row.paid_amount, row.currency),
   },
   {
@@ -159,6 +174,7 @@ const columns = [
     key: 'unpaid_amount',
     width: 116,
     align: 'right',
+    sorter: true,
     render: (row) => renderMoneyCell(row.unpaid_amount, row.currency, Number(row.unpaid_amount || 0) > 0 ? 'danger' : 'muted'),
   },
   {
@@ -176,6 +192,7 @@ const columns = [
     title: '负责人',
     key: 'owner',
     width: 110,
+    sorter: true,
     ellipsis: { tooltip: true },
     render: (row) => h(NTag, { size: 'small', bordered: false, round: true }, { default: () => getOwnerName(row.owner) }),
   },
@@ -209,15 +226,6 @@ const columns = [
     },
   },
 ]
-
-const summary = computed(() => {
-  const rows = tableRows.value || []
-  return {
-    total: rows.reduce((sum, row) => sum + Number(row.total_amount || 0), 0),
-    paid: rows.reduce((sum, row) => sum + Number(row.paid_amount || 0), 0),
-    unpaid: rows.reduce((sum, row) => sum + Number(row.unpaid_amount || 0), 0),
-  }
-})
 
 function createEmptyForm() {
   return {
@@ -432,6 +440,18 @@ async function handleDelete(row) {
   await $table.value?.handleSearch()
 }
 
+function handleBillDataChange(rows, extra = {}) {
+  tableRows.value = rows || []
+  summary.value = {
+    total: Number(extra.summary?.total || 0),
+    paid: Number(extra.summary?.paid || 0),
+    unpaid: Number(extra.summary?.unpaid || 0),
+    count: Number(extra.summary?.count ?? extra.total ?? tableRows.value.length),
+    currency: extra.summary?.currency || 'USD',
+    mixed_currency: Boolean(extra.summary?.mixed_currency),
+  }
+}
+
 function handleCompanyChange(companyId) {
   const company = companyList.value.find((item) => item.id === companyId)
   if (!company) return
@@ -592,8 +612,8 @@ function formatNumber(value) {
   })
 }
 
-function formatMoney(value, currency = 'USD') {
-  return `${currency || ''} ${formatNumber(value)}`.trim()
+function getSummaryCurrency() {
+  return summary.value.mixed_currency ? 'MULTI' : summary.value.currency || 'USD'
 }
 
 function renderDateCell(value) {
@@ -724,9 +744,26 @@ onMounted(async () => {
     </template>
 
     <div class="summary-strip">
-      <span>账单金额 {{ formatMoney(summary.total) }}</span>
-      <span>已付金额 {{ formatMoney(summary.paid) }}</span>
-      <span>欠费金额 {{ formatMoney(summary.unpaid) }}</span>
+      <div class="summary-card">
+        <span>账单</span>
+        <strong>{{ formatNumber(summary.count) }}</strong>
+        <em>条记录</em>
+      </div>
+      <div class="summary-card">
+        <span>账单金额</span>
+        <strong>{{ formatNumber(summary.total) }}</strong>
+        <em>{{ getSummaryCurrency() }}</em>
+      </div>
+      <div class="summary-card paid">
+        <span>已付金额</span>
+        <strong>{{ formatNumber(summary.paid) }}</strong>
+        <em>{{ getSummaryCurrency() }}</em>
+      </div>
+      <div class="summary-card unpaid">
+        <span>欠费金额</span>
+        <strong>{{ formatNumber(summary.unpaid) }}</strong>
+        <em>{{ getSummaryCurrency() }}</em>
+      </div>
     </div>
 
     <CrudTable
@@ -735,7 +772,7 @@ onMounted(async () => {
       :columns="columns"
       :get-data="api.getBillList"
       :scroll-x="1900"
-      @on-data-change="(rows) => (tableRows = rows)"
+      @on-data-change="handleBillDataChange"
     >
       <template #queryBar>
         <QueryBarItem label="客户" :label-width="50">
@@ -997,12 +1034,48 @@ onMounted(async () => {
 
 <style scoped>
 .summary-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
   margin-bottom: 14px;
-  color: #475569;
-  font-size: 13px;
+}
+
+.summary-card {
+  display: grid;
+  min-height: 72px;
+  align-content: center;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #fff, #f8fafc);
+  padding: 12px 14px;
+}
+
+.summary-card span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.summary-card strong {
+  margin-top: 4px;
+  color: #0f172a;
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.summary-card em {
+  margin-top: 3px;
+  color: #94a3b8;
+  font-size: 11px;
+  font-style: normal;
+}
+
+.summary-card.paid strong {
+  color: #047857;
+}
+
+.summary-card.unpaid strong {
+  color: #dc2626;
 }
 
 :deep(.muted) {
@@ -1298,6 +1371,10 @@ onMounted(async () => {
 }
 
 @media (max-width: 960px) {
+  .summary-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .item-row,
   .invoice-top {
     grid-template-columns: 1fr;
@@ -1320,6 +1397,12 @@ onMounted(async () => {
 
   .invoice-summary {
     width: 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .summary-strip {
+    grid-template-columns: 1fr;
   }
 }
 

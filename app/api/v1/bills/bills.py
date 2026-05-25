@@ -17,6 +17,22 @@ router = APIRouter()
 UPLOAD_DIR = "uploads/bills"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+SORTABLE_FIELDS = {
+    "customer_name",
+    "bill_month",
+    "is_settled",
+    "invoice_no",
+    "invoice_date",
+    "due_date",
+    "billing_start_date",
+    "billing_end_date",
+    "currency",
+    "total_amount",
+    "paid_amount",
+    "unpaid_amount",
+    "owner",
+}
+
 
 def build_invoice_no(customer_name: str | None, owner: str | None, bill_month) -> str:
     if not customer_name or not owner or not bill_month:
@@ -47,6 +63,29 @@ def sync_bill_amounts(payload: dict, items: list):
     payload["net_amount"] = net_amount
     payload["total_amount"] = item_total
     payload["unpaid_amount"] = max(total_amount - paid_amount, 0)
+
+
+def build_bill_order(sort_field: str = "", sort_order: str = "") -> list[str]:
+    if sort_field in SORTABLE_FIELDS and sort_order in {"ascend", "descend"}:
+        prefix = "-" if sort_order == "descend" else ""
+        return [f"{prefix}{sort_field}", "customer_name", "-bill_month", "-id"]
+    return ["customer_name", "-bill_month", "-id"]
+
+
+async def build_bill_summary(q: Q) -> dict:
+    rows = await bill_controller.model.filter(q).values(
+        "total_amount", "paid_amount", "unpaid_amount", "currency"
+    )
+    currencies = {row.get("currency") for row in rows if row.get("currency")}
+    mixed_currency = len(currencies) > 1
+    return {
+        "total": sum(float(row.get("total_amount") or 0) for row in rows),
+        "paid": sum(float(row.get("paid_amount") or 0) for row in rows),
+        "unpaid": sum(float(row.get("unpaid_amount") or 0) for row in rows),
+        "count": len(rows),
+        "currency": next(iter(currencies)) if len(currencies) == 1 else "USD",
+        "mixed_currency": mixed_currency,
+    }
 
 
 async def bill_to_dict(obj, include_items: bool = False):
@@ -90,6 +129,8 @@ async def list_bill(
     invoice_no: str = Query("", description="账单编号"),
     customer_name: str = Query("", description="客户/供应商名称"),
     is_settled: bool | None = Query(None, description="是否结清"),
+    sort_field: str = Query("", description="排序字段"),
+    sort_order: str = Query("", description="排序方向"),
 ):
     q = Q()
     if company_id is not None:
@@ -105,9 +146,15 @@ async def list_bill(
     if is_settled is not None:
         q &= Q(is_settled=is_settled)
 
-    total, objs = await bill_controller.list(page=page, page_size=page_size, search=q, order=["-id"])
+    total, objs = await bill_controller.list(
+        page=page,
+        page_size=page_size,
+        search=q,
+        order=build_bill_order(sort_field, sort_order),
+    )
     data = [await bill_to_dict(obj) for obj in objs]
-    return SuccessExtra(data=data, total=total, page=page, page_size=page_size)
+    summary = await build_bill_summary(q)
+    return SuccessExtra(data=data, total=total, page=page, page_size=page_size, summary=summary)
 
 
 @router.get("/get", summary="查看账单")

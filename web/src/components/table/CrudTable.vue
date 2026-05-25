@@ -14,6 +14,7 @@
       :pagination="isPagination ? pagination : false"
       @update:checked-row-keys="onChecked"
       @update:page="onPageChange"
+      @update:sorter="onSorterChange"
     />
   </div>
 </template>
@@ -76,6 +77,7 @@ const emit = defineEmits(['update:queryItems', 'onChecked', 'onDataChange'])
 const loading = ref(false)
 const initQuery = { ...props.queryItems }
 const tableData = ref([])
+const sorterParams = ref({})
 const pagination = reactive({
   page: 1,
   page_size: 10,
@@ -102,18 +104,21 @@ async function handleQuery() {
     if (props.isPagination && props.remote) {
       paginationParams = { page: pagination.page, page_size: pagination.page_size }
     }
-    const { data, total } = await props.getData({
+    const response = await props.getData({
       ...props.queryItems,
       ...props.extraParams,
+      ...sorterParams.value,
       ...paginationParams,
     })
+    const { data, total, ...extra } = response
     tableData.value = data
     pagination.itemCount = total || 0
+    emit('onDataChange', tableData.value, extra)
   } catch (error) {
     tableData.value = []
     pagination.itemCount = 0
+    emit('onDataChange', tableData.value, {})
   } finally {
-    emit('onDataChange', tableData.value)
     loading.value = false
   }
 }
@@ -141,6 +146,19 @@ function onChecked(rowKeys) {
   if (props.columns.some((item) => item.type === 'selection')) {
     emit('onChecked', rowKeys)
   }
+}
+function onSorterChange(sorter) {
+  const activeSorter = Array.isArray(sorter) ? sorter.find((item) => item.order) : sorter
+  if (!activeSorter?.order) {
+    sorterParams.value = {}
+  } else {
+    sorterParams.value = {
+      sort_field: activeSorter.columnKey,
+      sort_order: activeSorter.order,
+    }
+  }
+  pagination.page = 1
+  handleQuery()
 }
 
 defineExpose({
