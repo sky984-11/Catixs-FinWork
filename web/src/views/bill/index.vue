@@ -371,12 +371,18 @@ function buildInvoicePrintDocument(invoiceHtml) {
     .summary-amount { text-align: right; }
     .summary-label { text-align: left; }
     .invoice-table { margin-top: 64px; }
-    .invoice-table h2 { margin: 0; border: 1px solid #d8dde6; border-bottom: 0; background: #f3f4f6; font-size: 22px; line-height: 42px; text-align: center; }
-    .invoice-table table { width: 100%; border-collapse: collapse; }
-    .invoice-table th, .invoice-table td { border: 1px solid #d8dde6; padding: 8px 9px; text-align: center; }
-    .invoice-table th { background: #f8fafc; font-weight: 500; }
+    .invoice-table h2 { margin: 0; border: 1px solid #d8dde6; border-bottom: 0; background: #f3f4f6; font-size: 16px; line-height: 34px; text-align: center; }
+    .invoice-table table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+    .service-id-col { width: 8%; }
+    .service-col { width: 10%; }
+    .item-col { width: 19%; }
+    .location-col { width: 13%; }
+    .date-col { width: 13%; }
+    .amount-col { width: 12%; }
+    .invoice-table th, .invoice-table td { border: 1px solid #d8dde6; padding: 7px 8px; text-align: center; font-size: 12px; line-height: 1.25; }
+    .invoice-table th { background: #f8fafc; font-weight: 600; }
+    .invoice-table td:nth-child(7), .invoice-table td:nth-child(8), .amount-row td:last-child { text-align: right; }
     .amount-row td:first-child { text-align: right; }
-    .amount-row td:last-child { text-align: left; }
     .issuer-accounts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 28px; }
     .account-card { display: flex; min-height: 132px; flex-direction: column; gap: 7px; border-radius: 6px; background: #f8fafc; padding: 14px 16px; color: #111827; }
     .account-card strong { font-size: 15px; }
@@ -1023,6 +1029,16 @@ onMounted(async () => {
           <section class="invoice-table">
             <h2>Invoice Summary</h2>
             <table>
+              <colgroup>
+                <col class="service-id-col" />
+                <col class="service-col" />
+                <col class="item-col" />
+                <col class="location-col" />
+                <col class="date-col" />
+                <col class="date-col" />
+                <col class="amount-col" />
+                <col class="amount-col" />
+              </colgroup>
               <thead>
                 <tr>
                   <th>Service ID</th>
@@ -1234,7 +1250,7 @@ onMounted(async () => {
 
 .item-row {
   display: grid;
-  grid-template-columns: 64px 0.8fr 1.4fr 0.9fr 122px 122px 105px 105px 34px;
+  grid-template-columns: 64px 0.8fr 1.4fr 0.9fr 160px 160px 105px 105px 34px;
   gap: 6px;
   margin-bottom: 6px;
 }
@@ -1371,34 +1387,63 @@ onMounted(async () => {
   border: 1px solid #d8dde6;
   border-bottom: 0;
   background: #f3f4f6;
-  font-size: 22px;
-  line-height: 42px;
+  font-size: 16px;
+  line-height: 34px;
   text-align: center;
 }
 
 .invoice-table table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
+}
+
+.service-id-col {
+  width: 8%;
+}
+
+.service-col {
+  width: 10%;
+}
+
+.item-col {
+  width: 19%;
+}
+
+.location-col {
+  width: 13%;
+}
+
+.date-col {
+  width: 13%;
+}
+
+.amount-col {
+  width: 12%;
 }
 
 .invoice-table th,
 .invoice-table td {
   border: 1px solid #d8dde6;
-  padding: 8px 9px;
+  padding: 7px 8px;
   text-align: center;
+  font-size: 12px;
+  line-height: 1.25;
 }
 
 .invoice-table th {
   background: #f8fafc;
-  font-weight: 500;
+  font-weight: 600;
+}
+
+.invoice-table td:nth-child(7),
+.invoice-table td:nth-child(8),
+.amount-row td:last-child {
+  text-align: right;
 }
 
 .amount-row td:first-child {
   text-align: right;
-}
-
-.amount-row td:last-child {
-  text-align: left;
 }
 
 .issuer-accounts {
