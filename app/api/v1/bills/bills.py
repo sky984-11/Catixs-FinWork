@@ -1,7 +1,7 @@
 import logging
 import os
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from tortoise.expressions import Q
@@ -86,6 +86,7 @@ async def list_bill(
     page_size: int = Query(10, description="每页数量"),
     company_id: int | None = Query(None, description="公司ID"),
     bill_type: int | None = Query(None, description="账单类型(1客户/2供应商)"),
+    bill_month: date | None = Query(None, description="账单月份"),
     invoice_no: str = Query("", description="账单编号"),
     customer_name: str = Query("", description="客户/供应商名称"),
     is_settled: bool | None = Query(None, description="是否结清"),
@@ -95,6 +96,8 @@ async def list_bill(
         q &= Q(company_id=company_id)
     if bill_type is not None:
         q &= Q(bill_type=bill_type)
+    if bill_month is not None:
+        q &= Q(bill_month=bill_month)
     if invoice_no:
         q &= Q(invoice_no__contains=invoice_no)
     if customer_name:

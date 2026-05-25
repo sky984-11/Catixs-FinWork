@@ -1,5 +1,5 @@
 <script setup>
-import { computed, h, onMounted, reactive, ref } from 'vue'
+import { computed, h, nextTick, onMounted, reactive, ref } from 'vue'
 import {
   NButton,
   NDatePicker,
@@ -14,6 +14,7 @@ import {
   NSelect,
   NSpace,
   NTag,
+  NTooltip,
   NUpload,
 } from 'naive-ui'
 
@@ -35,17 +36,15 @@ const modalLoading = ref(false)
 const modalAction = ref('add')
 const pendingVoucherFile = ref(null)
 const detailBill = ref(null)
+const invoicePrintRef = ref(null)
 const companyList = ref([])
 const issuerCompanyList = ref([])
 const issuerBankAccounts = ref({})
 const tableRows = ref([])
 
 const queryItems = ref({
-  bill_type: null,
   company_id: null,
-  invoice_no: '',
-  customer_name: '',
-  is_settled: null,
+  bill_month: null,
 })
 
 const modalForm = reactive(createEmptyForm())
@@ -67,11 +66,6 @@ const billTypeOptions = [
   { label: '供应商账单', value: 2 },
 ]
 
-const settledOptions = [
-  { label: '已结清', value: true },
-  { label: '未结清', value: false },
-]
-
 const currencyOptions = ['CNY', 'USD', 'HKD', 'EUR', 'GBP', 'JPY', 'SGD'].map((item) => ({
   label: item,
   value: item,
@@ -91,31 +85,50 @@ const rules = {
 }
 
 const columns = [
-  { title: '客户名', key: 'customer_name', width: 170, fixed: 'left', ellipsis: { tooltip: true } },
+  {
+    title: '客户名',
+    key: 'customer_name',
+    width: 190,
+    fixed: 'left',
+    ellipsis: { tooltip: true },
+    render(row) {
+      return h('div', { class: 'bill-customer-cell' }, [
+        h('strong', row.customer_name || '-'),
+        h('span', getCompanyLegalName(row.company_id, row.customer_name) || '-'),
+      ])
+    },
+  },
   {
     title: '月份',
     key: 'bill_month',
-    width: 100,
-    render: (row) => formatMonth(row.bill_month),
+    width: 92,
+    align: 'center',
+    render: (row) => h('span', { class: 'date-pill' }, formatMonth(row.bill_month)),
   },
   {
     title: '是否结清',
     key: 'is_settled',
-    width: 95,
+    width: 92,
     align: 'center',
     render(row) {
       return h(
         NTag,
-        { type: row.is_settled ? 'success' : 'warning', bordered: false },
+        { type: row.is_settled ? 'success' : 'warning', bordered: false, round: true },
         { default: () => (row.is_settled ? '已结清' : '未结清') }
       )
     },
   },
-  { title: '账单编号', key: 'invoice_no', width: 210, ellipsis: { tooltip: true } },
-  { title: '账单日期', key: 'invoice_date', width: 115 },
-  { title: '截止日期', key: 'due_date', width: 115 },
-  { title: '计费开始日期', key: 'billing_start_date', width: 130 },
-  { title: '计费结束日期', key: 'billing_end_date', width: 130 },
+  {
+    title: '账单编号',
+    key: 'invoice_no',
+    width: 220,
+    ellipsis: { tooltip: true },
+    render: (row) => h('span', { class: 'invoice-no-cell' }, row.invoice_no || '-'),
+  },
+  { title: '账单日期', key: 'invoice_date', width: 112, align: 'center', render: (row) => renderDateCell(row.invoice_date) },
+  { title: '截止日期', key: 'due_date', width: 112, align: 'center', render: (row) => renderDateCell(row.due_date) },
+  { title: '计费开始', key: 'billing_start_date', width: 112, align: 'center', render: (row) => renderDateCell(row.billing_start_date) },
+  { title: '计费结束', key: 'billing_end_date', width: 112, align: 'center', render: (row) => renderDateCell(row.billing_end_date) },
   {
     title: '币种',
     key: 'currency',
@@ -130,75 +143,65 @@ const columns = [
   {
     title: '账单金额',
     key: 'total_amount',
-    width: 110,
+    width: 116,
     align: 'right',
-    render: (row) => formatNumber(row.total_amount),
+    render: (row) => renderMoneyCell(row.total_amount, row.currency),
   },
   {
     title: '已付金额',
     key: 'paid_amount',
-    width: 110,
+    width: 116,
     align: 'right',
-    render: (row) => formatNumber(row.paid_amount),
+    render: (row) => renderMoneyCell(row.paid_amount, row.currency),
   },
   {
     title: '欠费金额',
     key: 'unpaid_amount',
-    width: 110,
+    width: 116,
     align: 'right',
-    render: (row) => formatNumber(row.unpaid_amount),
+    render: (row) => renderMoneyCell(row.unpaid_amount, row.currency, Number(row.unpaid_amount || 0) > 0 ? 'danger' : 'muted'),
   },
   {
     title: '付款凭证',
     key: 'payment_voucher_url',
-    width: 115,
+    width: 84,
     align: 'center',
     render(row) {
       return row.payment_voucher_url
-        ? h(
-            NButton,
-            { size: 'small', tertiary: true, onClick: () => openFile(row.payment_voucher_url) },
-            { default: () => '查看', icon: renderIcon('mdi:paperclip', { size: 16 }) }
-          )
+        ? renderIconButton('查看凭证', 'mdi:paperclip', { onClick: () => openFile(row.payment_voucher_url) })
         : h('span', { class: 'muted' }, '-')
     },
   },
   {
     title: '负责人',
     key: 'owner',
-    width: 130,
+    width: 110,
     ellipsis: { tooltip: true },
-    render: (row) => getOwnerName(row.owner),
+    render: (row) => h(NTag, { size: 'small', bordered: false, round: true }, { default: () => getOwnerName(row.owner) }),
   },
-  { title: '备注', key: 'remark', width: 180, ellipsis: { tooltip: true } },
+  {
+    title: '备注',
+    key: 'remark',
+    width: 150,
+    ellipsis: { tooltip: true },
+    render: (row) => h('span', { class: row.remark ? 'remark-cell' : 'muted' }, row.remark || '-'),
+  },
   {
     title: '操作',
     key: 'actions',
-    width: 170,
+    width: 116,
     fixed: 'right',
     align: 'center',
     render(row) {
-      return h(NSpace, { justify: 'center', size: 8 }, () => [
-        h(
-          NButton,
-          { size: 'small', secondary: true, onClick: () => openDetail(row) },
-          { default: () => '详情', icon: renderIcon('mdi:receipt-text-outline', { size: 16 }) }
-        ),
-        h(
-          NButton,
-          { size: 'small', type: 'primary', secondary: true, onClick: () => openEdit(row) },
-          { default: () => '编辑', icon: renderIcon('material-symbols:edit', { size: 16 }) }
-        ),
+      return h(NSpace, { class: 'row-actions', justify: 'center', size: 8, wrap: false }, () => [
+        renderIconButton('详情', 'mdi:receipt-text-outline', { onClick: () => openDetail(row) }),
+        renderIconButton('编辑', 'material-symbols:edit', { type: 'primary', onClick: () => openEdit(row) }),
         h(
           NPopconfirm,
           { onPositiveClick: () => handleDelete(row) },
           {
             trigger: () =>
-              h(
-                NButton,
-                { size: 'small', type: 'error', secondary: true },
-                { default: () => '删除', icon: renderIcon('material-symbols:delete-outline', { size: 16 }) }
-              ),
+              renderIconButton('删除', 'material-symbols:delete-outline', { type: 'error' }),
             default: () => '确定删除该账单吗？',
           }
         ),
@@ -290,6 +293,94 @@ async function openDetail(row) {
   detailBill.value = bill
   await loadIssuerBankAccounts(getIssuerCompanyId(bill))
   detailVisible.value = true
+}
+
+async function printBill() {
+  if (!invoicePrintRef.value) return
+  await nextTick()
+  const iframe = document.createElement('iframe')
+  iframe.setAttribute('aria-hidden', 'true')
+  iframe.style.position = 'fixed'
+  iframe.style.right = '0'
+  iframe.style.bottom = '0'
+  iframe.style.width = '0'
+  iframe.style.height = '0'
+  iframe.style.border = '0'
+  document.body.appendChild(iframe)
+
+  const printWindow = iframe.contentWindow
+  const printDocument = iframe.contentDocument || printWindow?.document
+  if (!printWindow || !printDocument) {
+    iframe.remove()
+    return
+  }
+
+  printDocument.open()
+  printDocument.write(buildInvoicePrintDocument(invoicePrintRef.value.outerHTML))
+  printDocument.close()
+  await waitForPrintAssets(printDocument)
+
+  const cleanup = () => iframe.remove()
+  printWindow.addEventListener('afterprint', cleanup, { once: true })
+  window.setTimeout(() => {
+    printWindow.focus()
+    printWindow.print()
+    window.setTimeout(cleanup, 1200)
+  }, 250)
+}
+
+function waitForPrintAssets(printDocument) {
+  const images = Array.from(printDocument.images || [])
+  if (!images.length) return Promise.resolve()
+  return Promise.all(
+    images.map((img) => {
+      if (img.complete) return Promise.resolve()
+      return new Promise((resolve) => {
+        img.onload = resolve
+        img.onerror = resolve
+      })
+    })
+  )
+}
+
+function buildInvoicePrintDocument(invoiceHtml) {
+  return `<!doctype html>
+<html>
+<head>
+  <base href="${window.location.origin}/">
+  <meta charset="utf-8">
+  <title>${detailBill.value?.invoice_no || 'Invoice'}</title>
+  <style>
+    @page { size: A4; margin: 0; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: #fff; color: #1f2937; font-family: Arial, "Microsoft YaHei", sans-serif; }
+    .invoice-preview { width: 210mm; min-height: 297mm; margin: 0; background: #fff; box-shadow: none; color: #1f2937; font-size: 14px; padding: 18mm 16mm 20mm; }
+    .invoice-header { display: flex; min-height: 104px; align-items: stretch; justify-content: space-between; margin-bottom: 34px; }
+    .brand { display: flex; width: 470px; min-height: 104px; align-items: center; color: #050505; font-size: 52px; font-weight: 700; letter-spacing: 0; line-height: 1; }
+    .issuer-logo { display: block; max-width: 150px; max-height: 104px; object-fit: contain; }
+    .issuer { display: flex; flex-direction: column; gap: 3px; justify-content: center; color: #000; font-weight: 600; text-align: right; }
+    .invoice-top { display: grid; grid-template-columns: minmax(0, 1fr) 120px 250px; gap: 10px; }
+    .customer-block, .meta-labels, .meta-values { display: flex; flex-direction: column; gap: 5px; border-radius: 6px; background: #f8fafc; padding: 10px 12px; }
+    .meta-values { text-align: right; }
+    .invoice-summary { display: grid; width: 360px; grid-template-columns: 1fr 120px; gap: 6px; margin-top: 16px; }
+    .summary-title { color: #111827; font-weight: 700; }
+    .summary-amount { text-align: right; }
+    .summary-label { text-align: left; }
+    .invoice-table { margin-top: 64px; }
+    .invoice-table h2 { margin: 0; border: 1px solid #d8dde6; border-bottom: 0; background: #f3f4f6; font-size: 22px; line-height: 42px; text-align: center; }
+    .invoice-table table { width: 100%; border-collapse: collapse; }
+    .invoice-table th, .invoice-table td { border: 1px solid #d8dde6; padding: 8px 9px; text-align: center; }
+    .invoice-table th { background: #f8fafc; font-weight: 500; }
+    .amount-row td:first-child { text-align: right; }
+    .amount-row td:last-child { text-align: left; }
+    .issuer-accounts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 28px; }
+    .account-card { display: flex; min-height: 132px; flex-direction: column; gap: 7px; border-radius: 6px; background: #f8fafc; padding: 14px 16px; color: #111827; }
+    .account-card strong { font-size: 15px; }
+    .account-card span { line-height: 1.45; }
+  </style>
+</head>
+<body>${invoiceHtml}</body>
+</html>`
 }
 
 function normalizeBill(row) {
@@ -457,6 +548,10 @@ function formatMonth(value) {
   return value ? String(value).slice(0, 7) : '-'
 }
 
+function formatShortDate(value) {
+  return value ? String(value).slice(5, 10).replace('-', '/') : '-'
+}
+
 function formatInvoiceMonth(value) {
   if (!value) return ''
   const text = String(value)
@@ -499,6 +594,50 @@ function formatNumber(value) {
 
 function formatMoney(value, currency = 'USD') {
   return `${currency || ''} ${formatNumber(value)}`.trim()
+}
+
+function renderDateCell(value) {
+  return h('span', { class: value ? 'date-cell' : 'muted' }, formatShortDate(value))
+}
+
+function renderMoneyCell(value, currency = 'USD', tone = '') {
+  return h('div', { class: ['money-cell', tone] }, [
+    h('strong', formatNumber(value)),
+    h('span', currency || ''),
+  ])
+}
+
+function renderIconButton(label, icon, props = {}) {
+  const { type, ...buttonProps } = props
+  return h(
+    NTooltip,
+    { trigger: 'hover', placement: 'top' },
+    {
+      trigger: () =>
+        h(
+          NButton,
+          {
+            size: 'small',
+            type,
+            secondary: true,
+            circle: true,
+            round: true,
+            class: 'icon-only-btn',
+            ...buttonProps,
+          },
+          { icon: renderIcon(icon, { size: 16 }) }
+        ),
+      default: () => label,
+    }
+  )
+}
+
+function getBillNrcTotal(bill = detailBill.value) {
+  return (bill?.items || []).reduce((sum, item) => sum + Number(item.nrc_amount || 0), 0)
+}
+
+function getBillMrcTotal(bill = detailBill.value) {
+  return (bill?.items || []).reduce((sum, item) => sum + Number(item.mrc_amount || 0), 0)
 }
 
 function getCompanyAddress(companyId) {
@@ -578,7 +717,7 @@ onMounted(async () => {
 <template>
   <CommonPage show-footer title="账单管理">
     <template #action>
-      <NButton type="primary" @click="openAdd">
+      <NButton type="primary" round @click="openAdd">
         <TheIcon icon="material-symbols:add" :size="18" class="mr-5" />
         新增账单
       </NButton>
@@ -599,9 +738,6 @@ onMounted(async () => {
       @on-data-change="(rows) => (tableRows = rows)"
     >
       <template #queryBar>
-        <QueryBarItem label="类型" :label-width="50">
-          <NSelect v-model:value="queryItems.bill_type" clearable :options="billTypeOptions" />
-        </QueryBarItem>
         <QueryBarItem label="客户" :label-width="50">
           <NSelect
             v-model:value="queryItems.company_id"
@@ -610,24 +746,13 @@ onMounted(async () => {
             :options="companyOptions"
           />
         </QueryBarItem>
-        <QueryBarItem label="编号" :label-width="50">
-          <NInput
-            v-model:value="queryItems.invoice_no"
+        <QueryBarItem label="月份" :label-width="50">
+          <NDatePicker
+            v-model:formatted-value="queryItems.bill_month"
+            type="month"
+            value-format="yyyy-MM-dd"
             clearable
-            placeholder="账单编号"
-            @keypress.enter="$table?.handleSearch()"
           />
-        </QueryBarItem>
-        <QueryBarItem label="名称" :label-width="50">
-          <NInput
-            v-model:value="queryItems.customer_name"
-            clearable
-            placeholder="客户名"
-            @keypress.enter="$table?.handleSearch()"
-          />
-        </QueryBarItem>
-        <QueryBarItem label="状态" :label-width="50">
-          <NSelect v-model:value="queryItems.is_settled" clearable :options="settledOptions" />
         </QueryBarItem>
       </template>
     </CrudTable>
@@ -717,6 +842,7 @@ onMounted(async () => {
             <NButton
               v-if="modalForm.payment_voucher_url"
               text
+              round
               type="primary"
               @click="openFile(modalForm.payment_voucher_url)"
             >
@@ -729,7 +855,7 @@ onMounted(async () => {
       <div class="items-editor">
         <div class="items-editor-head">
           <strong>Invoice Summary</strong>
-          <NButton size="small" secondary @click="addItem">添加明细</NButton>
+          <NButton size="small" secondary round @click="addItem">添加明细</NButton>
         </div>
         <div class="item-row item-header">
           <span>Service ID</span>
@@ -751,7 +877,7 @@ onMounted(async () => {
           <NDatePicker v-model:formatted-value="item.end_date" size="small" type="date" value-format="yyyy-MM-dd" clearable />
           <NInputNumber v-model:value="item.nrc_amount" size="small" :min="0" :precision="2" @update:value="syncAmounts" />
           <NInputNumber v-model:value="item.mrc_amount" size="small" :min="0" :precision="2" @update:value="syncAmounts" />
-          <NButton size="small" secondary circle @click="removeItem(index)">
+          <NButton size="small" secondary circle round @click="removeItem(index)">
             <template #icon><TheIcon icon="mdi:minus" :size="16" /></template>
           </NButton>
         </div>
@@ -759,98 +885,111 @@ onMounted(async () => {
     </CrudModal>
 
     <NModal v-model:show="detailVisible" preset="card" class="invoice-modal" :title="detailBill?.invoice_no || '账单详情'">
-      <div v-if="detailBill" class="invoice-preview">
-        <header class="invoice-header">
-          <div class="brand">
-            <img v-if="getIssuerLogo(detailBill)" :src="getIssuerLogo(detailBill)" :alt="getIssuerName(detailBill)" class="issuer-logo" />
-            <span v-else>{{ getIssuerName(detailBill) }}</span>
-          </div>
-          <div class="issuer">
-            <strong>{{ getIssuerName(detailBill) }}</strong>
-            <span v-if="getIssuerAddress(detailBill)">{{ getIssuerAddress(detailBill) }}</span>
-          </div>
-        </header>
+      <template #header-extra>
+        <NButton v-if="detailBill" type="primary" secondary round @click="printBill">
+          <template #icon><TheIcon icon="mdi:printer-outline" :size="18" /></template>
+          打印
+        </NButton>
+      </template>
 
-        <section class="invoice-top">
-          <div class="customer-block">
-            <strong>{{ getCompanyLegalName(detailBill.company_id, detailBill.customer_name) || '-' }}</strong>
-            <span v-if="getCompanyFinanceContact(detailBill.company_id)">{{ getCompanyFinanceContact(detailBill.company_id) }}</span>
-            <span v-if="getCompanyBillEmail(detailBill.company_id)">{{ getCompanyBillEmail(detailBill.company_id) }}</span>
-            <span v-for="line in getCompanyAddress(detailBill.company_id).split(',')" :key="line">{{ line }}</span>
-          </div>
-          <div class="meta-labels">
-            <span>Invoice#</span>
-            <span>Invoice Date</span>
-            <span>Due Date</span>
-            <span>Currency</span>
-          </div>
-          <div class="meta-values">
-            <span>{{ detailBill.invoice_no || '-' }}</span>
-            <span>{{ detailBill.invoice_date || '-' }}</span>
-            <span>{{ detailBill.due_date || '-' }}</span>
-            <span>{{ detailBill.currency || '-' }}</span>
-          </div>
-        </section>
+      <div v-if="detailBill" class="pdf-preview-shell">
+        <div ref="invoicePrintRef" class="invoice-preview invoice-print-area">
+          <header class="invoice-header">
+            <div class="brand">
+              <img v-if="getIssuerLogo(detailBill)" :src="getIssuerLogo(detailBill)" :alt="getIssuerName(detailBill)" class="issuer-logo" />
+              <span v-else>{{ getIssuerName(detailBill) }}</span>
+            </div>
+            <div class="issuer">
+              <strong>{{ getIssuerName(detailBill) }}</strong>
+              <span v-if="getIssuerAddress(detailBill)">{{ getIssuerAddress(detailBill) }}</span>
+            </div>
+          </header>
 
-        <section class="invoice-summary">
-          <div class="summary-title">Summary</div>
-          <span>{{ detailBill.currency || '-' }}</span>
-          <label>Total Charges</label>
-          <b>{{ formatNumber(detailBill.total_amount) }}</b>
-          <strong>Total Due</strong>
-          <strong>{{ formatNumber(detailBill.unpaid_amount || detailBill.total_amount) }}</strong>
-        </section>
+          <section class="invoice-top">
+            <div class="customer-block">
+              <strong>{{ getCompanyLegalName(detailBill.company_id, detailBill.customer_name) || '-' }}</strong>
+              <span v-if="getCompanyFinanceContact(detailBill.company_id)">{{ getCompanyFinanceContact(detailBill.company_id) }}</span>
+              <span v-if="getCompanyBillEmail(detailBill.company_id)">{{ getCompanyBillEmail(detailBill.company_id) }}</span>
+              <span v-for="line in getCompanyAddress(detailBill.company_id).split(',')" :key="line">{{ line }}</span>
+            </div>
+            <div class="meta-labels">
+              <span>Invoice#</span>
+              <span>Invoice Date</span>
+              <span>Due Date</span>
+              <span>Currency</span>
+            </div>
+            <div class="meta-values">
+              <span>{{ detailBill.invoice_no || '-' }}</span>
+              <span>{{ detailBill.invoice_date || '-' }}</span>
+              <span>{{ detailBill.due_date || '-' }}</span>
+              <span>{{ detailBill.currency || '-' }}</span>
+            </div>
+          </section>
 
-        <section class="invoice-table">
-          <h2>Invoice Summary</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Service ID</th>
-                <th>Service</th>
-                <th>Item</th>
-                <th>Location</th>
-                <th>Start Date</th>
-                <th>End Date</th>
-                <th>NRC {{ detailBill.currency || '' }}</th>
-                <th>MRC {{ detailBill.currency || '' }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in detailBill.items" :key="item.id || `${item.service_id}-${item.item}`">
-                <td>{{ item.service_id || '-' }}</td>
-                <td>{{ item.service || '-' }}</td>
-                <td>{{ item.item || '-' }}</td>
-                <td>{{ item.location || '-' }}</td>
-                <td>{{ item.start_date || '-' }}</td>
-                <td>{{ item.end_date || '-' }}</td>
-                <td>{{ formatNumber(item.nrc_amount) }}</td>
-                <td>{{ formatNumber(item.mrc_amount) }}</td>
-              </tr>
-              <tr class="amount-row">
-                <td colspan="7">Net Amount</td>
-                <td>{{ formatNumber(detailBill.net_amount) }}</td>
-              </tr>
-              <tr class="amount-row">
-                <td colspan="7">VAT Amount</td>
-                <td>{{ formatNumber(detailBill.vat_amount) }}</td>
-              </tr>
-              <tr class="amount-row">
-                <td colspan="7">Total Amount</td>
-                <td>{{ formatNumber(detailBill.total_amount) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </section>
+          <section class="invoice-summary">
+            <div class="summary-title">Summary</div>
+            <span class="summary-amount">{{ detailBill.currency || '-' }}</span>
+            <label>Recurring</label>
+            <span class="summary-amount">{{ formatNumber(getBillMrcTotal(detailBill)) }}</span>
+            <label>Non-Recurring</label>
+            <span class="summary-amount">{{ formatNumber(getBillNrcTotal(detailBill)) }}</span>
+            <label>Total Charges</label>
+            <b class="summary-amount">{{ formatNumber(detailBill.total_amount) }}</b>
+            <strong class="summary-label">Total Due</strong>
+            <strong class="summary-amount">{{ formatNumber(detailBill.unpaid_amount ?? detailBill.total_amount) }}</strong>
+          </section>
 
-        <section v-if="getIssuerBankAccounts(detailBill).length" class="issuer-accounts">
-          <div v-for="account in getIssuerBankAccounts(detailBill)" :key="account.id" class="account-card">
-            <strong>{{ getAccountTitle(account, detailBill) }}</strong>
-            <span v-for="line in getAccountLines(account)" :key="`${account.id}-${line[0]}`">
-              {{ line[0] }}: {{ line[1] }}
-            </span>
-          </div>
-        </section>
+          <section class="invoice-table">
+            <h2>Invoice Summary</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Service ID</th>
+                  <th>Service</th>
+                  <th>Item</th>
+                  <th>Location</th>
+                  <th>Start Date</th>
+                  <th>End Date</th>
+                  <th>NRC {{ detailBill.currency || '' }}</th>
+                  <th>MRC {{ detailBill.currency || '' }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in detailBill.items" :key="item.id || `${item.service_id}-${item.item}`">
+                  <td>{{ item.service_id || '-' }}</td>
+                  <td>{{ item.service || '-' }}</td>
+                  <td>{{ item.item || '-' }}</td>
+                  <td>{{ item.location || '-' }}</td>
+                  <td>{{ item.start_date || '-' }}</td>
+                  <td>{{ item.end_date || '-' }}</td>
+                  <td>{{ formatNumber(item.nrc_amount) }}</td>
+                  <td>{{ formatNumber(item.mrc_amount) }}</td>
+                </tr>
+                <tr class="amount-row">
+                  <td colspan="7">Net Amount</td>
+                  <td>{{ formatNumber(detailBill.net_amount) }}</td>
+                </tr>
+                <tr class="amount-row">
+                  <td colspan="7">VAT Amount</td>
+                  <td>{{ formatNumber(detailBill.vat_amount) }}</td>
+                </tr>
+                <tr class="amount-row">
+                  <td colspan="7">Total Amount</td>
+                  <td>{{ formatNumber(detailBill.total_amount) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <section v-if="getIssuerBankAccounts(detailBill).length" class="issuer-accounts">
+            <div v-for="account in getIssuerBankAccounts(detailBill)" :key="account.id" class="account-card">
+              <strong>{{ getAccountTitle(account, detailBill) }}</strong>
+              <span v-for="line in getAccountLines(account)" :key="`${account.id}-${line[0]}`">
+                {{ line[0] }}: {{ line[1] }}
+              </span>
+            </div>
+          </section>
+        </div>
       </div>
     </NModal>
   </CommonPage>
@@ -868,6 +1007,83 @@ onMounted(async () => {
 
 :deep(.muted) {
   color: #94a3b8;
+}
+
+:deep(.bill-customer-cell) {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  line-height: 1.25;
+}
+
+:deep(.bill-customer-cell strong) {
+  overflow: hidden;
+  color: #0f172a;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:deep(.bill-customer-cell span) {
+  overflow: hidden;
+  color: #64748b;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:deep(.date-pill),
+:deep(.date-cell) {
+  color: #475569;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+:deep(.date-pill) {
+  display: inline-flex;
+  min-width: 64px;
+  justify-content: center;
+  border-radius: 999px;
+  background: #f1f5f9;
+  padding: 2px 8px;
+}
+
+:deep(.invoice-no-cell) {
+  color: #334155;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+:deep(.money-cell) {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+:deep(.money-cell strong) {
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+:deep(.money-cell span) {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+:deep(.money-cell.danger strong) {
+  color: #dc2626;
+}
+
+:deep(.money-cell.muted strong) {
+  color: #64748b;
+}
+
+:deep(.remark-cell) {
+  color: #64748b;
 }
 
 .items-editor {
@@ -907,14 +1123,29 @@ onMounted(async () => {
 }
 
 .invoice-modal {
-  width: min(860px, 94vw);
+  width: min(1040px, 96vw);
+}
+
+:deep(.invoice-modal .n-card__content) {
+  padding: 0;
+}
+
+.pdf-preview-shell {
+  max-height: calc(100vh - 150px);
+  overflow: auto;
+  background: #e5e7eb;
+  padding: 24px;
 }
 
 .invoice-preview {
+  width: 210mm;
+  min-height: 297mm;
+  margin: 0 auto;
   background: #fff;
+  box-shadow: 0 12px 34px rgb(15 23 42 / 16%);
   color: #1f2937;
   font-size: 14px;
-  padding: 18px 22px 28px;
+  padding: 18mm 16mm 20mm;
 }
 
 .invoice-header {
@@ -988,9 +1219,12 @@ onMounted(async () => {
   font-weight: 700;
 }
 
-.invoice-summary b,
-.invoice-summary strong {
+.summary-amount {
   text-align: right;
+}
+
+.summary-label {
+  text-align: left;
 }
 
 .invoice-table {
@@ -1058,6 +1292,11 @@ onMounted(async () => {
   line-height: 1.45;
 }
 
+:deep(.row-actions .n-button) {
+  width: 30px;
+  padding: 0;
+}
+
 @media (max-width: 960px) {
   .item-row,
   .invoice-top {
@@ -1083,4 +1322,5 @@ onMounted(async () => {
     width: 100%;
   }
 }
+
 </style>

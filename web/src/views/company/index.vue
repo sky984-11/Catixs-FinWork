@@ -12,6 +12,7 @@ import {
   NSpace,
   NSwitch,
   NTag,
+  NTooltip,
 } from 'naive-ui'
 
 import CommonPage from '@/components/page/CommonPage.vue'
@@ -139,29 +140,18 @@ const columns = [
   {
     title: '操作',
     key: 'actions',
-    width: 150,
+    width: 86,
     align: 'center',
     fixed: 'right',
     render(row) {
-      return h(NSpace, { justify: 'center', size: 8 }, () => [
-        h(
-          NButton,
-          { size: 'small', type: 'primary', secondary: true, onClick: () => openEdit(row) },
-          { default: () => '编辑', icon: renderIcon('material-symbols:edit', { size: 16 }) }
-        ),
+      return h(NSpace, { class: 'row-actions', justify: 'center', size: 8, wrap: false }, () => [
+        renderIconButton('编辑', 'material-symbols:edit', { type: 'primary', onClick: () => openEdit(row) }),
         h(
           NPopconfirm,
           { onPositiveClick: () => handleDelete(row) },
           {
             trigger: () =>
-              h(
-                NButton,
-                { size: 'small', type: 'error', secondary: true },
-                {
-                  default: () => '删除',
-                  icon: renderIcon('material-symbols:delete-outline', { size: 16 }),
-                }
-              ),
+              renderIconButton('删除', 'material-symbols:delete-outline', { type: 'error' }),
             default: () => `确定删除 ${row.name || '该记录'} 吗？`,
           }
         ),
@@ -191,6 +181,31 @@ function createEmptyForm() {
     remark: '',
     status: true,
   }
+}
+
+function renderIconButton(label, icon, props = {}) {
+  const { type, ...buttonProps } = props
+  return h(
+    NTooltip,
+    { trigger: 'hover', placement: 'top' },
+    {
+      trigger: () =>
+        h(
+          NButton,
+          {
+            size: 'small',
+            type,
+            secondary: true,
+            circle: true,
+            round: true,
+            class: 'icon-only-btn',
+            ...buttonProps,
+          },
+          { icon: renderIcon(icon, { size: 16 }) }
+        ),
+      default: () => label,
+    }
+  )
 }
 
 function resetForm() {
@@ -277,11 +292,11 @@ onMounted(async () => {
   <CommonPage show-footer title="客户/供应商">
     <template #action>
       <NSpace>
-        <NButton type="primary" @click="openAdd(1)">
+        <NButton type="primary" round @click="openAdd(1)">
           <TheIcon icon="material-symbols:add" :size="18" class="mr-5" />
           新增客户
         </NButton>
-        <NButton secondary type="primary" @click="openAdd(2)">
+        <NButton secondary type="primary" round @click="openAdd(2)">
           <TheIcon icon="material-symbols:add-business-outline" :size="18" class="mr-5" />
           新增供应商
         </NButton>
@@ -440,5 +455,10 @@ onMounted(async () => {
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+:deep(.row-actions .n-button) {
+  width: 30px;
+  padding: 0;
 }
 </style>
