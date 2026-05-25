@@ -52,7 +52,7 @@ const modalForm = reactive(createEmptyForm())
 
 const modalRules = {
   name: [{ required: true, message: '请输入公司简称', trigger: ['input', 'blur'] }],
-  role: [{ required: true, type: 'number', message: '请选择类型', trigger: 'change' }],
+  role_values: [{ required: true, type: 'array', message: '请选择类型', trigger: 'change' }],
   company_email: [{ trigger: 'blur', validator: validateOptionalEmail }],
   bill_email: [{ trigger: 'blur', validator: validateOptionalEmail }],
   noc_email: [{ trigger: 'blur', validator: validateOptionalEmail }],
@@ -74,13 +74,13 @@ const columns = [
   {
     title: '类型',
     key: 'role',
-    width: 90,
+    width: 140,
     align: 'center',
     render(row) {
-      return h(
-        NTag,
-        { type: Number(row.role) === 2 ? 'warning' : 'info', bordered: false },
-        { default: () => getRoleName(row.role) }
+      return h(NSpace, { justify: 'center', size: 4 }, () =>
+        getRoleTags(row.role).map((item) =>
+          h(NTag, { type: item.type, bordered: false }, { default: () => item.label })
+        )
       )
     },
   },
@@ -162,6 +162,7 @@ function createEmptyForm() {
   return {
     id: null,
     role: 1,
+    role_values: [1],
     name: '',
     legal_name: '',
     country: '',
@@ -221,6 +222,7 @@ function openAdd(role = 1) {
   modalAction.value = 'add'
   resetForm()
   modalForm.role = role
+  modalForm.role_values = getRoleValues(role)
   modalVisible.value = true
 }
 
@@ -230,6 +232,7 @@ function openEdit(row) {
   Object.assign(modalForm, {
     ...row,
     role: Number(row.role || 1),
+    role_values: getRoleValues(row.role),
     status: row.status !== false,
     contract_company_id: row.contract_company_id ?? null,
   })
@@ -240,7 +243,13 @@ async function handleSave() {
   try {
     modalLoading.value = true
     await modalFormRef.value?.validate()
-    const payload = { ...modalForm }
+    const payload = { ...modalForm, role: getRoleValue(modalForm.role_values) }
+    delete payload.role_values
+    Object.keys(payload).forEach((key) => {
+      if (payload[key] === null && key !== 'id' && key !== 'contract_company_id') {
+        payload[key] = ''
+      }
+    })
     if (modalAction.value === 'add') {
       delete payload.id
       await api.createCompany(payload)
@@ -271,7 +280,39 @@ function validateOptionalEmail(rule, value, callback) {
 }
 
 function getRoleName(role) {
-  return Number(role) === 2 ? '供应商' : '客户'
+  const names = getRoleTags(role).map((item) => item.label)
+  return names.length ? names.join('/') : '内部'
+}
+
+function getRoleTags(role) {
+  const value = Number(role || 0)
+  if (value === 3) {
+    return [
+      { label: '客户', type: 'info' },
+      { label: '供应商', type: 'warning' },
+    ]
+  }
+  if (value === 2) return [{ label: '供应商', type: 'warning' }]
+  if (value === 1) return [{ label: '客户', type: 'info' }]
+  return [{ label: '内部', type: 'default' }]
+}
+
+function getRoleValues(role) {
+  const value = Number(role || 0)
+  if (value === 3) return [1, 2]
+  if (value === 2) return [2]
+  if (value === 1) return [1]
+  return []
+}
+
+function getRoleValue(values) {
+  const selected = Array.from(new Set(values || [])).map(Number)
+  const hasCustomer = selected.includes(1)
+  const hasVendor = selected.includes(2)
+  if (hasCustomer && hasVendor) return 3
+  if (hasVendor) return 2
+  if (hasCustomer) return 1
+  return 0
 }
 
 function getContractCompanyName(id) {
@@ -345,8 +386,13 @@ onMounted(async () => {
         :rules="modalRules"
       >
         <NGrid :cols="2" :x-gap="16">
-          <NFormItemGi label="类型" path="role">
-            <NSelect v-model:value="modalForm.role" :options="roleOptions" />
+          <NFormItemGi label="类型" path="role_values">
+            <NSelect
+              v-model:value="modalForm.role_values"
+              multiple
+              :options="roleOptions"
+              placeholder="请选择类型"
+            />
           </NFormItemGi>
           <NFormItemGi label="签约主体" path="contract_company_id">
             <NSelect

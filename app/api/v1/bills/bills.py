@@ -54,18 +54,18 @@ def sync_settled_status(payload: dict):
 
 def sync_bill_amounts(payload: dict, items: list):
     item_total = sum((item.nrc_amount or 0) + (item.mrc_amount or 0) for item in items)
-    net_amount = float(payload.get("net_amount") or 0)
+    net_amount = float(payload.get("net_amount") or item_total or 0)
     vat_amount = float(payload.get("vat_amount") or 0)
     paid_amount = float(payload.get("paid_amount") or 0)
     if not payload.get("conversion_currency"):
         payload["conversion_currency"] = payload.get("currency") or "USD"
     if not payload.get("exchange_rate"):
         payload["exchange_rate"] = 1
-    total_amount = net_amount + vat_amount
-    if abs(total_amount - item_total) >= 0.01:
-        raise HTTPException(status_code=400, detail="Total Amount must equal Invoice Summary NRC + MRC total")
-    payload["net_amount"] = net_amount
-    payload["total_amount"] = item_total
+    if abs(net_amount - item_total) >= 0.01:
+        raise HTTPException(status_code=400, detail="Net Amount must equal Invoice Summary NRC + MRC total")
+    total_amount = item_total + vat_amount
+    payload["net_amount"] = item_total
+    payload["total_amount"] = total_amount
     payload["unpaid_amount"] = max(total_amount - paid_amount, 0)
 
 

@@ -64,7 +64,7 @@ const modalForm = reactive(createEmptyForm())
 const modalTitle = computed(() => (modalAction.value === 'add' ? '新增账单' : '编辑账单'))
 const companyOptions = computed(() =>
   companyList.value.map((item) => ({
-    label: `${item.name || item.legal_name || '-'}${item.legal_name ? ` - ${item.legal_name}` : ''}${item.role === 2 ? ' (供应商)' : ' (客户)'}`,
+    label: `${item.name || item.legal_name || '-'}${item.legal_name ? ` - ${item.legal_name}` : ''}${getCompanyRoleLabel(item.role)}`,
     value: item.id,
     role: item.role,
     name: item.name,
@@ -424,7 +424,7 @@ async function handleSave() {
     modalLoading.value = true
     await modalFormRef.value?.validate()
     const items = modalForm.items.filter(hasItemValue)
-    syncTotalAmount()
+    syncAmounts()
     if (!validateBillAmounts(items)) return
     syncInvoiceNo()
     const payload = { ...modalForm, items }
@@ -468,15 +468,24 @@ function handleCompanyChange(companyId) {
   const company = companyList.value.find((item) => item.id === companyId)
   if (!company) return
   modalForm.customer_name = company.name || ''
-  modalForm.bill_type = Number(company.role) === 2 ? 2 : 1
+  if (Number(company.role) === 1) {
+    modalForm.bill_type = 1
+  } else if (Number(company.role) === 2) {
+    modalForm.bill_type = 2
+  }
   syncInvoiceNo()
+}
+
+function getCompanyRoleLabel(role) {
+  const value = Number(role || 0)
+  if (value === 3) return ' (客户/供应商)'
+  if (value === 2) return ' (供应商)'
+  if (value === 1) return ' (客户)'
+  return ''
 }
 
 function handleCurrencyChange(value) {
   modalForm.currency = value
-  if (!modalForm.conversion_currency) {
-    modalForm.conversion_currency = value || 'USD'
-  }
   if (!modalForm.exchange_rate) {
     modalForm.exchange_rate = 1
   }
@@ -516,8 +525,8 @@ function isSameAmount(left, right) {
 
 function syncAmounts() {
   const itemTotal = getItemsAmountTotal()
-  modalForm.total_amount = itemTotal
-  modalForm.net_amount = Math.max(itemTotal - Number(modalForm.vat_amount || 0), 0)
+  modalForm.net_amount = itemTotal
+  modalForm.total_amount = itemTotal + Number(modalForm.vat_amount || 0)
   syncDueAmount()
 }
 
@@ -540,8 +549,12 @@ function syncSettled() {
 
 function validateBillAmounts(items) {
   const itemTotal = getItemsAmountTotal(items)
-  if (!isSameAmount(itemTotal, modalForm.total_amount)) {
-    window.$message?.error?.('Total Amount 必须等于 Invoice Summary 的 NRC + MRC 合计')
+  if (!isSameAmount(itemTotal, modalForm.net_amount)) {
+    window.$message?.error?.('Net Amount 必须等于 Invoice Summary 的 NRC + MRC 合计')
+    return false
+  }
+  if (!isSameAmount(Number(modalForm.net_amount || 0) + Number(modalForm.vat_amount || 0), modalForm.total_amount)) {
+    window.$message?.error?.('Total Amount 必须等于 Net Amount + VAT Amount')
     return false
   }
   return true
@@ -904,13 +917,13 @@ onMounted(async () => {
             <NSelect v-model:value="modalForm.currency" filterable tag :options="currencyOptions" @update:value="handleCurrencyChange" />
           </NFormItemGi>
           <NFormItemGi label="折算币种">
-            <NSelect v-model:value="modalForm.conversion_currency" filterable tag :options="currencyOptions" />
+            <NSelect v-model:value="modalForm.conversion_currency" filterable tag disabled :options="currencyOptions" />
           </NFormItemGi>
           <NFormItemGi label="折算汇率">
             <NInputNumber v-model:value="modalForm.exchange_rate" :min="0" :precision="6" />
           </NFormItemGi>
           <NFormItemGi label="Net Amount">
-            <NInputNumber v-model:value="modalForm.net_amount" :min="0" :precision="2" @update:value="syncTotalAmount" />
+            <NInputNumber v-model:value="modalForm.net_amount" :min="0" :precision="2" disabled />
           </NFormItemGi>
           <NFormItemGi label="VAT Amount">
             <NInputNumber v-model:value="modalForm.vat_amount" :min="0" :precision="2" @update:value="syncAmounts" />
@@ -919,7 +932,7 @@ onMounted(async () => {
             <NInputNumber v-model:value="modalForm.total_amount" :min="0" :precision="2" disabled />
           </NFormItemGi>
           <NFormItemGi label="已付金额">
-            <NInputNumber v-model:value="modalForm.paid_amount" :min="0" :precision="2" @update:value="syncTotalAmount" />
+            <NInputNumber v-model:value="modalForm.paid_amount" :min="0" :precision="2" @update:value="syncDueAmount" />
           </NFormItemGi>
           <NFormItemGi label="负责人" path="owner">
             <NSelect
