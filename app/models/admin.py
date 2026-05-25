@@ -88,3 +88,23 @@ class AuditLog(BaseModel, TimestampMixin):
     response_time = fields.IntField(default=0, description="响应时间(单位ms)", index=True)
     request_args = fields.JSONField(null=True, description="请求参数")
     response_body = fields.JSONField(null=True, description="返回数据")
+
+
+class ScheduledTask(BaseModel, TimestampMixin):
+    name = fields.CharField(max_length=100, unique=True, description="Task name", index=True)
+    task_type = fields.CharField(max_length=30, default="script", description="Task type", index=True)
+    script_path = fields.CharField(max_length=255, null=True, description="Script path")
+    command = fields.CharField(max_length=500, null=True, description="Command")
+    schedule_type = fields.CharField(max_length=20, default="weekly", description="Schedule type", index=True)
+    day_of_week = fields.IntField(null=True, description="Day of week, Monday is 0")
+    hour = fields.IntField(default=2, description="Run hour")
+    minute = fields.IntField(default=0, description="Run minute")
+    interval_minutes = fields.IntField(null=True, description="Interval minutes")
+    is_enabled = fields.BooleanField(default=True, description="Enabled", index=True)
+    last_run_at = fields.DatetimeField(null=True, description="Last run time", index=True)
+    next_run_at = fields.DatetimeField(null=True, description="Next run time", index=True)
+    last_status = fields.CharField(max_length=20, null=True, description="Last status", index=True)
+    last_message = fields.TextField(null=True, description="Last message")
+
+    class Meta:
+        table = "scheduled_task"

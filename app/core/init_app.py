@@ -26,6 +26,7 @@ from app.core.exceptions import (
 )
 from app.log import logger
 from app.models.admin import Api, Menu, Role
+from app.models.admin import ScheduledTask
 from app.models.company import Bank, BankAccount, Company
 from app.schemas.menus import MenuType
 from app.settings.config import settings
@@ -257,6 +258,7 @@ async def init_menus():
     await ensure_asset_menu()
     await ensure_business_party_menu()
     await ensure_bill_menu()
+    await ensure_task_menu()
 
 
 async def ensure_ticket_route_menus():
@@ -391,6 +393,55 @@ async def ensure_bill_menu():
         )
 
 
+async def ensure_task_menu():
+    system_menu = await Menu.filter(path="/system").first()
+    if not system_menu:
+        system_menu = await Menu.create(
+            menu_type=MenuType.CATALOG,
+            name="系统管理",
+            path="/system",
+            order=1,
+            parent_id=0,
+            icon="carbon:gui-management",
+            is_hidden=False,
+            component="Layout",
+            keepalive=False,
+            redirect="/system/user",
+        )
+
+    task_menu = await Menu.filter(component="/system/task").first()
+    if task_menu:
+        changed = False
+        values = {
+            "name": "定时任务",
+            "path": "task",
+            "order": 7,
+            "parent_id": system_menu.id,
+            "icon": "mdi:timer-cog-outline",
+            "is_hidden": False,
+            "keepalive": False,
+        }
+        for field, value in values.items():
+            if getattr(task_menu, field) != value:
+                setattr(task_menu, field, value)
+                changed = True
+        if changed:
+            await task_menu.save()
+        return task_menu
+
+    return await Menu.create(
+        menu_type=MenuType.MENU,
+        name="定时任务",
+        path="task",
+        order=7,
+        parent_id=system_menu.id,
+        icon="mdi:timer-cog-outline",
+        is_hidden=False,
+        component="/system/task",
+        keepalive=False,
+    )
+
+
 async def ensure_business_party_menu():
     company_menu = await Menu.filter(path="/vendor").first()
     if company_menu:
@@ -470,6 +521,55 @@ async def ensure_business_api_permissions():
             await role.apis.add(*read_apis)
         if is_admin_role_name(role.name) and manage_apis:
             await role.apis.add(*manage_apis)
+
+
+async def ensure_task_permissions():
+    task_menu = await Menu.filter(component="/system/task").first()
+    task_apis = await Api.filter(Q(path__startswith="/api/v1/task/"))
+    if not task_menu and not task_apis:
+        return
+
+    for role in await Role.all():
+        if not is_admin_role_name(role.name):
+            continue
+        if task_menu:
+            await role.menus.add(task_menu)
+        if task_apis:
+            await role.apis.add(*task_apis)
+
+
+async def ensure_database_backup_task():
+    task = await ScheduledTask.filter(name="数据库备份").first()
+    values = {
+        "task_type": "db_backup",
+        "script_path": "scripts/backup_database.py",
+        "command": None,
+        "schedule_type": "weekly",
+        "day_of_week": 6,
+        "hour": 2,
+        "minute": 0,
+        "interval_minutes": None,
+        "is_enabled": True,
+    }
+    if task:
+        changed = False
+        for field, value in values.items():
+            if getattr(task, field) != value:
+                setattr(task, field, value)
+                changed = True
+        if task.next_run_at is None:
+            from app.controllers.task import scheduled_task_controller
+
+            task.next_run_at = scheduled_task_controller.calc_next_run_at(task)
+            changed = True
+        if changed:
+            await task.save()
+        return
+
+    from app.controllers.task import scheduled_task_controller
+    from app.schemas.tasks import ScheduledTaskCreate
+
+    await scheduled_task_controller.create(ScheduledTaskCreate(name="数据库备份", **values))
 
 
 async def ensure_asset_columns():
@@ -774,5 +874,7 @@ async def init_data():
     await init_apis()
     await ensure_business_api_permissions()
     await init_roles()
+    await ensure_task_permissions()
+    await ensure_database_backup_task()
     await init_companies()
     await ensure_company_branding()

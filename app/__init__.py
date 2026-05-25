@@ -13,6 +13,7 @@ from app.core.init_app import (
     register_exceptions,
     register_routers,
 )
+from app.services.task_runner import start_scheduler, stop_scheduler
 
 try:
     from app.settings.config import settings
@@ -45,7 +46,9 @@ async def lifespan(app: FastAPI):
         flush=True,
     )
     await init_data()
+    start_scheduler()
     yield
+    await stop_scheduler()
     await Tortoise.close_connections()
 
 

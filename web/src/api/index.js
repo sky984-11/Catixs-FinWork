@@ -41,6 +41,13 @@ export default {
   deleteDept: (params = {}) => request.delete('/dept/delete', { params }),
   // auditlog
   getAuditLogList: (params = {}) => request.get('/auditlog/list', { params }),
+  // scheduled tasks
+  getTaskList: (params = {}) => request.get('/task/list', { params }),
+  createTask: (data = {}) => request.post('/task/create', data),
+  updateTask: (data = {}) => request.post('/task/update', data),
+  deleteTask: (params = {}) => request.delete('/task/delete', { params }),
+  toggleTask: (data = {}) => request.post('/task/toggle', data),
+  runTask: (params = {}) => request.post('/task/run', {}, { params }),
 
   // vendor
   getVendorList: (params = {}) => request.get('/vendor/list', { params }),
