@@ -98,6 +98,18 @@ function getAllApiKeys(apiTreeData) {
   return keys
 }
 
+function getAuthorizedApiKeys(apis = []) {
+  return apis.map((item) => item.method.toLowerCase() + item.path)
+}
+
+function handleMenuCheckedKeys(keys) {
+  menu_ids.value = keys
+}
+
+function handleApiCheckedKeys(keys) {
+  api_ids.value = keys
+}
+
 onMounted(() => {
   $table.value?.handleSearch()
 })
@@ -199,7 +211,9 @@ const columns = [
                   menuOption.value = menusResponse.data
                   apiOption.value = buildApiTree(apisResponse.data)
                   menu_ids.value = roleAuthorizedResponse.data.menus.map((v) => v.id)
-                  api_ids.value = getAllApiKeys(apiOption.value)
+                  api_ids.value = roleAuthorizedResponse.data.apis.length
+                    ? getAuthorizedApiKeys(roleAuthorizedResponse.data.apis)
+                    : getAllApiKeys(apiOption.value)
 
                   active.value = true
                   role_id.value = row.id
@@ -248,7 +262,7 @@ async function updateRoleAuthorized() {
   menu_ids.value = result.data.menus.map((v) => {
     return v.id
   })
-  api_ids.value = getAllApiKeys(apiOption.value)
+  api_ids.value = getAuthorizedApiKeys(result.data.apis)
 }
 </script>
 
@@ -344,7 +358,7 @@ async function updateRoleAuthorized() {
               :default-expand-all="true"
               :block-line="true"
               :selectable="false"
-              @update:checked-keys="(v) => (menu_ids = v)"
+              @update:checked-keys="handleMenuCheckedKeys"
             />
           </NTabPane>
           <NTabPane name="resource" tab="接口权限" display-directive="show">
@@ -361,7 +375,7 @@ async function updateRoleAuthorized() {
               :block-line="true"
               :selectable="false"
               cascade
-              @update:checked-keys="(v) => (api_ids = v)"
+              @update:checked-keys="handleApiCheckedKeys"
             />
           </NTabPane>
         </NTabs>

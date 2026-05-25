@@ -29,7 +29,8 @@ TICKET_MANAGER_ROLE_NAMES = {"admin", "noc", "管理员"}
 TICKET_MANAGER_ACCOUNT_NAMES = {"noc"}
 
 # 工单附件上传目录
-UPLOAD_DIR = "uploads/tickets"
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
+UPLOAD_DIR = os.path.join(PROJECT_ROOT, "uploads", "tickets")
 MAX_UPLOAD_IMAGE_SIZE = 5 * 1024 * 1024
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 

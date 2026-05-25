@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-UPLOAD_DIR = "uploads/bills"
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
+UPLOAD_DIR = os.path.join(PROJECT_ROOT, "uploads", "bills")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 SORTABLE_FIELDS = {

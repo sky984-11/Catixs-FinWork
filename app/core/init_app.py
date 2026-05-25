@@ -390,12 +390,6 @@ async def ensure_bill_menu():
             redirect="",
         )
 
-    roles = await Role.all()
-    for role in roles:
-        has_menu = await role.menus.filter(id=bill_menu.id).exists()
-        if not has_menu:
-            await role.menus.add(bill_menu)
-
 
 async def ensure_business_party_menu():
     company_menu = await Menu.filter(path="/vendor").first()
@@ -433,11 +427,6 @@ async def ensure_business_party_menu():
         )
 
     roles = await Role.all()
-    for role in roles:
-        has_menu = await role.menus.filter(id=company_menu.id).exists()
-        if not has_menu:
-            await role.menus.add(company_menu)
-
     legacy_company_menus = await Menu.filter(path="/company", component="/company")
     for legacy_company_menu in legacy_company_menus:
         if legacy_company_menu.id == company_menu.id:

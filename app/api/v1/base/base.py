@@ -20,7 +20,8 @@ from app.utils.password import get_password_hash, verify_password
 router = APIRouter()
 
 DEFAULT_AVATAR = "https://avatars.githubusercontent.com/u/54677442?v=4"
-AVATAR_UPLOAD_DIR = os.path.join("uploads", "avatars")
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
+AVATAR_UPLOAD_DIR = os.path.join(PROJECT_ROOT, "uploads", "avatars")
 AVATAR_MAX_SIZE = 2 * 1024 * 1024
 AVATAR_EXT_MAP = {
     "image/jpeg": ".jpg",
