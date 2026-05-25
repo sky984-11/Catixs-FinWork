@@ -11,7 +11,8 @@ cmds = [
 [phases.build]
 cmds = [
   "cd web && pnpm run build",
-  "mkdir -p migrations uploads/tickets app/logs"
+  "rm -rf web/node_modules web/.pnpm-store web/stats.html",
+  "mkdir -p migrations uploads/avatars uploads/bills uploads/tickets app/logs"
 ]
 
 [start]

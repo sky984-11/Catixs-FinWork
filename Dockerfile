@@ -36,7 +36,7 @@ COPY deploy ./deploy
 COPY pyproject.toml run.py ./
 COPY --from=web-build /app/web/dist ./web/dist
 
-RUN mkdir -p migrations uploads/tickets app/logs \
+RUN mkdir -p migrations uploads/avatars uploads/bills uploads/tickets app/logs \
     && chmod +x deploy/entrypoint.sh
 
 EXPOSE 80
