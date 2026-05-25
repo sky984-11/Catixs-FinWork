@@ -16,15 +16,25 @@ async def list_menu(
     page: int = Query(1, description="页码"),
     page_size: int = Query(10, description="每页数量"),
 ):
+    vendor_menu = await menu_controller.model.filter(path="/vendor", component="/company").first()
+
     async def get_menu_with_children(menu_id: int):
         menu = await menu_controller.model.get(id=menu_id)
         menu_dict = await menu.to_dict()
         child_menus = await menu_controller.model.filter(parent_id=menu_id).order_by("order")
-        menu_dict["children"] = [await get_menu_with_children(child.id) for child in child_menus]
+        menu_dict["children"] = [
+            await get_menu_with_children(child.id)
+            for child in child_menus
+            if not (vendor_menu and child.path == "/company" and child.component == "/company")
+        ]
         return menu_dict
 
     parent_menus = await menu_controller.model.filter(parent_id=0).order_by("order")
-    res_menu = [await get_menu_with_children(menu.id) for menu in parent_menus]
+    res_menu = [
+        await get_menu_with_children(menu.id)
+        for menu in parent_menus
+        if not (vendor_menu and menu.path == "/company" and menu.component == "/company")
+    ]
     return SuccessExtra(data=res_menu, total=len(res_menu), page=page, page_size=page_size)
 
 

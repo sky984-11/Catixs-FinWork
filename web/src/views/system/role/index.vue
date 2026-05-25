@@ -87,6 +87,17 @@ function buildApiTree(data) {
   return processedData
 }
 
+function getAllApiKeys(apiTreeData) {
+  const keys = []
+  apiTreeData.forEach((group) => {
+    const children = group.children || []
+    children.forEach((item) => {
+      keys.push(item.unique_id)
+    })
+  })
+  return keys
+}
+
 onMounted(() => {
   $table.value?.handleSearch()
 })
@@ -188,9 +199,7 @@ const columns = [
                   menuOption.value = menusResponse.data
                   apiOption.value = buildApiTree(apisResponse.data)
                   menu_ids.value = roleAuthorizedResponse.data.menus.map((v) => v.id)
-                  api_ids.value = roleAuthorizedResponse.data.apis.map(
-                    (v) => v.method.toLowerCase() + v.path
-                  )
+                  api_ids.value = getAllApiKeys(apiOption.value)
 
                   active.value = true
                   role_id.value = row.id
@@ -239,6 +248,7 @@ async function updateRoleAuthorized() {
   menu_ids.value = result.data.menus.map((v) => {
     return v.id
   })
+  api_ids.value = getAllApiKeys(apiOption.value)
 }
 </script>
 

@@ -438,10 +438,16 @@ async def ensure_business_party_menu():
         if not has_menu:
             await role.menus.add(company_menu)
 
-    legacy_company_menu = await Menu.filter(path="/company").first()
-    if legacy_company_menu and not legacy_company_menu.is_hidden:
-        legacy_company_menu.is_hidden = True
-        await legacy_company_menu.save()
+    legacy_company_menus = await Menu.filter(path="/company", component="/company")
+    for legacy_company_menu in legacy_company_menus:
+        if legacy_company_menu.id == company_menu.id:
+            continue
+        for role in roles:
+            has_legacy_menu = await role.menus.filter(id=legacy_company_menu.id).exists()
+            if has_legacy_menu:
+                await role.menus.remove(legacy_company_menu)
+        await Menu.filter(parent_id=legacy_company_menu.id).delete()
+        await legacy_company_menu.delete()
 
 
 async def init_apis():
@@ -460,7 +466,9 @@ async def ensure_business_api_permissions():
 
     read_apis = await Api.filter(
         Q(method="GET", path="/api/v1/company/list")
+        | Q(method="GET", path="/api/v1/company/get")
         | Q(method="GET", path="/api/v1/bill/list")
+        | Q(method="GET", path="/api/v1/bill/get")
         | Q(method="GET", path="/api/v1/bank_account/list")
     )
     manage_apis = await Api.filter(
