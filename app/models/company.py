@@ -83,8 +83,6 @@ class Bill(BaseModel, TimestampMixin):
     billing_start_date = fields.DateField(null=True, description="计费开始日期")
     billing_end_date = fields.DateField(null=True, description="计费结束日期")
     currency = fields.CharField(max_length=10, null=True, description="币种")
-    conversion_currency = fields.CharField(max_length=10, null=True, description="折算币种")
-    exchange_rate = fields.FloatField(null=True, description="折算汇率")
     net_amount = fields.FloatField(null=True, description="Net Amount")
     vat_amount = fields.FloatField(null=True, description="VAT Amount")
     total_amount = fields.FloatField(null=True, description="账单金额")

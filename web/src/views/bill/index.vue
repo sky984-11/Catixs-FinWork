@@ -44,14 +44,6 @@ const tableRows = ref([])
 const summary = ref({
   count: 0,
   by_currency: [],
-  converted: {
-    total: 0,
-    paid: 0,
-    unpaid: 0,
-  },
-  converted_by_currency: [],
-  conversion_currency: 'USD',
-  mixed_conversion_currency: false,
 })
 
 const queryItems = ref({
@@ -243,8 +235,6 @@ function createEmptyForm() {
     billing_start_date: null,
     billing_end_date: null,
     currency: 'USD',
-    conversion_currency: 'USD',
-    exchange_rate: 1,
     net_amount: 0,
     vat_amount: 0,
     total_amount: 0,
@@ -403,8 +393,6 @@ function normalizeBill(row) {
     ...row,
     owner: normalizeOwner(row.owner),
     bill_type: Number(row.bill_type || 1),
-    conversion_currency: row.conversion_currency || row.currency || 'USD',
-    exchange_rate: Number(row.exchange_rate || 1),
     net_amount: Number(row.net_amount ?? (Number(row.total_amount || 0) - Number(row.vat_amount || 0))),
     vat_amount: Number(row.vat_amount || 0),
     total_amount: Number(row.total_amount || 0),
@@ -453,14 +441,6 @@ function handleBillDataChange(rows, extra = {}) {
   summary.value = {
     count: Number(extra.summary?.count ?? extra.total ?? tableRows.value.length),
     by_currency: extra.summary?.by_currency || [],
-    converted: {
-      total: Number(extra.summary?.converted?.total || 0),
-      paid: Number(extra.summary?.converted?.paid || 0),
-      unpaid: Number(extra.summary?.converted?.unpaid || 0),
-    },
-    converted_by_currency: extra.summary?.converted_by_currency || [],
-    conversion_currency: extra.summary?.conversion_currency || 'USD',
-    mixed_conversion_currency: Boolean(extra.summary?.mixed_conversion_currency),
   }
 }
 
@@ -486,9 +466,6 @@ function getCompanyRoleLabel(role) {
 
 function handleCurrencyChange(value) {
   modalForm.currency = value
-  if (!modalForm.exchange_rate) {
-    modalForm.exchange_rate = 1
-  }
 }
 
 function handleBillMonthChange(value) {
@@ -647,19 +624,12 @@ function formatNumber(value) {
   })
 }
 
-function getSummaryCurrency() {
-  return summary.value.mixed_conversion_currency ? 'MULTI' : summary.value.conversion_currency || 'USD'
-}
-
 function getSummaryCurrencyTitle() {
   return summary.value.by_currency.length > 1 ? '原币种合计' : '账单金额'
 }
 
-function getConvertedSummaryLines(field) {
-  if (!summary.value.mixed_conversion_currency) {
-    return [{ currency: getSummaryCurrency(), value: summary.value.converted[field] || 0 }]
-  }
-  return summary.value.converted_by_currency.map((item) => ({
+function getCurrencySummaryLines(field) {
+  return summary.value.by_currency.map((item) => ({
     currency: item.currency,
     value: Number(item[field] || 0),
   }))
@@ -809,31 +779,34 @@ onMounted(async () => {
         <em>{{ summary.by_currency.length > 1 ? '按币种分组' : summary.by_currency[0]?.currency || '-' }}</em>
       </div>
       <div class="summary-card paid">
-        <span>折算已付</span>
+        <span>已付金额</span>
         <div class="currency-lines">
-          <strong v-for="item in getConvertedSummaryLines('paid')" :key="item.currency">
+          <strong v-for="item in getCurrencySummaryLines('paid')" :key="item.currency">
             {{ item.currency }} {{ formatNumber(item.value) }}
           </strong>
+          <strong v-if="!summary.by_currency.length">0</strong>
         </div>
-        <em>{{ summary.mixed_conversion_currency ? '按折算币种分组' : getSummaryCurrency() }}</em>
+        <em>{{ summary.by_currency.length > 1 ? '按币种分组' : summary.by_currency[0]?.currency || '-' }}</em>
       </div>
       <div class="summary-card unpaid">
-        <span>折算欠费</span>
+        <span>欠费金额</span>
         <div class="currency-lines">
-          <strong v-for="item in getConvertedSummaryLines('unpaid')" :key="item.currency">
+          <strong v-for="item in getCurrencySummaryLines('unpaid')" :key="item.currency">
             {{ item.currency }} {{ formatNumber(item.value) }}
           </strong>
+          <strong v-if="!summary.by_currency.length">0</strong>
         </div>
-        <em>{{ summary.mixed_conversion_currency ? '按折算币种分组' : getSummaryCurrency() }}</em>
+        <em>{{ summary.by_currency.length > 1 ? '按币种分组' : summary.by_currency[0]?.currency || '-' }}</em>
       </div>
-      <div class="summary-card converted">
-        <span>折算总额</span>
+      <div class="summary-card total">
+        <span>账单总额</span>
         <div class="currency-lines">
-          <strong v-for="item in getConvertedSummaryLines('total')" :key="item.currency">
+          <strong v-for="item in getCurrencySummaryLines('total')" :key="item.currency">
             {{ item.currency }} {{ formatNumber(item.value) }}
           </strong>
+          <strong v-if="!summary.by_currency.length">0</strong>
         </div>
-        <em>{{ summary.mixed_conversion_currency ? '按折算币种分组' : getSummaryCurrency() }}</em>
+        <em>{{ summary.by_currency.length > 1 ? '按币种分组' : summary.by_currency[0]?.currency || '-' }}</em>
       </div>
     </div>
 
@@ -916,12 +889,6 @@ onMounted(async () => {
           <NFormItemGi label="币种">
             <NSelect v-model:value="modalForm.currency" filterable tag :options="currencyOptions" @update:value="handleCurrencyChange" />
           </NFormItemGi>
-          <NFormItemGi label="折算币种">
-            <NSelect v-model:value="modalForm.conversion_currency" filterable tag disabled :options="currencyOptions" />
-          </NFormItemGi>
-          <NFormItemGi label="折算汇率">
-            <NInputNumber v-model:value="modalForm.exchange_rate" :min="0" :precision="6" />
-          </NFormItemGi>
           <NFormItemGi label="Net Amount">
             <NInputNumber v-model:value="modalForm.net_amount" :min="0" :precision="2" disabled />
           </NFormItemGi>
@@ -983,7 +950,7 @@ onMounted(async () => {
           <span></span>
         </div>
         <div v-for="(item, index) in modalForm.items" :key="index" class="item-row">
-          <span class="service-seq">{{ index + 1 }}</span>
+          <NInput v-model:value="item.service_id" size="small" :placeholder="String(index + 1)" />
           <NInput v-model:value="item.service" size="small" />
           <NInput v-model:value="item.item" size="small" />
           <NInput v-model:value="item.location" size="small" />
@@ -1169,7 +1136,7 @@ onMounted(async () => {
   color: #dc2626;
 }
 
-.summary-card.converted strong {
+.summary-card.total strong {
   color: #1d4ed8;
 }
 
