@@ -46,7 +46,7 @@ def make_middlewares():
         Middleware(BackGroundTaskMiddleware),
         Middleware(
             HttpAuditLogMiddleware,
-            methods=["GET", "POST", "PUT", "DELETE"],
+            methods=["POST", "PUT", "PATCH", "DELETE"],
             exclude_paths=[
                 r"^/(?!api/)",
                 "/api/v1/base/access_token",
