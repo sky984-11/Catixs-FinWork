@@ -24,7 +24,7 @@ const appStore = useAppStore()
 const activeKey = computed(() => curRoute.meta?.activeMenu || curRoute.path)
 
 const menuOptions = computed(() => {
-  return groupBusinessMenus(permissionStore.menus.map((item) => getMenuItem(item)))
+  return permissionStore.menus.map((item) => getMenuItem(item)).sort((a, b) => a.order - b.order)
 })
 
 const menu = ref(null)
@@ -35,6 +35,7 @@ watch(curRoute, async () => {
 
 function resolvePath(basePath, path) {
   if (isExternal(path)) return path
+  if (path?.startsWith('/')) return path
   return (
     '/' +
     [basePath, path]
@@ -92,48 +93,6 @@ function getIcon(meta) {
   if (meta?.customIcon) return renderCustomIcon(meta.customIcon, { size: 18 })
   if (meta?.icon) return renderIcon(meta.icon, { size: 18 })
   return null
-}
-
-function groupBusinessMenus(items) {
-  const groups = [
-    {
-      label: '运维模块',
-      key: '__ops_module__',
-      icon: renderIcon('mdi:tools', { size: 18 }),
-      order: 2,
-      paths: ['/ticket', '/asset'],
-      children: [],
-    },
-    {
-      label: '财务模块',
-      key: '__finance_module__',
-      icon: renderIcon('mdi:finance', { size: 18 }),
-      order: 3,
-      paths: ['/vendor', '/bill'],
-      children: [],
-    },
-  ]
-  const groupedPaths = new Set(groups.flatMap((group) => group.paths))
-  const others = []
-
-  items.forEach((item) => {
-    const group = groups.find((itemGroup) => itemGroup.paths.includes(item.path))
-    if (group) {
-      group.children.push(item)
-    } else if (!groupedPaths.has(item.path)) {
-      others.push(item)
-    }
-  })
-
-  return [
-    ...others,
-    ...groups
-      .filter((group) => group.children.length)
-      .map(({ paths, ...group }) => ({
-        ...group,
-        children: group.children.sort((a, b) => a.order - b.order),
-      })),
-  ].sort((a, b) => a.order - b.order)
 }
 
 function handleMenuSelect(key, item) {

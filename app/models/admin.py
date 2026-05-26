@@ -108,3 +108,21 @@ class ScheduledTask(BaseModel, TimestampMixin):
 
     class Meta:
         table = "scheduled_task"
+
+
+class ScheduledTaskLog(BaseModel, TimestampMixin):
+    task = fields.ForeignKeyField("models.ScheduledTask", related_name="logs", on_delete=fields.CASCADE)
+    task_name = fields.CharField(max_length=100, description="Task name", index=True)
+    status = fields.CharField(max_length=20, description="Run status", index=True)
+    command = fields.TextField(null=True, description="Command")
+    return_code = fields.IntField(null=True, description="Return code", index=True)
+    stdout = fields.TextField(null=True, description="Stdout")
+    stderr = fields.TextField(null=True, description="Stderr")
+    error = fields.TextField(null=True, description="Exception")
+    message = fields.TextField(null=True, description="Summary message")
+    started_at = fields.DatetimeField(description="Started at", index=True)
+    finished_at = fields.DatetimeField(null=True, description="Finished at", index=True)
+    duration_ms = fields.IntField(default=0, description="Duration milliseconds", index=True)
+
+    class Meta:
+        table = "scheduled_task_log"

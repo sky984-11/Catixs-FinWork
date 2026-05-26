@@ -2,10 +2,13 @@
 import { h, onMounted, ref, resolveDirective, withDirectives } from 'vue'
 import {
   NButton,
+  NDataTable,
+  NEmpty,
   NForm,
   NFormItem,
   NInput,
   NInputNumber,
+  NModal,
   NPopconfirm,
   NSelect,
   NSwitch,
@@ -26,6 +29,11 @@ defineOptions({ name: '定时任务' })
 const $table = ref(null)
 const queryItems = ref({})
 const vPermission = resolveDirective('permission')
+const logVisible = ref(false)
+const logLoading = ref(false)
+const logRows = ref([])
+const selectedTask = ref(null)
+const selectedLog = ref(null)
 
 const taskTypeOptions = [
   { label: '脚本任务', value: 'script' },
@@ -113,6 +121,58 @@ async function handleRun(row) {
   $table.value?.handleSearch()
 }
 
+async function openLogs(row) {
+  selectedTask.value = row
+  selectedLog.value = null
+  logVisible.value = true
+  logLoading.value = true
+  try {
+    const res = await api.getTaskLogs({ task_id: row.id, page: 1, page_size: 50 })
+    logRows.value = res?.data || []
+    selectedLog.value = logRows.value[0] || null
+  } finally {
+    logLoading.value = false
+  }
+}
+
+function getLogText(log) {
+  if (!log) return ''
+  return [
+    log.stderr ? `STDERR\n${log.stderr}` : '',
+    log.error ? `ERROR\n${log.error}` : '',
+    log.stdout ? `STDOUT\n${log.stdout}` : '',
+  ].filter(Boolean).join('\n\n')
+}
+
+const logColumns = [
+  { title: '执行时间', key: 'started_at', width: 160 },
+  {
+    title: '状态',
+    key: 'status',
+    width: 90,
+    align: 'center',
+    render(row) {
+      return h(
+        NTag,
+        { size: 'small', type: row.status === 'success' ? 'success' : 'error' },
+        { default: () => (row.status === 'success' ? '成功' : '失败') }
+      )
+    },
+  },
+  { title: '退出码', key: 'return_code', width: 80, align: 'center', render: (row) => row.return_code ?? '-' },
+  { title: '耗时', key: 'duration_ms', width: 90, render: (row) => `${row.duration_ms || 0} ms` },
+  { title: '摘要', key: 'message', minWidth: 220, ellipsis: { tooltip: true } },
+  {
+    title: '操作',
+    key: 'actions',
+    width: 80,
+    align: 'center',
+    render(row) {
+      return h(NButton, { size: 'small', secondary: true, onClick: () => (selectedLog.value = row) }, { default: () => '查看' })
+    },
+  },
+]
+
 const columns = [
   {
     title: '任务名称',
@@ -187,7 +247,7 @@ const columns = [
   {
     title: '操作',
     key: 'actions',
-    width: 240,
+    width: 310,
     align: 'center',
     fixed: 'right',
     render(row) {
@@ -217,6 +277,19 @@ const columns = [
             { default: () => '执行', icon: renderIcon('material-symbols:play-arrow', { size: 16 }) }
           ),
           [[vPermission, 'post/api/v1/task/run']]
+        ),
+        withDirectives(
+          h(
+            NButton,
+            {
+              size: 'small',
+              secondary: true,
+              style: 'margin-right: 8px;',
+              onClick: () => openLogs(row),
+            },
+            { default: () => '日志', icon: renderIcon('mdi:text-box-search-outline', { size: 16 }) }
+          ),
+          [[vPermission, 'get/api/v1/task/logs']]
         ),
         h(
           NPopconfirm,
@@ -338,6 +411,27 @@ const columns = [
         </NFormItem>
       </NForm>
     </CrudModal>
+
+    <NModal v-model:show="logVisible" preset="card" :title="`${selectedTask?.name || '任务'} - 执行日志`" class="task-log-modal">
+      <NDataTable
+        :columns="logColumns"
+        :data="logRows"
+        :loading="logLoading"
+        :bordered="false"
+        :pagination="false"
+        :max-height="280"
+        size="small"
+      />
+      <div v-if="selectedLog" class="log-detail">
+        <div class="log-meta">
+          <span>Started: {{ selectedLog.started_at || '-' }}</span>
+          <span>Finished: {{ selectedLog.finished_at || '-' }}</span>
+          <span>Command: {{ selectedLog.command || '-' }}</span>
+        </div>
+        <pre>{{ getLogText(selectedLog) || selectedLog.message || 'No output' }}</pre>
+      </div>
+      <NEmpty v-else-if="!logLoading" description="暂无执行日志" />
+    </NModal>
   </CommonPage>
 </template>
 
@@ -348,5 +442,36 @@ const columns = [
   align-items: center;
   gap: 8px;
   width: 180px;
+}
+
+.task-log-modal {
+  width: min(1100px, 94vw);
+}
+
+.log-detail {
+  margin-top: 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #0f172a;
+  color: #e5e7eb;
+}
+
+.log-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  border-bottom: 1px solid rgb(255 255 255 / 12%);
+  padding: 10px 12px;
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.log-detail pre {
+  max-height: 360px;
+  margin: 0;
+  overflow: auto;
+  padding: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 </style>

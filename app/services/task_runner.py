@@ -1,14 +1,16 @@
 import asyncio
 import os
 import shlex
+import subprocess
 import sys
+import traceback
 from datetime import datetime
 
 from tortoise.expressions import Q
 
 from app.controllers.task import scheduled_task_controller
 from app.log import logger
-from app.models.admin import ScheduledTask
+from app.models.admin import ScheduledTask, ScheduledTaskLog
 from app.settings.config import settings
 
 _scheduler_task: asyncio.Task | None = None
@@ -23,6 +25,15 @@ def _resolve_script_path(script_path: str | None) -> str:
     return os.path.abspath(os.path.join(settings.BASE_DIR, script_path))
 
 
+def _build_subprocess_env() -> dict[str, str]:
+    env = os.environ.copy()
+    python_path = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = (
+        settings.BASE_DIR if not python_path else os.pathsep.join([settings.BASE_DIR, python_path])
+    )
+    return env
+
+
 async def execute_scheduled_task(task: ScheduledTask) -> None:
     task_id = int(task.id)
     if task_id in _running_task_ids:
@@ -30,6 +41,12 @@ async def execute_scheduled_task(task: ScheduledTask) -> None:
 
     _running_task_ids.add(task_id)
     started_at = datetime.now()
+    command = []
+    command_text = ""
+    stdout_text = ""
+    stderr_text = ""
+    error_text = ""
+    return_code = None
     try:
         if task.task_type in {"script", "db_backup"}:
             script_path = _resolve_script_path(task.script_path)
@@ -38,30 +55,50 @@ async def execute_scheduled_task(task: ScheduledTask) -> None:
             command = shlex.split(task.command or "", posix=os.name != "nt")
 
         if not command:
-            raise ValueError("任务命令为空")
+            raise ValueError("Task command is empty")
+        command_text = shlex.join(command)
 
-        process = await asyncio.create_subprocess_exec(
-            *command,
+        process = await asyncio.to_thread(
+            subprocess.run,
+            command,
             cwd=settings.BASE_DIR,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            env=_build_subprocess_env(),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+            check=False,
         )
-        stdout, stderr = await process.communicate()
-        message_parts = [
-            stdout.decode("utf-8", errors="ignore").strip(),
-            stderr.decode("utf-8", errors="ignore").strip(),
-        ]
-        message = "\n".join(part for part in message_parts if part)[:4000]
-        task.last_status = "success" if process.returncode == 0 else "failed"
-        task.last_message = message or f"任务退出码：{process.returncode}"
+        return_code = process.returncode
+        stdout_text = (process.stdout or "").strip()
+        stderr_text = (process.stderr or "").strip()
+        message = "\n".join(part for part in [stdout_text, stderr_text] if part)[:4000]
+        task.last_status = "success" if return_code == 0 else "failed"
+        task.last_message = message or f"Task exit code: {return_code}"
     except Exception as exc:
         task.last_status = "failed"
+        error_text = traceback.format_exc()
         task.last_message = str(exc)[:4000]
         logger.exception(f"scheduled task failed: {task.name}")
     finally:
+        finished_at = datetime.now()
         task.last_run_at = started_at
-        task.next_run_at = scheduled_task_controller.calc_next_run_at(task, datetime.now())
+        task.next_run_at = scheduled_task_controller.calc_next_run_at(task, finished_at)
         await task.save()
+        await ScheduledTaskLog.create(
+            task_id=task_id,
+            task_name=task.name,
+            status=task.last_status or "failed",
+            command=command_text or " ".join(command),
+            return_code=return_code,
+            stdout=stdout_text[:20000] if stdout_text else None,
+            stderr=stderr_text[:20000] if stderr_text else None,
+            error=error_text[:20000] if error_text else None,
+            message=(task.last_message or "")[:4000],
+            started_at=started_at,
+            finished_at=finished_at,
+            duration_ms=max(int((finished_at - started_at).total_seconds() * 1000), 0),
+        )
         _running_task_ids.discard(task_id)
 
 

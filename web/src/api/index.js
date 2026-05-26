@@ -48,6 +48,7 @@ export default {
   deleteTask: (params = {}) => request.delete('/task/delete', { params }),
   toggleTask: (data = {}) => request.post('/task/toggle', data),
   runTask: (params = {}) => request.post('/task/run', {}, { params }),
+  getTaskLogs: (params = {}) => request.get('/task/logs', { params }),
 
   // vendor
   getVendorList: (params = {}) => request.get('/vendor/list', { params }),

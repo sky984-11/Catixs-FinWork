@@ -152,7 +152,25 @@ async def get_user_menu():
             for ticket_sub_menu in ticket_sub_menus:
                 if ticket_sub_menu not in menus:
                     menus.append(ticket_sub_menu)
+            ticket_route_menus = await Menu.filter(path__startswith="/ticket/").all()
+            for ticket_route_menu in ticket_route_menus:
+                if ticket_route_menu not in menus:
+                    menus.append(ticket_route_menu)
     
+    menu_ids = {menu.id for menu in menus}
+    pending_parent_ids = {menu.parent_id for menu in menus if menu.parent_id}
+    while pending_parent_ids:
+        parent_id = pending_parent_ids.pop()
+        if parent_id in menu_ids:
+            continue
+        parent_menu = await Menu.filter(id=parent_id).first()
+        if not parent_menu:
+            continue
+        menus.append(parent_menu)
+        menu_ids.add(parent_menu.id)
+        if parent_menu.parent_id and parent_menu.parent_id not in menu_ids:
+            pending_parent_ids.add(parent_menu.parent_id)
+
     parent_menus: list[Menu] = []
     for menu in menus:
         if menu.parent_id == 0:

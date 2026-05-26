@@ -2,6 +2,7 @@ from fastapi import APIRouter, Query
 from tortoise.expressions import Q
 
 from app.controllers.task import scheduled_task_controller
+from app.models.admin import ScheduledTaskLog
 from app.schemas import Success, SuccessExtra
 from app.schemas.tasks import ScheduledTaskCreate, ScheduledTaskToggle, ScheduledTaskUpdate
 from app.services.task_runner import execute_scheduled_task
@@ -35,6 +36,29 @@ async def list_task(
 async def get_task(id: int = Query(..., description="任务ID")):
     task_obj = await scheduled_task_controller.get(id=id)
     return Success(data=await task_obj.to_dict())
+
+
+@router.get("/logs", summary="查看定时任务执行日志")
+async def list_task_logs(
+    page: int = Query(1, description="页码"),
+    page_size: int = Query(10, description="每页数量"),
+    task_id: int = Query(None, description="任务ID"),
+    status: str = Query(None, description="执行状态"),
+):
+    q = Q()
+    if task_id:
+        q &= Q(task_id=task_id)
+    if status:
+        q &= Q(status=status)
+    total = await ScheduledTaskLog.filter(q).count()
+    log_objs = (
+        await ScheduledTaskLog.filter(q)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .order_by("-started_at", "-id")
+    )
+    data = [await obj.to_dict() for obj in log_objs]
+    return SuccessExtra(data=data, total=total, page=page, page_size=page_size)
 
 
 @router.post("/create", summary="创建定时任务")

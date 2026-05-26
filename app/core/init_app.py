@@ -170,12 +170,13 @@ async def init_menus():
             ),
         ]
         await Menu.bulk_create(children_menu)
+        ops_menu, finance_menu = await ensure_service_module_menus()
         ticket_menu = await Menu.create(
             menu_type=MenuType.MENU,
             name="工单管理",
             path="/ticket",
-            order=2,
-            parent_id=0,
+            order=1,
+            parent_id=ops_menu.id,
             icon="material-symbols:assignment-globe",
             is_hidden=False,
             component="/ticket",
@@ -222,8 +223,8 @@ async def init_menus():
             menu_type=MenuType.MENU,
             name="客户/供应商",
             path="/vendor",
-            order=2,
-            parent_id=0,
+            order=1,
+            parent_id=finance_menu.id,
             icon="mdi:account-group-outline",
             is_hidden=False,
             component="/company",
@@ -254,6 +255,7 @@ async def init_menus():
             keepalive=False,
             redirect="",
         )
+    await ensure_service_module_menus()
     await ensure_ticket_route_menus()
     await ensure_asset_menu()
     await ensure_business_party_menu()
@@ -261,21 +263,91 @@ async def init_menus():
     await ensure_task_menu()
 
 
+async def ensure_menu_catalog(name: str, path: str, order: int, icon: str, redirect: str):
+    menu = await Menu.filter(path=path).first()
+    values = {
+        "menu_type": MenuType.CATALOG,
+        "name": name,
+        "path": path,
+        "order": order,
+        "parent_id": 0,
+        "icon": icon,
+        "is_hidden": False,
+        "component": "Layout",
+        "keepalive": False,
+        "redirect": redirect,
+    }
+    if menu:
+        changed = False
+        for field, value in values.items():
+            if getattr(menu, field) != value:
+                setattr(menu, field, value)
+                changed = True
+        if changed:
+            await menu.save()
+        return menu
+
+    return await Menu.create(**values)
+
+
+async def ensure_service_module_menus():
+    ops_menu = await ensure_menu_catalog(
+        name="\u8fd0\u7ef4\u6a21\u5757",
+        path="/ops",
+        order=2,
+        icon="mdi:tools",
+        redirect="/ticket",
+    )
+    finance_menu = await ensure_menu_catalog(
+        name="\u8d22\u52a1\u6a21\u5757",
+        path="/finance",
+        order=3,
+        icon="mdi:finance",
+        redirect="/vendor",
+    )
+    return ops_menu, finance_menu
+
+
+async def get_service_module_menu(path: str):
+    menu = await Menu.filter(path=path).first()
+    if menu:
+        return menu
+    await ensure_service_module_menus()
+    return await Menu.filter(path=path).first()
+
+
 async def ensure_ticket_route_menus():
+    ops_menu = await get_service_module_menu("/ops")
     ticket_menu = await Menu.filter(path="/ticket").first()
     if not ticket_menu:
         ticket_menu = await Menu.create(
             menu_type=MenuType.MENU,
             name="工单管理",
             path="/ticket",
-            order=2,
-            parent_id=0,
+            order=1,
+            parent_id=ops_menu.id,
             icon="material-symbols:assignment-globe",
             is_hidden=False,
             component="/ticket",
             keepalive=False,
             redirect="",
         )
+    else:
+        changed = False
+        values = {
+            "order": 1,
+            "parent_id": ops_menu.id,
+            "icon": "material-symbols:assignment-globe",
+            "is_hidden": False,
+            "component": "/ticket",
+            "keepalive": False,
+        }
+        for field, value in values.items():
+            if getattr(ticket_menu, field) != value:
+                setattr(ticket_menu, field, value)
+                changed = True
+        if changed:
+            await ticket_menu.save()
 
     ticket_route_menus = [
         {
@@ -308,7 +380,7 @@ async def ensure_ticket_route_menus():
                 name=menu_data["name"],
                 path=menu_data["path"],
                 order=menu_data["order"],
-                parent_id=ticket_menu.id,
+                parent_id=ops_menu.id,
                 icon=menu_data["icon"],
                 is_hidden=True,
                 component=menu_data["component"],
@@ -317,16 +389,17 @@ async def ensure_ticket_route_menus():
             )
         elif (
             route_menu.path != menu_data["path"]
-            or route_menu.parent_id != ticket_menu.id
+            or route_menu.parent_id != ops_menu.id
             or not route_menu.is_hidden
         ):
             route_menu.path = menu_data["path"]
-            route_menu.parent_id = ticket_menu.id
+            route_menu.parent_id = ops_menu.id
             route_menu.is_hidden = True
             await route_menu.save()
 
 
 async def ensure_asset_menu():
+    ops_menu = await get_service_module_menu("/ops")
     asset_menu = await Menu.filter(path="/asset").first()
     if asset_menu:
         changed = False
@@ -339,6 +412,12 @@ async def ensure_asset_menu():
         if asset_menu.is_hidden:
             asset_menu.is_hidden = False
             changed = True
+        if asset_menu.parent_id != ops_menu.id:
+            asset_menu.parent_id = ops_menu.id
+            changed = True
+        if asset_menu.order != 2:
+            asset_menu.order = 2
+            changed = True
         if changed:
             await asset_menu.save()
         return
@@ -348,7 +427,7 @@ async def ensure_asset_menu():
         name="资产管理",
         path="/asset",
         order=2,
-        parent_id=0,
+        parent_id=ops_menu.id,
         icon="material-symbols:videogame-asset",
         is_hidden=False,
         component="/asset",
@@ -358,6 +437,7 @@ async def ensure_asset_menu():
 
 
 async def ensure_bill_menu():
+    finance_menu = await get_service_module_menu("/finance")
     bill_menu = await Menu.filter(path="/bill").first()
     if bill_menu:
         changed = False
@@ -370,8 +450,11 @@ async def ensure_bill_menu():
         if bill_menu.icon != "mdi:file-document-multiple-outline":
             bill_menu.icon = "mdi:file-document-multiple-outline"
             changed = True
-        if bill_menu.order != 3:
-            bill_menu.order = 3
+        if bill_menu.order != 2:
+            bill_menu.order = 2
+            changed = True
+        if bill_menu.parent_id != finance_menu.id:
+            bill_menu.parent_id = finance_menu.id
             changed = True
         if bill_menu.is_hidden:
             bill_menu.is_hidden = False
@@ -383,8 +466,8 @@ async def ensure_bill_menu():
             menu_type=MenuType.MENU,
             name="账单管理",
             path="/bill",
-            order=3,
-            parent_id=0,
+            order=2,
+            parent_id=finance_menu.id,
             icon="mdi:file-document-multiple-outline",
             is_hidden=False,
             component="/bill",
@@ -443,6 +526,7 @@ async def ensure_task_menu():
 
 
 async def ensure_business_party_menu():
+    finance_menu = await get_service_module_menu("/finance")
     company_menu = await Menu.filter(path="/vendor").first()
     if company_menu:
         changed = False
@@ -455,8 +539,11 @@ async def ensure_business_party_menu():
         if company_menu.icon != "mdi:account-group-outline":
             company_menu.icon = "mdi:account-group-outline"
             changed = True
-        if company_menu.order != 2:
-            company_menu.order = 2
+        if company_menu.order != 1:
+            company_menu.order = 1
+            changed = True
+        if company_menu.parent_id != finance_menu.id:
+            company_menu.parent_id = finance_menu.id
             changed = True
         if company_menu.is_hidden:
             company_menu.is_hidden = False
@@ -468,8 +555,8 @@ async def ensure_business_party_menu():
             menu_type=MenuType.MENU,
             name="客户/供应商",
             path="/vendor",
-            order=2,
-            parent_id=0,
+            order=1,
+            parent_id=finance_menu.id,
             icon="mdi:account-group-outline",
             is_hidden=False,
             component="/company",
