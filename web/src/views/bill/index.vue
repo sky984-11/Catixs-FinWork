@@ -278,6 +278,9 @@ function openAdd() {
   resetForm()
   modalForm.bill_month = getPreviousMonthFirstDay()
   modalForm.invoice_date = getToday()
+  modalForm.due_date = getToday()
+  modalForm.billing_start_date = getPreviousMonthFirstDay()
+  modalForm.billing_end_date = getPreviousMonthLastDay()
   syncInvoiceNo()
   addItem()
   modalVisible.value = true
@@ -621,6 +624,11 @@ function getToday() {
 function getPreviousMonthFirstDay() {
   const now = new Date()
   return formatDateValue(new Date(now.getFullYear(), now.getMonth() - 1, 1))
+}
+
+function getPreviousMonthLastDay() {
+  const now = new Date()
+  return formatDateValue(new Date(now.getFullYear(), now.getMonth(), 0))
 }
 
 function formatNumber(value) {
