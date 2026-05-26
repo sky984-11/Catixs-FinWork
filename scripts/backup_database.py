@@ -1,5 +1,6 @@
 import os
 import shutil
+import shlex
 import socket
 import subprocess
 from datetime import datetime
@@ -10,6 +11,9 @@ from app.settings.config import settings
 REMOTE_BACKUP_HOST = os.getenv("BACKUP_REMOTE_HOST", "10.4.10.11")
 REMOTE_BACKUP_USER = os.getenv("BACKUP_REMOTE_USER", "root")
 REMOTE_BACKUP_DIR = os.getenv("BACKUP_REMOTE_DIR", "/log/backup/finwork")
+REMOTE_PG_HOST = os.getenv("BACKUP_REMOTE_PG_HOST", "10.4.10.11")
+SSH_CONNECT_TIMEOUT = int(os.getenv("BACKUP_SSH_CONNECT_TIMEOUT", "15"))
+SSH_COMMAND_TIMEOUT = int(os.getenv("BACKUP_SSH_COMMAND_TIMEOUT", "300"))
 
 
 def is_local_host(host: str) -> bool:
@@ -28,6 +32,38 @@ def remote_target() -> str:
     return f"{host}:{REMOTE_BACKUP_DIR.rstrip('/')}/"
 
 
+def ssh_host() -> str:
+    return f"{REMOTE_BACKUP_USER}@{REMOTE_BACKUP_HOST}" if REMOTE_BACKUP_USER else REMOTE_BACKUP_HOST
+
+
+def ssh_options() -> list[str]:
+    return [
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        f"ConnectTimeout={SSH_CONNECT_TIMEOUT}",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+    ]
+
+
+def run_checked(command: list[str], timeout: int | None = None, env: dict | None = None) -> subprocess.CompletedProcess:
+    result = subprocess.run(
+        command,
+        check=False,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="ignore",
+        timeout=timeout,
+    )
+    if result.returncode != 0:
+        output = "\n".join(part for part in [result.stdout.strip(), result.stderr.strip()] if part)
+        raise RuntimeError(f"Command failed ({result.returncode}): {shlex.join(command)}\n{output}")
+    return result
+
+
 def backup_sqlite(output_dir: Path) -> Path:
     source = Path(settings.SQLITE_DB_PATH)
     if not source.exists():
@@ -42,7 +78,7 @@ def backup_postgres(output_dir: Path) -> Path:
     target = output_dir / f"{settings.POSTGRES_DATABASE}_{datetime.now():%Y%m%d_%H%M%S}.dump"
     pg_dump = shutil.which("pg_dump")
     if not pg_dump:
-        raise RuntimeError("pg_dump not found. Please install PostgreSQL client tools on the server.")
+        raise FileNotFoundError("pg_dump not found")
 
     command = [
         pg_dump,
@@ -61,8 +97,43 @@ def backup_postgres(output_dir: Path) -> Path:
     ]
     env = os.environ.copy()
     env["PGPASSWORD"] = settings.POSTGRES_PASSWORD
-    subprocess.run(command, check=True, env=env)
+    run_checked(command, env=env)
     return target
+
+
+def backup_postgres_on_remote() -> str:
+    ssh = shutil.which("ssh")
+    if not ssh:
+        raise RuntimeError("pg_dump not found locally and ssh is not available.")
+
+    host = ssh_host()
+    remote_dir = REMOTE_BACKUP_DIR.rstrip("/")
+    remote_file = f"{settings.POSTGRES_DATABASE}_{datetime.now():%Y%m%d_%H%M%S}.dump"
+    remote_path = f"{remote_dir}/{remote_file}"
+    remote_command = " ".join(
+        [
+            "mkdir",
+            "-p",
+            shlex.quote(remote_dir),
+            "&&",
+            f"PGPASSWORD={shlex.quote(settings.POSTGRES_PASSWORD)}",
+            "pg_dump",
+            "--host",
+            shlex.quote(REMOTE_PG_HOST),
+            "--port",
+            shlex.quote(str(settings.POSTGRES_PORT)),
+            "--username",
+            shlex.quote(settings.POSTGRES_USER),
+            "--dbname",
+            shlex.quote(settings.POSTGRES_DATABASE),
+            "--format",
+            "custom",
+            "--file",
+            shlex.quote(remote_path),
+        ]
+    )
+    run_checked([ssh, *ssh_options(), host, remote_command], timeout=SSH_COMMAND_TIMEOUT)
+    return f"{host}:{remote_path}"
 
 
 def upload_to_remote(local_file: Path) -> None:
@@ -71,9 +142,9 @@ def upload_to_remote(local_file: Path) -> None:
     if not ssh or not scp:
         raise RuntimeError("ssh/scp not found. Please install OpenSSH client on the server.")
 
-    host = f"{REMOTE_BACKUP_USER}@{REMOTE_BACKUP_HOST}" if REMOTE_BACKUP_USER else REMOTE_BACKUP_HOST
-    subprocess.run([ssh, host, "mkdir", "-p", REMOTE_BACKUP_DIR], check=True)
-    subprocess.run([scp, str(local_file), remote_target()], check=True)
+    host = ssh_host()
+    run_checked([ssh, *ssh_options(), host, "mkdir", "-p", REMOTE_BACKUP_DIR], timeout=SSH_CONNECT_TIMEOUT)
+    run_checked([scp, *ssh_options(), str(local_file), remote_target()], timeout=SSH_COMMAND_TIMEOUT)
 
 
 def main() -> None:
@@ -83,7 +154,12 @@ def main() -> None:
     if settings.DB_TYPE == "sqlite":
         target = backup_sqlite(output_dir)
     elif settings.DB_TYPE == "postgres":
-        target = backup_postgres(output_dir)
+        try:
+            target = backup_postgres(output_dir)
+        except FileNotFoundError:
+            remote_path = backup_postgres_on_remote()
+            print(f"Database backup created on remote: {remote_path}")
+            return
     else:
         raise ValueError(f"Unsupported DB_TYPE: {settings.DB_TYPE}")
 

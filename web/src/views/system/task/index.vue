@@ -135,6 +135,26 @@ async function openLogs(row) {
   }
 }
 
+async function reloadLogs() {
+  if (!selectedTask.value) return
+  await openLogs(selectedTask.value)
+}
+
+async function clearLogs() {
+  if (!selectedTask.value) return
+  await window.$dialog?.warning({
+    title: '清理日志',
+    content: `确定清空「${selectedTask.value.name}」的执行日志吗？`,
+    positiveText: '清理',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      const res = await api.clearTaskLogs({ task_id: selectedTask.value.id })
+      window.$message?.success(`已清理 ${res?.data?.deleted_count || 0} 条日志`)
+      await reloadLogs()
+    },
+  })
+}
+
 function getLogText(log) {
   if (!log) return ''
   return [
@@ -413,6 +433,18 @@ const columns = [
     </CrudModal>
 
     <NModal v-model:show="logVisible" preset="card" :title="`${selectedTask?.name || '任务'} - 执行日志`" class="task-log-modal">
+      <template #header-extra>
+        <NButton
+          v-permission="'delete/api/v1/task/logs'"
+          size="small"
+          type="error"
+          secondary
+          :disabled="!logRows.length"
+          @click="clearLogs"
+        >
+          清理日志
+        </NButton>
+      </template>
       <NDataTable
         :columns="logColumns"
         :data="logRows"

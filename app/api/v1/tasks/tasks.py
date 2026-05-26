@@ -32,6 +32,15 @@ async def list_task(
     return SuccessExtra(data=data, total=total, page=page, page_size=page_size)
 
 
+@router.delete("/logs", summary="清理定时任务执行日志")
+async def clear_task_logs(task_id: int = Query(None, description="任务ID")):
+    q = Q()
+    if task_id:
+        q &= Q(task_id=task_id)
+    deleted_count = await ScheduledTaskLog.filter(q).delete()
+    return Success(msg="Deleted Success", data={"deleted_count": deleted_count})
+
+
 @router.get("/get", summary="查看定时任务")
 async def get_task(id: int = Query(..., description="任务ID")):
     task_obj = await scheduled_task_controller.get(id=id)
