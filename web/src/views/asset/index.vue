@@ -29,10 +29,12 @@
             block-node
             :data="treeData"
             :loading="loading.tree"
+            :expanded-keys="expandedKeys"
             :selected-keys="selectedKeys"
             key-field="id"
             label-field="label"
             children-field="children"
+            @update:expanded-keys="expandedKeys = $event"
             @update:selected-keys="handleTreeSelect"
           />
         </aside>
@@ -165,6 +167,30 @@
                   </template>
                   品牌型号维护
                 </n-button>
+                <div v-if="canShowRackView" class="view-switch">
+                  <n-button
+                    :type="viewMode === 'table' ? 'primary' : 'default'"
+                    :secondary="viewMode !== 'table'"
+                    round
+                    @click="switchAssetView('table')"
+                  >
+                    <template #icon>
+                      <TheIcon icon="mdi:table" :size="18" />
+                    </template>
+                    表格
+                  </n-button>
+                  <n-button
+                    :type="viewMode === 'rack' ? 'primary' : 'default'"
+                    :secondary="viewMode !== 'rack'"
+                    round
+                    @click="switchAssetView('rack')"
+                  >
+                    <template #icon>
+                      <TheIcon icon="mdi:server-network" :size="18" />
+                    </template>
+                    机柜图
+                  </n-button>
+                </div>
                 <n-button v-if="canUseContextAction" secondary round @click="openContextModal">
                   <template #icon>
                     <TheIcon :icon="contextIcon" :size="18" />
@@ -189,6 +215,7 @@
             </div>
 
             <n-data-table
+              v-if="viewMode === 'table' || !canShowRackView"
               remote
               :loading="loading.list"
               :columns="isInventoryView ? inventoryColumns : deviceColumns"
@@ -200,6 +227,168 @@
               @update:page-size="handlePageSizeChange"
               @update:sorter="handleSorterChange"
             />
+            <n-spin v-else :show="loading.rack">
+              <div class="rack-visual">
+                <div class="rack-summary">
+                  <div>
+                    <span class="eyebrow">Rack View</span>
+                    <h3>{{ currentCabinet?.name || selectedLabel }}</h3>
+                  </div>
+                  <div class="rack-stats">
+                    <span>{{ rackCapacity }}U</span>
+                    <span>{{ rackPlacedDevices.length }} 台设备</span>
+                    <span>{{ rackUsedUnits }}U 已占用</span>
+                    <span v-if="rackConflictCount" class="rack-conflict-text"
+                      >{{ rackConflictCount }} 个冲突U位</span
+                    >
+                  </div>
+                </div>
+                <div class="rack-scene">
+                  <div class="rack-cabinet">
+                    <div class="rack-top"></div>
+                    <div class="rack-body">
+                      <div class="rack-rail left"></div>
+                      <div class="rack-rail right"></div>
+                      <div class="rack-slots" :style="{ '--rack-units': rackCapacity }">
+                        <div
+                          v-for="unit in rackUnits"
+                          :key="unit.no"
+                          class="rack-u-row"
+                          :class="{ occupied: unit.occupied, conflict: unit.conflict }"
+                          :style="{ gridRow: rackUnitGridRow(unit) }"
+                        >
+                          <span>{{ unit.no }}U</span>
+                        </div>
+                        <button
+                          v-for="block in rackBlocks"
+                          :key="block.device.id"
+                          class="rack-device-block"
+                          :class="[
+                            `device-type-${Number(block.device.type)}`,
+                            `device-status-${Number(block.device.status)}`,
+                            { compact: block.height <= 1 },
+                            { selected: selectedRackDevice?.id === block.device.id },
+                            { conflict: block.conflict },
+                          ]"
+                          :style="rackBlockStyle(block)"
+                          :title="`${block.device.name || '-'} · ${formatDeviceUPosition(block.device)}`"
+                          @click="selectRackDevice(block.device)"
+                        >
+                          <div class="rack-device-info">
+                            <strong>{{ block.device.name || '-' }}</strong>
+                            <span>{{ getDeviceType(block.device.type) }} · {{ formatDeviceUPosition(block.device) }}</span>
+                          </div>
+                          <i
+                            class="rack-status-dot"
+                            :class="`device-status-${Number(block.device.status)}`"
+                            :title="getDeviceStatus(block.device.status)"
+                          ></i>
+                        </button>
+                      </div>
+                    </div>
+                    <div class="rack-base"></div>
+                  </div>
+                  <div class="rack-side-panel">
+                  <div class="rack-legend">
+                    <span><i class="server"></i>服务器</span>
+                    <span><i class="switch"></i>交换机</span>
+                    <span><i class="router"></i>路由器</span>
+                    <span><i class="firewall"></i>防火墙</span>
+                    <span><i class="pdu"></i>PDU</span>
+                    <span><i class="part"></i>配件</span>
+                    <span><i class="danger"></i>故障/冲突</span>
+                  </div>
+                  <div class="rack-device-detail">
+                    <template v-if="selectedRackDevice">
+                      <div class="rack-detail-head">
+                        <div>
+                          <span class="eyebrow">Device</span>
+                          <h3>{{ selectedRackDevice.name || '-' }}</h3>
+                        </div>
+                        <span
+                          class="rack-detail-status"
+                          :class="`device-status-${Number(selectedRackDevice.status)}`"
+                        >
+                          {{ getDeviceStatus(selectedRackDevice.status) }}
+                        </span>
+                      </div>
+                      <n-descriptions bordered :column="2" label-placement="left" size="small">
+                        <n-descriptions-item label="类型">
+                          {{ getDeviceType(selectedRackDevice.type) }}
+                        </n-descriptions-item>
+                        <n-descriptions-item label="U位">
+                          {{ formatDeviceUPosition(selectedRackDevice) }}
+                        </n-descriptions-item>
+                        <n-descriptions-item label="品牌">
+                          {{ selectedRackDevice.brand || '-' }}
+                        </n-descriptions-item>
+                        <n-descriptions-item label="型号">
+                          {{ selectedRackDevice.model || '-' }}
+                        </n-descriptions-item>
+                        <n-descriptions-item label="序列号">
+                          {{ selectedRackDevice.serial_no || '-' }}
+                        </n-descriptions-item>
+                        <n-descriptions-item label="管理IP">
+                          {{ selectedRackDevice.mgmt_ip || '-' }}
+                        </n-descriptions-item>
+                        <n-descriptions-item label="业务IP">
+                          {{ selectedRackDevice.business_ip || '-' }}
+                        </n-descriptions-item>
+                        <n-descriptions-item label="备注">
+                          {{ selectedRackDevice.remark || '-' }}
+                        </n-descriptions-item>
+                      </n-descriptions>
+                      <div class="detail-section">
+                        <h3>设备配置</h3>
+                        <n-empty
+                          v-if="!attributesToList(selectedRackDevice.attributes).length"
+                          description="暂无配置"
+                        />
+                        <div v-else class="device-config-table">
+                          <div
+                            v-for="row in getDeviceAttributeRows(
+                              selectedRackDevice.attributes,
+                              selectedRackDevice.type
+                            )"
+                            :key="row.label"
+                            class="device-config-row"
+                          >
+                            <div class="device-config-label">{{ row.label }}</div>
+                            <div class="device-config-values">
+                              <span
+                                v-for="item in row.items"
+                                :key="item.label"
+                                :class="{ 'is-sensitive': item.sensitive }"
+                              >
+                                <strong>{{ item.label }}</strong>
+                                {{ item.sensitive ? '仅 NOC / Admin 可见' : item.value || '-' }}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="rack-detail-actions">
+                        <n-button
+                          v-if="hasAssetPermission('device', 'update')"
+                          type="primary"
+                          round
+                          @click="openDeviceModal(selectedRackDevice)"
+                        >
+                          编辑设备
+                        </n-button>
+                      </div>
+                    </template>
+                    <div v-else class="rack-detail-empty">点击设备显示设备信息</div>
+                  </div>
+                  </div>
+                </div>
+                <n-empty
+                  v-if="!rackPlacedDevices.length"
+                  class="rack-empty"
+                  description="当前机柜暂无配置U位的设备"
+                />
+              </div>
+            </n-spin>
           </section>
         </main>
       </section>
@@ -679,7 +868,10 @@ defineOptions({ name: 'AssetManagement' })
 const treeData = ref([])
 const selectedNode = ref(null)
 const selectedKeys = ref([])
+const expandedKeys = ref([])
 const devices = ref([])
+const rackDevices = ref([])
+const selectedRackDevice = ref(null)
 const inventoryItems = ref([])
 const regions = ref([])
 const locations = ref([])
@@ -691,10 +883,12 @@ const simpleFormRef = ref(null)
 const inventoryImportInputRef = ref(null)
 const permissionStore = usePermissionStore()
 const userStore = useUserStore()
+const viewMode = ref('table')
 
 const loading = reactive({
   tree: false,
   list: false,
+  rack: false,
   inventoryExport: false,
   inventoryImport: false,
 })
@@ -861,6 +1055,12 @@ const selectedLocation = computed(() => {
   return null
 })
 const isInventoryView = computed(() => selectedLocation.value?.type === 0)
+const currentCabinet = computed(() => {
+  if (selectedNode.value?.type !== 'cabinet') return null
+  return cabinets.value.find((item) => item.id === selectedNode.value.raw_id) || null
+})
+const canShowRackView = computed(() => !isInventoryView.value && selectedNode.value?.type === 'cabinet')
+const rackCapacity = computed(() => Math.max(Number(currentCabinet.value?.capacity_u) || 42, 1))
 const permittedCreateOptions = computed(() =>
   createOptions.filter((item) => hasAssetPermission(item.key, 'create'))
 )
@@ -946,6 +1146,44 @@ const canSaveDevice = computed(() =>
   hasAssetPermission('device', deviceModal.form.id ? 'update' : 'create')
 )
 const hasGlobalKeyword = computed(() => Boolean(String(filters.keyword || '').trim()))
+const rackPlacedDevices = computed(() =>
+  rackDevices.value
+    .map((device) => {
+      const start = Number(device.u_position)
+      const height = Math.max(Number(device.u_height) || 1, 1)
+      if (!start || start < 1 || start > rackCapacity.value) return null
+      return {
+        device,
+        start,
+        height,
+        end: Math.min(start + height - 1, rackCapacity.value),
+      }
+    })
+    .filter(Boolean)
+)
+const rackUnits = computed(() => {
+  const units = []
+  for (let no = rackCapacity.value; no >= 1; no -= 1) {
+    const occupants = rackPlacedDevices.value.filter((item) => item.start <= no && item.end >= no)
+    units.push({
+      no,
+      occupied: occupants.length > 0,
+      conflict: occupants.length > 1,
+    })
+  }
+  return units
+})
+const rackConflictCount = computed(() => rackUnits.value.filter((unit) => unit.conflict).length)
+const rackUsedUnits = computed(() => rackUnits.value.filter((unit) => unit.occupied).length)
+const rackBlocks = computed(() =>
+  rackPlacedDevices.value.map((item) => ({
+    ...item,
+    conflict: rackPlacedDevices.value.some(
+      (other) =>
+        other.device.id !== item.device.id && other.start <= item.end && other.end >= item.start
+    ),
+  }))
+)
 
 const inventoryColumns = computed(() => [
   {
@@ -1207,9 +1445,17 @@ async function loadTree() {
   try {
     const res = await api.assetApi.tree()
     treeData.value = res.data || []
+    expandedKeys.value = collectTreeKeys(treeData.value)
   } finally {
     loading.tree = false
   }
+}
+
+function collectTreeKeys(nodes = []) {
+  return nodes.flatMap((node) => [
+    node.id,
+    ...collectTreeKeys(node.children || []),
+  ])
 }
 
 async function loadCurrentList() {
@@ -1233,8 +1479,41 @@ async function loadDevices() {
     })
     devices.value = res.data || []
     pagination.itemCount = res.total || 0
+    if (canShowRackView.value) {
+      await loadRackDevices()
+    } else {
+      rackDevices.value = []
+      selectedRackDevice.value = null
+      viewMode.value = 'table'
+    }
   } finally {
     loading.list = false
+  }
+}
+
+async function loadRackDevices() {
+  if (!canShowRackView.value) {
+    rackDevices.value = []
+    selectedRackDevice.value = null
+    return
+  }
+  loading.rack = true
+  try {
+    const res = await api.assetApi.devices({
+      page: 1,
+      page_size: 1000,
+      cabinet_id: selectedNode.value.raw_id,
+      keyword: filters.keyword || undefined,
+      type: filters.deviceType ?? undefined,
+      status: filters.deviceStatus ?? undefined,
+    })
+    rackDevices.value = res.data || []
+    if (selectedRackDevice.value) {
+      selectedRackDevice.value =
+        rackDevices.value.find((item) => item.id === selectedRackDevice.value.id) || null
+    }
+  } finally {
+    loading.rack = false
   }
 }
 
@@ -1270,6 +1549,10 @@ function getSelectedParams({ ignoreSelection = false } = {}) {
 function handleTreeSelect(keys, options) {
   selectedKeys.value = keys
   selectedNode.value = options?.[0] || null
+  if (!canShowRackView.value) {
+    viewMode.value = 'table'
+    selectedRackDevice.value = null
+  }
   if (hasGlobalKeyword.value) {
     filters.keyword = ''
   }
@@ -1326,6 +1609,17 @@ function resetFilters() {
   inventorySorter.order = ''
   pagination.page = 1
   loadCurrentList()
+}
+
+function switchAssetView(mode) {
+  viewMode.value = mode
+  if (mode === 'rack' && canShowRackView.value && !rackDevices.value.length) {
+    loadRackDevices()
+  }
+}
+
+function selectRackDevice(device) {
+  selectedRackDevice.value = device
 }
 
 function openPrimaryModal(row = null) {
@@ -2053,6 +2347,17 @@ function formatDeviceUPosition(row) {
     : `${row.u_position}U`
 }
 
+function rackBlockStyle(block) {
+  const capacity = rackCapacity.value
+  return {
+    gridRow: `${capacity - block.end + 1} / span ${Math.max(block.end - block.start + 1, 1)}`,
+  }
+}
+
+function rackUnitGridRow(unit) {
+  return String(rackCapacity.value - unit.no + 1)
+}
+
 function openDeviceDetail(row) {
   deviceDetailModal.row = row
   deviceDetailModal.show = true
@@ -2176,6 +2481,12 @@ onMounted(refreshAll)
   gap: 10px;
 }
 
+.view-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .hidden-file-input {
   display: none;
 }
@@ -2230,6 +2541,430 @@ onMounted(refreshAll)
   flex-flow: row nowrap !important;
   flex-wrap: nowrap;
   gap: 6px !important;
+}
+
+.rack-visual {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 520px;
+}
+
+.rack-summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.rack-summary h3 {
+  margin: 4px 0 0;
+  color: #0f172a;
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.rack-stats {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rack-stats span {
+  border: 1px solid #dbeafe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 24px;
+  padding: 0 10px;
+}
+
+.rack-stats .rack-conflict-text {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.rack-scene {
+  display: grid;
+  grid-template-columns: minmax(360px, 620px) minmax(160px, 1fr);
+  align-items: start;
+  gap: 24px;
+}
+
+.rack-side-panel {
+  grid-column: 2;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.rack-legend,
+.rack-device-detail {
+  min-width: 0;
+}
+
+.rack-cabinet {
+  position: relative;
+  border: 1px solid #1f2937;
+  border-radius: 8px 8px 6px 6px;
+  background:
+    linear-gradient(90deg, rgba(15, 23, 42, 0.18), transparent 12%, transparent 88%, rgba(15, 23, 42, 0.2)),
+    linear-gradient(180deg, #475569, #111827);
+  box-shadow: 16px 18px 30px rgba(15, 23, 42, 0.18);
+  padding: 18px 18px 14px;
+}
+
+.rack-top,
+.rack-base {
+  height: 18px;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #64748b, #1f2937);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.rack-top {
+  margin-bottom: 10px;
+}
+
+.rack-base {
+  margin-top: 10px;
+}
+
+.rack-body {
+  position: relative;
+  min-height: 760px;
+  border: 1px solid rgba(15, 23, 42, 0.72);
+  background: #020617;
+  padding: 0 28px;
+}
+
+.rack-rail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 18px;
+  background:
+    radial-gradient(circle at 50% 10px, rgba(255, 255, 255, 0.34) 0 2px, transparent 3px) 0 0 / 18px 30px,
+    linear-gradient(180deg, #334155, #0f172a);
+}
+
+.rack-rail.left {
+  left: 0;
+}
+
+.rack-rail.right {
+  right: 0;
+}
+
+.rack-slots {
+  position: relative;
+  display: grid;
+  height: 760px;
+  grid-template-rows: repeat(var(--rack-units, 42), minmax(10px, 1fr));
+  grid-template-columns: 64px minmax(0, 1fr);
+  overflow: hidden;
+  border-inline: 1px solid rgba(148, 163, 184, 0.28);
+  background:
+    linear-gradient(90deg, rgba(15, 23, 42, 0.42), transparent 16%, transparent 84%, rgba(15, 23, 42, 0.42)),
+    #0f172a;
+}
+
+.rack-u-row {
+  position: relative;
+  grid-column: 1 / -1;
+  min-height: 12px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.rack-u-row span {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  z-index: 1;
+  color: #94a3b8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  transform: translateY(-50%);
+}
+
+.rack-u-row.occupied {
+  background: rgba(59, 130, 246, 0.06);
+}
+
+.rack-u-row.conflict {
+  background: rgba(239, 68, 68, 0.18);
+}
+
+.rack-device-block {
+  grid-column: 2;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 10px;
+  align-items: center;
+  gap: 8px;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid rgba(96, 165, 250, 0.58);
+  border-radius: 4px;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.12), transparent 18%),
+    linear-gradient(180deg, #2563eb, #1d4ed8);
+  color: #eff6ff;
+  cursor: pointer;
+  align-self: stretch;
+  box-sizing: border-box;
+  margin: 2px 24px 2px 8px;
+  padding: 1px 12px;
+  text-align: left;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 8px 18px rgba(15, 23, 42, 0.32);
+}
+
+.rack-device-block:hover {
+  border-color: rgba(191, 219, 254, 0.86);
+  filter: brightness(1.08);
+}
+
+.rack-device-block.selected {
+  outline: 2px solid rgba(14, 165, 233, 0.95);
+  outline-offset: 2px;
+}
+
+.rack-device-block strong,
+.rack-device-block span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rack-device-info {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.rack-device-block strong {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.rack-device-block.compact {
+  padding-block: 0;
+}
+
+.rack-device-block.compact .rack-device-info {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.rack-device-block.compact span {
+  margin-top: 0;
+  font-size: 10px;
+}
+
+.rack-device-block span {
+  margin-top: 1px;
+  opacity: 0.82;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.rack-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #22c55e;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.24);
+}
+
+.rack-device-block.device-type-1 {
+  border-color: rgba(52, 211, 153, 0.72);
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.14), transparent 18%),
+    linear-gradient(180deg, #059669, #047857);
+}
+
+.rack-device-block.device-type-2 {
+  border-color: rgba(45, 212, 191, 0.72);
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.14), transparent 18%),
+    linear-gradient(180deg, #0d9488, #0f766e);
+}
+
+.rack-device-block.device-type-3 {
+  border-color: rgba(251, 191, 36, 0.78);
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.14), transparent 18%),
+    linear-gradient(180deg, #d97706, #92400e);
+}
+
+.rack-device-block.device-type-4 {
+  border-color: rgba(244, 114, 182, 0.74);
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.14), transparent 18%),
+    linear-gradient(180deg, #db2777, #be185d);
+}
+
+.rack-device-block.device-type-5 {
+  border-color: rgba(167, 139, 250, 0.74);
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.14), transparent 18%),
+    linear-gradient(180deg, #7c3aed, #6d28d9);
+}
+
+.rack-device-block.device-type-99 {
+  border-color: rgba(148, 163, 184, 0.74);
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.14), transparent 18%),
+    linear-gradient(180deg, #64748b, #475569);
+}
+
+.rack-status-dot.device-status-2 {
+  background: #f59e0b;
+}
+
+.rack-status-dot.device-status-3,
+.rack-status-dot.device-status-5 {
+  background: #ef4444;
+}
+
+.rack-status-dot.device-status-4 {
+  background: #94a3b8;
+}
+
+.rack-device-block.conflict {
+  border-color: rgba(252, 165, 165, 0.82);
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.14), transparent 18%),
+    linear-gradient(180deg, #dc2626, #991b1b);
+}
+
+.rack-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 14px;
+}
+
+.rack-device-detail {
+  min-height: 520px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  background: #fff;
+  padding: 16px;
+}
+
+.rack-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.rack-detail-head h3 {
+  margin: 4px 0 0;
+  color: #0f172a;
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.rack-detail-status {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #15803d;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 24px;
+  padding: 0 10px;
+}
+
+.rack-detail-status.device-status-2 {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.rack-detail-status.device-status-3,
+.rack-detail-status.device-status-5 {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.rack-detail-status.device-status-4 {
+  background: #e5e7eb;
+  color: #4b5563;
+}
+
+.rack-detail-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.rack-detail-empty {
+  display: flex;
+  min-height: 480px;
+  align-items: center;
+  justify-content: center;
+  color: #ef4444;
+  font-size: 15px;
+}
+
+.rack-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #475569;
+  font-size: 13px;
+}
+
+.rack-legend i {
+  width: 18px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.rack-legend .server {
+  background: #2563eb;
+}
+
+.rack-legend .switch {
+  background: #059669;
+}
+
+.rack-legend .router {
+  background: #0d9488;
+}
+
+.rack-legend .firewall {
+  background: #d97706;
+}
+
+.rack-legend .pdu {
+  background: #db2777;
+}
+
+.rack-legend .part {
+  background: #7c3aed;
+}
+
+.rack-legend .danger {
+  background: #dc2626;
+}
+
+.rack-empty {
+  margin-top: -8px;
 }
 
 .content-panel :deep(.attribute-tag-groups) {
@@ -2660,6 +3395,8 @@ html.dark .summary-band article {
 }
 
 html.dark .panel-head h2,
+html.dark .rack-summary h3,
+html.dark .rack-detail-head h3,
 html.dark .summary-band strong,
 html.dark .detail-section h3 {
   color: #e5e7eb;
@@ -2761,16 +3498,67 @@ html.dark .category-block {
   background: rgba(15, 23, 42, 0.38);
 }
 
+html.dark .rack-stats span {
+  border-color: rgba(96, 165, 250, 0.28);
+  background: rgba(30, 64, 175, 0.22);
+  color: #93c5fd;
+}
+
+html.dark .rack-stats .rack-conflict-text {
+  border-color: rgba(252, 165, 165, 0.28);
+  background: rgba(127, 29, 29, 0.42);
+  color: #fca5a5;
+}
+
+html.dark .rack-legend {
+  border-color: rgba(148, 163, 184, 0.2);
+  background: rgba(15, 23, 42, 0.56);
+}
+
+html.dark .rack-device-detail {
+  border-color: rgba(148, 163, 184, 0.2);
+  background: rgba(15, 23, 42, 0.56);
+}
+
+html.dark .rack-legend span {
+  color: #cbd5e1;
+}
+
+html.dark .rack-detail-empty {
+  color: #fca5a5;
+}
+
 @media (max-width: 960px) {
   .asset-layout,
   .summary-band,
-  .filter-panel {
+  .filter-panel,
+  .rack-scene {
     grid-template-columns: 1fr;
   }
 
   .panel-head {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .toolbar-actions,
+  .rack-summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .rack-cabinet {
+    transform: none;
+  }
+
+  .rack-side-panel {
+    grid-column: 1;
+  }
+
+  .rack-body,
+  .rack-slots {
+    height: 560px;
+    min-height: 560px;
   }
 }
 </style>
