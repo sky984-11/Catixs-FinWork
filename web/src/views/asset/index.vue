@@ -2651,6 +2651,116 @@ onMounted(refreshAll)
   flex: 1;
 }
 
+html.dark .asset-sidebar,
+html.dark .content-panel,
+html.dark .summary-band article {
+  border-color: rgba(148, 163, 184, 0.2);
+  background: rgba(17, 24, 39, 0.86);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+}
+
+html.dark .panel-head h2,
+html.dark .summary-band strong,
+html.dark .detail-section h3 {
+  color: #e5e7eb;
+}
+
+html.dark .eyebrow,
+html.dark .summary-band span,
+html.dark .content-panel :deep(.device-meta-line),
+html.dark .content-panel :deep(.muted-cell) {
+  color: #94a3b8;
+}
+
+html.dark .content-panel :deep(.n-data-table-th) {
+  background: #111827;
+  color: #cbd5e1;
+}
+
+html.dark .content-panel :deep(.n-data-table-td) {
+  color: #e5e7eb;
+}
+
+html.dark .content-panel :deep(.asset-table-row .n-data-table-td) {
+  border-bottom-color: rgba(148, 163, 184, 0.16);
+}
+
+html.dark .content-panel :deep(.asset-table-row:hover .n-data-table-td) {
+  background: rgba(30, 41, 59, 0.72);
+}
+
+html.dark .content-panel :deep(.attribute-tag-group-title),
+html.dark .content-panel :deep(.attribute-tag),
+html.dark .content-panel :deep(.attribute-tag b),
+html.dark .content-panel :deep(.device-ip-item b),
+html.dark .content-panel :deep(.device-u-badge) {
+  border-color: rgba(96, 165, 250, 0.28);
+  background: rgba(30, 41, 59, 0.9);
+  color: #bfdbfe;
+}
+
+html.dark .content-panel :deep(.attribute-tag em),
+html.dark .content-panel :deep(.device-ip-item em),
+html.dark .content-panel :deep(.device-remark) {
+  color: #cbd5e1;
+}
+
+html.dark .content-panel :deep(.device-type-badge) {
+  border-color: rgba(96, 165, 250, 0.28);
+  background: rgba(30, 64, 175, 0.22);
+  color: #93c5fd;
+}
+
+html.dark .content-panel :deep(.device-type-1),
+html.dark .content-panel :deep(.device-type-2),
+html.dark .content-panel :deep(.device-status-badge) {
+  border-color: rgba(52, 211, 153, 0.28);
+  background: rgba(6, 95, 70, 0.28);
+  color: #6ee7b7;
+}
+
+html.dark .content-panel :deep(.device-type-3),
+html.dark .content-panel :deep(.device-type-4),
+html.dark .content-panel :deep(.device-status-2) {
+  border-color: rgba(251, 191, 36, 0.3);
+  background: rgba(146, 64, 14, 0.3);
+  color: #fcd34d;
+}
+
+html.dark .content-panel :deep(.device-type-5),
+html.dark .content-panel :deep(.device-type-99),
+html.dark .content-panel :deep(.device-status-4) {
+  border-color: rgba(148, 163, 184, 0.28);
+  background: rgba(51, 65, 85, 0.72);
+  color: #cbd5e1;
+}
+
+html.dark .content-panel :deep(.device-status-3),
+html.dark .content-panel :deep(.device-status-5) {
+  background: rgba(127, 29, 29, 0.42);
+  color: #fca5a5;
+}
+
+html.dark .device-config-table,
+html.dark .device-config-row {
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
+html.dark .device-config-label {
+  background: rgba(30, 41, 59, 0.9);
+  color: #e5e7eb;
+}
+
+html.dark .device-config-values,
+html.dark .device-config-values strong {
+  color: #cbd5e1;
+}
+
+html.dark .category-block {
+  border-color: rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.38);
+}
+
 @media (max-width: 960px) {
   .asset-layout,
   .summary-band,
