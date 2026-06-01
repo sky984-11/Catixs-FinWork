@@ -1,6 +1,16 @@
 <script setup>
 import { h, onMounted, ref, resolveDirective, withDirectives } from 'vue'
-import { NButton, NForm, NFormItem, NInput, NPopconfirm } from 'naive-ui'
+import {
+  NButton,
+  NDrawer,
+  NDrawerContent,
+  NForm,
+  NFormItem,
+  NInput,
+  NPopconfirm,
+  NSpace,
+  NTag,
+} from 'naive-ui'
 
 import CommonPage from '@/components/page/CommonPage.vue'
 import QueryBarItem from '@/components/query-bar/QueryBarItem.vue'
@@ -18,6 +28,11 @@ defineOptions({ name: 'API管理' })
 const $table = ref(null)
 const queryItems = ref({})
 const vPermission = resolveDirective('permission')
+const docsVisible = ref(false)
+const docsLoading = ref(false)
+const apiDocs = ref({ items: [], total: 0 })
+const apiDocsUrl = `${window.location.origin}${import.meta.env.VITE_BASE_API}/api/docs`
+const openApiDocsUrl = `${window.location.origin}${import.meta.env.VITE_BASE_API}/api/docs/openapi`
 
 const {
   modalVisible,
@@ -53,6 +68,22 @@ async function handleRefreshApi() {
       $table.value?.handleSearch()
     },
   })
+}
+
+async function handleOpenDocs() {
+  docsVisible.value = true
+  docsLoading.value = true
+  try {
+    const res = await api.getApiDocs()
+    apiDocs.value = res.data || { items: [], total: 0 }
+  } finally {
+    docsLoading.value = false
+  }
+}
+
+async function handleCopyDocsUrl(url) {
+  await navigator.clipboard.writeText(url)
+  $message.success('文档地址已复制')
 }
 
 const addAPIRules = {
@@ -195,6 +226,9 @@ const columns = [
         >
           <TheIcon icon="material-symbols:refresh" :size="18" class="mr-5" />刷新API
         </NButton>
+        <NButton class="float-right mr-15" type="info" @click="handleOpenDocs">
+          <TheIcon icon="material-symbols:description-outline" :size="18" class="mr-5" />API文档
+        </NButton>
       </div>
     </template>
     <!-- 表格 -->
@@ -264,5 +298,102 @@ const columns = [
         </NFormItem>
       </NForm>
     </CrudModal>
+
+    <NDrawer v-model:show="docsVisible" :width="720">
+      <NDrawerContent title="API文档" closable>
+        <NSpace vertical size="large">
+          <div class="api-doc-url">
+            <span>{{ apiDocsUrl }}</span>
+            <NButton size="small" type="primary" @click="handleCopyDocsUrl(apiDocsUrl)">
+              复制文档地址
+            </NButton>
+          </div>
+          <div class="api-doc-url">
+            <span>{{ openApiDocsUrl }}</span>
+            <NButton size="small" @click="handleCopyDocsUrl(openApiDocsUrl)">
+              复制OpenAPI地址
+            </NButton>
+          </div>
+          <div v-if="docsLoading" class="api-doc-empty">加载中...</div>
+          <div v-else-if="!apiDocs.items?.length" class="api-doc-empty">暂无API文档</div>
+          <div v-else class="api-doc-list">
+            <div v-for="item in apiDocs.items" :key="`${item.method}-${item.path}`" class="api-doc-item">
+              <div class="api-doc-main">
+                <NTag size="small" :type="item.auth_required ? 'warning' : 'success'">
+                  {{ item.method }}
+                </NTag>
+                <span class="api-doc-path">{{ item.path }}</span>
+              </div>
+              <div class="api-doc-meta">
+                <span>{{ item.summary || '暂无简介' }}</span>
+                <span>{{ item.tags?.join(' / ') }}</span>
+              </div>
+            </div>
+          </div>
+        </NSpace>
+      </NDrawerContent>
+    </NDrawer>
   </CommonPage>
 </template>
+
+<style scoped>
+.api-doc-url {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #f6f7f9;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+
+.api-doc-url span {
+  min-width: 0;
+  overflow: hidden;
+  color: #374151;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.api-doc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.api-doc-item {
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+
+.api-doc-main,
+.api-doc-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.api-doc-main {
+  min-width: 0;
+}
+
+.api-doc-path {
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.api-doc-meta {
+  justify-content: space-between;
+  margin-top: 8px;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.api-doc-empty {
+  padding: 24px 0;
+  color: #6b7280;
+  text-align: center;
+}
+</style>
