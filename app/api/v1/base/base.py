@@ -19,6 +19,10 @@ from app.utils.password import get_password_hash, verify_password
 
 router = APIRouter()
 
+MENU_ICON_FALLBACKS = {
+    "/syslog": "mdi:text-box-search-outline",
+}
+
 DEFAULT_AVATAR = "https://avatars.githubusercontent.com/u/54677442?v=4"
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
 AVATAR_UPLOAD_DIR = os.path.join(PROJECT_ROOT, "uploads", "avatars")
@@ -30,6 +34,13 @@ AVATAR_EXT_MAP = {
     "image/webp": ".webp",
     "image/svg+xml": ".svg",
 }
+
+
+async def menu_to_dict_with_fallback(menu: Menu) -> dict:
+    data = await menu.to_dict()
+    if data.get("path") in MENU_ICON_FALLBACKS:
+        data["icon"] = MENU_ICON_FALLBACKS[data["path"]]
+    return data
 
 
 @router.post("/access_token", summary="获取token")
@@ -177,11 +188,11 @@ async def get_user_menu():
             parent_menus.append(menu)
     res = []
     for parent_menu in parent_menus:
-        parent_menu_dict = await parent_menu.to_dict()
+        parent_menu_dict = await menu_to_dict_with_fallback(parent_menu)
         parent_menu_dict["children"] = []
         for menu in menus:
             if menu.parent_id == parent_menu.id:
-                parent_menu_dict["children"].append(await menu.to_dict())
+                parent_menu_dict["children"].append(await menu_to_dict_with_fallback(menu))
         res.append(parent_menu_dict)
     return Success(data=res)
 

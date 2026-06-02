@@ -14,6 +14,7 @@ from .depts import depts_router
 from .dashboard import router as dashboard_router
 from .menus import menus_router
 from .roles import roles_router
+from .syslog import syslog_router
 from .tasks import tasks_router
 from .users import users_router
 from .vendors import vendors_router
@@ -34,6 +35,7 @@ v1_router.include_router(vendors_router, prefix="/vendor", dependencies=[DependP
 v1_router.include_router(dashboard_router, prefix="/ticket", tags=["仪表盘模块"])
 v1_router.include_router(ticket_router, prefix="/ticket", tags=["工单模块"])
 v1_router.include_router(assets_router, prefix="/asset", dependencies=[DependPermission], tags=["资产管理模块"])
+v1_router.include_router(syslog_router, prefix="/syslog", dependencies=[DependPermission], tags=["Syslog日志管理模块"])
 v1_router.include_router(banks_router, prefix="/bank", dependencies=[DependPermission])
 v1_router.include_router(bank_accounts_router, prefix="/bank_account", dependencies=[DependPermission])
 v1_router.include_router(bills_router, prefix="/bill", dependencies=[DependPermission])

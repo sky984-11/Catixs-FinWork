@@ -160,4 +160,12 @@ export default {
     deleteInventoryCategory: (params = {}) =>
       request.delete('/asset/inventory-category/delete', { params }),
   },
+
+  // syslog
+  syslogApi: {
+    devices: () => request.get('/syslog/devices'),
+    files: (params = {}) => request.get('/syslog/files', { params }),
+    logs: (params = {}) => request.get('/syslog/logs', { params }),
+    raw: (params = {}) => request.get('/syslog/raw', { params }),
+  },
 }

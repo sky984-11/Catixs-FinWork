@@ -258,6 +258,7 @@ async def init_menus():
     await ensure_service_module_menus()
     await ensure_ticket_route_menus()
     await ensure_asset_menu()
+    await ensure_syslog_menu()
     await ensure_business_party_menu()
     await ensure_bill_menu()
     await ensure_task_menu()
@@ -434,6 +435,36 @@ async def ensure_asset_menu():
         keepalive=False,
         redirect="",
     )
+
+
+async def ensure_syslog_menu():
+    ops_menu = await get_service_module_menu("/ops")
+    syslog_menu = await Menu.filter(path="/syslog").first()
+    values = {
+        "name": "Syslog日志管理",
+        "path": "/syslog",
+        "order": 3,
+        "parent_id": ops_menu.id,
+        "icon": "mdi:text-box-search-outline",
+        "is_hidden": False,
+        "component": "/ops/syslog",
+        "keepalive": False,
+        "redirect": "",
+    }
+    if syslog_menu:
+        changed = False
+        for field, value in values.items():
+            if getattr(syslog_menu, field) != value:
+                setattr(syslog_menu, field, value)
+                changed = True
+        if syslog_menu.menu_type != MenuType.MENU:
+            syslog_menu.menu_type = MenuType.MENU
+            changed = True
+        if changed:
+            await syslog_menu.save()
+        return
+
+    await Menu.create(menu_type=MenuType.MENU, **values)
 
 
 async def ensure_bill_menu():

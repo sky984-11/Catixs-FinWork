@@ -46,11 +46,12 @@ function resolvePath(basePath, path) {
 }
 
 function getMenuItem(route, basePath = '') {
+  const path = resolvePath(basePath, route.path)
   let menuItem = {
     label: (route.meta && route.meta.title) || route.name,
-    key: resolvePath(basePath, route.path),
-    path: resolvePath(basePath, route.path),
-    icon: getIcon(route.meta),
+    key: path,
+    path,
+    icon: getIcon(route.meta, path),
     order: route.meta?.order || 0,
   }
 
@@ -68,7 +69,7 @@ function getMenuItem(route, basePath = '') {
       label: singleRoute.meta?.title || singleRoute.name,
       key: resolvePath(menuItem.path, singleRoute.path),
       path: resolvePath(menuItem.path, singleRoute.path),
-      icon: getIcon(singleRoute.meta),
+      icon: getIcon(singleRoute.meta, resolvePath(menuItem.path, singleRoute.path)),
     }
     const visibleItems = singleRoute.children
       ? singleRoute.children.filter((item) => item.name && !item.isHidden)
@@ -89,7 +90,10 @@ function getMenuItem(route, basePath = '') {
   return menuItem
 }
 
-function getIcon(meta) {
+function getIcon(meta, path = '') {
+  if (path === '/syslog' || path.endsWith('/syslog')) {
+    return renderIcon('mdi:text-box-search-outline', { size: 18 })
+  }
   if (meta?.customIcon) return renderCustomIcon(meta.customIcon, { size: 18 })
   if (meta?.icon) return renderIcon(meta.icon, { size: 18 })
   return null
