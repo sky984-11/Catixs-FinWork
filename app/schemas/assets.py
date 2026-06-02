@@ -120,6 +120,9 @@ class AssetInventoryBase(BaseModel):
     type: str = Field(..., example="光模块", description="分类")
     subtype: str = Field("", example="100G", description="子类")
     quantity: int = Field(1, example=2)
+    threshold: int = Field(0, ge=0, example=10, description="库存告警阈值，0 表示不告警")
+    cost_price: float = Field(0, ge=0, example=80.0, description="成本价")
+    sale_price: float = Field(0, ge=0, example=120.0, description="默认售价")
     attributes: dict[str, Any] = Field(default_factory=dict, example={"规格型号": "100G单模", "技术参数": "10km 1310nm", "兼容平台": "huawei&cisco"})
     remark: str = Field("", example="")
     status: bool = Field(True, example=True)
@@ -146,6 +149,26 @@ class AssetInventoryCategoryCreate(AssetInventoryCategoryBase):
 
 class AssetInventoryCategoryUpdate(AssetInventoryCategoryBase):
     id: int
+
+
+class AssetInventorySaleItemIn(BaseModel):
+    inventory_id: int
+    quantity: int = Field(..., gt=0, example=1)
+    unit_price: float = Field(0, ge=0, example=100.0)
+    remark: str = Field("", example="")
+
+
+class AssetInventorySaleCreate(BaseModel):
+    customer_name: str = Field("", example="")
+    customer_contact: str = Field("", example="")
+    sale_date: Optional[date] = None
+    remark: str = Field("", example="")
+    items: list[AssetInventorySaleItemIn]
+
+
+class AssetInventorySaleCancel(BaseModel):
+    id: int
+    reason: str = Field("", example="客户取消")
 
 
 class AssetTreeNode(BaseModel):

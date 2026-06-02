@@ -90,6 +90,9 @@ class AssetInventory(BaseModel, TimestampMixin):
     type = fields.CharField(max_length=100, description="分类", index=True)
     subtype = fields.CharField(max_length=100, null=True, description="子类", index=True)
     quantity = fields.IntField(default=1, description="数量")
+    threshold = fields.IntField(default=0, description="库存告警阈值")
+    cost_price = fields.FloatField(default=0, description="成本价")
+    sale_price = fields.FloatField(default=0, description="默认售价")
     attributes = fields.JSONField(default=dict, description="扩展属性")
     remark = fields.CharField(max_length=500, null=True, description="备注")
     status = fields.BooleanField(default=True, description="启用状态", index=True)
@@ -106,3 +109,50 @@ class AssetInventoryCategory(BaseModel, TimestampMixin):
 
     class Meta:
         table = "asset_inventory_category"
+
+
+class AssetInventorySaleOrder(BaseModel, TimestampMixin):
+    sale_no = fields.CharField(max_length=100, unique=True, index=True, description="销售单号")
+    customer_name = fields.CharField(max_length=100, description="客户名称", index=True)
+    customer_contact = fields.CharField(max_length=100, null=True, description="客户联系人")
+    sale_date = fields.DateField(null=True, description="销售日期")
+    status = fields.IntField(default=1, description="状态：1-已确认，2-已取消", index=True)
+    total_amount = fields.FloatField(default=0, description="销售总额")
+    remark = fields.CharField(max_length=500, null=True, description="备注")
+    created_by = fields.BigIntField(null=True, description="创建人ID", index=True)
+    canceled_at = fields.DatetimeField(null=True, description="取消时间")
+    canceled_by = fields.BigIntField(null=True, description="取消人ID")
+    cancel_reason = fields.CharField(max_length=500, null=True, description="取消原因")
+
+    class Meta:
+        table = "asset_inventory_sale_order"
+
+
+class AssetInventorySaleItem(BaseModel, TimestampMixin):
+    sale_order = fields.ForeignKeyField("models.AssetInventorySaleOrder", related_name="items", description="销售单")
+    inventory = fields.ForeignKeyField("models.AssetInventory", related_name="sale_items", description="库存项")
+    type = fields.CharField(max_length=100, description="分类快照")
+    subtype = fields.CharField(max_length=100, null=True, description="子类快照")
+    quantity = fields.IntField(description="销售数量")
+    cost_price = fields.FloatField(default=0, description="成本价快照")
+    unit_price = fields.FloatField(default=0, description="单价")
+    amount = fields.FloatField(default=0, description="小计")
+    remark = fields.CharField(max_length=500, null=True, description="备注")
+
+    class Meta:
+        table = "asset_inventory_sale_item"
+
+
+class AssetInventoryStockFlow(BaseModel, TimestampMixin):
+    inventory = fields.ForeignKeyField("models.AssetInventory", related_name="stock_flows", description="库存项")
+    flow_type = fields.CharField(max_length=30, description="流水类型", index=True)
+    quantity_before = fields.IntField(description="变更前数量")
+    quantity_change = fields.IntField(description="变更数量")
+    quantity_after = fields.IntField(description="变更后数量")
+    biz_type = fields.CharField(max_length=50, description="业务类型", index=True)
+    biz_id = fields.BigIntField(null=True, description="业务ID", index=True)
+    remark = fields.CharField(max_length=500, null=True, description="备注")
+    created_by = fields.BigIntField(null=True, description="创建人ID", index=True)
+
+    class Meta:
+        table = "asset_inventory_stock_flow"

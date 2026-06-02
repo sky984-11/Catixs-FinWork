@@ -261,6 +261,7 @@ async def init_menus():
     await ensure_syslog_menu()
     await ensure_business_party_menu()
     await ensure_bill_menu()
+    await ensure_inventory_sale_menu()
     await ensure_task_menu()
 
 
@@ -507,6 +508,36 @@ async def ensure_bill_menu():
         )
 
 
+async def ensure_inventory_sale_menu():
+    finance_menu = await get_service_module_menu("/finance")
+    sale_menu = await Menu.filter(path="/inventory-sale").first()
+    values = {
+        "name": "库存售卖",
+        "path": "/inventory-sale",
+        "order": 3,
+        "parent_id": finance_menu.id,
+        "icon": "mdi:cart-outline",
+        "is_hidden": False,
+        "component": "/finance/inventory-sale",
+        "keepalive": False,
+        "redirect": "",
+    }
+    if sale_menu:
+        changed = False
+        for field, value in values.items():
+            if getattr(sale_menu, field) != value:
+                setattr(sale_menu, field, value)
+                changed = True
+        if sale_menu.menu_type != MenuType.MENU:
+            sale_menu.menu_type = MenuType.MENU
+            changed = True
+        if changed:
+            await sale_menu.save()
+        return
+
+    await Menu.create(menu_type=MenuType.MENU, **values)
+
+
 async def ensure_task_menu():
     system_menu = await Menu.filter(path="/system").first()
     if not system_menu:
@@ -628,17 +659,26 @@ async def ensure_business_api_permissions():
         | Q(method="GET", path="/api/v1/bill/list")
         | Q(method="GET", path="/api/v1/bill/get")
         | Q(method="GET", path="/api/v1/bank_account/list")
+        | Q(method="GET", path="/api/v1/asset/inventory/list")
+        | Q(method="GET", path="/api/v1/asset/inventory-category/list")
+        | Q(method="GET", path="/api/v1/asset/inventory-sale/list")
+        | Q(method="GET", path="/api/v1/asset/inventory-flow/list")
     )
     manage_apis = await Api.filter(
         Q(path__startswith="/api/v1/company/")
         | Q(path__startswith="/api/v1/bill/")
+        | Q(path__startswith="/api/v1/asset/inventory-sale/")
     )
+    sale_menu = await Menu.filter(path="/inventory-sale").first()
 
     for role in roles:
         if read_apis:
             await role.apis.add(*read_apis)
-        if is_admin_role_name(role.name) and manage_apis:
-            await role.apis.add(*manage_apis)
+        if is_admin_role_name(role.name):
+            if manage_apis:
+                await role.apis.add(*manage_apis)
+            if sale_menu:
+                await role.menus.add(sale_menu)
 
 
 async def ensure_task_permissions():
@@ -699,10 +739,16 @@ async def ensure_asset_columns():
         """
         ALTER TABLE IF EXISTS "asset_inventory"
             ADD COLUMN IF NOT EXISTS "subtype" VARCHAR(100),
-            ADD COLUMN IF NOT EXISTS "attributes" JSONB NOT NULL DEFAULT '{}';
+            ADD COLUMN IF NOT EXISTS "attributes" JSONB NOT NULL DEFAULT '{}',
+            ADD COLUMN IF NOT EXISTS "threshold" INT NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS "cost_price" DOUBLE PRECISION NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS "sale_price" DOUBLE PRECISION NOT NULL DEFAULT 0;
 
         ALTER TABLE IF EXISTS "asset_device"
             ADD COLUMN IF NOT EXISTS "attributes" JSONB NOT NULL DEFAULT '{}';
+
+        ALTER TABLE IF EXISTS "asset_inventory_sale_item"
+            ADD COLUMN IF NOT EXISTS "cost_price" DOUBLE PRECISION NOT NULL DEFAULT 0;
         """
     )
 
@@ -790,6 +836,9 @@ def is_ignorable_asset_migration_error(exc: Exception) -> bool:
         "brand",
         "unit",
         "min_quantity",
+        "threshold",
+        "cost_price",
+        "sale_price",
         "attributes",
     ]
     return is_duplicate_column and any(column in message for column in inventory_columns)

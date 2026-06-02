@@ -435,6 +435,15 @@
             <n-form-item-gi label="数量" path="quantity">
               <n-input-number v-model:value="inventoryModal.form.quantity" :min="0" />
             </n-form-item-gi>
+            <n-form-item-gi label="告警阈值" path="threshold">
+              <n-input-number v-model:value="inventoryModal.form.threshold" :min="0" />
+            </n-form-item-gi>
+            <n-form-item-gi label="成本价">
+              <n-input-number v-model:value="inventoryModal.form.cost_price" :min="0" />
+            </n-form-item-gi>
+            <n-form-item-gi label="默认售价">
+              <n-input-number v-model:value="inventoryModal.form.sale_price" :min="0" />
+            </n-form-item-gi>
             <n-form-item-gi :span="2" label="扩展属性">
               <div class="attribute-editor">
                 <div
@@ -474,6 +483,74 @@
             />
           </div>
         </template>
+      </n-modal>
+
+      <n-modal v-model:show="saleModal.show" preset="card" title="库存售卖" class="simple-modal">
+        <n-form label-placement="left" label-width="90">
+          <n-form-item label="库存项">
+            <n-input :value="saleModal.inventoryLabel" readonly />
+          </n-form-item>
+          <n-grid :cols="2" :x-gap="16">
+            <n-form-item-gi label="客户名称">
+              <n-input v-model:value="saleModal.form.customer_name" />
+            </n-form-item-gi>
+            <n-form-item-gi label="联系人">
+              <n-input v-model:value="saleModal.form.customer_contact" />
+            </n-form-item-gi>
+            <n-form-item-gi label="销售日期">
+              <n-date-picker
+                v-model:formatted-value="saleModal.form.sale_date"
+                type="date"
+                value-format="yyyy-MM-dd"
+                clearable
+              />
+            </n-form-item-gi>
+            <n-form-item-gi label="销售数量">
+              <n-input-number v-model:value="saleModal.form.quantity" :min="1" :max="saleModal.maxQuantity" />
+            </n-form-item-gi>
+            <n-form-item-gi label="销售单价">
+              <n-input-number v-model:value="saleModal.form.unit_price" :min="0" />
+            </n-form-item-gi>
+            <n-form-item-gi label="小计">
+              <n-input :value="String(saleAmount)" readonly />
+            </n-form-item-gi>
+            <n-form-item-gi :span="2" label="备注">
+              <n-input v-model:value="saleModal.form.remark" type="textarea" />
+            </n-form-item-gi>
+          </n-grid>
+        </n-form>
+        <template #footer>
+          <div class="modal-footer">
+            <n-button round @click="saleModal.show = false">取消</n-button>
+            <n-button type="primary" round :loading="saleModal.submitting" @click="submitInventorySale">
+              确认售卖
+            </n-button>
+          </div>
+        </template>
+      </n-modal>
+
+      <n-modal v-model:show="saleRecordsModal.show" preset="card" title="销售记录" class="asset-modal">
+        <n-data-table
+          remote
+          :loading="saleRecordsModal.loading"
+          :columns="saleRecordColumns"
+          :data="saleRecords"
+          :pagination="saleRecordsPagination"
+          @update:page="handleSaleRecordsPageChange"
+          @update:page-size="handleSaleRecordsPageSizeChange"
+        />
+      </n-modal>
+
+      <n-modal v-model:show="stockFlowsModal.show" preset="card" title="库存流水" class="asset-modal">
+        <n-data-table
+          remote
+          :loading="stockFlowsModal.loading"
+          :columns="stockFlowColumns"
+          :data="stockFlows"
+          :pagination="stockFlowsPagination"
+          @update:page="handleStockFlowsPageChange"
+          @update:page-size="handleStockFlowsPageSizeChange"
+        />
       </n-modal>
 
       <n-modal
@@ -891,6 +968,8 @@ const loading = reactive({
   rack: false,
   inventoryExport: false,
   inventoryImport: false,
+  saleRecords: false,
+  stockFlows: false,
 })
 const filters = reactive({
   keyword: '',
@@ -914,6 +993,32 @@ const pagination = reactive({
 const deviceModal = reactive({ show: false, submitting: false, form: createEmptyDevice() })
 const deviceDetailModal = reactive({ show: false, row: null })
 const inventoryModal = reactive({ show: false, submitting: false, form: createEmptyInventory() })
+const saleModal = reactive({
+  show: false,
+  submitting: false,
+  inventory: null,
+  inventoryLabel: '',
+  maxQuantity: 1,
+  form: createEmptySaleForm(),
+})
+const saleRecords = ref([])
+const stockFlows = ref([])
+const saleRecordsModal = reactive({ show: false, loading: false })
+const stockFlowsModal = reactive({ show: false, loading: false })
+const saleRecordsPagination = reactive({
+  page: 1,
+  pageSize: 10,
+  itemCount: 0,
+  showSizePicker: true,
+  pageSizes: [10, 20, 50],
+})
+const stockFlowsPagination = reactive({
+  page: 1,
+  pageSize: 20,
+  itemCount: 0,
+  showSizePicker: true,
+  pageSizes: [20, 50, 100],
+})
 const simpleModal = reactive({
   show: false,
   submitting: false,
@@ -965,6 +1070,8 @@ const assetResourcePathMap = {
   deviceModel: 'device-model',
   inventory: 'inventory',
   inventoryCategory: 'inventory-category',
+  inventorySale: 'inventory-sale',
+  inventoryFlow: 'inventory-flow',
 }
 
 const assetActionMethodMap = {
@@ -975,6 +1082,7 @@ const assetActionMethodMap = {
   delete: 'delete',
   export: 'get',
   import: 'post',
+  cancel: 'post',
 }
 
 const inventoryAttributeTemplateMap = {
@@ -1142,10 +1250,17 @@ const canSaveInventory = computed(() =>
 )
 const canExportInventory = computed(() => hasAssetPermission('inventory', 'export'))
 const canImportInventory = computed(() => hasAssetPermission('inventory', 'import'))
+const canCreateInventorySale = computed(() => hasAssetPermission('inventorySale', 'create'))
+const canViewInventorySales = computed(() => hasAssetPermission('inventorySale', 'list'))
+const canCancelInventorySale = computed(() => hasAssetPermission('inventorySale', 'cancel'))
+const canViewInventoryFlows = computed(() => hasAssetPermission('inventoryFlow', 'list'))
 const canSaveDevice = computed(() =>
   hasAssetPermission('device', deviceModal.form.id ? 'update' : 'create')
 )
 const hasGlobalKeyword = computed(() => Boolean(String(filters.keyword || '').trim()))
+const saleAmount = computed(() =>
+  ((Number(saleModal.form.quantity) || 0) * (Number(saleModal.form.unit_price) || 0)).toFixed(2)
+)
 const rackPlacedDevices = computed(() =>
   rackDevices.value
     .map((device) => {
@@ -1216,6 +1331,37 @@ const inventoryColumns = computed(() => [
     width: 110,
     sorter: true,
     sortOrder: inventorySorter.columnKey === 'quantity' ? inventorySorter.order : false,
+    render: renderInventoryQuantity,
+  },
+  {
+    title: '告警阈值',
+    key: 'threshold',
+    width: 110,
+    render(row) {
+      return Number(row.threshold || 0) > 0 ? row.threshold : '-'
+    },
+  },
+  {
+    title: '成本价',
+    key: 'cost_price',
+    width: 110,
+    align: 'right',
+    sorter: true,
+    sortOrder: inventorySorter.columnKey === 'cost_price' ? inventorySorter.order : false,
+    render(row) {
+      return formatPrice(row.cost_price)
+    },
+  },
+  {
+    title: '默认售价',
+    key: 'sale_price',
+    width: 110,
+    align: 'right',
+    sorter: true,
+    sortOrder: inventorySorter.columnKey === 'sale_price' ? inventorySorter.order : false,
+    render(row) {
+      return formatPrice(row.sale_price)
+    },
   },
   {
     title: '扩展属性',
@@ -1228,12 +1374,68 @@ const inventoryColumns = computed(() => [
   {
     title: '操作',
     key: 'actions',
-    width: 210,
+    width: 290,
     render(row) {
       return renderInventoryActions(row)
     },
   },
 ])
+
+const saleRecordColumns = computed(() => [
+  { title: '销售单号', key: 'sale_no', width: 170 },
+  { title: '客户', key: 'customer_name', width: 140, ellipsis: { tooltip: true } },
+  { title: '销售日期', key: 'sale_date', width: 120 },
+  {
+    title: '状态',
+    key: 'status',
+    width: 100,
+    render(row) {
+      return row.status === 2 ? '已取消' : '已确认'
+    },
+  },
+  { title: '金额', key: 'total_amount', width: 110 },
+  {
+    title: '明细',
+    key: 'items',
+    minWidth: 260,
+    render(row) {
+      const text = (row.items || [])
+        .map((item) => `${item.type}/${item.subtype || '-'} x ${item.quantity}`)
+        .join('；')
+      return h('span', { class: 'device-remark', title: text }, text || '-')
+    },
+  },
+  {
+    title: '操作',
+    key: 'actions',
+    width: 100,
+    render(row) {
+      if (row.status === 2 || !canCancelInventorySale.value) return '-'
+      return h(
+        NButton,
+        {
+          size: 'tiny',
+          type: 'warning',
+          secondary: true,
+          round: true,
+          onClick: () => cancelSaleOrder(row),
+        },
+        { default: () => '取消' }
+      )
+    },
+  },
+])
+
+const stockFlowColumns = [
+  { title: '时间', key: 'created_at', width: 170 },
+  { title: '库存项', key: 'inventory_type', width: 150 },
+  { title: '子类', key: 'inventory_subtype', width: 120 },
+  { title: '类型', key: 'flow_type', width: 120 },
+  { title: '变更前', key: 'quantity_before', width: 90 },
+  { title: '变更', key: 'quantity_change', width: 90 },
+  { title: '变更后', key: 'quantity_after', width: 90 },
+  { title: '备注', key: 'remark', ellipsis: { tooltip: true } },
+]
 
 function renderInventoryLocation(row) {
   return h('div', { class: 'inventory-location-cell' }, [
@@ -1248,6 +1450,30 @@ function renderInventoryLocation(row) {
       row.location_name || '-'
     ),
   ])
+}
+
+function renderInventoryQuantity(row) {
+  const quantity = Number(row.quantity || 0)
+  const threshold = Number(row.threshold || 0)
+  const isEmpty = quantity <= 0
+  const isLow = isEmpty || (threshold > 0 && quantity < threshold)
+  return h(
+    'span',
+    {
+      class: ['inventory-quantity-badge', isLow ? 'is-low' : ''],
+      title: isEmpty ? '库存已为 0' : isLow ? `低于告警阈值 ${threshold}` : '',
+    },
+    String(quantity)
+  )
+}
+
+function formatPrice(value) {
+  const number = Number(value || 0)
+  if (!number) return '-'
+  return number.toLocaleString('zh-CN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
 }
 
 function renderInventoryActions(row) {
@@ -1380,10 +1606,24 @@ function createEmptyInventory() {
     type: '',
     subtype: '',
     quantity: 1,
+    threshold: 0,
+    cost_price: 0,
+    sale_price: 0,
     attributes: {},
     attributeList: [],
     remark: '',
     status: true,
+  }
+}
+
+function createEmptySaleForm() {
+  return {
+    customer_name: '',
+    customer_contact: '',
+    sale_date: new Date().toISOString().slice(0, 10),
+    quantity: 1,
+    unit_price: 0,
+    remark: '',
   }
 }
 
@@ -1813,6 +2053,133 @@ async function submitInventory() {
   } finally {
     inventoryModal.submitting = false
   }
+}
+
+function openSaleModal(row) {
+  if (!canCreateInventorySale.value) {
+    warnNoPermission()
+    return
+  }
+  saleModal.inventory = row
+  saleModal.inventoryLabel = `${row.type || '-'} / ${row.subtype || '-'}，当前库存 ${row.quantity}`
+  saleModal.maxQuantity = Math.max(Number(row.quantity || 0), 1)
+  saleModal.form = createEmptySaleForm()
+  saleModal.show = true
+}
+
+async function submitInventorySale() {
+  if (!saleModal.inventory) return
+  if (!String(saleModal.form.customer_name || '').trim()) {
+    window.$message?.warning('请输入客户名称')
+    return
+  }
+  if (Number(saleModal.form.quantity || 0) <= 0) {
+    window.$message?.warning('请输入销售数量')
+    return
+  }
+  saleModal.submitting = true
+  try {
+    await api.assetApi.createInventorySale({
+      customer_name: saleModal.form.customer_name,
+      customer_contact: saleModal.form.customer_contact,
+      sale_date: saleModal.form.sale_date,
+      remark: saleModal.form.remark,
+      items: [
+        {
+          inventory_id: saleModal.inventory.id,
+          quantity: saleModal.form.quantity,
+          unit_price: saleModal.form.unit_price,
+          remark: saleModal.form.remark,
+        },
+      ],
+    })
+    window.$message?.success('销售单创建成功')
+    saleModal.show = false
+    await loadInventory()
+  } finally {
+    saleModal.submitting = false
+  }
+}
+
+async function openSaleRecords() {
+  if (!canViewInventorySales.value) {
+    warnNoPermission()
+    return
+  }
+  saleRecordsPagination.page = 1
+  saleRecordsModal.show = true
+  await loadSaleRecords()
+}
+
+async function loadSaleRecords() {
+  saleRecordsModal.loading = true
+  try {
+    const res = await api.assetApi.inventorySales({
+      page: saleRecordsPagination.page,
+      page_size: saleRecordsPagination.pageSize,
+    })
+    saleRecords.value = res.data || []
+    saleRecordsPagination.itemCount = res.total || 0
+  } finally {
+    saleRecordsModal.loading = false
+  }
+}
+
+function handleSaleRecordsPageChange(page) {
+  saleRecordsPagination.page = page
+  loadSaleRecords()
+}
+
+function handleSaleRecordsPageSizeChange(pageSize) {
+  saleRecordsPagination.pageSize = pageSize
+  saleRecordsPagination.page = 1
+  loadSaleRecords()
+}
+
+async function cancelSaleOrder(row) {
+  if (!canCancelInventorySale.value) {
+    warnNoPermission()
+    return
+  }
+  await api.assetApi.cancelInventorySale({ id: row.id, reason: '页面取消销售单' })
+  window.$message?.success('销售单已取消')
+  await loadSaleRecords()
+  await loadInventory()
+}
+
+async function openStockFlows() {
+  if (!canViewInventoryFlows.value) {
+    warnNoPermission()
+    return
+  }
+  stockFlowsPagination.page = 1
+  stockFlowsModal.show = true
+  await loadStockFlows()
+}
+
+async function loadStockFlows() {
+  stockFlowsModal.loading = true
+  try {
+    const res = await api.assetApi.inventoryFlows({
+      page: stockFlowsPagination.page,
+      page_size: stockFlowsPagination.pageSize,
+    })
+    stockFlows.value = res.data || []
+    stockFlowsPagination.itemCount = res.total || 0
+  } finally {
+    stockFlowsModal.loading = false
+  }
+}
+
+function handleStockFlowsPageChange(page) {
+  stockFlowsPagination.page = page
+  loadStockFlows()
+}
+
+function handleStockFlowsPageSizeChange(pageSize) {
+  stockFlowsPagination.pageSize = pageSize
+  stockFlowsPagination.page = 1
+  loadStockFlows()
 }
 
 async function deleteInventory(row) {
@@ -3080,6 +3447,22 @@ onMounted(refreshAll)
   font-size: 12px;
   font-weight: 600;
   line-height: 24px;
+}
+
+.content-panel :deep(.inventory-quantity-badge) {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #334155;
+  font-weight: 700;
+  line-height: 24px;
+  padding: 0 10px;
+}
+
+.content-panel :deep(.inventory-quantity-badge.is-low) {
+  background: #fee2e2;
+  color: #b91c1c;
 }
 
 .content-panel :deep(.device-type-badge) {

@@ -1,10 +1,16 @@
 import csv
+import asyncio
 import io
 import json
+import os
+import urllib.error
+import urllib.request
+from datetime import date, datetime
 
 from fastapi import APIRouter, File, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from tortoise.expressions import Q
+from tortoise.transactions import in_transaction
 
 from app.controllers.asset import (
     asset_cabinet_controller,
@@ -23,6 +29,9 @@ from app.models.asset import (
     AssetDeviceModel,
     AssetInventory,
     AssetInventoryCategory,
+    AssetInventorySaleItem,
+    AssetInventorySaleOrder,
+    AssetInventoryStockFlow,
     AssetLocation,
     AssetRegion,
 )
@@ -38,6 +47,8 @@ from app.schemas.assets import (
     AssetInventoryCategoryCreate,
     AssetInventoryCategoryUpdate,
     AssetInventoryCreate,
+    AssetInventorySaleCancel,
+    AssetInventorySaleCreate,
     AssetInventoryUpdate,
     AssetLocationCreate,
     AssetLocationUpdate,
@@ -47,6 +58,11 @@ from app.schemas.assets import (
 from app.schemas.base import Success, SuccessExtra
 
 router = APIRouter()
+
+INVENTORY_FEISHU_WEBHOOK = os.getenv(
+    "INVENTORY_FEISHU_WEBHOOK",
+    "https://open.feishu.cn/open-apis/bot/v2/hook/4c3e89a6-35dd-4de3-b763-e1049449e5d4",
+)
 
 SENSITIVE_DEVICE_ATTRIBUTE_KEYS = {"IPMI密码", "snmp团体名"}
 MASKED_DEVICE_SECRET = "******"
@@ -158,6 +174,144 @@ async def inventory_to_dict(item: AssetInventory) -> dict:
     data["location_name"] = location.name if location else ""
     data["region_name"] = region.name if region else ""
     return data
+
+
+def is_low_inventory(item: AssetInventory) -> bool:
+    if not item.status:
+        return False
+    if item.quantity <= 0:
+        return True
+    return bool(item.threshold > 0 and item.quantity < item.threshold)
+
+
+def build_inventory_alert_card(items: list[dict]) -> dict:
+    lines = []
+    for item in items[:10]:
+        name = f"{item.get('type') or '-'} / {item.get('subtype') or '-'}"
+        location = item.get("location_name") or "-"
+        region = item.get("region_name") or "-"
+        quantity = int(item.get("quantity", 0) or 0)
+        threshold = int(item.get("threshold", 0) or 0)
+        reason = "库存已为 0" if quantity <= 0 else f"低于阈值 {threshold}"
+        lines.append(
+            f"**{name}**\n"
+            f"区域/位置：{region} / {location}\n"
+            f"当前库存：{quantity}，阈值：{threshold}，原因：{reason}"
+        )
+    if len(items) > 10:
+        lines.append(f"还有 {len(items) - 10} 条低库存记录未展示")
+
+    return {
+        "msg_type": "interactive",
+        "card": {
+            "config": {"wide_screen_mode": True},
+            "header": {
+                "template": "orange",
+                "title": {"tag": "plain_text", "content": "库存阈值告警"},
+            },
+            "elements": [
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "lark_md",
+                        "content": f"检测到 **{len(items)}** 条库存异常：\n\n" + "\n\n".join(lines),
+                    },
+                }
+            ],
+        },
+    }
+
+
+def post_feishu_card(payload: dict) -> None:
+    if not INVENTORY_FEISHU_WEBHOOK:
+        return
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        INVENTORY_FEISHU_WEBHOOK,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            body = response.read().decode("utf-8", errors="replace")
+    except urllib.error.URLError as exc:
+        print(f"inventory feishu alert failed: {exc}")
+        return
+
+    try:
+        result = json.loads(body)
+    except json.JSONDecodeError:
+        return
+    if result.get("StatusCode", result.get("code", 0)) not in (0, "0"):
+        print(f"inventory feishu alert returned error: {body}")
+
+
+async def send_inventory_threshold_alert(items: list[AssetInventory]) -> None:
+    low_items = [item for item in items if is_low_inventory(item)]
+    if not low_items:
+        return
+    data = [await inventory_to_dict(item) for item in low_items]
+    await asyncio.to_thread(post_feishu_card, build_inventory_alert_card(data))
+
+
+async def generate_sale_no() -> str:
+    prefix = f"SALE-{datetime.now().strftime('%Y%m%d')}"
+    count = await AssetInventorySaleOrder.filter(sale_no__startswith=prefix).count()
+    return f"{prefix}-{count + 1:04d}"
+
+
+async def stock_flow_to_dict(flow: AssetInventoryStockFlow) -> dict:
+    data = await flow.to_dict()
+    inventory = await AssetInventory.get_or_none(id=flow.inventory_id)
+    if inventory:
+        data["inventory_type"] = inventory.type
+        data["inventory_subtype"] = inventory.subtype or ""
+        data["inventory_location_id"] = inventory.location_id
+    return data
+
+
+async def sale_order_to_dict(order: AssetInventorySaleOrder, include_items: bool = True) -> dict:
+    data = await order.to_dict()
+    if not include_items:
+        return data
+
+    items = await AssetInventorySaleItem.filter(sale_order_id=order.id).order_by("id")
+    data["items"] = []
+    for item in items:
+        item_data = await item.to_dict()
+        inventory = await AssetInventory.get_or_none(id=item.inventory_id)
+        if inventory:
+            item_data["inventory_quantity"] = inventory.quantity
+            item_data["inventory_threshold"] = inventory.threshold
+            location = await AssetLocation.get_or_none(id=inventory.location_id)
+            item_data["location_name"] = location.name if location else ""
+        data["items"].append(item_data)
+    return data
+
+
+async def create_stock_flow(
+    *,
+    inventory: AssetInventory,
+    flow_type: str,
+    quantity_before: int,
+    quantity_change: int,
+    quantity_after: int,
+    biz_type: str,
+    biz_id: int | None,
+    remark: str = "",
+) -> AssetInventoryStockFlow:
+    return await AssetInventoryStockFlow.create(
+        inventory_id=inventory.id,
+        flow_type=flow_type,
+        quantity_before=quantity_before,
+        quantity_change=quantity_change,
+        quantity_after=quantity_after,
+        biz_type=biz_type,
+        biz_id=biz_id,
+        remark=remark,
+        created_by=CTX_USER_ID.get(),
+    )
 
 
 async def ensure_default_inventory_categories() -> None:
@@ -272,7 +426,7 @@ async def device_brand_tree() -> list[dict]:
 
 
 def get_inventory_order(sort_by: str = "", sort_order: str = "") -> list[str]:
-    sortable_fields = {"type", "subtype", "quantity"}
+    sortable_fields = {"type", "subtype", "quantity", "cost_price", "sale_price"}
     if sort_by not in sortable_fields:
         return ["type", "subtype", "id"]
     prefix = "-" if sort_order == "descend" else ""
@@ -288,6 +442,9 @@ def inventory_matches_keyword(item: AssetInventory, keyword: str) -> bool:
         item.type,
         item.subtype,
         str(item.quantity),
+        str(getattr(item, "threshold", 0)),
+        str(getattr(item, "cost_price", 0)),
+        str(getattr(item, "sale_price", 0)),
         item.remark,
         attributes_text,
     ]
@@ -693,6 +850,8 @@ async def list_inventory(
     type: str = Query(""),
     subtype: str = Query(""),
     status: bool | None = Query(None),
+    only_low_stock: bool = Query(False),
+    only_available: bool = Query(False),
     sort_by: str = Query(""),
     sort_order: str = Query(""),
 ):
@@ -708,11 +867,11 @@ async def list_inventory(
     if status is not None:
         q &= Q(status=status)
     order = get_inventory_order(sort_by, sort_order)
-    if keyword:
+    if keyword or only_low_stock:
         matched_items = [
             item
             for item in await AssetInventory.filter(q).order_by(*order)
-            if inventory_matches_keyword(item, keyword)
+            if inventory_matches_keyword(item, keyword) and (not only_low_stock or is_low_inventory(item))
         ]
         total = len(matched_items)
         start = (page - 1) * page_size
@@ -754,6 +913,9 @@ async def export_inventory():
         "分类",
         "子类",
         "数量",
+        "告警阈值",
+        "成本价",
+        "默认售价",
         *[f"属性:{key}" for key in attribute_keys],
         "扩展属性(JSON)",
         "备注",
@@ -774,6 +936,9 @@ async def export_inventory():
                 item.type or "",
                 item.subtype or "",
                 item.quantity,
+                item.threshold,
+                item.cost_price,
+                item.sale_price,
                 *[attributes.get(key, "") for key in attribute_keys],
                 json.dumps(attributes, ensure_ascii=False),
                 item.remark or "",
@@ -807,6 +972,7 @@ async def import_inventory(file: UploadFile = File(..., description="CSV文件")
     reader = csv.DictReader(io.StringIO(decoded))
     success_count = 0
     error_rows = []
+    saved_items = []
 
     for row_num, row in enumerate(reader, start=2):
         try:
@@ -820,12 +986,21 @@ async def import_inventory(file: UploadFile = File(..., description="CSV文件")
 
             quantity_text = str(row.get("数量", "") or "0").strip()
             quantity = int(quantity_text) if quantity_text else 0
+            threshold_text = str(row.get("告警阈值", "") or "0").strip()
+            threshold = int(threshold_text) if threshold_text else 0
+            cost_price_text = str(row.get("成本价", "") or "0").strip()
+            sale_price_text = str(row.get("默认售价", "") or "0").strip()
+            cost_price = float(cost_price_text) if cost_price_text else 0
+            sale_price = float(sale_price_text) if sale_price_text else 0
             attributes = parse_inventory_attributes(row)
             inventory_data = {
                 "location_id": location_id,
                 "type": type_name,
                 "subtype": str(row.get("子类", "") or "").strip(),
                 "quantity": quantity,
+                "threshold": threshold,
+                "cost_price": cost_price,
+                "sale_price": sale_price,
                 "attributes": attributes,
                 "remark": str(row.get("备注", "") or "").strip(),
                 "status": parse_bool_status(row.get("状态"), default=True),
@@ -837,15 +1012,18 @@ async def import_inventory(file: UploadFile = File(..., description="CSV文件")
                 subtype=inventory_data["subtype"],
             )
             if existed:
-                await asset_inventory_controller.update_inventory(
+                saved_item = await asset_inventory_controller.update_inventory(
                     id=existed.id,
                     obj_in=AssetInventoryUpdate(id=existed.id, **inventory_data),
                 )
             else:
-                await asset_inventory_controller.create_inventory(AssetInventoryCreate(**inventory_data))
+                saved_item = await asset_inventory_controller.create_inventory(AssetInventoryCreate(**inventory_data))
+            saved_items.append(saved_item)
             success_count += 1
         except Exception as exc:
             error_rows.append(f"第{row_num}行: {exc}")
+
+    await send_inventory_threshold_alert(saved_items)
 
     msg = f"导入成功 {success_count} 条"
     if error_rows:
@@ -858,12 +1036,14 @@ async def import_inventory(file: UploadFile = File(..., description="CSV文件")
 @router.post("/inventory/create", summary="创建库存")
 async def create_inventory(inventory_in: AssetInventoryCreate):
     obj = await asset_inventory_controller.create_inventory(inventory_in)
+    await send_inventory_threshold_alert([obj])
     return Success(msg="Created Successfully", data=await inventory_to_dict(obj))
 
 
 @router.post("/inventory/update", summary="更新库存")
 async def update_inventory(inventory_in: AssetInventoryUpdate):
     obj = await asset_inventory_controller.update_inventory(id=inventory_in.id, obj_in=inventory_in)
+    await send_inventory_threshold_alert([obj])
     return Success(msg="Updated Successfully", data=await inventory_to_dict(obj))
 
 
@@ -871,3 +1051,137 @@ async def update_inventory(inventory_in: AssetInventoryUpdate):
 async def delete_inventory(inventory_id: int = Query(...)):
     await asset_inventory_controller.remove(id=inventory_id)
     return Success(msg="Deleted Successfully")
+
+
+@router.get("/inventory-sale/list", summary="库存销售单列表")
+async def list_inventory_sales(
+    page: int = Query(1),
+    page_size: int = Query(10),
+    keyword: str = Query(""),
+    status: int | None = Query(None),
+):
+    q = Q()
+    if keyword:
+        q &= Q(sale_no__contains=keyword) | Q(customer_name__contains=keyword) | Q(customer_contact__contains=keyword)
+    if status is not None:
+        q &= Q(status=status)
+    query = AssetInventorySaleOrder.filter(q).order_by("-created_at", "-id")
+    total = await query.count()
+    objs = await query.offset((page - 1) * page_size).limit(page_size)
+    data = [await sale_order_to_dict(obj, include_items=True) for obj in objs]
+    return SuccessExtra(data=data, total=total, page=page, page_size=page_size)
+
+
+@router.post("/inventory-sale/create", summary="创建库存销售单")
+async def create_inventory_sale(sale_in: AssetInventorySaleCreate):
+    if not sale_in.items:
+        return Success(msg="请至少选择一个销售明细", code=400)
+
+    try:
+        async with in_transaction():
+            sale_no = await generate_sale_no()
+            total_amount = sum(item.quantity * item.unit_price for item in sale_in.items)
+            order = await AssetInventorySaleOrder.create(
+                sale_no=sale_no,
+                customer_name=sale_in.customer_name.strip(),
+                customer_contact=sale_in.customer_contact.strip(),
+                sale_date=sale_in.sale_date or date.today(),
+                status=1,
+                total_amount=total_amount,
+                remark=sale_in.remark.strip(),
+                created_by=CTX_USER_ID.get(),
+            )
+
+            changed_inventory: list[AssetInventory] = []
+            for item_in in sale_in.items:
+                inventory = await AssetInventory.get(id=item_in.inventory_id)
+                if not inventory.status:
+                    raise ValueError(f"{inventory.type}/{inventory.subtype or '-'} 已禁用，不能售卖")
+                if inventory.quantity < item_in.quantity:
+                    raise ValueError(
+                        f"{inventory.type}/{inventory.subtype or '-'} 库存不足，当前 {inventory.quantity}，需要 {item_in.quantity}"
+                    )
+
+                quantity_before = inventory.quantity
+                inventory.quantity -= item_in.quantity
+                await inventory.save(update_fields=["quantity", "updated_at"])
+                amount = item_in.quantity * item_in.unit_price
+                await AssetInventorySaleItem.create(
+                    sale_order_id=order.id,
+                    inventory_id=inventory.id,
+                    type=inventory.type,
+                    subtype=inventory.subtype or "",
+                    quantity=item_in.quantity,
+                    cost_price=inventory.cost_price,
+                    unit_price=item_in.unit_price,
+                    amount=amount,
+                    remark=item_in.remark.strip(),
+                )
+                await create_stock_flow(
+                    inventory=inventory,
+                    flow_type="sale",
+                    quantity_before=quantity_before,
+                    quantity_change=-item_in.quantity,
+                    quantity_after=inventory.quantity,
+                    biz_type="sale_order",
+                    biz_id=order.id,
+                    remark=f"销售单 {sale_no}",
+                )
+                changed_inventory.append(inventory)
+    except ValueError as exc:
+        return Success(msg=str(exc), code=400)
+
+    await send_inventory_threshold_alert(changed_inventory)
+    return Success(msg="销售单创建成功", data=await sale_order_to_dict(order))
+
+
+@router.post("/inventory-sale/cancel", summary="取消库存销售单")
+async def cancel_inventory_sale(cancel_in: AssetInventorySaleCancel):
+    async with in_transaction():
+        order = await AssetInventorySaleOrder.get(id=cancel_in.id)
+        if order.status == 2:
+            return Success(msg="销售单已取消", data=await sale_order_to_dict(order))
+
+        items = await AssetInventorySaleItem.filter(sale_order_id=order.id)
+        for item in items:
+            inventory = await AssetInventory.get(id=item.inventory_id)
+            quantity_before = inventory.quantity
+            inventory.quantity += item.quantity
+            await inventory.save(update_fields=["quantity", "updated_at"])
+            await create_stock_flow(
+                inventory=inventory,
+                flow_type="sale_cancel",
+                quantity_before=quantity_before,
+                quantity_change=item.quantity,
+                quantity_after=inventory.quantity,
+                biz_type="sale_order",
+                biz_id=order.id,
+                remark=cancel_in.reason.strip() or f"取消销售单 {order.sale_no}",
+            )
+
+        order.status = 2
+        order.canceled_at = datetime.now()
+        order.canceled_by = CTX_USER_ID.get()
+        order.cancel_reason = cancel_in.reason.strip()
+        await order.save(update_fields=["status", "canceled_at", "canceled_by", "cancel_reason", "updated_at"])
+
+    return Success(msg="销售单已取消", data=await sale_order_to_dict(order))
+
+
+@router.get("/inventory-flow/list", summary="库存流水列表")
+async def list_inventory_flows(
+    page: int = Query(1),
+    page_size: int = Query(20),
+    inventory_id: int | None = Query(None),
+    flow_type: str = Query(""),
+):
+    q = Q()
+    if inventory_id is not None:
+        q &= Q(inventory_id=inventory_id)
+    if flow_type:
+        q &= Q(flow_type=flow_type)
+    query = AssetInventoryStockFlow.filter(q).order_by("-created_at", "-id")
+    total = await query.count()
+    objs = await query.offset((page - 1) * page_size).limit(page_size)
+    data = [await stock_flow_to_dict(obj) for obj in objs]
+    return SuccessExtra(data=data, total=total, page=page, page_size=page_size)
