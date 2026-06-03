@@ -444,7 +444,9 @@ def inventory_matches_keyword(item: AssetInventory, keyword: str) -> bool:
         str(item.quantity),
         str(getattr(item, "threshold", 0)),
         str(getattr(item, "cost_price", 0)),
+        str(getattr(item, "cost_price_currency", "")),
         str(getattr(item, "sale_price", 0)),
+        str(getattr(item, "sale_price_currency", "")),
         item.remark,
         attributes_text,
     ]
@@ -915,7 +917,9 @@ async def export_inventory():
         "数量",
         "告警阈值",
         "成本价",
+        "成本价币种",
         "默认售价",
+        "默认售价币种",
         *[f"属性:{key}" for key in attribute_keys],
         "扩展属性(JSON)",
         "备注",
@@ -938,7 +942,9 @@ async def export_inventory():
                 item.quantity,
                 item.threshold,
                 item.cost_price,
+                item.cost_price_currency or "USD",
                 item.sale_price,
+                item.sale_price_currency or "USD",
                 *[attributes.get(key, "") for key in attribute_keys],
                 json.dumps(attributes, ensure_ascii=False),
                 item.remark or "",
@@ -992,6 +998,8 @@ async def import_inventory(file: UploadFile = File(..., description="CSV文件")
             sale_price_text = str(row.get("默认售价", "") or "0").strip()
             cost_price = float(cost_price_text) if cost_price_text else 0
             sale_price = float(sale_price_text) if sale_price_text else 0
+            cost_price_currency = str(row.get("成本价币种", "") or "USD").strip().upper()
+            sale_price_currency = str(row.get("默认售价币种", "") or "USD").strip().upper()
             attributes = parse_inventory_attributes(row)
             inventory_data = {
                 "location_id": location_id,
@@ -1000,7 +1008,9 @@ async def import_inventory(file: UploadFile = File(..., description="CSV文件")
                 "quantity": quantity,
                 "threshold": threshold,
                 "cost_price": cost_price,
+                "cost_price_currency": cost_price_currency or "USD",
                 "sale_price": sale_price,
+                "sale_price_currency": sale_price_currency or "USD",
                 "attributes": attributes,
                 "remark": str(row.get("备注", "") or "").strip(),
                 "status": parse_bool_status(row.get("状态"), default=True),
@@ -1113,7 +1123,9 @@ async def create_inventory_sale(sale_in: AssetInventorySaleCreate):
                     subtype=inventory.subtype or "",
                     quantity=item_in.quantity,
                     cost_price=inventory.cost_price,
+                    cost_price_currency=inventory.cost_price_currency or "USD",
                     unit_price=item_in.unit_price,
+                    unit_price_currency=inventory.sale_price_currency or "USD",
                     amount=amount,
                     remark=item_in.remark.strip(),
                 )

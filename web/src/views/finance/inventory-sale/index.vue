@@ -103,6 +103,8 @@ const saleAmount = computed(() =>
   ((Number(saleModal.form.quantity) || 0) * (Number(saleModal.form.unit_price) || 0)).toFixed(2)
 )
 
+const saleAmountLabel = computed(() => formatMoney(saleAmount.value, saleModal.form.unit_price_currency))
+
 const saleColumns = [
   { title: '销售单号', key: 'sale_no', minWidth: 180, ellipsis: { tooltip: true } },
   { title: '销售日期', key: 'sale_date', width: 120, align: 'center', render: (row) => formatDate(row.sale_date) },
@@ -111,7 +113,7 @@ const saleColumns = [
     key: 'total_amount',
     width: 120,
     align: 'right',
-    render: (row) => h('span', { class: 'amount-cell' }, formatMoney(row.total_amount)),
+    render: (row) => h('span', { class: 'amount-cell' }, formatMoney(row.total_amount, getSaleCurrency(row))),
   },
   {
     title: '状态',
@@ -172,6 +174,7 @@ function createSaleForm() {
     sale_date: getToday(),
     quantity: 1,
     unit_price: 0,
+    unit_price_currency: 'USD',
     remark: '',
   }
 }
@@ -272,6 +275,7 @@ function openSale(row) {
   saleModal.form = createSaleForm()
   saleModal.form.quantity = getSaleQuantity(row)
   saleModal.form.unit_price = Number(row.sale_price || 0)
+  saleModal.form.unit_price_currency = row.sale_price_currency || 'USD'
   saleModal.show = true
 }
 
@@ -409,8 +413,13 @@ function flowTypeLabel(type) {
   return labels[type] || type || '-'
 }
 
-function formatMoney(value) {
-  return Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+function getSaleCurrency(row) {
+  return row?.items?.find((item) => item.unit_price_currency)?.unit_price_currency || ''
+}
+
+function formatMoney(value, currency = '') {
+  const amount = Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return [currency, amount].filter(Boolean).join(' ')
 }
 
 function formatDate(value) {
@@ -508,8 +517,8 @@ onMounted(async () => {
                 <span>阈值 {{ item.threshold || 0 }}</span>
               </div>
               <div class="price-line">
-                <span>成本 {{ formatMoney(item.cost_price) }}</span>
-                <strong>售价 {{ formatMoney(item.sale_price) }}</strong>
+                <span>成本 {{ formatMoney(item.cost_price, item.cost_price_currency) }}</span>
+                <strong>售价 {{ formatMoney(item.sale_price, item.sale_price_currency) }}</strong>
               </div>
               <div class="attr-line">
                 <NTag v-if="item.brand" size="small" round>{{ item.brand }}</NTag>
@@ -572,10 +581,13 @@ onMounted(async () => {
             <NInputNumber v-model:value="saleModal.form.quantity" :min="1" :max="Number(saleModal.inventory?.quantity || 1)" />
           </NFormItem>
           <NFormItem label="单价">
-            <NInputNumber v-model:value="saleModal.form.unit_price" :min="0" />
+            <div class="price-currency-field">
+              <NInputNumber v-model:value="saleModal.form.unit_price" :min="0" />
+              <NInput :value="saleModal.form.unit_price_currency" readonly />
+            </div>
           </NFormItem>
           <NFormItem label="销售金额">
-            <NInput :value="saleAmount" readonly />
+            <NInput :value="saleAmountLabel" readonly />
           </NFormItem>
         </NGrid>
         <NFormItem label="备注">
@@ -735,6 +747,13 @@ onMounted(async () => {
 .price-line strong {
   color: var(--text-color-1);
   font-weight: 650;
+}
+
+.price-currency-field {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) 94px;
+  gap: 8px;
 }
 
 .attr-tag {

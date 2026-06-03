@@ -262,6 +262,7 @@ async def init_menus():
     await ensure_business_party_menu()
     await ensure_bill_menu()
     await ensure_inventory_sale_menu()
+    await ensure_customer_project_menu()
     await ensure_task_menu()
 
 
@@ -296,14 +297,14 @@ async def ensure_service_module_menus():
     ops_menu = await ensure_menu_catalog(
         name="\u8fd0\u7ef4\u6a21\u5757",
         path="/ops",
-        order=2,
+        order=3,
         icon="mdi:tools",
         redirect="/ticket",
     )
     finance_menu = await ensure_menu_catalog(
         name="\u8d22\u52a1\u6a21\u5757",
         path="/finance",
-        order=3,
+        order=4,
         icon="mdi:finance",
         redirect="/vendor",
     )
@@ -538,6 +539,35 @@ async def ensure_inventory_sale_menu():
     await Menu.create(menu_type=MenuType.MENU, **values)
 
 
+async def ensure_customer_project_menu():
+    project_menu = await Menu.filter(path="/project-board").first()
+    values = {
+        "name": "\u9879\u76ee\u770b\u677f",
+        "path": "/project-board",
+        "order": 2,
+        "parent_id": 0,
+        "icon": "mdi:view-dashboard-outline",
+        "is_hidden": False,
+        "component": "/project-board",
+        "keepalive": False,
+        "redirect": "",
+    }
+    if project_menu:
+        changed = False
+        for field, value in values.items():
+            if getattr(project_menu, field) != value:
+                setattr(project_menu, field, value)
+                changed = True
+        if project_menu.menu_type != MenuType.MENU:
+            project_menu.menu_type = MenuType.MENU
+            changed = True
+        if changed:
+            await project_menu.save()
+        return
+
+    await Menu.create(menu_type=MenuType.MENU, **values)
+
+
 async def ensure_task_menu():
     system_menu = await Menu.filter(path="/system").first()
     if not system_menu:
@@ -663,13 +693,17 @@ async def ensure_business_api_permissions():
         | Q(method="GET", path="/api/v1/asset/inventory-category/list")
         | Q(method="GET", path="/api/v1/asset/inventory-sale/list")
         | Q(method="GET", path="/api/v1/asset/inventory-flow/list")
+        | Q(method="GET", path="/api/v1/project/list")
+        | Q(method="GET", path="/api/v1/project/get")
     )
     manage_apis = await Api.filter(
         Q(path__startswith="/api/v1/company/")
         | Q(path__startswith="/api/v1/bill/")
         | Q(path__startswith="/api/v1/asset/inventory-sale/")
+        | Q(path__startswith="/api/v1/project/")
     )
     sale_menu = await Menu.filter(path="/inventory-sale").first()
+    project_menu = await Menu.filter(path="/project-board").first()
 
     for role in roles:
         if read_apis:
@@ -679,6 +713,8 @@ async def ensure_business_api_permissions():
                 await role.apis.add(*manage_apis)
             if sale_menu:
                 await role.menus.add(sale_menu)
+            if project_menu:
+                await role.menus.add(project_menu)
 
 
 async def ensure_task_permissions():
@@ -731,6 +767,23 @@ async def ensure_database_backup_task():
 
 
 async def ensure_asset_columns():
+    if settings.DB_TYPE == "sqlite":
+        conn = Tortoise.get_connection("sqlite")
+        columns = [
+            ('asset_inventory', 'cost_price_currency', "VARCHAR(10) NOT NULL DEFAULT 'USD'"),
+            ('asset_inventory', 'sale_price_currency', "VARCHAR(10) NOT NULL DEFAULT 'USD'"),
+            ('asset_inventory_sale_item', 'cost_price_currency', "VARCHAR(10) NOT NULL DEFAULT 'USD'"),
+            ('asset_inventory_sale_item', 'unit_price_currency', "VARCHAR(10) NOT NULL DEFAULT 'USD'"),
+        ]
+        for table, column, column_type in columns:
+            try:
+                await conn.execute_script(f'ALTER TABLE "{table}" ADD COLUMN "{column}" {column_type};')
+            except OperationalError as exc:
+                message = str(exc).lower()
+                if "duplicate column" not in message and "no such table" not in message:
+                    raise
+        return
+
     if settings.DB_TYPE != "postgres":
         return
 
@@ -742,13 +795,17 @@ async def ensure_asset_columns():
             ADD COLUMN IF NOT EXISTS "attributes" JSONB NOT NULL DEFAULT '{}',
             ADD COLUMN IF NOT EXISTS "threshold" INT NOT NULL DEFAULT 0,
             ADD COLUMN IF NOT EXISTS "cost_price" DOUBLE PRECISION NOT NULL DEFAULT 0,
-            ADD COLUMN IF NOT EXISTS "sale_price" DOUBLE PRECISION NOT NULL DEFAULT 0;
+            ADD COLUMN IF NOT EXISTS "cost_price_currency" VARCHAR(10) NOT NULL DEFAULT 'USD',
+            ADD COLUMN IF NOT EXISTS "sale_price" DOUBLE PRECISION NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS "sale_price_currency" VARCHAR(10) NOT NULL DEFAULT 'USD';
 
         ALTER TABLE IF EXISTS "asset_device"
             ADD COLUMN IF NOT EXISTS "attributes" JSONB NOT NULL DEFAULT '{}';
 
         ALTER TABLE IF EXISTS "asset_inventory_sale_item"
-            ADD COLUMN IF NOT EXISTS "cost_price" DOUBLE PRECISION NOT NULL DEFAULT 0;
+            ADD COLUMN IF NOT EXISTS "cost_price" DOUBLE PRECISION NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS "cost_price_currency" VARCHAR(10) NOT NULL DEFAULT 'USD',
+            ADD COLUMN IF NOT EXISTS "unit_price_currency" VARCHAR(10) NOT NULL DEFAULT 'USD';
         """
     )
 
@@ -771,6 +828,39 @@ async def ensure_bill_columns():
             ADD COLUMN IF NOT EXISTS "service_id" VARCHAR(100),
             ADD COLUMN IF NOT EXISTS "nrc_amount" DOUBLE PRECISION,
             ADD COLUMN IF NOT EXISTS "mrc_amount" DOUBLE PRECISION;
+        """
+    )
+
+
+async def ensure_project_columns():
+    if settings.DB_TYPE == "sqlite":
+        conn = Tortoise.get_connection("sqlite")
+        columns = [
+            ('customer_project_discussion', 'task_id', "BIGINT"),
+            ('customer_project_discussion', 'attachment_id', "BIGINT"),
+            ('customer_project_attachment', 'task_id', "BIGINT"),
+        ]
+        for table, column, column_type in columns:
+            try:
+                await conn.execute_script(f'ALTER TABLE "{table}" ADD COLUMN "{column}" {column_type};')
+            except OperationalError as exc:
+                message = str(exc).lower()
+                if "duplicate column" not in message and "no such table" not in message:
+                    raise
+        return
+
+    if settings.DB_TYPE != "postgres":
+        return
+
+    conn = Tortoise.get_connection("postgres")
+    await conn.execute_script(
+        """
+        ALTER TABLE IF EXISTS "customer_project_discussion"
+            ADD COLUMN IF NOT EXISTS "task_id" BIGINT,
+            ADD COLUMN IF NOT EXISTS "attachment_id" BIGINT;
+
+        ALTER TABLE IF EXISTS "customer_project_attachment"
+            ADD COLUMN IF NOT EXISTS "task_id" BIGINT;
         """
     )
 
@@ -838,7 +928,9 @@ def is_ignorable_asset_migration_error(exc: Exception) -> bool:
         "min_quantity",
         "threshold",
         "cost_price",
+        "cost_price_currency",
         "sale_price",
+        "sale_price_currency",
         "attributes",
     ]
     return is_duplicate_column and any(column in message for column in inventory_columns)
@@ -856,6 +948,7 @@ async def init_db():
     await ensure_company_columns()
     await ensure_asset_columns()
     await ensure_bill_columns()
+    await ensure_project_columns()
     await Tortoise.generate_schemas(safe=True)
     if os.getenv("AUTO_DB_MIGRATE", "false").lower() in {"1", "true", "yes", "on"}:
         try:

@@ -439,10 +439,26 @@
               <n-input-number v-model:value="inventoryModal.form.threshold" :min="0" />
             </n-form-item-gi>
             <n-form-item-gi label="成本价">
-              <n-input-number v-model:value="inventoryModal.form.cost_price" :min="0" />
+              <div class="price-currency-field">
+                <n-input-number v-model:value="inventoryModal.form.cost_price" :min="0" />
+                <n-select
+                  v-model:value="inventoryModal.form.cost_price_currency"
+                  filterable
+                  tag
+                  :options="currencyOptions"
+                />
+              </div>
             </n-form-item-gi>
             <n-form-item-gi label="默认售价">
-              <n-input-number v-model:value="inventoryModal.form.sale_price" :min="0" />
+              <div class="price-currency-field">
+                <n-input-number v-model:value="inventoryModal.form.sale_price" :min="0" />
+                <n-select
+                  v-model:value="inventoryModal.form.sale_price_currency"
+                  filterable
+                  tag
+                  :options="currencyOptions"
+                />
+              </div>
             </n-form-item-gi>
             <n-form-item-gi :span="2" label="扩展属性">
               <div class="attribute-editor">
@@ -509,10 +525,13 @@
               <n-input-number v-model:value="saleModal.form.quantity" :min="1" :max="saleModal.maxQuantity" />
             </n-form-item-gi>
             <n-form-item-gi label="销售单价">
-              <n-input-number v-model:value="saleModal.form.unit_price" :min="0" />
+              <div class="price-currency-field">
+                <n-input-number v-model:value="saleModal.form.unit_price" :min="0" />
+                <n-input :value="saleModal.form.unit_price_currency" readonly />
+              </div>
             </n-form-item-gi>
             <n-form-item-gi label="小计">
-              <n-input :value="String(saleAmount)" readonly />
+              <n-input :value="`${saleModal.form.unit_price_currency || ''} ${saleAmount}`.trim()" readonly />
             </n-form-item-gi>
             <n-form-item-gi :span="2" label="备注">
               <n-input v-model:value="saleModal.form.remark" type="textarea" />
@@ -1074,6 +1093,11 @@ const assetResourcePathMap = {
   inventoryFlow: 'inventory-flow',
 }
 
+const currencyOptions = ['CNY', 'USD', 'HKD', 'EUR', 'GBP', 'JPY', 'SGD'].map((item) => ({
+  label: item,
+  value: item,
+}))
+
 const assetActionMethodMap = {
   list: 'get',
   get: 'get',
@@ -1349,7 +1373,7 @@ const inventoryColumns = computed(() => [
     sorter: true,
     sortOrder: inventorySorter.columnKey === 'cost_price' ? inventorySorter.order : false,
     render(row) {
-      return formatPrice(row.cost_price)
+      return formatPrice(row.cost_price, row.cost_price_currency)
     },
   },
   {
@@ -1360,7 +1384,7 @@ const inventoryColumns = computed(() => [
     sorter: true,
     sortOrder: inventorySorter.columnKey === 'sale_price' ? inventorySorter.order : false,
     render(row) {
-      return formatPrice(row.sale_price)
+      return formatPrice(row.sale_price, row.sale_price_currency)
     },
   },
   {
@@ -1393,7 +1417,15 @@ const saleRecordColumns = computed(() => [
       return row.status === 2 ? '已取消' : '已确认'
     },
   },
-  { title: '金额', key: 'total_amount', width: 110 },
+  {
+    title: '金额',
+    key: 'total_amount',
+    width: 130,
+    align: 'right',
+    render(row) {
+      return formatPrice(row.total_amount, getSaleCurrency(row))
+    },
+  },
   {
     title: '明细',
     key: 'items',
@@ -1467,13 +1499,18 @@ function renderInventoryQuantity(row) {
   )
 }
 
-function formatPrice(value) {
+function formatPrice(value, currency = '') {
   const number = Number(value || 0)
   if (!number) return '-'
-  return number.toLocaleString('zh-CN', {
+  const amount = number.toLocaleString('zh-CN', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })
+  return [currency, amount].filter(Boolean).join(' ')
+}
+
+function getSaleCurrency(row) {
+  return row?.items?.find((item) => item.unit_price_currency)?.unit_price_currency || ''
 }
 
 function renderInventoryActions(row) {
@@ -1608,7 +1645,9 @@ function createEmptyInventory() {
     quantity: 1,
     threshold: 0,
     cost_price: 0,
+    cost_price_currency: 'USD',
     sale_price: 0,
+    sale_price_currency: 'USD',
     attributes: {},
     attributeList: [],
     remark: '',
@@ -1623,6 +1662,7 @@ function createEmptySaleForm() {
     sale_date: new Date().toISOString().slice(0, 10),
     quantity: 1,
     unit_price: 0,
+    unit_price_currency: 'USD',
     remark: '',
   }
 }
@@ -2045,6 +2085,8 @@ async function submitInventory() {
       ...inventoryModal.form,
       attributes: attributeListToObject(inventoryModal.form.attributeList),
     }
+    payload.cost_price_currency = String(payload.cost_price_currency || 'USD').trim().toUpperCase()
+    payload.sale_price_currency = String(payload.sale_price_currency || 'USD').trim().toUpperCase()
     delete payload.attributeList
     await submit(payload)
     window.$message?.success('保存成功')
@@ -2064,6 +2106,8 @@ function openSaleModal(row) {
   saleModal.inventoryLabel = `${row.type || '-'} / ${row.subtype || '-'}，当前库存 ${row.quantity}`
   saleModal.maxQuantity = Math.max(Number(row.quantity || 0), 1)
   saleModal.form = createEmptySaleForm()
+  saleModal.form.unit_price = Number(row.sale_price || 0)
+  saleModal.form.unit_price_currency = row.sale_price_currency || 'USD'
   saleModal.show = true
 }
 
@@ -3709,6 +3753,13 @@ onMounted(refreshAll)
 .attribute-row {
   display: grid;
   grid-template-columns: minmax(120px, 1fr) minmax(160px, 1.4fr) 34px;
+  gap: 8px;
+}
+
+.price-currency-field {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) 94px;
   gap: 8px;
 }
 

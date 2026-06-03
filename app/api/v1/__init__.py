@@ -13,6 +13,7 @@ from .companies import companies_router
 from .depts import depts_router
 from .dashboard import router as dashboard_router
 from .menus import menus_router
+from .projects import projects_router
 from .roles import roles_router
 from .syslog import syslog_router
 from .tasks import tasks_router
@@ -40,3 +41,4 @@ v1_router.include_router(banks_router, prefix="/bank", dependencies=[DependPermi
 v1_router.include_router(bank_accounts_router, prefix="/bank_account", dependencies=[DependPermission])
 v1_router.include_router(bills_router, prefix="/bill", dependencies=[DependPermission])
 v1_router.include_router(companies_router, prefix="/company", dependencies=[DependPermission])
+v1_router.include_router(projects_router, prefix="/project", dependencies=[DependPermission])

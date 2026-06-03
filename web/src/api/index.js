@@ -76,6 +76,23 @@ export default {
   updateCompany: (data = {}) => request.post('/company/update', data),
   deleteCompany: (params = {}) => request.delete(`/company/delete`, { params }),
 
+  // customer project board
+  projectApi: {
+    list: (params = {}) => request.get('/project/list', { params }),
+    get: (params = {}) => request.get('/project/get', { params }),
+    create: (data = {}) => request.post('/project/create', data),
+    update: (data = {}) => request.post('/project/update', data),
+    updateStatus: (data = {}) => request.post('/project/status', data),
+    delete: (params = {}) => request.delete('/project/delete', { params }),
+    createDiscussion: (data = {}) => request.post('/project/discussion/create', data),
+    deleteDiscussion: (params = {}) => request.delete('/project/discussion/delete', { params }),
+    createTask: (data = {}) => request.post('/project/task/create', data),
+    updateTask: (data = {}) => request.post('/project/task/update', data),
+    deleteTask: (params = {}) => request.delete('/project/task/delete', { params }),
+    uploadAttachment: (data = {}) => request.post('/project/attachment/upload', data),
+    deleteAttachment: (params = {}) => request.delete('/project/attachment/delete', { params }),
+  },
+
   // bank
   getBankList: (params = {}) => request.get('/bank/list', { params }),
   createBank: (data = {}) => request.post('/bank/create', data),
