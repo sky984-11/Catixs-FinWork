@@ -55,14 +55,20 @@ const modalForm = reactive(createEmptyForm())
 
 const modalTitle = computed(() => (modalAction.value === 'add' ? '新增账单' : '编辑账单'))
 const companyOptions = computed(() =>
-  companyList.value.map((item) => ({
-    label: `${item.name || item.legal_name || '-'}${item.legal_name ? ` - ${item.legal_name}` : ''}${getCompanyRoleLabel(item.role)}`,
-    value: item.id,
-    role: item.role,
-    name: item.name,
-    legal_name: item.legal_name,
-    address: item.address,
-  }))
+  companyList.value.map((item) => {
+    const mainLabel = getCompanyMainLabel(item)
+    const subjectLabel = item.contract_company_name ? `主体：${item.contract_company_name}` : ''
+    return {
+      label: subjectLabel ? `${mainLabel} [${subjectLabel}]` : mainLabel,
+      value: item.id,
+      role: item.role,
+      name: item.name,
+      legal_name: item.legal_name,
+      address: item.address,
+      mainLabel,
+      subjectLabel,
+    }
+  })
 )
 
 const billTypeOptions = [
@@ -473,6 +479,66 @@ function getCompanyRoleLabel(role) {
   return ''
 }
 
+function getCompanyMainLabel(company) {
+  const name = company.name || company.legal_name || '-'
+  const role = getCompanyRoleLabel(company.role)
+  return `${name}${role}`
+}
+
+function renderCompanyOptionLabel(option) {
+  return h(
+    'div',
+    {
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '12px',
+        minWidth: 0,
+        width: '100%',
+        maxWidth: '100%',
+      },
+    },
+    [
+      h(
+        'span',
+        {
+          style: {
+            flex: '1 1 auto',
+            minWidth: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          },
+        },
+        option.mainLabel || option.label
+      ),
+      option.subjectLabel
+        ? h(
+            'span',
+            {
+              style: {
+                flex: 'none',
+                marginLeft: 'auto',
+                maxWidth: '150px',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                borderRadius: '4px',
+                background: '#f1f5f9',
+                color: '#64748b',
+                fontSize: '12px',
+                lineHeight: '20px',
+                padding: '0 6px',
+              },
+            },
+            option.subjectLabel
+          )
+        : null,
+    ]
+  )
+}
+
 function handleCurrencyChange(value) {
   modalForm.currency = value
 }
@@ -839,6 +905,7 @@ onMounted(async () => {
             clearable
             filterable
             :options="companyOptions"
+            :render-label="renderCompanyOptionLabel"
           />
         </QueryBarItem>
         <QueryBarItem label="月份" :label-width="50">
@@ -873,6 +940,7 @@ onMounted(async () => {
               v-model:value="modalForm.company_id"
               filterable
               :options="companyOptions"
+              :render-label="renderCompanyOptionLabel"
               @update:value="handleCompanyChange"
             />
           </NFormItemGi>

@@ -99,10 +99,16 @@ const taskForm = reactive(createEmptyTaskForm())
 
 const modalTitle = computed(() => (modalAction.value === 'add' ? '新增项目' : '编辑项目'))
 const customerOptions = computed(() =>
-  customerList.value.map((item) => ({
-    label: item.legal_name ? `${item.name} - ${item.legal_name}` : item.name,
-    value: item.id,
-  }))
+  customerList.value.map((item) => {
+    const mainLabel = getCustomerMainLabel(item)
+    const subjectLabel = item.contract_company_name ? `主体：${item.contract_company_name}` : ''
+    return {
+      label: subjectLabel ? `${mainLabel} [${subjectLabel}]` : mainLabel,
+      value: item.id,
+      mainLabel,
+      subjectLabel,
+    }
+  })
 )
 const userOptions = computed(() =>
   userList.value.map((item) => {
@@ -479,6 +485,64 @@ function getUserDisplayName(user) {
   return user?.alias || user?.username || user?.email || ''
 }
 
+function getCustomerMainLabel(customer) {
+  return customer.name || customer.legal_name || '-'
+}
+
+function renderCustomerOptionLabel(option) {
+  return h(
+    'div',
+    {
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '12px',
+        minWidth: 0,
+        width: '100%',
+        maxWidth: '100%',
+      },
+    },
+    [
+      h(
+        'span',
+        {
+          style: {
+            flex: '1 1 auto',
+            minWidth: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          },
+        },
+        option.mainLabel || option.label
+      ),
+      option.subjectLabel
+        ? h(
+            'span',
+            {
+              style: {
+                flex: 'none',
+                marginLeft: 'auto',
+                maxWidth: '150px',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                borderRadius: '4px',
+                background: '#f1f5f9',
+                color: '#64748b',
+                fontSize: '12px',
+                lineHeight: '20px',
+                padding: '0 6px',
+              },
+            },
+            option.subjectLabel
+          )
+        : null,
+    ]
+  )
+}
+
 function getPriorityLabel(value) {
   return priorityOptions.find((item) => item.value === value)?.label || '中'
 }
@@ -623,6 +687,7 @@ onMounted(async () => {
         clearable
         filterable
         :options="customerOptions"
+        :render-label="renderCustomerOptionLabel"
         placeholder="客户"
       />
       <NSelect
@@ -1078,6 +1143,7 @@ onMounted(async () => {
               filterable
               clearable
               :options="customerOptions"
+              :render-label="renderCustomerOptionLabel"
             />
           </NFormItemGi>
           <NFormItemGi label="合同编号" path="contract_no">

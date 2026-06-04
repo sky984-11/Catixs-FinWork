@@ -22,6 +22,16 @@ def normalize_company_payload(payload: dict) -> dict:
     return payload
 
 
+async def serialize_company(company_obj) -> dict:
+    data = await company_obj.to_dict()
+    contract_company_id = data.get("contract_company_id")
+    data["contract_company_name"] = None
+    if contract_company_id:
+        contract_company = await company_controller.get(id=contract_company_id)
+        data["contract_company_name"] = contract_company.name or contract_company.legal_name
+    return data
+
+
 @router.get("/list", summary="查看公司列表")
 async def list_company(
     page: int = Query(1, description="页码"),
@@ -51,7 +61,7 @@ async def list_company(
     total, company_objs = await company_controller.list_companies(
         page=page, page_size=page_size, search=q
     )
-    data = [await obj.to_dict() for obj in company_objs]
+    data = [await serialize_company(obj) for obj in company_objs]
     return SuccessExtra(data=data, total=total, page=page, page_size=page_size)
 
 
@@ -60,7 +70,7 @@ async def get_company(
     company_id: int = Query(..., description="公司ID"),
 ):
     company_obj = await company_controller.get(id=company_id)
-    return Success(data=await company_obj.to_dict())
+    return Success(data=await serialize_company(company_obj))
 
 
 @router.post("/create", summary="创建公司")
