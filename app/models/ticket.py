@@ -44,3 +44,17 @@ class Ticket(BaseModel, TimestampMixin):
     class Meta:
         table = "ticket"
         app = "models"
+
+
+class TicketReply(BaseModel, TimestampMixin):
+    """Ticket chat reply."""
+
+    ticket_id = fields.BigIntField(description="工单ID", index=True)
+    user_id = fields.BigIntField(null=True, description="回复用户ID", index=True)
+    parent_id = fields.BigIntField(null=True, description="被回复消息ID", index=True)
+    reply_to_user_id = fields.BigIntField(null=True, description="被回复用户ID", index=True)
+    content = fields.TextField(description="回复内容")
+
+    class Meta:
+        table = "ticket_reply"
+        app = "models"

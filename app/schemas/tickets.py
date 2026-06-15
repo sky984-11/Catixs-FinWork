@@ -74,3 +74,12 @@ class TicketEmailSend(BaseModel):
     """发送工单邮件请求模型"""
     ticket_id: int = Field(..., description="工单ID", example=1)
     user_ids: list[int] = Field(default_factory=list, description="收件用户ID列表")
+
+
+class TicketReplyCreate(BaseModel):
+    """Create ticket reply."""
+
+    ticket_id: int = Field(..., description="工单ID")
+    content: str = Field(..., description="回复内容")
+    parent_id: Optional[int] = Field(None, description="被回复消息ID")
+    reply_to_ticket: Optional[bool] = Field(False, description="是否回复原始工单问题")

@@ -53,15 +53,33 @@
           </div>
         </n-card>
 
-        <n-card v-if="ticket.status === 0 && ticket.completionNote" :bordered="false" class="detail-card">
+        <n-card :bordered="false" class="detail-card">
           <div class="section-heading">
             <n-icon size="22">
-              <Icon icon="mdi:reply-outline" />
+              <Icon icon="mdi:message-reply-text-outline" />
             </n-icon>
-            <span>完成回复/备注</span>
+            <span>聊天记录</span>
           </div>
-          <div class="description-box completion-box">
-            {{ ticket.completionNote }}
+          <n-empty v-if="!chatItems.length" description="暂无回复" />
+          <div v-else class="reply-list">
+            <div
+              v-for="reply in chatItems"
+              :key="reply.key"
+              class="reply-item"
+              :class="{ 'question-item': reply.kind === 'ticket' }"
+            >
+              <div class="reply-meta">
+                <strong>{{ reply.userName }}</strong>
+                <span class="reply-meta-actions">
+                  <span>{{ reply.createdAt }}</span>
+                  <n-button text type="primary" size="small" @click.stop="openReplyModal(reply)">回复</n-button>
+                </span>
+              </div>
+              <div v-if="reply.replyToUserName" class="reply-parent">
+                回复 {{ reply.replyToUserName }}：{{ reply.parentContent }}
+              </div>
+              <p>{{ reply.content }}</p>
+            </div>
           </div>
         </n-card>
 
@@ -91,6 +109,24 @@
           <n-button type="primary" @click="handleBack">返回列表</n-button>
         </template>
       </n-result>
+
+      <n-modal v-model:show="replyModalVisible" preset="card" title="回复消息" style="width: 560px">
+        <div v-if="replyTarget" class="reply-target">
+          回复 {{ replyTarget.userName }}：{{ replyTarget.content }}
+        </div>
+        <n-input
+          v-model:value="replyContent"
+          type="textarea"
+          placeholder="请输入回复内容"
+          :autosize="{ minRows: 4, maxRows: 8 }"
+        />
+        <template #footer>
+          <div class="reply-modal-footer">
+            <n-button @click="closeReplyModal">取消</n-button>
+            <n-button type="primary" :loading="replySubmitting" @click="submitReply">发送回复</n-button>
+          </div>
+        </template>
+      </n-modal>
     </div>
   </AppPage>
 </template>
@@ -110,6 +146,28 @@ const userStore = useUserStore()
 
 const loading = ref(false)
 const ticket = ref(null)
+const replies = ref([])
+const replyModalVisible = ref(false)
+const replySubmitting = ref(false)
+const replyContent = ref('')
+const replyTarget = ref(null)
+
+const chatItems = computed(() => {
+  const items = []
+  if (ticket.value?.description) {
+    items.push({
+      key: `ticket-${ticket.value.id}`,
+      kind: 'ticket',
+      id: null,
+      userName: ticket.value.creatorName || ticket.value.customerName || '工单创建人',
+      replyToUserName: '',
+      parentContent: '',
+      content: ticket.value.description,
+      createdAt: ticket.value.createTime,
+    })
+  }
+  return items.concat(replies.value)
+})
 
 const visibleDetailFields = computed(() => {
   if (!ticket.value) return []
@@ -203,6 +261,7 @@ async function loadTicket() {
     const result = await api.ticketApi.get({ ticket_id: ticketId })
     if (result.code === 200 && result.data) {
       ticket.value = formatTicket(result.data)
+      await loadReplies(ticket.value.id)
     } else {
       ticket.value = null
       window.$message?.error(result.msg || '工单加载失败')
@@ -212,6 +271,76 @@ async function loadTicket() {
     window.$message?.error('工单加载失败')
   } finally {
     loading.value = false
+  }
+}
+
+async function loadReplies(ticketId) {
+  try {
+    const result = await api.ticketApi.replies({ ticket_id: ticketId })
+    if (result.code === 200) {
+      replies.value = (result.data || []).map(formatReply)
+    } else {
+      replies.value = []
+    }
+  } catch (error) {
+    replies.value = []
+  }
+}
+
+function formatReply(reply) {
+  return {
+    key: `reply-${reply.id}`,
+    kind: 'reply',
+    id: reply.id,
+    userName: reply.user_name || '未知用户',
+    replyToUserName: reply.reply_to_user_name || '',
+    parentContent: reply.parent_content || '',
+    content: reply.content || '',
+    createdAt: formatTimeToMinute(reply.created_at)
+  }
+}
+
+function openReplyModal(reply) {
+  replyTarget.value = reply
+  replyContent.value = ''
+  replySubmitting.value = false
+  replyModalVisible.value = true
+}
+
+function closeReplyModal() {
+  replyModalVisible.value = false
+  replySubmitting.value = false
+  replyContent.value = ''
+  replyTarget.value = null
+}
+
+async function submitReply() {
+  if (!ticket.value || !replyTarget.value || replySubmitting.value) return
+  const content = replyContent.value.trim()
+  if (!content) {
+    window.$message?.warning('请输入回复内容')
+    return
+  }
+
+  replySubmitting.value = true
+  try {
+    const result = await api.ticketApi.reply({
+      ticket_id: ticket.value.id,
+      parent_id: replyTarget.value.kind === 'reply' ? replyTarget.value.id : undefined,
+      reply_to_ticket: replyTarget.value.kind === 'ticket',
+      content
+    })
+    if (result.code === 200) {
+      window.$message?.success('回复已发送')
+      closeReplyModal()
+      await loadReplies(ticket.value.id)
+    } else {
+      window.$message?.error(result.msg || '回复失败')
+    }
+  } catch (error) {
+    window.$message?.error(error?.response?.data?.msg || '回复失败')
+  } finally {
+    replySubmitting.value = false
   }
 }
 
@@ -375,6 +504,65 @@ onMounted(loadTicket)
   border-left: 4px solid #667df0;
   background: #f8fafc;
   border-radius: 8px;
+}
+
+.reply-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.reply-item {
+  padding: 14px 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.question-item {
+  border-color: #a5b4fc;
+  background: #fff;
+}
+
+.reply-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.reply-meta strong {
+  color: #1f2937;
+}
+
+.reply-meta-actions,
+.reply-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.reply-parent,
+.reply-target {
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.5;
+  border-left: 3px solid #94a3b8;
+  background: #eef2f7;
+  border-radius: 6px;
+}
+
+.reply-item p {
+  margin: 0;
+  color: #374151;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .status-pill,

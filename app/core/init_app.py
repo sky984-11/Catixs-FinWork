@@ -874,6 +874,33 @@ async def ensure_ticket_columns():
             message = str(exc).lower()
             if "duplicate column" not in message and "no such table" not in message:
                 raise
+        await conn.execute_script(
+            """
+            CREATE TABLE IF NOT EXISTS "ticket_reply" (
+                "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                "created_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "updated_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "ticket_id" BIGINT NOT NULL,
+                "user_id" BIGINT,
+                "parent_id" BIGINT,
+                "reply_to_user_id" BIGINT,
+                "content" TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS "idx_ticket_reply_ticket_id" ON "ticket_reply" ("ticket_id");
+            CREATE INDEX IF NOT EXISTS "idx_ticket_reply_user_id" ON "ticket_reply" ("user_id");
+            CREATE INDEX IF NOT EXISTS "idx_ticket_reply_parent_id" ON "ticket_reply" ("parent_id");
+            """
+        )
+        for column in [
+            ('parent_id', "BIGINT"),
+            ('reply_to_user_id', "BIGINT"),
+        ]:
+            try:
+                await conn.execute_script(f'ALTER TABLE "ticket_reply" ADD COLUMN "{column[0]}" {column[1]};')
+            except OperationalError as exc:
+                message = str(exc).lower()
+                if "duplicate column" not in message and "no such table" not in message:
+                    raise
         return
 
     if settings.DB_TYPE != "postgres":
@@ -884,6 +911,23 @@ async def ensure_ticket_columns():
         """
         ALTER TABLE IF EXISTS "ticket"
             ADD COLUMN IF NOT EXISTS "completion_note" TEXT;
+
+        CREATE TABLE IF NOT EXISTS "ticket_reply" (
+            "id" BIGSERIAL NOT NULL PRIMARY KEY,
+            "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "updated_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "ticket_id" BIGINT NOT NULL,
+            "user_id" BIGINT,
+            "parent_id" BIGINT,
+            "reply_to_user_id" BIGINT,
+            "content" TEXT NOT NULL
+        );
+        ALTER TABLE IF EXISTS "ticket_reply"
+            ADD COLUMN IF NOT EXISTS "parent_id" BIGINT,
+            ADD COLUMN IF NOT EXISTS "reply_to_user_id" BIGINT;
+        CREATE INDEX IF NOT EXISTS "idx_ticket_reply_ticket_id" ON "ticket_reply" ("ticket_id");
+        CREATE INDEX IF NOT EXISTS "idx_ticket_reply_user_id" ON "ticket_reply" ("user_id");
+        CREATE INDEX IF NOT EXISTS "idx_ticket_reply_parent_id" ON "ticket_reply" ("parent_id");
         """
     )
 

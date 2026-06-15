@@ -1,6 +1,6 @@
 <template>
   <div class="ticket-card-wrapper">
-    <div class="ticket-card" @click="$emit('detail', ticket)">
+    <div class="ticket-card" @click="$emit('detail', ticket)" @contextmenu.prevent="emit('reply', ticket)">
       <!-- 第一行：标题左 + 状态/类型标签右 -->
       <div class="card-header">
         <span class="ticket-title">{{ ticket.title }}</span>
@@ -31,11 +31,6 @@
       </div>
 
       <p class="ticket-desc">{{ ticket.description }}</p>
-
-      <div v-if="ticket.status === 0 && ticket.completionNote" class="completion-note">
-        <span>完成备注</span>
-        <p>{{ ticket.completionNote }}</p>
-      </div>
 
       <!-- 操作按钮 + 附件按钮行 -->
       <div class="actions-row">
@@ -127,7 +122,7 @@
 import { ref, computed, nextTick } from 'vue'
 import CButton from '@/components/public/CButton.vue'
 
-const emit = defineEmits(['detail', 'edit', 'send', 'statusChange', 'delete'])
+const emit = defineEmits(['detail', 'edit', 'send', 'reply', 'statusChange', 'delete'])
 
 const attachmentImageRefs = ref([])
 const attachmentPreviewSrcList = computed(() => {
