@@ -32,6 +32,11 @@
 
       <p class="ticket-desc">{{ ticket.description }}</p>
 
+      <div v-if="ticket.status === 0 && ticket.completionNote" class="completion-note">
+        <span>完成备注</span>
+        <p>{{ ticket.completionNote }}</p>
+      </div>
+
       <!-- 操作按钮 + 附件按钮行 -->
       <div class="actions-row">
         <div class="card-actions">
@@ -495,6 +500,30 @@ function getImageUrl(img) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.completion-note {
+  padding: 10px 12px;
+  border-left: 3px solid #52c41a;
+  border-radius: 8px;
+  background: rgba(82, 196, 26, 0.08);
+}
+
+.completion-note span {
+  display: block;
+  margin-bottom: 4px;
+  color: #237804;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.completion-note p {
+  margin: 0;
+  color: #3f4f3f;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* 时间信息区域 */

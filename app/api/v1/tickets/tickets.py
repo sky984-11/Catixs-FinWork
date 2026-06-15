@@ -310,7 +310,6 @@ async def create_ticket(
     request: Request,
 ):
     current_user = await get_current_ticket_user()
-    has_ticket_manager_access = await can_view_all_tickets(current_user)
     ticket_data = ticket_in.model_dump()
     ticket_data["user_id"] = current_user.id
 
@@ -321,27 +320,22 @@ async def create_ticket(
     creator = current_user
     creator_name = creator.username if creator else "未知用户"
     
-    # 判断是否为非管理员用户创建的工单
-    is_admin = has_ticket_manager_access
-    
-    # 只有非管理员用户创建工单时才发送飞书通知
-    if not is_admin:
-        try:
-            await send_ticket_created_notification(
-                ticket_no=ticket_obj.ticket_no,
-                title=ticket_obj.title,
-                ticket_type=ticket_obj.type,
-                status=ticket_obj.status,
-                creator_name=creator_name,
-                description=ticket_obj.desc or "暂无描述",
-                created_at=ticket_obj.created_at,
-                location=ticket_obj.location,
-                ticket_url=build_ticket_detail_url(request, ticket_obj.id),
-            )
-            logger.info(f"工单 {ticket_obj.ticket_no} 创建通知已发送至飞书")
-        except Exception as e:
-            # 通知发送失败不影响工单创建结果
-            logger.error(f"发送飞书通知失败: {e}")
+    try:
+        await send_ticket_created_notification(
+            ticket_no=ticket_obj.ticket_no,
+            title=ticket_obj.title,
+            ticket_type=ticket_obj.type,
+            status=ticket_obj.status,
+            creator_name=creator_name,
+            description=ticket_obj.desc or "暂无描述",
+            created_at=ticket_obj.created_at,
+            location=ticket_obj.location,
+            ticket_url=build_ticket_detail_url(request, ticket_obj.id),
+        )
+        logger.info(f"工单 {ticket_obj.ticket_no} 创建通知已发送至飞书")
+    except Exception as e:
+        # 通知发送失败不影响工单创建结果
+        logger.error(f"发送飞书通知失败: {e}")
     
     return Success(msg="工单创建成功", data=await ticket_to_dict(ticket_obj))
 

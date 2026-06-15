@@ -53,6 +53,18 @@
           </div>
         </n-card>
 
+        <n-card v-if="ticket.status === 0 && ticket.completionNote" :bordered="false" class="detail-card">
+          <div class="section-heading">
+            <n-icon size="22">
+              <Icon icon="mdi:reply-outline" />
+            </n-icon>
+            <span>完成回复/备注</span>
+          </div>
+          <div class="description-box completion-box">
+            {{ ticket.completionNote }}
+          </div>
+        </n-card>
+
         <n-card v-if="ticket.attachments.length" :bordered="false" class="detail-card">
           <div class="section-heading">
             <n-icon size="22">
@@ -136,6 +148,7 @@ function formatTicket(data) {
     completeTime: formatTimeToMinute(data.end_time),
     updateTime: shouldShowUpdatedAt(data.updated_at, data.created_at) ? formatTimeToMinute(data.updated_at) : null,
     location: data.location,
+    completionNote: data.completion_note || '',
     attachmentUrl: data.attachment_url,
     attachments: parseAttachmentUrls(data),
     attachmentUrlDisplay: parseAttachmentUrls(data).join('\n')

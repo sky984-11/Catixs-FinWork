@@ -37,6 +37,9 @@ class Ticket(BaseModel, TimestampMixin):
     
     # 当前处理人id
     assignee_id = fields.BigIntField(null=True, description="当前处理人ID", index=True)
+
+    # Completion reply or reason note
+    completion_note = fields.TextField(null=True, description="工单完成回复/备注")
     
     class Meta:
         table = "ticket"

@@ -73,6 +73,23 @@
           </div>
         </template>
       </n-modal>
+
+      <n-modal v-model:show="completionModalVisible" preset="card" title="完成工单" style="width: 560px">
+        <n-input
+          v-model:value="completionNote"
+          type="textarea"
+          placeholder="请输入处理回复或备注原因"
+          :autosize="{ minRows: 4, maxRows: 8 }"
+        />
+        <template #footer>
+          <div class="completion-modal-footer">
+            <n-button @click="handleCancelCompletion">取消</n-button>
+            <n-button type="primary" :loading="completionSubmitting" @click="handleConfirmCompletion">
+              确认完成
+            </n-button>
+          </div>
+        </template>
+      </n-modal>
     </div>
   </AppPage>
 </template>
@@ -95,6 +112,10 @@ const loading = ref(false)
 const sendModalVisible = ref(false)
 const sendTicket = ref(null)
 const sendSubmitting = ref(false)
+const completionModalVisible = ref(false)
+const completionSubmitting = ref(false)
+const completionNote = ref('')
+const pendingCompletionTicket = ref(null)
 
 const sendSelectedUsers = ref([])
 const userOptions = ref([])
@@ -192,6 +213,7 @@ async function loadData(reset = false) {
         updateTime: formatTimeToMinute(ticket.updated_at),
         location: ticket.location,
         planTime: formatTimeToMinute(ticket.start_time),
+        completionNote: ticket.completion_note || '',
         attachments: parseAttachmentUrls(ticket)
       }))
 
@@ -339,6 +361,14 @@ async function handleStatusChange({ ticket, newStatus }) {
     return
   }
 
+  if (newStatus === 0) {
+    pendingCompletionTicket.value = ticket
+    completionNote.value = ticket.completionNote || ''
+    completionSubmitting.value = false
+    completionModalVisible.value = true
+    return
+  }
+
   try {
     const result = await api.ticketApi.update({ id: ticket.id, ticket_no: ticket.ticketNo, status: newStatus })
     
@@ -352,6 +382,40 @@ async function handleStatusChange({ ticket, newStatus }) {
     }
   } catch (error) {
     window.$message?.error('更新失败')
+  }
+}
+
+function handleCancelCompletion() {
+  completionModalVisible.value = false
+  completionSubmitting.value = false
+  completionNote.value = ''
+  pendingCompletionTicket.value = null
+}
+
+async function handleConfirmCompletion() {
+  if (!pendingCompletionTicket.value || completionSubmitting.value) return
+
+  completionSubmitting.value = true
+  const ticket = pendingCompletionTicket.value
+  try {
+    const result = await api.ticketApi.update({
+      id: ticket.id,
+      ticket_no: ticket.ticketNo,
+      status: 0,
+      completion_note: completionNote.value.trim()
+    })
+
+    if (result.code === 200) {
+      window.$message?.success('工单状态已更新为：已完成')
+      handleCancelCompletion()
+      loadData(true)
+    } else {
+      window.$message?.error(result.msg || '更新失败')
+    }
+  } catch (error) {
+    window.$message?.error('更新失败')
+  } finally {
+    completionSubmitting.value = false
   }
 }
 
@@ -468,5 +532,11 @@ onMounted(() => {
 .send-modal-footer {
   display: flex;
   justify-content: flex-end;
+}
+
+.completion-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
 }
 </style>

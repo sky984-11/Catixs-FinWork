@@ -865,6 +865,29 @@ async def ensure_project_columns():
     )
 
 
+async def ensure_ticket_columns():
+    if settings.DB_TYPE == "sqlite":
+        conn = Tortoise.get_connection("sqlite")
+        try:
+            await conn.execute_script('ALTER TABLE "ticket" ADD COLUMN "completion_note" TEXT;')
+        except OperationalError as exc:
+            message = str(exc).lower()
+            if "duplicate column" not in message and "no such table" not in message:
+                raise
+        return
+
+    if settings.DB_TYPE != "postgres":
+        return
+
+    conn = Tortoise.get_connection("postgres")
+    await conn.execute_script(
+        """
+        ALTER TABLE IF EXISTS "ticket"
+            ADD COLUMN IF NOT EXISTS "completion_note" TEXT;
+        """
+    )
+
+
 async def ensure_company_columns():
     if settings.DB_TYPE != "postgres":
         return
@@ -949,6 +972,7 @@ async def init_db():
     await ensure_asset_columns()
     await ensure_bill_columns()
     await ensure_project_columns()
+    await ensure_ticket_columns()
     await Tortoise.generate_schemas(safe=True)
     if os.getenv("AUTO_DB_MIGRATE", "false").lower() in {"1", "true", "yes", "on"}:
         try:
