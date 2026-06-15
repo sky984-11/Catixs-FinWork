@@ -5,7 +5,7 @@
       <div class="card-header">
         <span class="ticket-title">{{ ticket.title }}</span>
         <div class="header-tags">
-          <div v-if="isAdminOrNoc" class="status-dropdown-wrapper" @click.stop>
+          <div v-if="isAdminOrNoc && canChangeStatus" class="status-dropdown-wrapper" @click.stop>
             <span
               ref="statusTagRef"
               class="status-tag status-clickable"
@@ -100,7 +100,7 @@
       >
         <div class="status-dropdown" @click.stop>
           <div
-            v-for="option in statusOptions"
+            v-for="option in allowedStatusOptions"
             :key="option.value"
             class="status-dropdown-item"
             :class="{ 'item-active': ticket.status === option.value }"
@@ -192,6 +192,19 @@ const statusOptions = [
   { label: '未开始', value: 2 },
   { label: '已关闭', value: 3 }
 ]
+
+const allowedStatusOptions = computed(() => {
+  const flow = {
+    2: [1, 0, 3],
+    1: [0, 3],
+    0: [],
+    3: [],
+  }
+  const allowed = flow[props.ticket.status] || []
+  return statusOptions.filter(option => allowed.includes(option.value))
+})
+
+const canChangeStatus = computed(() => allowedStatusOptions.value.length > 0)
 
 function handleStatusSelect(newStatus) {
   if (newStatus === props.ticket.status) {

@@ -33,6 +33,12 @@ router = APIRouter()
 
 TICKET_MANAGER_ROLE_NAMES = {"admin", "noc", "管理员"}
 TICKET_MANAGER_ACCOUNT_NAMES = {"noc"}
+STATUS_FLOW = {
+    2: {1, 0, 3},
+    1: {0, 3},
+    0: set(),
+    3: set(),
+}
 
 # 工单附件上传目录
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
@@ -96,6 +102,22 @@ async def ticket_reply_to_dict(reply: TicketReply) -> dict:
     data["reply_to_user_name"] = get_user_display_name(reply_to_user) if reply_to_user else ""
     data["parent_content"] = parent.content if parent else (ticket_obj.desc if ticket_obj else "")
     return data
+
+
+async def add_ticket_chat_record(
+    ticket_obj: Ticket,
+    user_id: int | None,
+    content: str,
+    reply_to_user_id: int | None = None,
+    parent_id: int | None = None,
+) -> TicketReply:
+    return await TicketReply.create(
+        ticket_id=ticket_obj.id,
+        user_id=user_id,
+        parent_id=parent_id,
+        reply_to_user_id=reply_to_user_id,
+        content=content,
+    )
 
 
 def parse_attachment_urls(attachment_url: str | None) -> list[str]:
@@ -333,8 +355,9 @@ async def list_ticket_replies(
     return Success(data=[await ticket_reply_to_dict(reply) for reply in replies])
 
 
-@router.post("/reply", summary="回复工单", dependencies=[DependAuth])
 @router.post("/reply/create", summary="回复工单", dependencies=[DependAuth])
+@router.post("/reply", summary="回复工单", dependencies=[DependAuth])
+@router.post("/reply_create", summary="回复工单", dependencies=[DependAuth])
 async def create_ticket_reply(
     reply_in: TicketReplyCreate,
     request: Request,
@@ -364,11 +387,11 @@ async def create_ticket_reply(
         reply_to_user_name = get_user_display_name(reply_to_user) if reply_to_user else None
         parent_content = ticket_obj.desc
 
-    reply = await TicketReply.create(
-        ticket_id=ticket_obj.id,
+    reply = await add_ticket_chat_record(
+        ticket_obj=ticket_obj,
         user_id=current_user.id,
-        parent_id=parent_reply.id if parent_reply else None,
         reply_to_user_id=reply_to_user_id,
+        parent_id=parent_reply.id if parent_reply else None,
         content=content,
     )
     try:
@@ -442,11 +465,30 @@ async def update_ticket(
         raise HTTPException(status_code=404, detail="工单不存在")
     await ensure_ticket_access(ticket_obj, current_user)
     old_status = ticket_obj.status
+    status_changed = ticket_in.status is not None and ticket_in.status != old_status
+    if status_changed:
+        if ticket_in.status not in STATUS_FLOW.get(old_status, set()):
+            return Success(code=400, msg="工单状态不可逆转")
+        if ticket_in.status == 0 and not str(ticket_in.completion_note or "").strip():
+            return Success(code=400, msg="完成工单需要填写备注")
+    if old_status == 2 and ticket_in.status == 1 and not ticket_obj.start_time and ticket_in.start_time is None:
+        ticket_in.start_time = datetime.now()
     if ticket_in.status == 0:
         ticket_in.assignee_id = current_user.id
         if ticket_obj.type not in (2, 3):
             ticket_in.end_time = datetime.now()
     ticket_obj = await ticket_controller.update_ticket(id=ticket_obj.id, obj_in=ticket_in)
+    completion_note = str(ticket_obj.completion_note or "").strip()
+    if status_changed:
+        status_note = f"状态变更：{TICKET_STATUS_MAP.get(old_status, '未知状态')} → {TICKET_STATUS_MAP.get(ticket_obj.status, '未知状态')}"
+        await add_ticket_chat_record(ticket_obj=ticket_obj, user_id=current_user.id, content=status_note)
+    if status_changed and ticket_obj.status == 0 and completion_note:
+        await add_ticket_chat_record(
+            ticket_obj=ticket_obj,
+            user_id=current_user.id,
+            reply_to_user_id=ticket_obj.user_id,
+            content=f"完成备注：{completion_note}",
+        )
     if ticket_in.status == 0 and old_status != 0:
         try:
             await send_ticket_status_changed_notification(

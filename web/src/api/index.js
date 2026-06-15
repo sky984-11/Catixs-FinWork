@@ -129,7 +129,7 @@ export default {
     users: () => request.get('/ticket/users'),
     sendEmail: (data = {}) => request.post('/ticket/send_email', data),
     replies: (params = {}) => request.get('/ticket/reply/list', { params }),
-    reply: (data = {}) => request.post('/ticket/reply/create', data),
+    reply: (data = {}) => request.post('/ticket/reply_create', data),
     upload: (data = {}, params = {}) => request.post('/ticket/upload', data, { params }),
   },
 
