@@ -732,6 +732,17 @@ async def ensure_task_permissions():
             await role.apis.add(*task_apis)
 
 
+async def ensure_virtual_machine_permissions():
+    pve_apis = await Api.filter(Q(path__startswith="/api/v1/pve/"))
+    if not pve_apis:
+        return
+
+    for role in await Role.all():
+        if not is_admin_role_name(role.name):
+            continue
+        await role.apis.add(*pve_apis)
+
+
 async def ensure_database_backup_task():
     task = await ScheduledTask.filter(name="数据库备份").first()
     values = {
@@ -1135,6 +1146,7 @@ async def init_data():
     await ensure_business_api_permissions()
     await init_roles()
     await ensure_task_permissions()
+    await ensure_virtual_machine_permissions()
     await ensure_database_backup_task()
     await init_companies()
     await ensure_company_branding()

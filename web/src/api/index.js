@@ -189,4 +189,10 @@ export default {
     logs: (params = {}) => request.get('/syslog/logs', { params }),
     raw: (params = {}) => request.get('/syslog/raw', { params }),
   },
+
+  // virtual machine
+  virtualMachineApi: {
+    pveNodes: () => request.get('/pve/nodes'),
+    pveVms: (params = {}) => request.get('/pve/vms', { params }),
+  },
 }
