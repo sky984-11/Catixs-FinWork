@@ -37,7 +37,24 @@ class Ticket(BaseModel, TimestampMixin):
     
     # 当前处理人id
     assignee_id = fields.BigIntField(null=True, description="当前处理人ID", index=True)
+
+    # Completion reply or reason note
+    completion_note = fields.TextField(null=True, description="工单完成回复/备注")
     
     class Meta:
         table = "ticket"
+        app = "models"
+
+
+class TicketReply(BaseModel, TimestampMixin):
+    """Ticket chat reply."""
+
+    ticket_id = fields.BigIntField(description="工单ID", index=True)
+    user_id = fields.BigIntField(null=True, description="回复用户ID", index=True)
+    parent_id = fields.BigIntField(null=True, description="被回复消息ID", index=True)
+    reply_to_user_id = fields.BigIntField(null=True, description="被回复用户ID", index=True)
+    content = fields.TextField(description="回复内容")
+
+    class Meta:
+        table = "ticket_reply"
         app = "models"

@@ -128,6 +128,8 @@ export default {
     getByNo: (params = {}) => request.get('/ticket/get_by_no', { params }),
     users: () => request.get('/ticket/users'),
     sendEmail: (data = {}) => request.post('/ticket/send_email', data),
+    replies: (params = {}) => request.get('/ticket/reply/list', { params }),
+    reply: (data = {}) => request.post('/ticket/reply_create', data),
     upload: (data = {}, params = {}) => request.post('/ticket/upload', data, { params }),
   },
 

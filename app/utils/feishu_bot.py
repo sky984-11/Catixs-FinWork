@@ -212,6 +212,7 @@ async def send_ticket_status_changed_notification(
     old_status: int,
     new_status: int,
     operator_name: str,
+    completion_note: Optional[str] = None,
 ) -> bool:
     """
     发送工单状态变更通知
@@ -289,5 +290,102 @@ async def send_ticket_status_changed_notification(
             ]
         }
     }
-    
+    if completion_note:
+        note_display = completion_note[:300] + "..." if len(completion_note) > 300 else completion_note
+        card_content["card"]["elements"].append({
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": f"**完成回复/备注：**\n{note_display}"
+            }
+        })
+
+    return await send_feishu_message(card_content)
+
+
+async def send_ticket_reply_notification(
+    ticket_no: str,
+    title: str,
+    ticket_type: int,
+    replier_name: str,
+    content: str,
+    reply_to_user_name: Optional[str] = None,
+    parent_content: Optional[str] = None,
+    ticket_url: Optional[str] = None,
+) -> bool:
+    type_name = TICKET_TYPE_MAP.get(ticket_type, "未知类型")
+    content_display = content[:500] + "..." if len(content) > 500 else content
+    card_content = {
+        "msg_type": "interactive",
+        "card": {
+            "header": {
+                "title": {
+                    "tag": "plain_text",
+                    "content": f"工单回复 - {ticket_no}"
+                },
+                "template": "blue"
+            },
+            "elements": [
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "lark_md",
+                        "content": f"**工单标题：** {title}"
+                    }
+                },
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "lark_md",
+                        "content": f"**工单类型：** {type_name}"
+                    }
+                },
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "lark_md",
+                        "content": f"**回复人：** {replier_name}"
+                    }
+                },
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "lark_md",
+                        "content": f"**回复内容：**\n{content_display}"
+                    }
+                },
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "lark_md",
+                        "content": f"**回复时间：** {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                    }
+                },
+            ]
+        }
+    }
+    if reply_to_user_name:
+        parent_display = (parent_content or "")[:200]
+        card_content["card"]["elements"].insert(3, {
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": f"**回复对象：** {reply_to_user_name}\n**原内容：** {parent_display}"
+            }
+        })
+    if ticket_url:
+        card_content["card"]["elements"].append({
+            "tag": "action",
+            "actions": [
+                {
+                    "tag": "button",
+                    "text": {
+                        "tag": "plain_text",
+                        "content": "查看工单详情"
+                    },
+                    "type": "primary",
+                    "url": ticket_url
+                }
+            ]
+        })
     return await send_feishu_message(card_content)

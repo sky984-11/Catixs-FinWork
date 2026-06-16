@@ -18,6 +18,7 @@ class BaseTicket(BaseModel):
     attachment_url: Optional[str] = None
     ticket_no: Optional[str] = None
     assignee_id: Optional[int] = None
+    completion_note: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -33,6 +34,7 @@ class TicketCreate(BaseModel):
     end_time: Optional[datetime] = Field(None, description="结束时间")
     attachment_url: str = Field("", description="附件链接")
     assignee_id: Optional[int] = Field(None, description="处理人ID")
+    completion_note: Optional[str] = Field(None, description="工单完成回复/备注")
 
 
 class TicketUpdate(BaseModel):
@@ -49,6 +51,7 @@ class TicketUpdate(BaseModel):
     end_time: Optional[datetime] = Field(None, description="结束时间")
     attachment_url: Optional[str] = Field(None, description="附件链接")
     assignee_id: Optional[int] = Field(None, description="处理人ID")
+    completion_note: Optional[str] = Field(None, description="工单完成回复/备注")
 
 
 class TicketQuery(BaseModel):
@@ -71,3 +74,12 @@ class TicketEmailSend(BaseModel):
     """发送工单邮件请求模型"""
     ticket_id: int = Field(..., description="工单ID", example=1)
     user_ids: list[int] = Field(default_factory=list, description="收件用户ID列表")
+
+
+class TicketReplyCreate(BaseModel):
+    """Create ticket reply."""
+
+    ticket_id: int = Field(..., description="工单ID")
+    content: str = Field(..., description="回复内容")
+    parent_id: Optional[int] = Field(None, description="被回复消息ID")
+    reply_to_ticket: Optional[bool] = Field(False, description="是否回复原始工单问题")

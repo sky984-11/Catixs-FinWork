@@ -39,6 +39,7 @@
               @detail="handleView"
               @edit="handleEdit"
               @send="handleSend"
+              @reply="handleReply"
               @status-change="handleStatusChange"
               @delete="handleDelete"
             />
@@ -73,6 +74,40 @@
           </div>
         </template>
       </n-modal>
+
+      <n-modal v-model:show="replyModalVisible" preset="card" title="回复工单" style="width: 560px">
+        <n-input
+          v-model:value="replyContent"
+          type="textarea"
+          placeholder="请输入回复内容"
+          :autosize="{ minRows: 4, maxRows: 8 }"
+        />
+        <template #footer>
+          <div class="reply-modal-footer">
+            <n-button @click="handleCancelReply">取消</n-button>
+            <n-button type="primary" :loading="replySubmitting" @click="handleConfirmReply">
+              发送回复
+            </n-button>
+          </div>
+        </template>
+      </n-modal>
+
+      <n-modal v-model:show="completionModalVisible" preset="card" title="完成备注" style="width: 560px">
+        <n-input
+          v-model:value="completionNote"
+          type="textarea"
+          placeholder="请输入完成备注"
+          :autosize="{ minRows: 4, maxRows: 8 }"
+        />
+        <template #footer>
+          <div class="reply-modal-footer">
+            <n-button @click="handleCancelCompletion">取消</n-button>
+            <n-button type="primary" :loading="completionSubmitting" @click="handleConfirmCompletion">
+              确认完成
+            </n-button>
+          </div>
+        </template>
+      </n-modal>
     </div>
   </AppPage>
 </template>
@@ -95,6 +130,14 @@ const loading = ref(false)
 const sendModalVisible = ref(false)
 const sendTicket = ref(null)
 const sendSubmitting = ref(false)
+const replyModalVisible = ref(false)
+const replySubmitting = ref(false)
+const replyContent = ref('')
+const replyTicket = ref(null)
+const completionModalVisible = ref(false)
+const completionSubmitting = ref(false)
+const completionNote = ref('')
+const pendingCompletionTicket = ref(null)
 
 const sendSelectedUsers = ref([])
 const userOptions = ref([])
@@ -192,6 +235,7 @@ async function loadData(reset = false) {
         updateTime: formatTimeToMinute(ticket.updated_at),
         location: ticket.location,
         planTime: formatTimeToMinute(ticket.start_time),
+        completionNote: ticket.completion_note || '',
         attachments: parseAttachmentUrls(ticket)
       }))
 
@@ -339,19 +383,120 @@ async function handleStatusChange({ ticket, newStatus }) {
     return
   }
 
+  if (!canMoveStatus(ticket.status, newStatus)) {
+    window.$message?.warning('工单状态不可逆转')
+    return
+  }
+
+  if (newStatus === 0) {
+    pendingCompletionTicket.value = ticket
+    completionNote.value = ''
+    completionSubmitting.value = false
+    completionModalVisible.value = true
+    return
+  }
+
+  await updateTicketStatus(ticket, newStatus)
+}
+
+function canMoveStatus(currentStatus, nextStatus) {
+  const flow = {
+    2: [1, 0, 3],
+    1: [0, 3],
+    0: [],
+    3: [],
+  }
+  return flow[currentStatus]?.includes(nextStatus) || false
+}
+
+async function updateTicketStatus(ticket, newStatus, extra = {}) {
   try {
-    const result = await api.ticketApi.update({ id: ticket.id, ticket_no: ticket.ticketNo, status: newStatus })
+    const result = await api.ticketApi.update({
+      id: ticket.id,
+      ticket_no: ticket.ticketNo,
+      status: newStatus,
+      ...extra,
+    })
     
     if (result.code === 200) {
       const statusNames = { 0: '已完成', 1: '进行中', 2: '未开始', 3: '已关闭' }
       window.$message?.success(`工单状态已更新为：${statusNames[newStatus]}`)
       
       loadData(true)
+      return true
     } else {
       window.$message?.error(result.msg || '更新失败')
+      return false
     }
   } catch (error) {
-    window.$message?.error('更新失败')
+    window.$message?.error(error?.response?.data?.msg || '更新失败')
+    return false
+  }
+}
+
+function handleCancelCompletion() {
+  completionModalVisible.value = false
+  completionSubmitting.value = false
+  completionNote.value = ''
+  pendingCompletionTicket.value = null
+}
+
+async function handleConfirmCompletion() {
+  if (!pendingCompletionTicket.value || completionSubmitting.value) return
+  const note = completionNote.value.trim()
+  if (!note) {
+    window.$message?.warning('请输入完成备注')
+    return
+  }
+
+  completionSubmitting.value = true
+  try {
+    const updated = await updateTicketStatus(pendingCompletionTicket.value, 0, { completion_note: note })
+    if (updated) handleCancelCompletion()
+  } finally {
+    completionSubmitting.value = false
+  }
+}
+
+function handleReply(ticket) {
+  replyTicket.value = ticket
+  replyContent.value = ''
+  replySubmitting.value = false
+  replyModalVisible.value = true
+}
+
+function handleCancelReply() {
+  replyModalVisible.value = false
+  replySubmitting.value = false
+  replyContent.value = ''
+  replyTicket.value = null
+}
+
+async function handleConfirmReply() {
+  if (!replyTicket.value || replySubmitting.value) return
+  const content = replyContent.value.trim()
+  if (!content) {
+    window.$message?.warning('请输入回复内容')
+    return
+  }
+
+  replySubmitting.value = true
+  try {
+    const result = await api.ticketApi.reply({
+      ticket_id: replyTicket.value.id,
+      content
+    })
+
+    if (result.code === 200) {
+      window.$message?.success('回复已发送')
+      handleCancelReply()
+    } else {
+      window.$message?.error(result.msg || '回复失败')
+    }
+  } catch (error) {
+    window.$message?.error(error?.response?.data?.msg || '回复失败')
+  } finally {
+    replySubmitting.value = false
   }
 }
 
@@ -468,5 +613,11 @@ onMounted(() => {
 .send-modal-footer {
   display: flex;
   justify-content: flex-end;
+}
+
+.reply-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
 }
 </style>

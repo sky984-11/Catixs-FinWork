@@ -15,10 +15,16 @@ from app.controllers.ticket import ticket_controller
 from app.core.ctx import CTX_USER_ID
 from app.core.dependency import DependAuth
 from app.models.admin import User
-from app.models.ticket import Ticket
+from app.models.ticket import Ticket, TicketReply
 from app.schemas.base import Success, SuccessExtra
-from app.schemas.tickets import TicketAttachmentUpload, TicketCreate, TicketEmailSend, TicketUpdate
-from app.utils.feishu_bot import TICKET_STATUS_MAP, TICKET_TYPE_MAP, send_ticket_created_notification
+from app.schemas.tickets import TicketAttachmentUpload, TicketCreate, TicketEmailSend, TicketReplyCreate, TicketUpdate
+from app.utils.feishu_bot import (
+    TICKET_STATUS_MAP,
+    TICKET_TYPE_MAP,
+    send_ticket_created_notification,
+    send_ticket_reply_notification,
+    send_ticket_status_changed_notification,
+)
 from app.utils.feishu_email import send_email
 
 logger = logging.getLogger(__name__)
@@ -27,6 +33,12 @@ router = APIRouter()
 
 TICKET_MANAGER_ROLE_NAMES = {"admin", "noc", "管理员"}
 TICKET_MANAGER_ACCOUNT_NAMES = {"noc"}
+STATUS_FLOW = {
+    2: {1, 0, 3},
+    1: {0, 3},
+    0: set(),
+    3: set(),
+}
 
 # 工单附件上传目录
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
@@ -78,6 +90,34 @@ async def ticket_to_dict(ticket_obj: Ticket) -> dict:
     data["assignee_name"] = get_user_display_name(assignee) if assignee else ""
     data["attachment_urls"] = get_ticket_attachment_urls(ticket_obj)
     return data
+
+
+async def ticket_reply_to_dict(reply: TicketReply) -> dict:
+    data = await reply.to_dict()
+    user = await User.get_or_none(id=reply.user_id) if reply.user_id else None
+    reply_to_user = await User.get_or_none(id=reply.reply_to_user_id) if reply.reply_to_user_id else None
+    parent = await TicketReply.get_or_none(id=reply.parent_id) if reply.parent_id else None
+    ticket_obj = await Ticket.get_or_none(id=reply.ticket_id) if reply.reply_to_user_id and not parent else None
+    data["user_name"] = get_user_display_name(user)
+    data["reply_to_user_name"] = get_user_display_name(reply_to_user) if reply_to_user else ""
+    data["parent_content"] = parent.content if parent else (ticket_obj.desc if ticket_obj else "")
+    return data
+
+
+async def add_ticket_chat_record(
+    ticket_obj: Ticket,
+    user_id: int | None,
+    content: str,
+    reply_to_user_id: int | None = None,
+    parent_id: int | None = None,
+) -> TicketReply:
+    return await TicketReply.create(
+        ticket_id=ticket_obj.id,
+        user_id=user_id,
+        parent_id=parent_id,
+        reply_to_user_id=reply_to_user_id,
+        content=content,
+    )
 
 
 def parse_attachment_urls(attachment_url: str | None) -> list[str]:
@@ -304,13 +344,80 @@ async def get_ticket(
     return Success(data=await ticket_to_dict(ticket_obj))
 
 
+@router.get("/reply/list", summary="查看工单回复", dependencies=[DependAuth])
+async def list_ticket_replies(
+    ticket_id: int = Query(..., description="工单ID"),
+):
+    current_user = await get_current_ticket_user()
+    ticket_obj = await ticket_controller.get(id=ticket_id)
+    await ensure_ticket_access(ticket_obj, current_user)
+    replies = await TicketReply.filter(ticket_id=ticket_obj.id).order_by("created_at", "id")
+    return Success(data=[await ticket_reply_to_dict(reply) for reply in replies])
+
+
+@router.post("/reply/create", summary="回复工单", dependencies=[DependAuth])
+@router.post("/reply", summary="回复工单", dependencies=[DependAuth])
+@router.post("/reply_create", summary="回复工单", dependencies=[DependAuth])
+async def create_ticket_reply(
+    reply_in: TicketReplyCreate,
+    request: Request,
+):
+    current_user = await get_current_ticket_user()
+    ticket_obj = await ticket_controller.get(id=reply_in.ticket_id)
+    await ensure_ticket_access(ticket_obj, current_user)
+    content = str(reply_in.content or "").strip()
+    if not content:
+        return Success(code=400, msg="回复内容不能为空")
+
+    parent_reply = None
+    if reply_in.parent_id:
+        parent_reply = await TicketReply.get_or_none(id=reply_in.parent_id)
+        if not parent_reply or str(parent_reply.ticket_id) != str(ticket_obj.id):
+            return Success(code=400, msg="被回复消息不存在")
+    reply_to_user_id = parent_reply.user_id if parent_reply else None
+    reply_to_user_name = None
+    parent_content = None
+    if parent_reply:
+        reply_to_user = await User.get_or_none(id=parent_reply.user_id) if parent_reply.user_id else None
+        reply_to_user_name = get_user_display_name(reply_to_user) if reply_to_user else None
+        parent_content = parent_reply.content
+    elif reply_in.reply_to_ticket:
+        reply_to_user_id = ticket_obj.user_id
+        reply_to_user = await User.get_or_none(id=ticket_obj.user_id) if ticket_obj.user_id else None
+        reply_to_user_name = get_user_display_name(reply_to_user) if reply_to_user else None
+        parent_content = ticket_obj.desc
+
+    reply = await add_ticket_chat_record(
+        ticket_obj=ticket_obj,
+        user_id=current_user.id,
+        reply_to_user_id=reply_to_user_id,
+        parent_id=parent_reply.id if parent_reply else None,
+        content=content,
+    )
+    try:
+        await send_ticket_reply_notification(
+            ticket_no=ticket_obj.ticket_no,
+            title=ticket_obj.title,
+            ticket_type=ticket_obj.type,
+            replier_name=get_user_display_name(current_user),
+            content=content,
+            reply_to_user_name=reply_to_user_name,
+            parent_content=parent_content,
+            ticket_url=build_ticket_detail_url(request, ticket_obj.id),
+        )
+        logger.info(f"ticket {ticket_obj.ticket_no} reply notification sent to Feishu")
+    except Exception as e:
+        logger.error(f"send ticket reply Feishu notification failed: {e}")
+
+    return Success(msg="回复成功", data=await ticket_reply_to_dict(reply))
+
+
 @router.post("/create", summary="创建工单", dependencies=[DependAuth])
 async def create_ticket(
     ticket_in: TicketCreate,
     request: Request,
 ):
     current_user = await get_current_ticket_user()
-    has_ticket_manager_access = await can_view_all_tickets(current_user)
     ticket_data = ticket_in.model_dump()
     ticket_data["user_id"] = current_user.id
 
@@ -321,27 +428,22 @@ async def create_ticket(
     creator = current_user
     creator_name = creator.username if creator else "未知用户"
     
-    # 判断是否为非管理员用户创建的工单
-    is_admin = has_ticket_manager_access
-    
-    # 只有非管理员用户创建工单时才发送飞书通知
-    if not is_admin:
-        try:
-            await send_ticket_created_notification(
-                ticket_no=ticket_obj.ticket_no,
-                title=ticket_obj.title,
-                ticket_type=ticket_obj.type,
-                status=ticket_obj.status,
-                creator_name=creator_name,
-                description=ticket_obj.desc or "暂无描述",
-                created_at=ticket_obj.created_at,
-                location=ticket_obj.location,
-                ticket_url=build_ticket_detail_url(request, ticket_obj.id),
-            )
-            logger.info(f"工单 {ticket_obj.ticket_no} 创建通知已发送至飞书")
-        except Exception as e:
-            # 通知发送失败不影响工单创建结果
-            logger.error(f"发送飞书通知失败: {e}")
+    try:
+        await send_ticket_created_notification(
+            ticket_no=ticket_obj.ticket_no,
+            title=ticket_obj.title,
+            ticket_type=ticket_obj.type,
+            status=ticket_obj.status,
+            creator_name=creator_name,
+            description=ticket_obj.desc or "暂无描述",
+            created_at=ticket_obj.created_at,
+            location=ticket_obj.location,
+            ticket_url=build_ticket_detail_url(request, ticket_obj.id),
+        )
+        logger.info(f"工单 {ticket_obj.ticket_no} 创建通知已发送至飞书")
+    except Exception as e:
+        # 通知发送失败不影响工单创建结果
+        logger.error(f"发送飞书通知失败: {e}")
     
     return Success(msg="工单创建成功", data=await ticket_to_dict(ticket_obj))
 
@@ -362,11 +464,45 @@ async def update_ticket(
     if ticket_obj is None:
         raise HTTPException(status_code=404, detail="工单不存在")
     await ensure_ticket_access(ticket_obj, current_user)
+    old_status = ticket_obj.status
+    status_changed = ticket_in.status is not None and ticket_in.status != old_status
+    if status_changed:
+        if ticket_in.status not in STATUS_FLOW.get(old_status, set()):
+            return Success(code=400, msg="工单状态不可逆转")
+        if ticket_in.status == 0 and not str(ticket_in.completion_note or "").strip():
+            return Success(code=400, msg="完成工单需要填写备注")
+    if old_status == 2 and ticket_in.status == 1 and not ticket_obj.start_time and ticket_in.start_time is None:
+        ticket_in.start_time = datetime.now()
     if ticket_in.status == 0:
         ticket_in.assignee_id = current_user.id
         if ticket_obj.type not in (2, 3):
             ticket_in.end_time = datetime.now()
     ticket_obj = await ticket_controller.update_ticket(id=ticket_obj.id, obj_in=ticket_in)
+    completion_note = str(ticket_obj.completion_note or "").strip()
+    if status_changed:
+        status_note = f"状态变更：{TICKET_STATUS_MAP.get(old_status, '未知状态')} → {TICKET_STATUS_MAP.get(ticket_obj.status, '未知状态')}"
+        await add_ticket_chat_record(ticket_obj=ticket_obj, user_id=current_user.id, content=status_note)
+    if status_changed and ticket_obj.status == 0 and completion_note:
+        await add_ticket_chat_record(
+            ticket_obj=ticket_obj,
+            user_id=current_user.id,
+            reply_to_user_id=ticket_obj.user_id,
+            content=f"完成备注：{completion_note}",
+        )
+    if ticket_in.status == 0 and old_status != 0:
+        try:
+            await send_ticket_status_changed_notification(
+                ticket_no=ticket_obj.ticket_no,
+                title=ticket_obj.title,
+                ticket_type=ticket_obj.type,
+                old_status=old_status,
+                new_status=ticket_obj.status,
+                operator_name=get_user_display_name(current_user),
+                completion_note=ticket_obj.completion_note,
+            )
+            logger.info(f"ticket {ticket_obj.ticket_no} completion notification sent to Feishu")
+        except Exception as e:
+            logger.error(f"send ticket completion Feishu notification failed: {e}")
     return Success(msg="工单更新成功", data=await ticket_to_dict(ticket_obj))
 
 
