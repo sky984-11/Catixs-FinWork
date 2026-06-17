@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <AppPage :show-footer="false">
     <div class="vm-page">
       <section class="vm-layout">
@@ -76,11 +76,13 @@
             </div>
 
             <n-data-table
+              :key="tableRenderKey"
               remote
               :loading="loading.vms"
               :columns="columns"
               :data="pagedVmList"
               :pagination="pagination"
+              :max-height="vmTableMaxHeight"
               :scroll-x="1280"
               :row-key="(row) => row.id"
               :row-class-name="() => 'vm-table-row'"
@@ -90,12 +92,129 @@
           </section>
         </main>
       </section>
+
+      <n-modal
+        v-model:show="migrationModal.show"
+        preset="card"
+        title="迁移"
+        class="vm-migration-modal"
+        :style="vmMigrationModalStyle"
+      >
+        <n-spin :show="migrationModal.loading">
+          <n-form label-placement="left" label-width="110">
+            <n-grid :cols="1" :x-gap="12">
+              <n-form-item-gi label="源远程">
+                <n-input :value="migrationModal.row?.remote || '-'" readonly />
+              </n-form-item-gi>
+              <n-form-item-gi label="虚拟机">
+                <n-input :value="migrationModal.row?.name || '-'" readonly />
+              </n-form-item-gi>
+              <n-form-item-gi label="目标远程">
+                <n-select
+                  v-model:value="migrationModal.form.target"
+                  :options="targetRemoteOptions"
+                  filterable
+                  @update:value="handleMigrationTargetChange"
+                />
+              </n-form-item-gi>
+              <n-form-item-gi label="Target VMID">
+                <n-input-number v-model:value="migrationModal.form.targetVmid" :min="1" class="full-width" />
+              </n-form-item-gi>
+              <n-form-item-gi label="Target Endpoint">
+                <n-select
+                  v-model:value="migrationModal.form.targetEndpoint"
+                  :options="targetEndpointOptions"
+                  filterable
+                />
+              </n-form-item-gi>
+              <n-form-item-gi label="目标存储">
+                <n-select v-model:value="migrationModal.form.targetStorage" :options="targetStorageOptions" filterable />
+              </n-form-item-gi>
+              <n-form-item-gi label="Target Network">
+                <n-select v-model:value="migrationModal.form.targetBridge" :options="targetNetworkOptions" filterable />
+              </n-form-item-gi>
+              <n-form-item-gi label="在线迁移">
+                <n-switch v-model:value="migrationModal.form.online" :disabled="migrationModal.row?.status !== 'running'" />
+              </n-form-item-gi>
+              <n-form-item-gi label="Delete Source">
+                <n-switch v-model:value="migrationModal.form.deleteSource" />
+              </n-form-item-gi>
+              <n-form-item-gi label="带宽限制">
+                <n-input-number
+                  v-model:value="migrationModal.form.bwlimit"
+                  clearable
+                  :min="0"
+                  placeholder="KiB/s，可为空"
+                  class="full-width"
+                />
+              </n-form-item-gi>
+            </n-grid>
+          </n-form>
+        </n-spin>
+        <template #footer>
+          <div class="modal-footer">
+            <span>存储和网络映射会按 PDM 文档的 FROM:TO 格式自动生成。</span>
+            <n-space>
+              <n-button @click="migrationModal.show = false">取消</n-button>
+              <n-button type="primary" :loading="migrationModal.submitting" @click="submitMigration">迁移</n-button>
+            </n-space>
+          </div>
+        </template>
+      </n-modal>
+
+      <n-modal
+        v-model:show="taskModal.show"
+        preset="card"
+        title="迁移任务"
+        class="vm-task-modal"
+        :style="vmTaskModalStyle"
+      >
+        <div class="task-status-panel">
+          <div>
+            <span class="eyebrow">虚拟机</span>
+            <h2>{{ taskModal.vmName || '-' }}</h2>
+          </div>
+          <n-tag round :type="taskStateType">{{ taskStatusText }}</n-tag>
+        </div>
+        <n-progress
+          type="line"
+          :percentage="taskFinished ? 100 : 60"
+          :processing="!taskFinished"
+          :status="taskProgressStatus"
+        />
+        <div class="task-detail-grid">
+          <span>目标远程</span>
+          <strong>{{ taskModal.remote || '-' }}</strong>
+          <span>开始时间</span>
+          <strong>{{ formatTimestamp(taskModal.detail?.starttime) }}</strong>
+          <span>结束时间</span>
+          <strong>{{ formatTimestamp(taskModal.detail?.endtime) }}</strong>
+          <span>任务状态</span>
+          <strong>{{ taskModal.detail?.status || taskStatusText }}</strong>
+        </div>
+        <template #footer>
+          <div class="modal-footer">
+            <span>{{ taskFinished ? '任务已结束，可以关闭此提示。' : '正在迁移中，请不要重复提交迁移。' }}</span>
+            <n-space>
+              <n-button :loading="taskModal.loading" @click="fetchTaskStatus({ silent: false })">刷新状态</n-button>
+              <n-button v-if="!taskFinished" @click="taskModal.show = false">最小化</n-button>
+              <n-button type="primary" @click="closeTaskModal">关闭</n-button>
+            </n-space>
+          </div>
+        </template>
+      </n-modal>
+
+      <button v-if="taskModal.upid && !taskModal.show" class="task-float-button" @click="taskModal.show = true">
+        <TheIcon icon="mdi:progress-clock" :size="18" />
+        <span>{{ taskModal.vmName || '迁移任务' }}</span>
+        <n-tag size="small" round :type="taskStateType">{{ taskStatusText }}</n-tag>
+      </button>
     </div>
   </AppPage>
 </template>
 
 <script setup>
-import { computed, h, onMounted, reactive, ref } from 'vue'
+import { computed, h, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { NButton, NSpace, NTag, useMessage } from 'naive-ui'
 import api from '@/api'
 import TheIcon from '@/components/icon/TheIcon.vue'
@@ -120,9 +239,55 @@ const vmSummary = reactive({
   stopped: 0,
 })
 
+const migrationModal = reactive({
+  show: false,
+  loading: false,
+  submitting: false,
+  row: null,
+  options: {
+    source: null,
+    remotes: [],
+    wizard: {},
+  },
+  form: {
+    target: '',
+    targetVmid: null,
+    targetStorage: '',
+    targetBridge: '',
+    targetEndpoint: '',
+    deleteSource: true,
+    online: false,
+    bwlimit: null,
+  },
+})
+
+const taskModal = reactive({
+  show: false,
+  loading: false,
+  notified: false,
+  upid: '',
+  remote: '',
+  vmName: '',
+  detail: null,
+})
+
+const taskTimer = ref(null)
+const tableRenderKey = ref(0)
+const vmTableMaxHeight = 560
+
+const vmMigrationModalStyle = {
+  width: '640px',
+  maxWidth: 'calc(100vw - 32px)',
+}
+
+const vmTaskModalStyle = {
+  width: '420px',
+  maxWidth: 'calc(100vw - 32px)',
+}
+
 const pagination = reactive({
   page: 1,
-  pageSize: 20,
+  pageSize: 10,
   itemCount: 0,
   showSizePicker: true,
   pageSizes: [10, 20, 50],
@@ -139,6 +304,54 @@ const filteredNodes = computed(() => {
 const pagedVmList = computed(() => {
   const start = (pagination.page - 1) * pagination.pageSize
   return vmList.value.slice(start, start + pagination.pageSize)
+})
+
+const selectedTargetRemote = computed(() =>
+  migrationModal.options.remotes.find((remote) => remote.remote === migrationModal.form.target)
+)
+
+const targetRemoteOptions = computed(() =>
+  migrationModal.options.remotes
+    .filter((remote) => remote.remote !== migrationModal.row?.remote)
+    .map((remote) => ({ label: remote.remote, value: remote.remote }))
+)
+
+const targetStorageOptions = computed(() =>
+  (selectedTargetRemote.value?.storages || []).map((storage) => ({ label: storage, value: storage }))
+)
+
+const targetNetworkOptions = computed(() =>
+  (selectedTargetRemote.value?.networks || []).map((network) => ({ label: network, value: network }))
+)
+
+const targetEndpointOptions = computed(() => [
+  { label: '自动', value: '' },
+  ...(selectedTargetRemote.value?.endpoints || []).map((endpoint) => ({ label: endpoint, value: endpoint })),
+])
+
+const taskFinished = computed(() => Boolean(taskModal.detail?.finished))
+
+const taskStateType = computed(() => {
+  const state = taskModal.detail?.state
+  if (state === 'success') return 'success'
+  if (state === 'warning') return 'warning'
+  if (state === 'error') return 'error'
+  return 'info'
+})
+
+const taskProgressStatus = computed(() => {
+  const state = taskModal.detail?.state
+  if (state === 'error') return 'error'
+  if (state === 'success' || state === 'warning') return 'success'
+  return 'info'
+})
+
+const taskStatusText = computed(() => {
+  const state = taskModal.detail?.state
+  if (state === 'success') return '已完成'
+  if (state === 'warning') return '已完成（有警告）'
+  if (state === 'error') return '迁移失败'
+  return '迁移中'
 })
 
 const columns = [
@@ -225,7 +438,7 @@ const columns = [
           default: () => [
             actionButton('编辑', 'material-symbols:edit-outline-rounded', 'info', row),
             actionButton('删除', 'material-symbols:delete-outline-rounded', 'error', row),
-            actionButton('迁移', 'material-symbols:send-rounded', 'warning', row, 'vm-button-send'),
+            actionButton('迁移', 'material-symbols:send-rounded', 'warning', row, 'vm-button-send', openMigration),
           ],
         }
       )
@@ -233,7 +446,7 @@ const columns = [
   },
 ]
 
-function actionButton(label, icon, type, row, className = '') {
+function actionButton(label, icon, type, row, className = '', handler = null) {
   return h(
     NButton,
     {
@@ -244,6 +457,10 @@ function actionButton(label, icon, type, row, className = '') {
       type,
       onClick: (event) => {
         event.stopPropagation()
+        if (handler) {
+          handler(row)
+          return
+        }
         message.info(`${label}功能后续实现：${row.name}`)
       },
     },
@@ -252,6 +469,160 @@ function actionButton(label, icon, type, row, className = '') {
       default: () => label,
     }
   )
+}
+
+function resetMigrationDefaults() {
+  const target = selectedTargetRemote.value
+  migrationModal.form.targetStorage = target?.storages?.[0] || ''
+  migrationModal.form.targetBridge = target?.networks?.[0] || ''
+  migrationModal.form.targetEndpoint = ''
+}
+
+function handleMigrationTargetChange() {
+  resetMigrationDefaults()
+}
+
+function clearTaskPolling() {
+  if (!taskTimer.value) return
+  clearInterval(taskTimer.value)
+  taskTimer.value = null
+}
+
+function openTaskModal({ upid, remote, vmName }) {
+  clearTaskPolling()
+  Object.assign(taskModal, {
+    show: true,
+    loading: false,
+    notified: false,
+    upid,
+    remote,
+    vmName,
+    detail: { upid, remote, state: 'running', finished: false, success: false },
+  })
+  fetchTaskStatus({ silent: true })
+  taskTimer.value = setInterval(() => fetchTaskStatus({ silent: true }), 5000)
+}
+
+function closeTaskModal() {
+  taskModal.show = false
+  if (!taskFinished.value) return
+  Object.assign(taskModal, {
+    loading: false,
+    notified: false,
+    upid: '',
+    remote: '',
+    vmName: '',
+    detail: null,
+  })
+}
+
+async function fetchTaskStatus({ silent = true } = {}) {
+  if (!taskModal.upid) return
+  taskModal.loading = true
+  try {
+    const res = await api.virtualMachineApi.taskStatus({
+      upid: taskModal.upid,
+      remote: taskModal.remote,
+    })
+    taskModal.detail = res.data || taskModal.detail
+    if (taskModal.detail?.finished) {
+      clearTaskPolling()
+      if (!taskModal.notified) {
+        taskModal.notified = true
+        if (taskModal.detail.state === 'error') {
+          message.error(`迁移任务失败：${taskModal.detail.status || '请查看 PDM 任务日志'}`)
+        } else if (taskModal.detail.state === 'warning') {
+          message.warning(`迁移任务完成但有警告：${taskModal.detail.status || ''}`)
+          await refreshNodes()
+        } else {
+          message.success('迁移任务已完成')
+          await refreshNodes()
+        }
+      }
+    }
+  } catch (error) {
+    if (!silent) {
+      message.error(error.message || '读取迁移任务状态失败')
+    }
+  } finally {
+    taskModal.loading = false
+  }
+}
+
+async function openMigration(row) {
+  migrationModal.show = true
+  migrationModal.loading = true
+  migrationModal.row = row
+  migrationModal.options = { source: null, remotes: [], wizard: {} }
+  Object.assign(migrationModal.form, {
+    target: '',
+    targetVmid: Number(row.vmid) || null,
+    targetStorage: '',
+    targetBridge: '',
+    targetEndpoint: '',
+    deleteSource: true,
+    online: row.status === 'running',
+    bwlimit: null,
+  })
+
+  try {
+    const res = await api.virtualMachineApi.migrationOptions({
+      remote: row.remote,
+      vmid: row.vmid,
+      type: row.type,
+    })
+    migrationModal.options = res.data || { source: null, remotes: [], wizard: {} }
+    migrationModal.form.target = targetRemoteOptions.value[0]?.value || ''
+    resetMigrationDefaults()
+  } catch (error) {
+    message.error(error.message || '读取迁移选项失败')
+  } finally {
+    migrationModal.loading = false
+  }
+}
+
+async function submitMigration() {
+  if (!migrationModal.row) return
+  if (!migrationModal.form.target) {
+    message.warning('请选择目标远程')
+    return
+  }
+  if (!migrationModal.form.targetStorage) {
+    message.warning('请选择目标存储')
+    return
+  }
+  if (!migrationModal.form.targetBridge) {
+    message.warning('请选择 Target Network')
+    return
+  }
+
+  migrationModal.submitting = true
+  try {
+    const res = await api.virtualMachineApi.migrateVm({
+      remote: migrationModal.row.remote,
+      vmid: migrationModal.row.vmid,
+      type: migrationModal.row.type,
+      target: migrationModal.form.target,
+      target_vmid: migrationModal.form.targetVmid,
+      target_storage: migrationModal.form.targetStorage,
+      target_bridge: migrationModal.form.targetBridge,
+      target_endpoint: migrationModal.form.targetEndpoint || undefined,
+      delete_source: migrationModal.form.deleteSource,
+      online: migrationModal.form.online,
+      bwlimit: migrationModal.form.bwlimit,
+    })
+    migrationModal.show = false
+    message.success(res.msg || '迁移任务已发起')
+    openTaskModal({
+      upid: res.data?.upid,
+      remote: res.data?.source_remote || migrationModal.row.remote,
+      vmName: migrationModal.row.name,
+    })
+  } catch (error) {
+    message.error(error.message || '发起迁移失败')
+  } finally {
+    migrationModal.submitting = false
+  }
 }
 
 async function fetchNodes() {
@@ -288,6 +659,8 @@ async function fetchVms() {
     Object.assign(vmSummary, res.data?.summary || { total: 0, running: 0, stopped: 0 })
     pagination.itemCount = vmList.value.length
     pagination.page = 1
+    await nextTick()
+    tableRenderKey.value += 1
   } catch (error) {
     vmList.value = []
     Object.assign(vmSummary, { total: 0, running: 0, stopped: 0 })
@@ -332,9 +705,19 @@ function formatUptime(value) {
   return `${minutes}分钟`
 }
 
+function formatTimestamp(value) {
+  const timestamp = Number(value || 0)
+  if (!timestamp) return '-'
+  return new Date(timestamp * 1000).toLocaleString()
+}
+
 onMounted(async () => {
   await fetchNodes()
   await fetchVms()
+})
+
+onBeforeUnmount(() => {
+  clearTaskPolling()
 })
 </script>
 
@@ -528,6 +911,91 @@ onMounted(async () => {
   font-size: 12px;
 }
 
+.vm-migration-modal {
+  width: min(760px, calc(100vw - 32px));
+}
+
+.vm-task-modal {
+  width: min(480px, calc(100vw - 32px));
+}
+
+.full-width {
+  width: 100%;
+}
+
+.task-status-panel {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.task-status-panel h2 {
+  margin: 4px 0 0;
+  color: #0f172a;
+  font-size: 18px;
+  line-height: 1.3;
+}
+
+.task-detail-grid {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 8px 12px;
+  margin-top: 14px;
+}
+
+.task-detail-grid span {
+  color: #64748b;
+}
+
+.task-detail-grid strong {
+  min-width: 0;
+  color: #0f172a;
+  font-weight: 500;
+}
+
+.task-float-button {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 50;
+  display: flex;
+  max-width: min(420px, calc(100vw - 48px));
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(251, 91, 47, 0.22);
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 14px 35px rgba(15, 23, 42, 0.18);
+  color: #0f172a;
+  cursor: pointer;
+}
+
+.task-float-button span {
+  overflow: hidden;
+  max-width: 180px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-float-button:hover {
+  border-color: #fb5b2f;
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.modal-footer span {
+  color: #64748b;
+  font-size: 12px;
+}
+
 html.dark .vm-page {
   background: #0f172a;
 }
@@ -575,6 +1043,17 @@ html.dark .content-panel :deep(.vm-table-row .n-data-table-td) {
 
 html.dark .content-panel :deep(.vm-table-row:hover .n-data-table-td) {
   background: rgba(30, 41, 59, 0.72);
+}
+
+html.dark .task-status-panel h2,
+html.dark .task-detail-grid strong {
+  color: #e5e7eb;
+}
+
+html.dark .task-float-button {
+  border-color: rgba(251, 91, 47, 0.32);
+  background: #111827;
+  color: #e5e7eb;
 }
 
 @media (max-width: 960px) {
