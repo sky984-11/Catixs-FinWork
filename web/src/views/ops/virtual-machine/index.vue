@@ -221,7 +221,11 @@ const columns = [
     key: 'disk',
     width: 190,
     render(row) {
-      return `${formatBytes(row.disk)} / ${formatBytes(row.maxdisk)}`
+      const disk = formatBytes(row.disk)
+      const maxdisk = formatBytes(row.maxdisk)
+      if (disk === '-' && maxdisk !== '-') return maxdisk
+      if (disk !== '-' && maxdisk !== '-') return `${disk} / ${maxdisk}`
+      return disk
     },
   },
   {
