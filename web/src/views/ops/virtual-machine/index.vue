@@ -6,7 +6,7 @@
           <div class="panel-head">
             <div>
               <span class="eyebrow">PDM DATACENTER</span>
-              <h2>地区列表</h2>
+              <h2>节点列表</h2>
             </div>
             <n-button secondary circle :loading="loading.nodes" @click="refreshNodes">
               <template #icon>
@@ -15,14 +15,14 @@
             </n-button>
           </div>
 
-          <n-input v-model:value="filters.nodeKeyword" clearable placeholder="搜索地区 / Remote" class="side-search">
+          <n-input v-model:value="filters.nodeKeyword" clearable placeholder="搜索节点 / Remote" class="side-search">
             <template #prefix>
               <TheIcon icon="mdi:magnify" :size="18" />
             </template>
           </n-input>
 
           <n-spin :show="loading.nodes">
-            <n-empty v-if="!filteredNodes.length" description="暂无地区" />
+            <n-empty v-if="!filteredNodes.length" description="暂无节点" />
             <div v-else class="side-list">
               <button
                 v-for="node in filteredNodes"
@@ -50,12 +50,12 @@
               <strong>PDM</strong>
             </article>
             <article>
-              <span>地区</span>
+              <span>节点总数</span>
               <strong>{{ nodeOptions.length }}</strong>
             </article>
             <article>
-              <span>当前地区</span>
-              <strong>{{ selectedNode?.label || '全部地区' }}</strong>
+              <span>当前节点</span>
+              <strong>{{ selectedNode?.label || '全部节点' }}</strong>
             </article>
             <article>
               <span>虚拟机</span>
@@ -67,7 +67,7 @@
             <n-input
               v-model:value="filters.vmKeyword"
               clearable
-              placeholder="搜索：虚拟机名称 / VMID / 地区 / 节点 / 状态"
+              placeholder="搜索：虚拟机名称 / VMID / 节点 / 状态"
               @keyup.enter="fetchVms"
             >
               <template #prefix>
@@ -98,7 +98,7 @@
           <section class="content-panel">
             <div class="panel-head">
               <div>
-                <span class="eyebrow">{{ selectedNode?.label || '全部地区' }}</span>
+                <span class="eyebrow">{{ selectedNode?.label || '全部节点' }}</span>
                 <h2>虚拟机列表</h2>
               </div>
               <div class="status-summary">
@@ -294,7 +294,7 @@ async function fetchNodes() {
     nodeOptions.value = res.data || []
   } catch (error) {
     nodeOptions.value = []
-    message.error(error.message || '读取 PDM 地区列表失败')
+    message.error(error.message || '读取 PDM 节点列表失败')
   } finally {
     loading.nodes = false
   }
