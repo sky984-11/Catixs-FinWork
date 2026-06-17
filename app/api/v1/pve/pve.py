@@ -113,14 +113,6 @@ def all_vms(data: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return vms
 
 
-def matches_keyword(vm: dict[str, Any], keyword: str) -> bool:
-    text = keyword.strip().lower()
-    if not text:
-        return True
-    values = [vm.get("name"), vm.get("vmid"), vm.get("remote"), vm.get("node"), vm.get("type"), vm.get("status")]
-    return any(text in str(value or "").lower() for value in values)
-
-
 @router.get("/nodes", summary="PDM remote list")
 async def list_nodes():
     try:
@@ -133,8 +125,6 @@ async def list_nodes():
 @router.get("/vms", summary="PDM virtual machine list")
 async def list_vms(
     node: str = Query(""),
-    keyword: str = Query(""),
-    status: str = Query(""),
 ):
     try:
         data = await pdm_get("/resources/list")
@@ -144,9 +134,6 @@ async def list_vms(
     vms = all_vms(data)
     if node:
         vms = [vm for vm in vms if vm.get("remote") == node]
-    if status:
-        vms = [vm for vm in vms if vm.get("status") == status]
-    vms = [vm for vm in vms if matches_keyword(vm, keyword)]
     vms.sort(key=lambda row: (str(row.get("remote") or ""), str(row.get("node") or ""), int(row.get("vmid") or 0)))
     summary = {
         "total": len(vms),

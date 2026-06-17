@@ -63,38 +63,6 @@
             </article>
           </section>
 
-          <section class="filter-panel">
-            <n-input
-              v-model:value="filters.vmKeyword"
-              clearable
-              placeholder="搜索：虚拟机名称 / VMID / 节点 / 状态"
-              @keyup.enter="fetchVms"
-            >
-              <template #prefix>
-                <TheIcon icon="mdi:magnify" :size="18" />
-              </template>
-            </n-input>
-            <n-select
-              v-model:value="filters.status"
-              clearable
-              placeholder="状态"
-              :options="statusOptions"
-              @update:value="fetchVms"
-            />
-            <n-button secondary round @click="resetFilters">
-              <template #icon>
-                <TheIcon icon="mdi:refresh" :size="18" />
-              </template>
-              重置
-            </n-button>
-            <n-button type="primary" round :loading="loading.vms" @click="fetchVms">
-              <template #icon>
-                <TheIcon icon="mdi:database-search-outline" :size="18" />
-              </template>
-              查询
-            </n-button>
-          </section>
-
           <section class="content-panel">
             <div class="panel-head">
               <div>
@@ -111,13 +79,13 @@
               remote
               :loading="loading.vms"
               :columns="columns"
-              :data="vmList"
+              :data="pagedVmList"
               :pagination="pagination"
               :scroll-x="1280"
               :row-key="(row) => row.id"
               :row-class-name="() => 'vm-table-row'"
               @update:page="pagination.page = $event"
-              @update:page-size="pagination.pageSize = $event"
+              @update:page-size="handlePageSizeChange"
             />
           </section>
         </main>
@@ -141,8 +109,6 @@ const loading = reactive({
 
 const filters = reactive({
   nodeKeyword: '',
-  vmKeyword: '',
-  status: null,
 })
 
 const nodeOptions = ref([])
@@ -157,14 +123,10 @@ const vmSummary = reactive({
 const pagination = reactive({
   page: 1,
   pageSize: 20,
+  itemCount: 0,
   showSizePicker: true,
-  pageSizes: [20, 50, 100],
+  pageSizes: [10, 20, 50],
 })
-
-const statusOptions = [
-  { label: '运行中', value: 'running' },
-  { label: '已停止', value: 'stopped' },
-]
 
 const filteredNodes = computed(() => {
   const keyword = filters.nodeKeyword.trim().toLowerCase()
@@ -172,6 +134,11 @@ const filteredNodes = computed(() => {
   return nodeOptions.value.filter((node) =>
     [node.label, node.remote, node.status].some((value) => String(value || '').toLowerCase().includes(keyword))
   )
+})
+
+const pagedVmList = computed(() => {
+  const start = (pagination.page - 1) * pagination.pageSize
+  return vmList.value.slice(start, start + pagination.pageSize)
 })
 
 const columns = [
@@ -292,6 +259,9 @@ async function fetchNodes() {
   try {
     const res = await api.virtualMachineApi.pveNodes()
     nodeOptions.value = res.data || []
+    if (!selectedNode.value && nodeOptions.value.length) {
+      selectedNode.value = nodeOptions.value[0]
+    }
   } catch (error) {
     nodeOptions.value = []
     message.error(error.message || '读取 PDM 节点列表失败')
@@ -303,7 +273,7 @@ async function fetchNodes() {
 async function refreshNodes() {
   await fetchNodes()
   if (selectedNode.value && !nodeOptions.value.some((node) => node.value === selectedNode.value.value)) {
-    selectedNode.value = null
+    selectedNode.value = nodeOptions.value[0] || null
   }
   await fetchVms()
 }
@@ -313,15 +283,15 @@ async function fetchVms() {
   try {
     const res = await api.virtualMachineApi.pveVms({
       node: selectedNode.value?.value || '',
-      keyword: filters.vmKeyword || '',
-      status: filters.status || '',
     })
     vmList.value = res.data?.items || []
     Object.assign(vmSummary, res.data?.summary || { total: 0, running: 0, stopped: 0 })
+    pagination.itemCount = vmList.value.length
     pagination.page = 1
   } catch (error) {
     vmList.value = []
     Object.assign(vmSummary, { total: 0, running: 0, stopped: 0 })
+    pagination.itemCount = 0
     message.error(error.message || '读取 PDM 虚拟机失败')
   } finally {
     loading.vms = false
@@ -333,12 +303,9 @@ function selectNode(node) {
   fetchVms()
 }
 
-function resetFilters() {
-  filters.nodeKeyword = ''
-  filters.vmKeyword = ''
-  filters.status = null
-  selectedNode.value = null
-  fetchVms()
+function handlePageSizeChange(pageSize) {
+  pagination.pageSize = pageSize
+  pagination.page = 1
 }
 
 function formatBytes(value) {
@@ -509,13 +476,6 @@ onMounted(async () => {
   white-space: nowrap;
 }
 
-.filter-panel {
-  display: grid;
-  grid-template-columns: minmax(280px, 1fr) 160px auto auto;
-  align-items: center;
-  gap: 10px;
-}
-
 .content-panel {
   padding: 16px;
 }
@@ -619,8 +579,7 @@ html.dark .content-panel :deep(.vm-table-row:hover .n-data-table-td) {
 
 @media (max-width: 960px) {
   .vm-layout,
-  .summary-band,
-  .filter-panel {
+  .summary-band {
     grid-template-columns: 1fr;
   }
 
