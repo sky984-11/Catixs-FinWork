@@ -42,7 +42,11 @@ class Settings(BaseSettings):
     PDM_TOKEN_ID: str = ""
     PDM_TOKEN_SECRET: str = ""
     PDM_API_TOKEN: str = ""
+    PDM_REMOTES: str = ""
     PDM_TIMEOUT: float = 15
+    PVE_CREATE_SSH_USER: str = "root"
+    PVE_CREATE_SSH_PASSWORD: str = "Catixs@3202"
+    PVE_CREATE_SSH_TIMEOUT: float = 10
 
     TORTOISE_ORM: dict[str, Any] = {}
     DATETIME_FORMAT: str = "%Y-%m-%d %H:%M:%S"

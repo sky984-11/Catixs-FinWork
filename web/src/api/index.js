@@ -196,6 +196,8 @@ export default {
   virtualMachineApi: {
     pveNodes: () => request.get('/pve/nodes'),
     pveVms: (params = {}) => request.get('/pve/vms', { params }),
+    createOptions: (params = {}) => request.get('/pve/vms/create-options', { params }),
+    createVm: (data = {}) => request.post('/pve/vms/create', data),
     migrationOptions: (params = {}) => request.get('/pve/vms/migration-options', { params }),
     migrateVm: (data = {}) => request.post('/pve/vms/migrate', data),
     taskStatus: (params = {}) => request.get('/pve/tasks/status', { params }),

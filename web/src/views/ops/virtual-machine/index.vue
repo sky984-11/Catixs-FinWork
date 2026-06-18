@@ -33,10 +33,10 @@
               >
                 <span>
                   <strong>{{ node.label }}</strong>
-                  <em>{{ node.online_node_count || 0 }}/{{ node.node_count || 0 }} 节点在线</em>
+                  <em>{{ nodeStatusText(node) }}</em>
                 </span>
                 <n-tag size="small" round :type="node.status === 'online' ? 'success' : 'warning'">
-                  {{ node.vm_count || 0 }}
+                  {{ node.vm_count ?? '-' }}
                 </n-tag>
               </button>
             </div>
@@ -70,6 +70,12 @@
                 <h2>虚拟机列表</h2>
               </div>
               <div class="status-summary">
+                <n-button type="primary" round :disabled="!selectedNode" @click="openCreateModal">
+                  <template #icon>
+                    <TheIcon icon="mdi:server-plus" :size="18" />
+                  </template>
+                  添加
+                </n-button>
                 <n-tag type="success" round>运行 {{ vmSummary.running || 0 }}</n-tag>
                 <n-tag type="default" round>停止 {{ vmSummary.stopped || 0 }}</n-tag>
               </div>
@@ -91,6 +97,161 @@
           </section>
         </main>
       </section>
+
+      <n-modal
+        v-model:show="createModal.show"
+        preset="card"
+        title="添加虚拟机"
+        class="vm-create-modal"
+        :style="vmCreateModalStyle"
+      >
+        <n-spin v-if="!createModal.created" :show="createModal.loading">
+          <n-form label-placement="left" label-width="110">
+            <n-grid :cols="2" :x-gap="14">
+              <n-form-item-gi label="所在节点">
+                <n-input v-model:value="createModal.form.region" readonly />
+              </n-form-item-gi>
+              <n-form-item-gi label="SSH 地址">
+                <n-input :value="createModal.sshHost || '-'" readonly />
+              </n-form-item-gi>
+              <n-form-item-gi label="虚拟机名称">
+                <n-input v-model:value="createModal.form.vm_name" placeholder="请输入虚拟机名称">
+                  <template #suffix>
+                    <n-button text @click="refreshCreateVmName">随机</n-button>
+                  </template>
+                </n-input>
+              </n-form-item-gi>
+              <n-form-item-gi label="操作系统">
+                <n-cascader
+                  v-model:value="createModal.form.os_selection"
+                  :options="createModal.osOptions"
+                  placeholder="选择系统版本"
+                  check-strategy="child"
+                  @update:value="handleCreateOsChange"
+                />
+              </n-form-item-gi>
+              <n-form-item-gi label="存储位置">
+                <n-select
+                  v-model:value="createModal.form.storage"
+                  :options="createStorageOptions"
+                  filterable
+                  placeholder="选择存储"
+                />
+              </n-form-item-gi>
+              <n-form-item-gi label="CPU 核心">
+                <n-input-number v-model:value="createModal.form.cpu_cores" :min="1" :max="64" class="full-width" />
+              </n-form-item-gi>
+              <n-form-item-gi label="内存 GiB">
+                <n-input-number v-model:value="createModal.form.memory_gb" :min="1" :max="256" class="full-width" />
+              </n-form-item-gi>
+              <n-form-item-gi label="磁盘 GiB">
+                <n-input-number
+                  v-model:value="createModal.form.disk_gb"
+                  :min="10"
+                  :max="2000"
+                  :step="10"
+                  class="full-width"
+                />
+              </n-form-item-gi>
+              <n-form-item-gi label="root 密码">
+                <n-input v-model:value="createModal.form.password" type="password" show-password-on="click">
+                  <template #suffix>
+                    <n-button text @click="refreshCreatePassword">随机</n-button>
+                  </template>
+                </n-input>
+              </n-form-item-gi>
+              <n-form-item-gi label="网络模式">
+                <n-radio-group v-model:value="createModal.form.network.mode">
+                  <n-radio-button value="dhcp">DHCP</n-radio-button>
+                  <n-radio-button value="static">静态 IP</n-radio-button>
+                </n-radio-group>
+              </n-form-item-gi>
+              <n-form-item-gi label="速率限制">
+                <n-input-number
+                  v-model:value="createModal.form.network.rate_limit"
+                  clearable
+                  :min="0"
+                  placeholder="MB/s，可为空"
+                  class="full-width"
+                />
+              </n-form-item-gi>
+              <n-form-item-gi v-if="createModal.form.network.mode === 'static'" label="IP/掩码">
+                <n-input v-model:value="createModal.form.network.ip" placeholder="例如 192.168.1.100/24" />
+              </n-form-item-gi>
+              <n-form-item-gi v-if="createModal.form.network.mode === 'static'" label="网关">
+                <n-input v-model:value="createModal.form.network.gw" placeholder="例如 192.168.1.1" />
+              </n-form-item-gi>
+              <n-form-item-gi v-if="createModal.form.network.mode === 'static'" label="DNS">
+                <n-input v-model:value="createModal.form.network.dns" placeholder="例如 8.8.8.8" />
+              </n-form-item-gi>
+              <n-form-item-gi v-if="createModal.form.network.mode === 'static'" label="VLAN">
+                <n-input-number v-model:value="createModal.form.network.vlan" :min="1" :max="4094" class="full-width" />
+              </n-form-item-gi>
+              <n-form-item-gi label="描述" :span="2">
+                <n-input
+                  v-model:value="createModal.form.description"
+                  type="textarea"
+                  placeholder="请输入用途或备注"
+                  :autosize="{ minRows: 2, maxRows: 4 }"
+                />
+              </n-form-item-gi>
+            </n-grid>
+          </n-form>
+        </n-spin>
+        <div v-else class="create-result-panel">
+          <n-result status="success" title="创建任务已提交" description="请记录这台虚拟机的初始配置，root 密码只对应当前创建的机器。">
+            <template #footer>
+              <n-descriptions bordered :column="2" size="small">
+                <n-descriptions-item label="虚拟机名称">
+                  {{ createModal.createdConfig?.vm_name || '-' }}
+                </n-descriptions-item>
+                <n-descriptions-item label="所在节点">
+                  {{ createModal.createdConfig?.region || '-' }}
+                </n-descriptions-item>
+                <n-descriptions-item label="规格">
+                  {{ createModal.createdConfig?.cpu_cores || 0 }} 核 /
+                  {{ createModal.createdConfig?.memory_gb || 0 }} GiB /
+                  {{ createModal.createdConfig?.disk_gb || 0 }} GiB
+                </n-descriptions-item>
+                <n-descriptions-item label="存储位置">
+                  {{ createModal.createdConfig?.storage || '-' }}
+                </n-descriptions-item>
+                <n-descriptions-item label="root 密码" :span="2">
+                  <code class="password-code">{{ createModal.createdConfig?.password || '-' }}</code>
+                  <n-button text type="primary" class="copy-password-button" @click="copyCreatePassword">复制</n-button>
+                </n-descriptions-item>
+                <n-descriptions-item label="网络模式">
+                  {{ createModal.createdConfig?.network?.mode === 'static' ? '静态 IP' : 'DHCP' }}
+                </n-descriptions-item>
+                <n-descriptions-item label="速率限制">
+                  {{
+                    createModal.createdConfig?.network?.rate_limit
+                      ? `${createModal.createdConfig.network.rate_limit} MB/s`
+                      : '不限速'
+                  }}
+                </n-descriptions-item>
+                <n-descriptions-item v-if="createModal.createdConfig?.network?.mode === 'static'" label="IP/VLAN" :span="2">
+                  {{ createModal.createdConfig.network.ip || '-' }}
+                  <span v-if="createModal.createdConfig.network.vlan"> / VLAN {{ createModal.createdConfig.network.vlan }}</span>
+                </n-descriptions-item>
+              </n-descriptions>
+            </template>
+          </n-result>
+        </div>
+        <template #footer>
+          <div class="modal-footer">
+            <span>{{ createModal.created ? '任务已在目标节点后台执行，请稍后刷新列表查看。' : '创建时会通过 SSH 在目标节点执行 /root/create-vm.sh。' }}</span>
+            <n-space v-if="!createModal.created">
+              <n-button @click="createModal.show = false">取消</n-button>
+              <n-button type="primary" :loading="createModal.submitting" @click="submitCreateVm">创建</n-button>
+            </n-space>
+            <n-space v-else>
+              <n-button @click="createModal.show = false">关闭</n-button>
+              <n-button type="primary" @click="resetCreateModalForNext">继续创建</n-button>
+            </n-space>
+          </div>
+        </template>
+      </n-modal>
 
       <n-modal
         v-model:show="migrationModal.show"
@@ -238,6 +399,18 @@ const vmSummary = reactive({
   stopped: 0,
 })
 
+const createModal = reactive({
+  show: false,
+  created: false,
+  loading: false,
+  submitting: false,
+  sshHost: '',
+  storages: [],
+  osOptions: [],
+  createdConfig: null,
+  form: createEmptyVmForm(),
+})
+
 const migrationModal = reactive({
   show: false,
   loading: false,
@@ -272,6 +445,11 @@ const taskModal = reactive({
 
 const taskTimer = ref(null)
 const tableRenderKey = ref(0)
+
+const vmCreateModalStyle = {
+  width: '760px',
+  maxWidth: 'calc(100vw - 32px)',
+}
 
 const vmMigrationModalStyle = {
   width: '640px',
@@ -326,6 +504,13 @@ const targetEndpointOptions = computed(() => [
   { label: '自动', value: '' },
   ...(selectedTargetRemote.value?.endpoints || []).map((endpoint) => ({ label: endpoint, value: endpoint })),
 ])
+
+const createStorageOptions = computed(() =>
+  createModal.storages.map((storage) => ({
+    label: storage.label || storage.value,
+    value: storage.value,
+  }))
+)
 
 const taskFinished = computed(() => Boolean(taskModal.detail?.finished))
 
@@ -467,6 +652,176 @@ function actionButton(label, icon, type, row, className = '', handler = null) {
       default: () => label,
     }
   )
+}
+
+function createEmptyVmForm() {
+  return {
+    region: '',
+    storage: '',
+    vm_name: generateRandomVmName(),
+    description: '',
+    os_selection: null,
+    os_type: '',
+    os_version: '',
+    cpu_cores: 2,
+    memory_gb: 4,
+    disk_gb: 20,
+    password: generateRandomPassword(),
+    network: {
+      mode: 'dhcp',
+      ip: '',
+      mask: '255.255.255.0',
+      dns: '8.8.8.8',
+      gw: '',
+      vlan: 1,
+      rate_limit: 5,
+    },
+  }
+}
+
+function generateRandomVmName() {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
+  let randomStr = ''
+  for (let i = 0; i < 6; i += 1) {
+    randomStr += chars.charAt(Math.floor(Math.random() * chars.length))
+  }
+  return `vm-${randomStr}`
+}
+
+function generateRandomPassword() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+  let password = ''
+  for (let i = 0; i < 12; i += 1) {
+    password += chars.charAt(Math.floor(Math.random() * chars.length))
+  }
+  return password
+}
+
+function refreshCreateVmName() {
+  createModal.form.vm_name = generateRandomVmName()
+}
+
+function refreshCreatePassword() {
+  createModal.form.password = generateRandomPassword()
+}
+
+async function copyCreatePassword() {
+  const password = createModal.createdConfig?.password
+  if (!password) return
+  try {
+    await navigator.clipboard.writeText(password)
+    message.success('root 密码已复制')
+  } catch (error) {
+    message.error('复制失败，请手动复制')
+  }
+}
+
+function normalizeOsOptions(options = []) {
+  return options.map((group) => ({
+    label: group.label,
+    value: group.value,
+    children: (group.children || []).map((child) => ({
+      label: child.label,
+      value: `${group.value}:${child.value}`,
+    })),
+  }))
+}
+
+function handleCreateOsChange(value) {
+  if (!value || !String(value).includes(':')) {
+    createModal.form.os_type = ''
+    createModal.form.os_version = ''
+    return
+  }
+  const [type, version] = String(value).split(':')
+  createModal.form.os_type = type
+  createModal.form.os_version = version
+}
+
+async function openCreateModal() {
+  if (!selectedNode.value?.value) {
+    message.warning('请先选择节点')
+    return
+  }
+
+  createModal.show = true
+  createModal.loading = true
+  createModal.created = false
+  createModal.createdConfig = null
+  createModal.sshHost = ''
+  createModal.storages = []
+  createModal.osOptions = []
+  createModal.form = {
+    ...createEmptyVmForm(),
+    region: selectedNode.value.value,
+  }
+
+  try {
+    const res = await api.virtualMachineApi.createOptions({
+      node_ip: createModal.form.region,
+    })
+    createModal.storages = res.data?.storages || []
+    createModal.osOptions = normalizeOsOptions(res.data?.os_options || [])
+    createModal.sshHost = res.data?.ssh_host || ''
+    createModal.form.storage = createModal.storages[0]?.value || ''
+  } catch (error) {
+    message.error(error.message || '读取创建选项失败')
+  } finally {
+    createModal.loading = false
+  }
+}
+
+function validateCreateForm() {
+  if (!createModal.form.vm_name) return '请输入虚拟机名称'
+  if (!createModal.form.os_type || !createModal.form.os_version) return '请选择操作系统'
+  if (!createModal.form.storage) return '请选择存储位置'
+  if (!createModal.form.password || createModal.form.password.length < 6) return 'root 密码不能少于 6 位'
+  if (createModal.form.network.mode === 'static') {
+    if (!createModal.form.network.ip) return '请输入静态 IP/掩码'
+    if (!createModal.form.network.gw) return '请输入网关'
+    if (!createModal.form.network.dns) return '请输入 DNS'
+  }
+  return ''
+}
+
+async function submitCreateVm() {
+  const error = validateCreateForm()
+  if (error) {
+    message.warning(error)
+    return
+  }
+
+  createModal.submitting = true
+  try {
+    const res = await api.virtualMachineApi.createVm(createModal.form)
+    createModal.createdConfig = JSON.parse(JSON.stringify(res.data?.config || createModal.form))
+    createModal.created = true
+    message.success(res.msg || '创建任务已提交')
+    await refreshNodes()
+  } catch (err) {
+    message.error(err.message || '创建虚拟机失败')
+  } finally {
+    createModal.submitting = false
+  }
+}
+
+function resetCreateModalForNext() {
+  const region = createModal.form.region
+  const storage = createModal.form.storage
+  const osOptions = createModal.osOptions
+  const storages = createModal.storages
+  const sshHost = createModal.sshHost
+
+  createModal.created = false
+  createModal.createdConfig = null
+  createModal.osOptions = osOptions
+  createModal.storages = storages
+  createModal.sshHost = sshHost
+  createModal.form = {
+    ...createEmptyVmForm(),
+    region,
+    storage,
+  }
 }
 
 function resetMigrationDefaults() {
@@ -648,13 +1003,22 @@ async function refreshNodes() {
 }
 
 async function fetchVms() {
+  if (!selectedNode.value?.value) {
+    vmList.value = []
+    Object.assign(vmSummary, { total: 0, running: 0, stopped: 0 })
+    pagination.itemCount = 0
+    pagination.page = 1
+    return
+  }
+
   loading.vms = true
   try {
     const res = await api.virtualMachineApi.pveVms({
-      node: selectedNode.value?.value || '',
+      node: selectedNode.value.value,
     })
     vmList.value = res.data?.items || []
     Object.assign(vmSummary, res.data?.summary || { total: 0, running: 0, stopped: 0 })
+    syncSelectedNodeSummary(vmSummary)
     pagination.itemCount = vmList.value.length
     pagination.page = 1
     await nextTick()
@@ -662,6 +1026,7 @@ async function fetchVms() {
   } catch (error) {
     vmList.value = []
     Object.assign(vmSummary, { total: 0, running: 0, stopped: 0 })
+    syncSelectedNodeSummary(vmSummary)
     pagination.itemCount = 0
     message.error(error.message || '读取 PDM 虚拟机失败')
   } finally {
@@ -671,7 +1036,33 @@ async function fetchVms() {
 
 function selectNode(node) {
   selectedNode.value = node
+  if (node.error) {
+    vmList.value = []
+    Object.assign(vmSummary, { total: 0, running: 0, stopped: 0 })
+    pagination.itemCount = 0
+    pagination.page = 1
+    return
+  }
   fetchVms()
+}
+
+function nodeStatusText(node) {
+  if (node.error) {
+    return String(node.error).includes('timeout') ? '连接超时' : '连接失败'
+  }
+  if (!Number(node.node_count || 0)) {
+    return node.vm_count == null ? '等待查询' : '已查询'
+  }
+  return `${node.online_node_count || 0}/${node.node_count || 0} 节点在线`
+}
+
+function syncSelectedNodeSummary(summary) {
+  if (!selectedNode.value?.value) return
+  const target = nodeOptions.value.find((node) => node.value === selectedNode.value.value)
+  if (!target) return
+  target.vm_count = summary?.total ?? vmList.value.length
+  target.status = (summary?.total ?? 0) > 0 ? 'online' : target.status || 'unknown'
+  selectedNode.value = target
 }
 
 function handlePageSizeChange(pageSize) {
@@ -937,6 +1328,23 @@ onBeforeUnmount(() => {
   width: min(480px, calc(100vw - 32px));
 }
 
+.create-result-panel {
+  padding: 4px 0 8px;
+}
+
+.password-code {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  color: #0f172a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.copy-password-button {
+  margin-left: 8px;
+}
+
 .full-width {
   width: 100%;
 }
@@ -1065,6 +1473,11 @@ html.dark .content-panel :deep(.vm-table-row:hover .n-data-table-td) {
 
 html.dark .task-status-panel h2,
 html.dark .task-detail-grid strong {
+  color: #e5e7eb;
+}
+
+html.dark .password-code {
+  background: #1f2937;
   color: #e5e7eb;
 }
 

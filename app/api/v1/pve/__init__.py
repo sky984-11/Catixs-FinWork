@@ -1,1 +1,8 @@
-from .pve import router as pve_router
+from fastapi import APIRouter
+
+from .pve import router as datacenter_router
+from .vm_create import router as vm_create_router
+
+pve_router = APIRouter()
+pve_router.include_router(datacenter_router)
+pve_router.include_router(vm_create_router)
