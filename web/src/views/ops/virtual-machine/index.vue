@@ -21,7 +21,7 @@
             </template>
           </n-input>
 
-          <n-spin :show="loading.nodes">
+          <n-spin :show="loading.nodes" class="side-spin">
             <n-empty v-if="!filteredNodes.length" description="暂无节点" />
             <div v-else class="side-list">
               <button
@@ -82,7 +82,6 @@
               :columns="columns"
               :data="pagedVmList"
               :pagination="pagination"
-              :max-height="vmTableMaxHeight"
               :scroll-x="1280"
               :row-key="(row) => row.id"
               :row-class-name="() => 'vm-table-row'"
@@ -273,7 +272,6 @@ const taskModal = reactive({
 
 const taskTimer = ref(null)
 const tableRenderKey = ref(0)
-const vmTableMaxHeight = 560
 
 const vmMigrationModalStyle = {
   width: '640px',
@@ -723,6 +721,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .vm-page {
+  box-sizing: border-box;
   min-height: 100%;
   background: #f5f7fb;
   padding: 16px;
@@ -744,7 +743,11 @@ onBeforeUnmount(() => {
 }
 
 .vm-sidebar {
-  min-height: calc(100vh - 128px);
+  display: flex;
+  height: calc(100vh - 150px);
+  max-height: calc(100vh - 150px);
+  flex-direction: column;
+  overflow: hidden;
   padding: 16px;
 }
 
@@ -782,13 +785,28 @@ onBeforeUnmount(() => {
   margin-bottom: 12px;
 }
 
+.side-spin {
+  min-height: 0;
+  flex: 1;
+}
+
+.side-spin :deep(.n-spin-container),
+.side-spin :deep(.n-spin-content) {
+  display: flex;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+}
+
 .side-list {
   display: flex;
-  max-height: calc(100vh - 240px);
+  min-height: 0;
+  flex: 1;
   flex-direction: column;
   gap: 8px;
-  overflow: auto;
+  overflow-y: auto;
   padding-right: 2px;
+  scrollbar-gutter: stable;
 }
 
 .side-list-item {
