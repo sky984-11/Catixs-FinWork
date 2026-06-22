@@ -69,15 +69,13 @@
                 <span class="eyebrow">{{ selectedNode?.label || '全部节点' }}</span>
                 <h2>虚拟机列表</h2>
               </div>
-              <div class="status-summary">
+              <div class="vm-list-actions">
                 <n-button type="primary" round :disabled="!selectedNode" @click="openCreateModal">
                   <template #icon>
                     <TheIcon icon="mdi:server-plus" :size="18" />
                   </template>
                   添加
                 </n-button>
-                <n-tag type="success" round>运行 {{ vmSummary.running || 0 }}</n-tag>
-                <n-tag type="default" round>停止 {{ vmSummary.stopped || 0 }}</n-tag>
               </div>
             </div>
 
@@ -87,13 +85,25 @@
               :loading="loading.vms"
               :columns="columns"
               :data="pagedVmList"
-              :pagination="pagination"
+              :pagination="false"
               :scroll-x="1280"
               :row-key="(row) => row.id"
               :row-class-name="() => 'vm-table-row'"
-              @update:page="pagination.page = $event"
-              @update:page-size="handlePageSizeChange"
             />
+            <div class="vm-list-footer">
+              <div class="status-summary">
+                <n-tag type="success" round>运行 {{ vmSummary.running || 0 }}</n-tag>
+                <n-tag type="default" round>停止 {{ vmSummary.stopped || 0 }}</n-tag>
+              </div>
+              <n-pagination
+                v-model:page="pagination.page"
+                v-model:page-size="pagination.pageSize"
+                :item-count="pagination.itemCount"
+                :page-sizes="pagination.pageSizes"
+                show-size-picker
+                @update:page-size="handlePageSizeChange"
+              />
+            </div>
           </section>
         </main>
       </section>
@@ -1293,6 +1303,20 @@ onBeforeUnmount(() => {
   --n-border-hover: 1px solid rgba(250, 140, 22, 0.4) !important;
   --n-border-pressed: 1px solid rgba(250, 140, 22, 0.48) !important;
   --n-border-focus: 1px solid rgba(250, 140, 22, 0.4) !important;
+}
+
+.vm-list-actions {
+  display: flex;
+  margin-left: auto;
+  justify-content: flex-end;
+}
+
+.vm-list-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
 }
 
 .status-summary {
