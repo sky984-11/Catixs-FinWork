@@ -166,13 +166,12 @@
                 <n-input :value="createModal.sshHost || '-'" readonly />
               </n-form-item-gi>
               <n-form-item-gi label="虚拟机名称">
-                <n-input v-model:value="createModal.form.vm_name" placeholder="请输入虚拟机名称">
-                  <template #suffix>
-                    <n-button text @click="refreshCreateVmName">随机</n-button>
-                  </template>
-                </n-input>
+                <n-input-group>
+                  <n-input v-model:value="createModal.form.vm_name" placeholder="请输入虚拟机名称" />
+                  <n-button class="random-addon-button" ghost type="primary" @click="refreshCreateVmName">随机</n-button>
+                </n-input-group>
               </n-form-item-gi>
-              <n-form-item-gi label="操作系统">
+              <n-form-item-gi label="操作系统" required>
                 <n-cascader
                   v-model:value="createModal.form.os_selection"
                   :options="createModal.osOptions"
@@ -205,13 +204,17 @@
                 />
               </n-form-item-gi>
               <n-form-item-gi label="root 密码">
-                <n-input v-model:value="createModal.form.password" type="password" show-password-on="click">
-                  <template #suffix>
-                    <n-button text @click="refreshCreatePassword">随机</n-button>
-                  </template>
-                </n-input>
+                <n-input-group>
+                  <n-input
+                    v-model:value="createModal.form.password"
+                    type="password"
+                    show-password-on="click"
+                    placeholder="请输入 root 密码"
+                  />
+                  <n-button class="random-addon-button" ghost type="primary" @click="refreshCreatePassword">随机</n-button>
+                </n-input-group>
               </n-form-item-gi>
-              <n-form-item-gi label="网络模式">
+              <n-form-item-gi label="网络模式" required>
                 <n-radio-group v-model:value="createModal.form.network.mode">
                   <n-radio-button value="dhcp">DHCP</n-radio-button>
                   <n-radio-button value="static">静态 IP</n-radio-button>
@@ -226,16 +229,16 @@
                   class="full-width"
                 />
               </n-form-item-gi>
-              <n-form-item-gi v-if="createModal.form.network.mode === 'static'" label="IP/掩码">
+              <n-form-item-gi v-if="createModal.form.network.mode === 'static'" label="IP/掩码" required>
                 <n-input v-model:value="createModal.form.network.ip" placeholder="例如 192.168.1.100/24" />
               </n-form-item-gi>
-              <n-form-item-gi v-if="createModal.form.network.mode === 'static'" label="网关">
+              <n-form-item-gi v-if="createModal.form.network.mode === 'static'" label="网关" required>
                 <n-input v-model:value="createModal.form.network.gw" placeholder="例如 192.168.1.1" />
               </n-form-item-gi>
-              <n-form-item-gi v-if="createModal.form.network.mode === 'static'" label="DNS">
+              <n-form-item-gi v-if="createModal.form.network.mode === 'static'" label="DNS" required>
                 <n-input v-model:value="createModal.form.network.dns" placeholder="例如 8.8.8.8" />
               </n-form-item-gi>
-              <n-form-item-gi v-if="createModal.form.network.mode === 'static'" label="VLAN">
+              <n-form-item-gi v-if="createModal.form.network.mode === 'static'" label="VLAN" required>
                 <n-input-number v-model:value="createModal.form.network.vlan" :min="1" :max="4094" class="full-width" />
               </n-form-item-gi>
               <n-form-item-gi label="描述" :span="2">
@@ -496,6 +499,7 @@ const taskModal = reactive({
 
 const taskTimer = ref(null)
 const tableRenderKey = ref(0)
+const createOptionsCache = new Map()
 
 const vmCreateModalStyle = {
   width: '760px',
@@ -791,6 +795,46 @@ function handleCreateOsChange(value) {
   createModal.form.os_version = version
 }
 
+function applyCreateOptions(options) {
+  createModal.storages = options?.storages || []
+  createModal.osOptions = options?.osOptions || []
+  createModal.sshHost = options?.sshHost || ''
+  createModal.form.storage = createModal.form.storage || createModal.storages[0]?.value || ''
+}
+
+async function preloadCreateOptions(nodeValue, { silent = true } = {}) {
+  if (!nodeValue) return null
+
+  const cached = createOptionsCache.get(nodeValue)
+  if (cached?.data) return cached.data
+  if (cached?.promise) return cached.promise
+
+  const entry = { data: null, error: null, promise: null }
+  entry.promise = api.virtualMachineApi
+    .createOptions({ node_ip: nodeValue })
+    .then((res) => {
+      const data = {
+        storages: res.data?.storages || [],
+        osOptions: normalizeOsOptions(res.data?.os_options || []),
+        sshHost: res.data?.ssh_host || '',
+      }
+      entry.data = data
+      entry.error = null
+      return data
+    })
+    .catch((error) => {
+      entry.error = error
+      if (!silent) throw error
+      return null
+    })
+    .finally(() => {
+      entry.promise = null
+    })
+
+  createOptionsCache.set(nodeValue, entry)
+  return entry.promise
+}
+
 async function openCreateModal() {
   if (!selectedNode.value?.value) {
     message.warning('请先选择节点')
@@ -798,7 +842,6 @@ async function openCreateModal() {
   }
 
   createModal.show = true
-  createModal.loading = true
   createModal.created = false
   createModal.createdConfig = null
   createModal.sshHost = ''
@@ -808,20 +851,19 @@ async function openCreateModal() {
     ...createEmptyVmForm(),
     region: selectedNode.value.value,
   }
-
-  try {
-    const res = await api.virtualMachineApi.createOptions({
-      node_ip: createModal.form.region,
+  const cached = createOptionsCache.get(createModal.form.region)
+  if (cached?.data) {
+    applyCreateOptions(cached.data)
+  } else if (cached?.promise) {
+    cached.promise.then((options) => {
+      if (createModal.show && createModal.form.region === selectedNode.value?.value && options) {
+        applyCreateOptions(options)
+      }
     })
-    createModal.storages = res.data?.storages || []
-    createModal.osOptions = normalizeOsOptions(res.data?.os_options || [])
-    createModal.sshHost = res.data?.ssh_host || ''
-    createModal.form.storage = createModal.storages[0]?.value || ''
-  } catch (error) {
-    message.error(error.message || '读取创建选项失败')
-  } finally {
-    createModal.loading = false
+  } else {
+    message.info('创建选项正在后台加载，请稍后选择系统和存储')
   }
+  createModal.loading = false
 }
 
 function validateCreateForm() {
@@ -1039,6 +1081,9 @@ async function fetchNodes() {
     if (!selectedNode.value && nodeOptions.value.length) {
       selectedNode.value = nodeOptions.value[0]
     }
+    if (selectedNode.value?.value && !selectedNode.value.error) {
+      preloadCreateOptions(selectedNode.value.value)
+    }
   } catch (error) {
     nodeOptions.value = []
     message.error(error.message || '读取 PDM 节点列表失败')
@@ -1096,6 +1141,7 @@ function selectNode(node) {
     pagination.page = 1
     return
   }
+  preloadCreateOptions(node.value)
   fetchVms()
 }
 
@@ -1467,6 +1513,18 @@ onBeforeUnmount(() => {
 
 .full-width {
   width: 100%;
+}
+
+.random-addon-button {
+  min-width: 64px;
+  --n-border: 1px solid #ff4d22 !important;
+  --n-border-hover: 1px solid #ff4d22 !important;
+  --n-border-pressed: 1px solid #d83a0f !important;
+  --n-border-focus: 1px solid #ff4d22 !important;
+  --n-text-color: #ff4d22 !important;
+  --n-text-color-hover: #ff4d22 !important;
+  --n-text-color-pressed: #d83a0f !important;
+  --n-text-color-focus: #ff4d22 !important;
 }
 
 .task-status-panel {
