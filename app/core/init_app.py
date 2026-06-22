@@ -259,6 +259,7 @@ async def init_menus():
     await ensure_ticket_route_menus()
     await ensure_asset_menu()
     await ensure_syslog_menu()
+    await ensure_akvorado_menu()
     await ensure_business_party_menu()
     await ensure_bill_menu()
     await ensure_inventory_sale_menu()
@@ -464,6 +465,36 @@ async def ensure_syslog_menu():
             changed = True
         if changed:
             await syslog_menu.save()
+        return
+
+    await Menu.create(menu_type=MenuType.MENU, **values)
+
+
+async def ensure_akvorado_menu():
+    ops_menu = await get_service_module_menu("/ops")
+    akvorado_menu = await Menu.filter(path="/akvorado").first()
+    values = {
+        "name": "Akvorado 流量",
+        "path": "/akvorado",
+        "order": 4,
+        "parent_id": ops_menu.id,
+        "icon": "mdi:chart-timeline-variant-shimmer",
+        "is_hidden": False,
+        "component": "/ops/akvorado",
+        "keepalive": False,
+        "redirect": "",
+    }
+    if akvorado_menu:
+        changed = False
+        for field, value in values.items():
+            if getattr(akvorado_menu, field) != value:
+                setattr(akvorado_menu, field, value)
+                changed = True
+        if akvorado_menu.menu_type != MenuType.MENU:
+            akvorado_menu.menu_type = MenuType.MENU
+            changed = True
+        if changed:
+            await akvorado_menu.save()
         return
 
     await Menu.create(menu_type=MenuType.MENU, **values)
