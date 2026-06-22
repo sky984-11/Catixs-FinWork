@@ -24,21 +24,29 @@
           <n-spin :show="loading.nodes" class="side-spin">
             <n-empty v-if="!filteredNodes.length" description="暂无节点" />
             <div v-else class="side-list">
-              <button
+              <n-tooltip
                 v-for="node in filteredNodes"
                 :key="node.value"
-                class="side-list-item"
-                :class="{ active: selectedNode?.value === node.value }"
-                @click="selectNode(node)"
+                trigger="hover"
+                :keep-alive-on-hover="false"
               >
-                <span>
-                  <strong>{{ node.label }}</strong>
-                  <em>{{ nodeStatusText(node) }}</em>
-                </span>
-                <n-tag size="small" round :type="node.status === 'online' ? 'success' : 'warning'">
-                  {{ node.vm_count ?? '-' }}
-                </n-tag>
-              </button>
+                <template #trigger>
+                  <button
+                    class="side-list-item"
+                    :class="{ active: selectedNode?.value === node.value }"
+                    @click="selectNode(node)"
+                  >
+                    <span>
+                      <strong>{{ node.label }}</strong>
+                      <em>{{ nodeStatusText(node) }}</em>
+                    </span>
+                    <n-tag size="small" round :type="node.status === 'online' ? 'success' : 'warning'">
+                      {{ node.vm_count ?? '-' }}
+                    </n-tag>
+                  </button>
+                </template>
+                <span>IP：{{ nodeAddress(node) }}</span>
+              </n-tooltip>
             </div>
           </n-spin>
         </aside>
@@ -46,20 +54,53 @@
         <main class="vm-main">
           <section class="summary-band">
             <article>
-              <span>Datacenter</span>
-              <strong>PDM</strong>
+              <span class="summary-label">
+                <TheIcon icon="mdi:cpu-64-bit" :size="15" />
+                CPU 利用率
+              </span>
+              <strong>{{ formatPercent(selectedNode?.cpu_usage ?? selectedNode?.cpu) }}</strong>
             </article>
             <article>
-              <span>节点总数</span>
-              <strong>{{ nodeOptions.length }}</strong>
+              <span class="summary-label">
+                <TheIcon icon="mdi:chip" :size="15" />
+                CPU 总数
+              </span>
+              <strong>{{ selectedNode?.cpu_total || '-' }} 核</strong>
             </article>
             <article>
-              <span>当前节点</span>
-              <strong>{{ selectedNode?.label || '全部节点' }}</strong>
+              <span class="summary-label">
+                <TheIcon icon="mdi:memory" :size="15" />
+                内存利用率
+              </span>
+              <strong>{{ formatPercent(selectedNode?.mem_usage) }}</strong>
             </article>
             <article>
-              <span>虚拟机</span>
-              <strong>{{ vmSummary.total || vmList.length }}</strong>
+              <span class="summary-label">
+                <TheIcon icon="mdi:server" :size="15" />
+                内存总量
+              </span>
+              <strong>{{ formatShortBytes(selectedNode?.maxmem) }}</strong>
+            </article>
+            <article>
+              <span class="summary-label">
+                <TheIcon icon="mdi:harddisk" :size="15" />
+                磁盘利用率
+              </span>
+              <strong>{{ formatPercent(selectedNode?.disk_usage) }}</strong>
+            </article>
+            <article>
+              <span class="summary-label">
+                <TheIcon icon="mdi:database" :size="15" />
+                磁盘总量
+              </span>
+              <strong>{{ formatShortBytes(selectedNode?.maxdisk) }}</strong>
+            </article>
+            <article class="summary-ip-card">
+              <span class="summary-label">
+                <TheIcon icon="mdi:lan" :size="15" />
+                节点 IP
+              </span>
+              <strong>{{ nodeAddress(selectedNode) }}</strong>
             </article>
           </section>
 
@@ -483,7 +524,9 @@ const filteredNodes = computed(() => {
   const keyword = filters.nodeKeyword.trim().toLowerCase()
   if (!keyword) return nodeOptions.value
   return nodeOptions.value.filter((node) =>
-    [node.label, node.remote, node.status].some((value) => String(value || '').toLowerCase().includes(keyword))
+    [node.label, node.remote, node.ip, node.address, node.status].some((value) =>
+      String(value || '').toLowerCase().includes(keyword)
+    )
   )
 })
 
@@ -1066,6 +1109,32 @@ function nodeStatusText(node) {
   return `${node.online_node_count || 0}/${node.node_count || 0} 节点在线`
 }
 
+function nodeAddress(node) {
+  if (!node) return '-'
+  return node.ip || node.address || node.host || node.endpoint || node.remote || node.label || '-'
+}
+
+function formatPercent(value) {
+  const number = Number(value || 0)
+  return `${Number.isInteger(number) ? number : number.toFixed(2).replace(/\.?0+$/, '')}%`
+}
+
+function nodeCpuSummary(node) {
+  if (!node) return '-'
+  const total = Number(node.cpu_total || 0)
+  return `${formatPercent(node.cpu_usage ?? node.cpu)} / ${total || '-'} 核`
+}
+
+function nodeMemorySummary(node) {
+  if (!node) return '-'
+  return `${formatPercent(node.mem_usage)} / ${formatBytes(node.maxmem)}`
+}
+
+function nodeDiskSummary(node) {
+  if (!node) return '-'
+  return `${formatPercent(node.disk_usage)} / ${formatBytes(node.maxdisk)}`
+}
+
 function syncSelectedNodeSummary(summary) {
   if (!selectedNode.value?.value) return
   const target = nodeOptions.value.find((node) => node.value === selectedNode.value.value)
@@ -1084,6 +1153,19 @@ function formatBytes(value) {
   const bytes = Number(value || 0)
   if (!bytes) return '-'
   const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
+  let size = bytes
+  let index = 0
+  while (size >= 1024 && index < units.length - 1) {
+    size /= 1024
+    index += 1
+  }
+  return `${size.toFixed(index === 0 ? 0 : 2)} ${units[index]}`
+}
+
+function formatShortBytes(value) {
+  const bytes = Number(value || 0)
+  if (!bytes) return '-'
+  const units = ['B', 'K', 'M', 'G', 'T']
   let size = bytes
   let index = 0
   while (size >= 1024 && index < units.length - 1) {
@@ -1253,29 +1335,43 @@ onBeforeUnmount(() => {
 
 .summary-band {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(6, minmax(0, 1fr)) minmax(150px, 1.25fr);
+  gap: 10px;
 }
 
 .summary-band article {
+  min-width: 0;
   padding: 14px 16px;
 }
 
-.summary-band span {
-  display: block;
-  color: #64748b;
-  font-size: 13px;
+.summary-label {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 6px;
+  color: #8c939d;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.summary-label :deep(svg) {
+  color: #9aa3af;
 }
 
 .summary-band strong {
   display: block;
   overflow: hidden;
-  margin-top: 6px;
-  color: #0f172a;
-  font-size: 24px;
+  margin-top: 9px;
+  color: #303133;
+  font-size: 18px;
+  font-weight: 700;
   line-height: 1.2;
-  text-overflow: ellipsis;
+  text-overflow: clip;
   white-space: nowrap;
+}
+
+.summary-ip-card strong {
+  font-size: 16px;
+  letter-spacing: 0;
 }
 
 .content-panel {
@@ -1511,10 +1607,19 @@ html.dark .task-float-button {
   color: #e5e7eb;
 }
 
-@media (max-width: 960px) {
-  .vm-layout,
+@media (max-width: 1280px) {
   .summary-band {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 960px) {
+  .vm-layout {
     grid-template-columns: 1fr;
+  }
+
+  .summary-band {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .vm-sidebar {
@@ -1523,6 +1628,12 @@ html.dark .task-float-button {
 
   .side-list {
     max-height: 360px;
+  }
+}
+
+@media (max-width: 520px) {
+  .summary-band {
+    grid-template-columns: 1fr;
   }
 }
 </style>

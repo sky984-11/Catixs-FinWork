@@ -1,4 +1,5 @@
 import asyncio
+import ipaddress
 from typing import Any
 
 import httpx
@@ -176,6 +177,20 @@ def configured_remotes() -> list[str]:
     return values
 
 
+def strip_cidr(address: str) -> str:
+    return address.split("/", 1)[0].strip()
+
+
+def is_ip_address(value: str) -> bool:
+    host = strip_cidr(value)
+    host = host.rsplit(":", 1)[0] if ":" in host and host.count(":") == 1 else host
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return True
+
+
 async def pdm_remote_list() -> list[str]:
     remotes = configured_remotes()
     if remotes:
@@ -184,6 +199,117 @@ async def pdm_remote_list() -> list[str]:
     data = await pdm_get_first(["/config/remotes", "/pve/remotes", "/remotes"], timeout=3)
     remotes = [remote_id(item) for item in list_data(data)]
     return sorted({remote for remote in remotes if remote})
+
+
+def remote_config_address(remote: Any) -> str:
+    if not isinstance(remote, dict):
+        return ""
+    for key in ("node", "address", "ip", "host", "hostname", "endpoint", "server"):
+        value = remote.get(key)
+        if value:
+            return str(value)
+    return ""
+
+
+async def pdm_remote_config_map() -> dict[str, str]:
+    try:
+        data = await pdm_get_first(["/config/remotes", "/pve/remotes", "/remotes"], timeout=3)
+    except Exception:
+        return {}
+
+    configs: dict[str, str] = {}
+    for item in list_data(data):
+        remote = remote_id(item)
+        address = remote_config_address(item)
+        if remote and address:
+            configs[remote] = address
+    return configs
+
+
+def resource_node_names(resources: list[dict[str, Any]]) -> list[str]:
+    return sorted(
+        {
+            str(item.get("node") or "")
+            for item in resources
+            if canonical_resource_type(item.get("type")) == "pve-node" and item.get("node")
+        }
+    )
+
+
+def network_address_from_items(items: list[dict[str, Any]]) -> str:
+    candidates: list[tuple[int, str]] = []
+    for item in items:
+        if canonical_resource_type(item.get("type")) not in {"pve-network", "network"}:
+            continue
+        if item.get("type") not in {"bridge", "pve-network", "network"} and item.get("type") != "pve-network":
+            continue
+        address = item.get("address")
+        if not address or not is_ip_address(str(address)):
+            continue
+        iface = str(item.get("iface") or item.get("name") or "")
+        priority = 0 if iface == "vmbr10" else 1
+        candidates.append((priority, strip_cidr(str(address))))
+    if not candidates:
+        return ""
+    candidates.sort(key=lambda item: item[0])
+    return candidates[0][1]
+
+
+async def pdm_remote_network_address(remote: str, resources: list[dict[str, Any]]) -> str:
+    address = network_address_from_items(resources)
+    if address:
+        return address
+
+    candidates: list[tuple[int, str]] = []
+    for node in resource_node_names(resources):
+        try:
+            networks = await pdm_get(f"/pve/remotes/{remote}/nodes/{node}/network", timeout=3)
+        except Exception:
+            continue
+        for network in list_data(networks):
+            if not isinstance(network, dict):
+                continue
+            if network.get("type") != "bridge" or not network.get("address"):
+                continue
+            address = str(network.get("address") or "")
+            if not is_ip_address(address):
+                continue
+            iface = str(network.get("iface") or "")
+            priority = 0 if iface == "vmbr10" else 1
+            candidates.append((priority, strip_cidr(address)))
+
+    if not candidates:
+        return ""
+    candidates.sort(key=lambda item: item[0])
+    return candidates[0][1]
+
+
+async def pdm_remote_address_map(data: list[dict[str, Any]], remote_configs: dict[str, str]) -> dict[str, str]:
+    address_map: dict[str, str] = {}
+    pending: list[tuple[str, list[dict[str, Any]]]] = []
+
+    for group in data:
+        remote = str(group.get("remote") or "")
+        if not remote:
+            continue
+        config_address = remote_configs.get(remote, "")
+        if config_address and is_ip_address(config_address):
+            address_map[remote] = strip_cidr(config_address)
+            continue
+        if is_ip_address(remote):
+            address_map[remote] = strip_cidr(remote)
+            continue
+        pending.append((remote, group.get("resources") or []))
+
+    results = await asyncio.gather(
+        *(pdm_remote_network_address(remote, resources) for remote, resources in pending),
+        return_exceptions=True,
+    )
+    for (remote, _), result in zip(pending, results):
+        if isinstance(result, str) and result:
+            address_map[remote] = result
+
+    return address_map
 
 
 async def pdm_remote_groups() -> list[dict[str, Any]]:
@@ -402,28 +528,141 @@ def percent(value: Any) -> float:
     return round(number, 2)
 
 
-def resource_groups(data: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def first_text_value(items: list[dict[str, Any]], keys: tuple[str, ...]) -> str:
+    for item in items:
+        for key in keys:
+            value = item.get(key)
+            if value:
+                return str(value)
+    return ""
+
+
+def number_value(value: Any) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def node_resource_summary(nodes: list[dict[str, Any]]) -> dict[str, Any]:
+    cpu_total = sum(number_value(item.get("maxcpu")) for item in nodes)
+    cpu_weighted = sum(number_value(item.get("cpu")) * number_value(item.get("maxcpu")) for item in nodes)
+    cpu_avg = sum(number_value(item.get("cpu")) for item in nodes) / len(nodes) if nodes else 0
+    cpu_ratio = cpu_weighted / cpu_total if cpu_total else cpu_avg
+
+    mem = sum(number_value(item.get("mem")) for item in nodes)
+    maxmem = sum(number_value(item.get("maxmem")) for item in nodes)
+    disk = sum(number_value(item.get("disk")) for item in nodes)
+    maxdisk = sum(number_value(item.get("maxdisk")) for item in nodes)
+
+    return {
+        "cpu_usage": percent(cpu_ratio),
+        "cpu_total": int(cpu_total),
+        "mem": int(mem),
+        "maxmem": int(maxmem),
+        "mem_usage": round(mem / maxmem * 100, 2) if maxmem else 0,
+        "disk": int(disk),
+        "maxdisk": int(maxdisk),
+        "disk_usage": round(disk / maxdisk * 100, 2) if maxdisk else 0,
+    }
+
+
+def node_status_summary(statuses: list[dict[str, Any]]) -> dict[str, Any]:
+    if not statuses:
+        return {}
+
+    cpu_total = sum(number_value(item.get("cpuinfo", {}).get("cpus") or item.get("maxcpu")) for item in statuses)
+    cpu_weighted = sum(
+        number_value(item.get("cpu")) * number_value(item.get("cpuinfo", {}).get("cpus") or item.get("maxcpu"))
+        for item in statuses
+    )
+    cpu_avg = sum(number_value(item.get("cpu")) for item in statuses) / len(statuses)
+    cpu_ratio = cpu_weighted / cpu_total if cpu_total else cpu_avg
+
+    mem = sum(number_value((item.get("memory") or {}).get("used") or item.get("mem")) for item in statuses)
+    maxmem = sum(number_value((item.get("memory") or {}).get("total") or item.get("maxmem")) for item in statuses)
+    disk = sum(number_value((item.get("rootfs") or {}).get("used") or item.get("disk")) for item in statuses)
+    maxdisk = sum(number_value((item.get("rootfs") or {}).get("total") or item.get("maxdisk")) for item in statuses)
+
+    return {
+        "cpu_usage": percent(cpu_ratio),
+        "cpu_total": int(cpu_total),
+        "mem": int(mem),
+        "maxmem": int(maxmem),
+        "mem_usage": round(mem / maxmem * 100, 2) if maxmem else 0,
+        "disk": int(disk),
+        "maxdisk": int(maxdisk),
+        "disk_usage": round(disk / maxdisk * 100, 2) if maxdisk else 0,
+    }
+
+
+async def pdm_remote_node_status_summary(remote: str, resources: list[dict[str, Any]]) -> dict[str, Any]:
+    statuses: list[dict[str, Any]] = []
+    for node in resource_node_names(resources):
+        try:
+            status = await pdm_get(f"/pve/remotes/{remote}/nodes/{node}/status", timeout=3)
+        except Exception:
+            continue
+        if isinstance(status, dict):
+            statuses.append(status)
+    return node_status_summary(statuses)
+
+
+async def pdm_remote_summary_map(data: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    tasks: list[Any] = []
+    remotes: list[str] = []
+    for group in data:
+        remote = str(group.get("remote") or "")
+        if not remote:
+            continue
+        remotes.append(remote)
+        tasks.append(pdm_remote_node_status_summary(remote, group.get("resources") or []))
+
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    summaries: dict[str, dict[str, Any]] = {}
+    for remote, result in zip(remotes, results):
+        if isinstance(result, dict) and result:
+            summaries[remote] = result
+    return summaries
+
+
+def resource_groups(
+    data: list[dict[str, Any]],
+    remote_configs: dict[str, str] | None = None,
+    remote_summaries: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     groups: list[dict[str, Any]] = []
+    remote_configs = remote_configs or {}
+    remote_summaries = remote_summaries or {}
     for group in data:
         resources = group.get("resources") or []
+        remote = str(group.get("remote") or "")
         has_resources = bool(resources)
         queried = bool(group.get("queried")) or has_resources
         vms = [item for item in resources if canonical_resource_type(item.get("type")) in {"pve-qemu", "pve-lxc"}]
         nodes = [item for item in resources if canonical_resource_type(item.get("type")) == "pve-node"]
         online_nodes = [item for item in nodes if item.get("status") == "online"]
+        node_summary = {**node_resource_summary(nodes), **remote_summaries.get(remote, {})}
+        address = remote_configs.get(remote) or first_text_value(
+            [group, *nodes, *resources],
+            ("ip", "address", "host", "hostname", "endpoint", "server"),
+        )
         groups.append(
             {
-                "id": group.get("remote"),
-                "label": group.get("remote"),
-                "value": group.get("remote"),
-                "remote": group.get("remote"),
+                "id": remote,
+                "label": remote,
+                "value": remote,
+                "remote": remote,
+                "ip": address,
+                "address": address,
                 "status": "online" if online_nodes or (queried and not group.get("error")) else "unknown",
                 "node_count": len(nodes),
                 "online_node_count": len(online_nodes),
                 "vm_count": len(vms) if queried else None,
                 "error": group.get("error") or "",
                 "queried": queried,
-                "cpu": percent(sum(float(item.get("cpu") or 0) for item in nodes) / len(nodes)) if nodes else 0,
+                "cpu": node_summary["cpu_usage"],
+                **node_summary,
             }
         )
     groups.sort(key=lambda row: str(row.get("label") or ""))
@@ -598,9 +837,12 @@ def same_task(upid: str, task_upid: str | None) -> bool:
 async def list_nodes():
     try:
         data = await pdm_nodes_list()
+        remote_configs = await pdm_remote_config_map()
+        remote_addresses = await pdm_remote_address_map(data, remote_configs)
+        remote_summaries = await pdm_remote_summary_map(data)
     except Exception as exc:
         return Fail(msg=f"读取 PDM 数据失败: {error_detail(exc)}")
-    return Success(data=resource_groups(data))
+    return Success(data=resource_groups(data, remote_addresses, remote_summaries))
 
 
 @router.get("/vms", summary="PDM virtual machine list")
