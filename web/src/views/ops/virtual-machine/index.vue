@@ -35,6 +35,7 @@
                     class="side-list-item"
                     :class="{ active: selectedNode?.value === node.value }"
                     @click="selectNode(node)"
+                    @mouseenter="loadNodeTooltipRemark(node)"
                     @contextmenu.prevent.stop="openNodeContextMenu($event, node)"
                   >
                     <span>
@@ -46,7 +47,10 @@
                     </n-tag>
                   </button>
                 </template>
-                <span>IP：{{ nodeAddress(node) }}</span>
+                <div class="node-tooltip">
+                  <span>IP：{{ nodeAddress(node) }}</span>
+                  <span v-if="nodeTooltipRemark(node)">备注：{{ nodeTooltipRemark(node) }}</span>
+                </div>
               </n-tooltip>
             </div>
           </n-spin>
@@ -138,7 +142,7 @@
               :columns="columns"
               :data="pagedVmList"
               :pagination="false"
-              :scroll-x="1280"
+              :scroll-x="1440"
               :row-key="(row) => row.id"
               :row-class-name="() => 'vm-table-row'"
               :row-props="vmRowProps"
@@ -439,42 +443,14 @@
         class="vm-edit-node-modal"
         :style="vmEditNodeModalStyle"
       >
-        <n-form label-placement="left" label-width="104">
-          <n-form-item label="节点 IP" required>
-            <n-input v-model:value="editNodeModal.form.hostname" placeholder="例如 10.4.10.12" />
-          </n-form-item>
-          <n-form-item label="指纹">
-            <n-input
-              v-model:value="editNodeModal.form.fingerprint"
-              type="textarea"
-              placeholder="证书指纹，留空会沿用原配置"
-              :autosize="{ minRows: 2, maxRows: 3 }"
-            />
-          </n-form-item>
-        </n-form>
-        <template #footer>
-          <div class="modal-footer">
-            <span>只更新 PDM Remote 的节点地址和证书指纹。</span>
-            <n-space>
-              <n-button @click="editNodeModal.show = false">取消</n-button>
-              <n-button type="primary" :loading="editNodeModal.submitting" @click="submitEditNode">更新</n-button>
-            </n-space>
-          </div>
-        </template>
-      </n-modal>
-
-      <n-modal
-        v-model:show="remarkNodeModal.show"
-        preset="card"
-        title="节点备注"
-        class="vm-remark-node-modal"
-        :style="vmEditNodeModalStyle"
-      >
-        <n-spin :show="remarkNodeModal.loading">
+        <n-spin :show="editNodeModal.loading">
           <n-form label-placement="left" label-width="104">
+            <n-form-item label="节点 IP" required>
+              <n-input v-model:value="editNodeModal.form.hostname" placeholder="例如 10.4.10.12" />
+            </n-form-item>
             <n-form-item label="备注">
               <n-input
-                v-model:value="remarkNodeModal.form.remark"
+                v-model:value="editNodeModal.form.remark"
                 type="textarea"
                 placeholder="请输入节点备注"
                 :autosize="{ minRows: 5, maxRows: 8 }"
@@ -484,10 +460,10 @@
         </n-spin>
         <template #footer>
           <div class="modal-footer">
-            <span>备注会写入对应 PVE 节点配置。</span>
+            <span>更新 PDM Remote 节点地址，并同步写入对应 PVE 节点备注。</span>
             <n-space>
-              <n-button @click="remarkNodeModal.show = false">取消</n-button>
-              <n-button type="primary" :loading="remarkNodeModal.submitting" @click="submitNodeRemark">保存</n-button>
+              <n-button @click="editNodeModal.show = false">取消</n-button>
+              <n-button type="primary" :loading="editNodeModal.submitting" @click="submitEditNode">更新</n-button>
             </n-space>
           </div>
         </template>
@@ -655,6 +631,7 @@ const filters = reactive({
 const nodeOptions = ref([])
 const selectedNode = ref(null)
 const vmList = ref([])
+const nodeRemarkCache = reactive({})
 const vmSummary = reactive({
   total: 0,
   running: 0,
@@ -684,22 +661,13 @@ const addNodeModal = reactive({
 
 const editNodeModal = reactive({
   show: false,
+  loading: false,
   submitting: false,
   form: {
     remote: '',
     hostname: '',
     originalHostname: '',
     fingerprint: '',
-  },
-})
-
-const remarkNodeModal = reactive({
-  show: false,
-  loading: false,
-  submitting: false,
-  form: {
-    remote: '',
-    host: '',
     remark: '',
   },
 })
@@ -810,11 +778,6 @@ const nodeMenuOptions = computed(() => [
     label: '删除',
     key: 'delete',
     icon: () => h(TheIcon, { icon: 'material-symbols:delete-outline-rounded', size: 16 }),
-  },
-  {
-    label: '备注',
-    key: 'remark',
-    icon: () => h(TheIcon, { icon: 'material-symbols:notes-rounded', size: 16 }),
   },
 ])
 
@@ -981,7 +944,7 @@ const columns = [
   {
     title: '操作',
     key: 'actions',
-    width: 260,
+    width: 360,
     fixed: 'right',
     render(row) {
       return h(
@@ -989,6 +952,8 @@ const columns = [
         { class: 'vm-row-actions', size: 6, wrap: false },
         {
           default: () => [
+            actionButton('监控', 'mdi:chart-line', 'info', row, 'vm-button-monitor'),
+            powerButton(row),
             actionButton('编辑', 'material-symbols:edit-outline-rounded', 'info', row),
             actionButton('删除', 'material-symbols:delete-outline-rounded', 'error', row),
             actionButton('迁移', 'material-symbols:send-rounded', 'warning', row, 'vm-button-send', openMigration),
@@ -1042,6 +1007,16 @@ function actionButton(label, icon, type, row, className = '', handler = null) {
       icon: () => h(TheIcon, { icon, size: 14 }),
       default: () => label,
     }
+  )
+}
+
+function powerButton(row) {
+  const isRunning = row.status === 'running'
+  return actionButton(
+    isRunning ? '关机' : '开机',
+    isRunning ? 'mdi:power' : 'mdi:play-circle-outline',
+    isRunning ? 'warning' : 'success',
+    row
   )
 }
 
@@ -1301,21 +1276,33 @@ function handleNodeMenuSelect(key) {
   }
   if (key === 'delete') {
     confirmDeleteNode(node)
-    return
-  }
-  if (key === 'remark') {
-    openNodeRemarkModal(node)
   }
 }
 
-function openEditNodeModal(node) {
+async function openEditNodeModal(node) {
+  const remote = node.remote || node.value || ''
+  const host = nodeAddress(node) === '-' ? '' : nodeAddress(node)
   editNodeModal.form = {
-    remote: node.remote || node.value || '',
-    hostname: nodeAddress(node) === '-' ? '' : nodeAddress(node),
-    originalHostname: nodeAddress(node) === '-' ? '' : nodeAddress(node),
+    remote,
+    hostname: host,
+    originalHostname: host,
     fingerprint: node.fingerprint || '',
+    remark: '',
   }
   editNodeModal.show = true
+  if (!remote) return
+
+  editNodeModal.loading = true
+  try {
+    const res = await api.virtualMachineApi.nodeRemark(remote, {
+      host: host || undefined,
+    })
+    editNodeModal.form.remark = res.data?.remark || ''
+  } catch (error) {
+    message.error(error.message || '读取节点备注失败')
+  } finally {
+    editNodeModal.loading = false
+  }
 }
 
 async function submitEditNode() {
@@ -1332,6 +1319,11 @@ async function submitEditNode() {
       original_hostname: editNodeModal.form.originalHostname,
       fingerprint: editNodeModal.form.fingerprint || undefined,
     })
+    await api.virtualMachineApi.updateNodeRemark(editNodeModal.form.remote, {
+      remark: editNodeModal.form.remark || '',
+      host: editNodeModal.form.hostname || editNodeModal.form.originalHostname || undefined,
+    })
+    nodeRemarkCache[editNodeModal.form.remote] = { loading: false, remark: editNodeModal.form.remark || '' }
     message.success(res.msg || 'PVE 节点已更新')
     editNodeModal.show = false
     await refreshNodes()
@@ -1363,46 +1355,6 @@ function confirmDeleteNode(node) {
       }
     },
   })
-}
-
-async function openNodeRemarkModal(node) {
-  const remote = node.remote || node.value || ''
-  if (!remote) return
-  remarkNodeModal.form = {
-    remote,
-    host: nodeAddress(node) === '-' ? '' : nodeAddress(node),
-    remark: '',
-  }
-  remarkNodeModal.show = true
-  remarkNodeModal.loading = true
-  try {
-    const res = await api.virtualMachineApi.nodeRemark(remote, {
-      host: remarkNodeModal.form.host || undefined,
-    })
-    remarkNodeModal.form.remark = res.data?.remark || ''
-  } catch (error) {
-    message.error(error.message || '读取节点备注失败')
-  } finally {
-    remarkNodeModal.loading = false
-  }
-}
-
-async function submitNodeRemark() {
-  const remote = remarkNodeModal.form.remote
-  if (!remote) return
-  remarkNodeModal.submitting = true
-  try {
-    const res = await api.virtualMachineApi.updateNodeRemark(remote, {
-      remark: remarkNodeModal.form.remark || '',
-      host: remarkNodeModal.form.host || undefined,
-    })
-    message.success(res.msg || '节点备注已更新')
-    remarkNodeModal.show = false
-  } catch (error) {
-    message.error(error.message || '更新节点备注失败')
-  } finally {
-    remarkNodeModal.submitting = false
-  }
 }
 
 function validateAddNodeForm() {
@@ -1755,6 +1707,31 @@ function nodeAddress(node) {
   return node.ip || node.address || node.host || node.endpoint || node.remote || node.label || '-'
 }
 
+function nodeCacheKey(node) {
+  return node?.remote || node?.value || ''
+}
+
+function nodeTooltipRemark(node) {
+  const key = nodeCacheKey(node)
+  const cached = key ? nodeRemarkCache[key] : null
+  return String(cached?.remark || '').trim()
+}
+
+async function loadNodeTooltipRemark(node) {
+  const remote = nodeCacheKey(node)
+  if (!remote || nodeRemarkCache[remote]) return
+  nodeRemarkCache[remote] = { loading: true, remark: '' }
+  try {
+    const host = nodeAddress(node) === '-' ? '' : nodeAddress(node)
+    const res = await api.virtualMachineApi.nodeRemark(remote, {
+      host: host || undefined,
+    })
+    nodeRemarkCache[remote] = { loading: false, remark: res.data?.remark || '' }
+  } catch {
+    nodeRemarkCache[remote] = { loading: false, remark: '' }
+  }
+}
+
 function formatPercent(value) {
   const number = Number(value || 0)
   return `${Number.isInteger(number) ? number : number.toFixed(2).replace(/\.?0+$/, '')}%`
@@ -1974,6 +1951,15 @@ onBeforeUnmount(() => {
   font-style: normal;
 }
 
+.node-tooltip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 260px;
+  line-height: 1.45;
+  white-space: normal;
+}
+
 .summary-band {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr)) minmax(150px, 1.25fr);
@@ -2025,6 +2011,21 @@ onBeforeUnmount(() => {
   flex-flow: row nowrap !important;
   flex-wrap: nowrap;
   gap: 6px !important;
+}
+
+.content-panel :deep(.vm-button-monitor) {
+  --n-text-color: #4f46e5 !important;
+  --n-text-color-hover: #4338ca !important;
+  --n-text-color-pressed: #3730a3 !important;
+  --n-text-color-focus: #4f46e5 !important;
+  --n-color: rgba(99, 102, 241, 0.13) !important;
+  --n-color-hover: rgba(99, 102, 241, 0.2) !important;
+  --n-color-pressed: rgba(99, 102, 241, 0.26) !important;
+  --n-color-focus: rgba(99, 102, 241, 0.2) !important;
+  --n-border: 1px solid rgba(99, 102, 241, 0.28) !important;
+  --n-border-hover: 1px solid rgba(99, 102, 241, 0.42) !important;
+  --n-border-pressed: 1px solid rgba(99, 102, 241, 0.5) !important;
+  --n-border-focus: 1px solid rgba(99, 102, 241, 0.42) !important;
 }
 
 .content-panel :deep(.vm-button-send) {
