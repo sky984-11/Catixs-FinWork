@@ -1,5 +1,6 @@
 import asyncio
 import ipaddress
+import logging
 from typing import Any
 from urllib.parse import urlparse
 
@@ -9,8 +10,10 @@ from pydantic import BaseModel
 
 from app.schemas.base import Fail, Success
 from app.settings.config import settings
+from app.utils.zabbix_api import sync_pve_host_to_zabbix
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 _PDM_RESOURCE_CACHE: list[dict[str, Any]] = []
 
@@ -58,6 +61,14 @@ def pve_remote_node_entry(hostname: str, fingerprint: str | None = None) -> str:
         value = value[:-5]
     if fingerprint:
         return f"{value},fingerprint={fingerprint.strip()}"
+    return value
+
+
+def pve_zabbix_token_id(authid: str, create_token: str | None = None) -> str:
+    value = (authid or "").strip()
+    token_name = (create_token or "").strip()
+    if token_name and "!" not in value:
+        return f"{value}!{token_name}"
     return value
 
 
@@ -929,6 +940,8 @@ async def add_pve_remote(payload: PDMAddRemoteRequest):
     if payload.fingerprint:
         scan_payload["fingerprint"] = payload.fingerprint.strip()
 
+    remote_payload: dict[str, Any] = {}
+    zabbix_sync: dict[str, Any] = {"enabled": False, "synced": False}
     try:
         try:
             scanned = await pdm_post("/pve/scan", scan_payload)
@@ -959,7 +972,25 @@ async def add_pve_remote(payload: PDMAddRemoteRequest):
     except Exception as exc:
         return Fail(msg=f"添加 PVE 节点失败: {error_detail(exc)}")
 
-    return Success(msg="PVE 节点已添加", data={"remote": remote_payload.get("id"), "nodes": remote_payload.get("nodes", [])})
+    try:
+        zabbix_sync = await sync_pve_host_to_zabbix(
+            remote_id=str(remote_payload.get("id") or payload.remote_id or ""),
+            hostname=target_host,
+            token_id=pve_zabbix_token_id(str(remote_payload.get("authid") or authid), payload.create_token),
+            token_secret=str(remote_payload.get("token") or token),
+        )
+    except Exception as exc:
+        logger.error("sync PVE remote to Zabbix failed: %s", error_detail(exc))
+        zabbix_sync = {"enabled": True, "synced": False, "message": error_detail(exc)}
+
+    return Success(
+        msg="PVE 节点已添加",
+        data={
+            "remote": remote_payload.get("id"),
+            "nodes": remote_payload.get("nodes", []),
+            "zabbix_sync": zabbix_sync,
+        },
+    )
 
 
 @router.post("/nodes/probe", summary="Probe PVE remote TLS")

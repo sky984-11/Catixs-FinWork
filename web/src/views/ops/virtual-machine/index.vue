@@ -1191,7 +1191,14 @@ async function submitAddNode() {
   addNodeModal.submitting = true
   try {
     const res = await api.virtualMachineApi.addNode(buildAddNodePayload())
-    message.success(res.msg || 'PVE 节点已添加')
+    const zabbixSync = res.data?.zabbix_sync
+    if (zabbixSync?.enabled && zabbixSync?.synced) {
+      message.success(`${res.msg || 'PVE 节点已添加'}，Zabbix 已同步`)
+    } else if (zabbixSync?.enabled && !zabbixSync?.synced) {
+      message.warning(`${res.msg || 'PVE 节点已添加'}，Zabbix 同步失败：${zabbixSync.message || '请检查后端日志'}`)
+    } else {
+      message.success(res.msg || 'PVE 节点已添加')
+    }
     addNodeModal.show = false
     createOptionsCache.clear()
     await refreshNodes()

@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     PVE_CREATE_SSH_USER: str = "root"
     PVE_CREATE_SSH_PASSWORD: str = "Catixs@3202"
     PVE_CREATE_SSH_TIMEOUT: float = 10
+    ZABBIX_URL: str = ""
+    ZABBIX_TOKEN: str = ""
+    ZABBIX_PVE_REFERENCE_HOSTID: str = "10777"
 
     TORTOISE_ORM: dict[str, Any] = {}
     DATETIME_FORMAT: str = "%Y-%m-%d %H:%M:%S"
