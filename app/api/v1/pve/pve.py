@@ -1,8 +1,10 @@
 import asyncio
 import ipaddress
 import logging
+import json
+import shlex
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 from fastapi import APIRouter, Query
@@ -62,6 +64,20 @@ def pve_remote_node_entry(hostname: str, fingerprint: str | None = None) -> str:
     if fingerprint:
         return f"{value},fingerprint={fingerprint.strip()}"
     return value
+
+
+def parse_remote_node_entry(value: Any) -> dict[str, str]:
+    text = str(value or "").strip()
+    if not text:
+        return {"host": "", "fingerprint": ""}
+    parts = [part.strip() for part in text.split(",") if part.strip()]
+    host = parts[0] if parts else text
+    fingerprint = ""
+    for part in parts[1:]:
+        if part.startswith("fingerprint="):
+            fingerprint = part.split("=", 1)[1].strip()
+            break
+    return {"host": host, "fingerprint": fingerprint}
 
 
 def pve_zabbix_token_id(authid: str, create_token: str | None = None) -> str:
@@ -228,7 +244,7 @@ async def pdm_remote_list() -> list[str]:
     if remotes:
         return remotes
 
-    data = await pdm_get_first(["/config/remotes", "/pve/remotes", "/remotes"], timeout=3)
+    data = await pdm_get_first(["/remotes/remote", "/config/remotes", "/pve/remotes", "/remotes"], timeout=3)
     remotes = [remote_id(item) for item in list_data(data)]
     return sorted({remote for remote in remotes if remote})
 
@@ -240,20 +256,46 @@ def remote_config_address(remote: Any) -> str:
         value = remote.get(key)
         if value:
             return str(value)
+    nodes = remote.get("nodes")
+    if isinstance(nodes, list) and nodes:
+        return parse_remote_node_entry(nodes[0]).get("host", "")
     return ""
 
 
-async def pdm_remote_config_map() -> dict[str, str]:
-    try:
-        data = await pdm_get_first(["/config/remotes", "/pve/remotes", "/remotes"], timeout=3)
-    except Exception:
-        return {}
+async def pdm_remote_configs() -> list[dict[str, Any]]:
+    configs: list[dict[str, Any]] = []
+    for path in ("/remotes/remote", "/config/remotes", "/pve/remotes", "/remotes"):
+        try:
+            data = await pdm_get(path, timeout=3)
+        except Exception:
+            continue
+        configs = [item for item in list_data(data) if isinstance(item, dict)]
+        if configs:
+            return configs
+    return configs
 
-    configs: dict[str, str] = {}
-    for item in list_data(data):
+
+async def pdm_remote_config_detail_map() -> dict[str, dict[str, Any]]:
+    details: dict[str, dict[str, Any]] = {}
+    for item in await pdm_remote_configs():
         remote = remote_id(item)
-        address = remote_config_address(item)
-        if remote and address:
+        if not remote:
+            continue
+        nodes = item.get("nodes") if isinstance(item.get("nodes"), list) else []
+        parsed = parse_remote_node_entry(nodes[0]) if nodes else {"host": remote_config_address(item), "fingerprint": ""}
+        details[remote] = {
+            "config": item,
+            "address": parsed.get("host") or remote_config_address(item),
+            "fingerprint": parsed.get("fingerprint", ""),
+        }
+    return details
+
+
+async def pdm_remote_config_map() -> dict[str, str]:
+    configs: dict[str, str] = {}
+    for remote, detail in (await pdm_remote_config_detail_map()).items():
+        address = str(detail.get("address") or "")
+        if address:
             configs[remote] = address
     return configs
 
@@ -535,6 +577,30 @@ async def pdm_post(path: str, payload: dict[str, Any]) -> Any:
     return data.get("data")
 
 
+async def pdm_put(path: str, payload: dict[str, Any]) -> Any:
+    headers = {"Authorization": pdm_auth_header(), "Accept": "application/json"}
+    async with httpx.AsyncClient(timeout=settings.PDM_TIMEOUT, verify=False, trust_env=False) as client:
+        response = await client.put(pdm_api_url(path), json=payload, headers=headers)
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(f"PDM API HTTP {response.status_code}: {response.text[:500]}") from exc
+        data = response.json()
+    return data.get("data")
+
+
+async def pdm_delete(path: str) -> Any:
+    headers = {"Authorization": pdm_auth_header(), "Accept": "application/json"}
+    async with httpx.AsyncClient(timeout=settings.PDM_TIMEOUT, verify=False, trust_env=False) as client:
+        response = await client.delete(pdm_api_url(path), headers=headers)
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(f"PDM API HTTP {response.status_code}: {response.text[:500]}") from exc
+        data = response.json()
+    return data.get("data")
+
+
 class VMMigrateRequest(BaseModel):
     remote: str
     vmid: int
@@ -563,6 +629,17 @@ class PDMAddRemoteRequest(BaseModel):
 class PDMProbeRemoteRequest(BaseModel):
     hostname: str
     fingerprint: str | None = None
+
+
+class PDMUpdateRemoteRequest(BaseModel):
+    hostname: str
+    fingerprint: str | None = None
+    original_hostname: str | None = None
+
+
+class PDMRemoteRemarkRequest(BaseModel):
+    remark: str = ""
+    host: str | None = None
 
 
 def percent(value: Any) -> float:
@@ -677,10 +754,12 @@ def resource_groups(
     data: list[dict[str, Any]],
     remote_configs: dict[str, str] | None = None,
     remote_summaries: dict[str, dict[str, Any]] | None = None,
+    remote_details: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     groups: list[dict[str, Any]] = []
     remote_configs = remote_configs or {}
     remote_summaries = remote_summaries or {}
+    remote_details = remote_details or {}
     for group in data:
         resources = group.get("resources") or []
         remote = str(group.get("remote") or "")
@@ -702,6 +781,7 @@ def resource_groups(
                 "remote": remote,
                 "ip": address,
                 "address": address,
+                "fingerprint": remote_details.get(remote, {}).get("fingerprint") or "",
                 "status": "online" if online_nodes or (queried and not group.get("error")) else "unknown",
                 "node_count": len(nodes),
                 "online_node_count": len(online_nodes),
@@ -880,16 +960,90 @@ def same_task(upid: str, task_upid: str | None) -> bool:
     return any(candidate.endswith(task_upid) or task_upid.endswith(candidate) for candidate in candidates)
 
 
+async def pdm_remote_config(remote: str) -> dict[str, Any]:
+    for item in await pdm_remote_configs():
+        if remote_id(item) == remote:
+            return dict(item)
+    raise RuntimeError(f"PDM Remote not found: {remote}")
+
+
+async def resolve_pdm_remote_config(remote: str, *hosts: str | None) -> tuple[str, dict[str, Any]]:
+    configs = await pdm_remote_configs()
+    for item in configs:
+        item_id = remote_id(item)
+        if item_id == remote:
+            return item_id, dict(item)
+
+    host_candidates = {strip_cidr(str(host or "")).strip() for host in hosts if str(host or "").strip()}
+    host_candidates.discard("")
+    if host_candidates:
+        for item in configs:
+            address = strip_cidr(remote_config_address(item))
+            if address and address in host_candidates:
+                item_id = remote_id(item)
+                if item_id:
+                    return item_id, dict(item)
+
+    raise RuntimeError(f"PDM Remote not found: {remote}")
+
+
+async def pdm_remote_config_host(remote: str) -> str:
+    config = await pdm_remote_config(remote)
+    nodes = config.get("nodes") if isinstance(config.get("nodes"), list) else []
+    if nodes:
+        return parse_remote_node_entry(nodes[0]).get("host", "")
+    return remote_config_address(config)
+
+
+async def resolve_remark_host(remote: str, fallback_host: str | None = None) -> str:
+    try:
+        host = await pdm_remote_config_host(remote)
+    except Exception:
+        host = ""
+    return host or (fallback_host or "").strip()
+
+
+def ssh_execute_pve(host: str, command: str) -> tuple[int, str, str]:
+    try:
+        import paramiko
+    except ImportError as exc:
+        return -1, "", f"paramiko is not installed: {exc}"
+
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        client.connect(
+            host,
+            username=settings.PVE_CREATE_SSH_USER,
+            password=settings.PVE_CREATE_SSH_PASSWORD,
+            timeout=settings.PVE_CREATE_SSH_TIMEOUT,
+        )
+        _, stdout, stderr = client.exec_command(command, timeout=settings.PVE_CREATE_SSH_TIMEOUT)
+        exit_status = stdout.channel.recv_exit_status()
+        output = stdout.read().decode("utf-8", errors="replace")
+        error = stderr.read().decode("utf-8", errors="replace")
+        return exit_status, output, error
+    except Exception as exc:
+        return -1, "", str(exc)
+    finally:
+        client.close()
+
+
 @router.get("/nodes", summary="PDM remote list")
 async def list_nodes():
     try:
         data = await pdm_nodes_list()
-        remote_configs = await pdm_remote_config_map()
+        remote_details = await pdm_remote_config_detail_map()
+        remote_configs = {
+            remote: str(detail.get("address") or "")
+            for remote, detail in remote_details.items()
+            if detail.get("address")
+        }
         remote_addresses = await pdm_remote_address_map(data, remote_configs)
         remote_summaries = await pdm_remote_summary_map(data)
     except Exception as exc:
         return Fail(msg=f"读取 PDM 数据失败: {error_detail(exc)}")
-    return Success(data=resource_groups(data, remote_addresses, remote_summaries))
+    return Success(data=resource_groups(data, remote_addresses, remote_summaries, remote_details))
 
 
 @router.get("/vms", summary="PDM virtual machine list")
@@ -991,6 +1145,84 @@ async def add_pve_remote(payload: PDMAddRemoteRequest):
             "zabbix_sync": zabbix_sync,
         },
     )
+
+
+@router.put("/nodes/remote/{remote}", summary="Update PVE remote")
+async def update_pve_remote(remote: str, payload: PDMUpdateRemoteRequest):
+    global _PDM_RESOURCE_CACHE
+
+    if not payload.hostname:
+        return Fail(msg="编辑 PVE 节点失败: 请填写节点 IP")
+
+    try:
+        actual_remote, current = await resolve_pdm_remote_config(remote, payload.original_hostname, payload.hostname)
+        nodes = current.get("nodes") if isinstance(current.get("nodes"), list) else []
+        old_node = parse_remote_node_entry(nodes[0]) if nodes else {"fingerprint": ""}
+        fingerprint = (payload.fingerprint or old_node.get("fingerprint") or "").strip()
+
+        remote_payload = {
+            key: value
+            for key, value in current.items()
+            if key in {"id", "authid", "token", "web-url", "nodes"}
+        }
+        remote_payload["id"] = actual_remote
+        remote_payload["nodes"] = [pve_remote_node_entry(payload.hostname, fingerprint)]
+        if not remote_payload.get("token"):
+            remote_payload.pop("token", None)
+
+        await pdm_put(f"/remotes/remote/{quote(actual_remote, safe='')}", remote_payload)
+        _PDM_RESOURCE_CACHE = []
+        remote = actual_remote
+    except Exception as exc:
+        return Fail(msg=f"编辑 PVE 节点失败: {error_detail(exc)}")
+
+    return Success(msg="PVE 节点已更新", data={"remote": remote, "nodes": remote_payload["nodes"]})
+
+
+@router.delete("/nodes/remote/{remote}", summary="Delete PVE remote")
+async def delete_pve_remote(remote: str):
+    global _PDM_RESOURCE_CACHE
+
+    try:
+        await pdm_delete(f"/remotes/remote/{quote(remote, safe='')}")
+        _PDM_RESOURCE_CACHE = []
+    except Exception as exc:
+        return Fail(msg=f"删除 PVE 节点失败: {error_detail(exc)}")
+
+    return Success(msg="PVE 节点已删除")
+
+
+@router.get("/nodes/remote/{remote}/remark", summary="Read PVE node remark")
+async def get_pve_remote_remark(remote: str, host: str = Query("")):
+    try:
+        host = await resolve_remark_host(remote, host)
+        if not host:
+            return Fail(msg="读取 PVE 节点备注失败: 未找到节点 IP")
+        command = "pvesh get /nodes/$(hostname -s)/config --output-format json"
+        code, output, error = await asyncio.to_thread(ssh_execute_pve, host, command)
+        if code != 0:
+            return Fail(msg=f"读取 PVE 节点备注失败: {error or output}")
+        data = json.loads(output or "{}")
+        return Success(data={"remote": remote, "host": host, "remark": data.get("description") or ""})
+    except Exception as exc:
+        return Fail(msg=f"读取 PVE 节点备注失败: {error_detail(exc)}")
+
+
+@router.put("/nodes/remote/{remote}/remark", summary="Update PVE node remark")
+async def update_pve_remote_remark(remote: str, payload: PDMRemoteRemarkRequest):
+    try:
+        host = await resolve_remark_host(remote, payload.host)
+        if not host:
+            return Fail(msg="更新 PVE 节点备注失败: 未找到节点 IP")
+        remark = (payload.remark or "").replace("\r\n", "\n")
+        command = f"pvesh set /nodes/$(hostname -s)/config --description {shlex.quote(remark)}"
+        code, output, error = await asyncio.to_thread(ssh_execute_pve, host, command)
+        if code != 0:
+            return Fail(msg=f"更新 PVE 节点备注失败: {error or output}")
+    except Exception as exc:
+        return Fail(msg=f"更新 PVE 节点备注失败: {error_detail(exc)}")
+
+    return Success(msg="PVE 节点备注已更新")
 
 
 @router.post("/nodes/probe", summary="Probe PVE remote TLS")
