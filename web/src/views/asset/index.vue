@@ -22,12 +22,12 @@
             </n-dropdown>
           </div>
 
-          <n-empty v-if="!treeData.length && !loading.tree" description="暂无区域数据" />
+          <n-empty v-if="!visibleTreeData.length && !loading.tree" description="暂无区域数据" />
           <n-tree
             v-else
             block-line
             block-node
-            :data="treeData"
+            :data="visibleTreeData"
             :loading="loading.tree"
             :expanded-keys="expandedKeys"
             :selected-keys="selectedKeys"
@@ -961,6 +961,14 @@ import { usePermissionStore, useUserStore } from '@/store'
 
 defineOptions({ name: 'AssetManagement' })
 
+const props = defineProps({
+  defaultModule: {
+    type: String,
+    default: 'auto',
+    validator: (value) => ['auto', 'cabinet', 'inventory'].includes(value),
+  },
+})
+
 const treeData = ref([])
 const selectedNode = ref(null)
 const selectedKeys = ref([])
@@ -1176,6 +1184,7 @@ const simpleRules = {
   },
 }
 
+const visibleTreeData = computed(() => filterTreeByModule(treeData.value))
 const selectedLabel = computed(() => selectedNode.value?.label || '全部资产')
 const selectedLocation = computed(() => {
   if (selectedNode.value?.type === 'location')
@@ -1186,7 +1195,7 @@ const selectedLocation = computed(() => {
   }
   return null
 })
-const isInventoryView = computed(() => selectedLocation.value?.type === 0)
+const isInventoryView = computed(() => props.defaultModule === 'inventory' || selectedLocation.value?.type === 0)
 const currentCabinet = computed(() => {
   if (selectedNode.value?.type !== 'cabinet') return null
   return cabinets.value.find((item) => item.id === selectedNode.value.raw_id) || null
@@ -1686,6 +1695,7 @@ function warnNoPermission() {
 
 async function refreshAll() {
   await Promise.all([loadMeta(), loadTree()])
+  ensureDefaultSelection()
   await loadCurrentList()
 }
 
@@ -1725,10 +1735,36 @@ async function loadTree() {
   try {
     const res = await api.assetApi.tree()
     treeData.value = res.data || []
-    expandedKeys.value = collectTreeKeys(treeData.value)
+    expandedKeys.value = collectTreeKeys(visibleTreeData.value)
   } finally {
     loading.tree = false
   }
+}
+
+function filterTreeByModule(nodes = []) {
+  if (props.defaultModule === 'auto') return nodes
+  return nodes
+    .map((node) => {
+      const children = filterTreeByModule(node.children || [])
+      if (node.type === 'location') {
+        const isInventoryLocation = node.location_type === 0
+        if (props.defaultModule === 'inventory' && isInventoryLocation) {
+          return { ...node, children: [] }
+        }
+        if (props.defaultModule === 'cabinet' && !isInventoryLocation) {
+          return { ...node, children }
+        }
+        return null
+      }
+      if (node.type === 'cabinet') {
+        return props.defaultModule === 'cabinet' ? node : null
+      }
+      if (node.type === 'region') {
+        return children.length ? { ...node, children } : null
+      }
+      return node
+    })
+    .filter(Boolean)
 }
 
 function collectTreeKeys(nodes = []) {
@@ -1736,6 +1772,23 @@ function collectTreeKeys(nodes = []) {
     node.id,
     ...collectTreeKeys(node.children || []),
   ])
+}
+
+function flattenTree(nodes = []) {
+  return nodes.flatMap((node) => [node, ...flattenTree(node.children || [])])
+}
+
+function ensureDefaultSelection() {
+  if (selectedNode.value || props.defaultModule === 'auto') return
+  const nodes = flattenTree(visibleTreeData.value)
+  const target =
+    props.defaultModule === 'inventory'
+      ? nodes.find((node) => node.type === 'location' && node.location_type === 0)
+      : nodes.find((node) => node.type === 'cabinet') ||
+        nodes.find((node) => node.type === 'location' && node.location_type !== 0)
+  if (!target) return
+  selectedNode.value = target
+  selectedKeys.value = [target.id]
 }
 
 async function loadCurrentList() {
