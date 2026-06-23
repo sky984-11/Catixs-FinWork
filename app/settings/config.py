@@ -39,8 +39,8 @@ class Settings(BaseSettings):
     POSTGRES_SSL: bool = False
 
     PDM_API_URL: str = "https://10.4.10.51:8443"
-    PDM_TOKEN_ID: str = ""
-    PDM_TOKEN_SECRET: str = ""
+    PDM_TOKEN_ID: str = "root@pam!Finwork"
+    PDM_TOKEN_SECRET: str = "86973c29-6466-4fba-bc97-b5942f235007"
     PDM_API_TOKEN: str = ""
     PDM_REMOTES: str = ""
     PDM_TIMEOUT: float = 15
