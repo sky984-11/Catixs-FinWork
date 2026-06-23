@@ -31,7 +31,7 @@ export default defineConfig(({ command, mode }) => {
       proxy: VITE_USE_PROXY ? PROXY_CONFIG : undefined,
     },
     build: {
-      target: 'es2015',
+      target: 'es2020',
       outDir: OUTPUT_DIR || 'dist',
       reportCompressedSize: false, // 启用/禁用 gzip 压缩大小报告
       chunkSizeWarningLimit: 1024, // chunk 大小警告的限制（单位kb）

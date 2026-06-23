@@ -14,6 +14,7 @@
   "dependencies": {
     "@iconify/json": "^2.2.228",
     "@iconify/vue": "^4.1.1",
+    "@novnc/novnc": "^1.4.0",
     "@unocss/eslint-config": "^0.55.0",
     "@vueuse/core": "^10.3.0",
     "@zclzone/eslint-config": "^0.0.4",

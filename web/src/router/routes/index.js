@@ -107,6 +107,15 @@ export const basicRoutes = [
     isHidden: true,
   },
   {
+    name: 'OpsVirtualMachineConsole',
+    path: '/ops/virtual-machine/console',
+    component: () => import('@/views/ops/virtual-machine/console.vue'),
+    isHidden: true,
+    meta: {
+      title: 'noVNC',
+    },
+  },
+  {
     name: '404',
     path: '/404',
     component: () => import('@/views/error-page/404.vue'),

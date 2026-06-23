@@ -130,6 +130,7 @@
               :scroll-x="1280"
               :row-key="(row) => row.id"
               :row-class-name="() => 'vm-table-row'"
+              :row-props="vmRowProps"
             />
             <div class="vm-list-footer">
               <div class="status-summary">
@@ -531,6 +532,26 @@
         </template>
       </n-modal>
 
+      <n-modal
+        v-model:show="consoleModal.show"
+        preset="card"
+        :title="consoleTitle"
+        class="vm-console-modal"
+        :style="vmConsoleModalStyle"
+        :bordered="false"
+        @after-leave="resetConsoleModal"
+      >
+        <NoVncConsole
+          v-if="consoleModal.row"
+          embedded
+          :remote="consoleModal.row.remote"
+          :vmid="consoleModal.row.vmid"
+          :node="consoleModal.row.node || ''"
+          :type="consoleModal.row.type || 'pve-qemu'"
+          :title="consoleModal.row.name || `VM ${consoleModal.row.vmid}`"
+        />
+      </n-modal>
+
       <button v-if="taskModal.upid && !taskModal.show" class="task-float-button" @click="taskModal.show = true">
         <TheIcon icon="mdi:progress-clock" :size="18" />
         <span>{{ taskModal.vmName || '迁移任务' }}</span>
@@ -545,6 +566,7 @@ import { computed, h, nextTick, onBeforeUnmount, onMounted, reactive, ref } from
 import { NButton, NSpace, NTag, useMessage } from 'naive-ui'
 import api from '@/api'
 import TheIcon from '@/components/icon/TheIcon.vue'
+import NoVncConsole from './NoVncConsole.vue'
 
 const message = useMessage()
 
@@ -619,6 +641,11 @@ const taskModal = reactive({
   detail: null,
 })
 
+const consoleModal = reactive({
+  show: false,
+  row: null,
+})
+
 const taskTimer = ref(null)
 const tableRenderKey = ref(0)
 const createOptionsCache = new Map()
@@ -640,6 +667,11 @@ const vmMigrationModalStyle = {
 
 const vmTaskModalStyle = {
   width: '420px',
+  maxWidth: 'calc(100vw - 32px)',
+}
+
+const vmConsoleModalStyle = {
+  width: 'min(1120px, calc(100vw - 32px))',
   maxWidth: 'calc(100vw - 32px)',
 }
 
@@ -744,6 +776,12 @@ const taskStatusText = computed(() => {
   return '迁移中'
 })
 
+const consoleTitle = computed(() => {
+  const row = consoleModal.row
+  if (!row) return 'noVNC 控制台'
+  return `${row.name || `VM ${row.vmid}`} 控制台`
+})
+
 const columns = [
   { title: 'VMID', key: 'vmid', width: 90 },
   {
@@ -835,6 +873,27 @@ const columns = [
     },
   },
 ]
+
+function vmRowProps(row) {
+  return {
+    title: '双击打开 noVNC 控制台',
+    onDblclick: () => openNoVnc(row),
+  }
+}
+
+async function openNoVnc(row) {
+  if (!row?.remote || !row?.vmid) {
+    message.warning('缺少虚拟机远程或 VMID 信息')
+    return
+  }
+
+  consoleModal.row = { ...row }
+  consoleModal.show = true
+}
+
+function resetConsoleModal() {
+  consoleModal.row = null
+}
 
 function actionButton(label, icon, type, row, className = '', handler = null) {
   return h(
@@ -1782,6 +1841,14 @@ onBeforeUnmount(() => {
 
 .vm-task-modal {
   width: min(480px, calc(100vw - 32px));
+}
+
+.vm-console-modal {
+  overflow: hidden;
+}
+
+.vm-console-modal :deep(.n-card__content) {
+  padding: 0;
 }
 
 .add-node-steps {
