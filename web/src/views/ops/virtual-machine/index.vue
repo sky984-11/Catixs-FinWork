@@ -2014,18 +2014,18 @@ onBeforeUnmount(() => {
 }
 
 .content-panel :deep(.vm-button-monitor) {
-  --n-text-color: #0f766e !important;
-  --n-text-color-hover: #0f766e !important;
-  --n-text-color-pressed: #115e59 !important;
-  --n-text-color-focus: #0f766e !important;
-  --n-color: rgba(20, 184, 166, 0.14) !important;
-  --n-color-hover: rgba(20, 184, 166, 0.22) !important;
-  --n-color-pressed: rgba(20, 184, 166, 0.28) !important;
-  --n-color-focus: rgba(20, 184, 166, 0.22) !important;
-  --n-border: 1px solid rgba(20, 184, 166, 0.28) !important;
-  --n-border-hover: 1px solid rgba(20, 184, 166, 0.42) !important;
-  --n-border-pressed: 1px solid rgba(20, 184, 166, 0.5) !important;
-  --n-border-focus: 1px solid rgba(20, 184, 166, 0.42) !important;
+  --n-text-color: #4f46e5 !important;
+  --n-text-color-hover: #4338ca !important;
+  --n-text-color-pressed: #3730a3 !important;
+  --n-text-color-focus: #4f46e5 !important;
+  --n-color: rgba(99, 102, 241, 0.13) !important;
+  --n-color-hover: rgba(99, 102, 241, 0.2) !important;
+  --n-color-pressed: rgba(99, 102, 241, 0.26) !important;
+  --n-color-focus: rgba(99, 102, 241, 0.2) !important;
+  --n-border: 1px solid rgba(99, 102, 241, 0.28) !important;
+  --n-border-hover: 1px solid rgba(99, 102, 241, 0.42) !important;
+  --n-border-pressed: 1px solid rgba(99, 102, 241, 0.5) !important;
+  --n-border-focus: 1px solid rgba(99, 102, 241, 0.42) !important;
 }
 
 .content-panel :deep(.vm-button-send) {
