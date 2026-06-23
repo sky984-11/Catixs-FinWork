@@ -2,14 +2,9 @@
   <AppPage :show-footer="false">
     <div class="akvorado-page">
       <aside class="region-panel">
-        <div class="panel-head">
+        <!-- <div class="panel-head">
           <strong>Akvorado</strong>
-          <n-button quaternary circle size="small" @click="reloadFrame">
-            <template #icon>
-              <TheIcon icon="mdi:refresh" :size="18" />
-            </template>
-          </n-button>
-        </div>
+        </div> -->
 
         <div class="region-list">
           <button
