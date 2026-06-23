@@ -7,6 +7,7 @@ venv/
 .pytest_cache/
 migrations/
 .env
+.pnpm-store/
 
 db.sqlite3
 db.sqlite3-journal
