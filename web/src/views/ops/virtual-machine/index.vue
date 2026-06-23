@@ -35,6 +35,7 @@
                     class="side-list-item"
                     :class="{ active: selectedNode?.value === node.value }"
                     @click="selectNode(node)"
+                    @mouseenter="loadNodeTooltipRemark(node)"
                     @contextmenu.prevent.stop="openNodeContextMenu($event, node)"
                   >
                     <span>
@@ -46,7 +47,10 @@
                     </n-tag>
                   </button>
                 </template>
-                <span>IP：{{ nodeAddress(node) }}</span>
+                <div class="node-tooltip">
+                  <span>IP：{{ nodeAddress(node) }}</span>
+                  <span v-if="nodeTooltipRemark(node)">备注：{{ nodeTooltipRemark(node) }}</span>
+                </div>
               </n-tooltip>
             </div>
           </n-spin>
@@ -627,6 +631,7 @@ const filters = reactive({
 const nodeOptions = ref([])
 const selectedNode = ref(null)
 const vmList = ref([])
+const nodeRemarkCache = reactive({})
 const vmSummary = reactive({
   total: 0,
   running: 0,
@@ -1306,6 +1311,7 @@ async function submitEditNode() {
       remark: editNodeModal.form.remark || '',
       host: editNodeModal.form.hostname || editNodeModal.form.originalHostname || undefined,
     })
+    nodeRemarkCache[editNodeModal.form.remote] = { loading: false, remark: editNodeModal.form.remark || '' }
     message.success(res.msg || 'PVE 节点已更新')
     editNodeModal.show = false
     await refreshNodes()
@@ -1689,6 +1695,31 @@ function nodeAddress(node) {
   return node.ip || node.address || node.host || node.endpoint || node.remote || node.label || '-'
 }
 
+function nodeCacheKey(node) {
+  return node?.remote || node?.value || ''
+}
+
+function nodeTooltipRemark(node) {
+  const key = nodeCacheKey(node)
+  const cached = key ? nodeRemarkCache[key] : null
+  return String(cached?.remark || '').trim()
+}
+
+async function loadNodeTooltipRemark(node) {
+  const remote = nodeCacheKey(node)
+  if (!remote || nodeRemarkCache[remote]) return
+  nodeRemarkCache[remote] = { loading: true, remark: '' }
+  try {
+    const host = nodeAddress(node) === '-' ? '' : nodeAddress(node)
+    const res = await api.virtualMachineApi.nodeRemark(remote, {
+      host: host || undefined,
+    })
+    nodeRemarkCache[remote] = { loading: false, remark: res.data?.remark || '' }
+  } catch {
+    nodeRemarkCache[remote] = { loading: false, remark: '' }
+  }
+}
+
 function formatPercent(value) {
   const number = Number(value || 0)
   return `${Number.isInteger(number) ? number : number.toFixed(2).replace(/\.?0+$/, '')}%`
@@ -1906,6 +1937,15 @@ onBeforeUnmount(() => {
   color: #64748b;
   font-size: 12px;
   font-style: normal;
+}
+
+.node-tooltip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 260px;
+  line-height: 1.45;
+  white-space: normal;
 }
 
 .summary-band {
