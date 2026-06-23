@@ -142,7 +142,7 @@
               :columns="columns"
               :data="pagedVmList"
               :pagination="false"
-              :scroll-x="1280"
+              :scroll-x="1440"
               :row-key="(row) => row.id"
               :row-class-name="() => 'vm-table-row'"
               :row-props="vmRowProps"
@@ -944,7 +944,7 @@ const columns = [
   {
     title: '操作',
     key: 'actions',
-    width: 260,
+    width: 360,
     fixed: 'right',
     render(row) {
       return h(
@@ -952,6 +952,8 @@ const columns = [
         { class: 'vm-row-actions', size: 6, wrap: false },
         {
           default: () => [
+            actionButton('监控', 'mdi:chart-line', 'info', row, 'vm-button-monitor'),
+            powerButton(row),
             actionButton('编辑', 'material-symbols:edit-outline-rounded', 'info', row),
             actionButton('删除', 'material-symbols:delete-outline-rounded', 'error', row),
             actionButton('迁移', 'material-symbols:send-rounded', 'warning', row, 'vm-button-send', openMigration),
@@ -1005,6 +1007,16 @@ function actionButton(label, icon, type, row, className = '', handler = null) {
       icon: () => h(TheIcon, { icon, size: 14 }),
       default: () => label,
     }
+  )
+}
+
+function powerButton(row) {
+  const isRunning = row.status === 'running'
+  return actionButton(
+    isRunning ? '关机' : '开机',
+    isRunning ? 'mdi:power' : 'mdi:play-circle-outline',
+    isRunning ? 'warning' : 'success',
+    row
   )
 }
 
@@ -1999,6 +2011,21 @@ onBeforeUnmount(() => {
   flex-flow: row nowrap !important;
   flex-wrap: nowrap;
   gap: 6px !important;
+}
+
+.content-panel :deep(.vm-button-monitor) {
+  --n-text-color: #0f766e !important;
+  --n-text-color-hover: #0f766e !important;
+  --n-text-color-pressed: #115e59 !important;
+  --n-text-color-focus: #0f766e !important;
+  --n-color: rgba(20, 184, 166, 0.14) !important;
+  --n-color-hover: rgba(20, 184, 166, 0.22) !important;
+  --n-color-pressed: rgba(20, 184, 166, 0.28) !important;
+  --n-color-focus: rgba(20, 184, 166, 0.22) !important;
+  --n-border: 1px solid rgba(20, 184, 166, 0.28) !important;
+  --n-border-hover: 1px solid rgba(20, 184, 166, 0.42) !important;
+  --n-border-pressed: 1px solid rgba(20, 184, 166, 0.5) !important;
+  --n-border-focus: 1px solid rgba(20, 184, 166, 0.42) !important;
 }
 
 .content-panel :deep(.vm-button-send) {
