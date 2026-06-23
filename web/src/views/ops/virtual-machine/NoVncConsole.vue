@@ -12,23 +12,6 @@
       </n-space>
     </header>
 
-    <section class="clipboard-bar">
-      <n-input
-        v-model:value="clipboardText"
-        size="small"
-        placeholder="输入或粘贴内容后发送到终端"
-        clearable
-        @keydown.stop
-      />
-      <n-space :wrap="false" size="small">
-        <n-button size="small" @click="readLocalClipboard">读取本机</n-button>
-        <n-button size="small" type="primary" secondary :disabled="!connected || !clipboardText" @click="sendClipboard">
-          发送到终端
-        </n-button>
-        <n-button size="small" :disabled="!remoteClipboardText" @click="copyRemoteClipboard">复制终端剪贴板</n-button>
-      </n-space>
-    </section>
-
     <main ref="screenRef" class="novnc-screen">
       <n-spin v-if="loading" />
       <n-result v-else-if="error" status="error" title="noVNC 连接失败" :description="error" />
@@ -39,7 +22,6 @@
 <script setup>
 import RFB from '@novnc/novnc'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useMessage } from 'naive-ui'
 import api from '@/api'
 import { getToken } from '@/utils'
 
@@ -53,13 +35,10 @@ const props = defineProps({
   autoConnect: { type: Boolean, default: true },
 })
 
-const message = useMessage()
 const screenRef = ref(null)
 const loading = ref(false)
 const connected = ref(false)
 const error = ref('')
-const clipboardText = ref('')
-const remoteClipboardText = ref('')
 let rfb = null
 let connectTimer = null
 
@@ -108,12 +87,6 @@ function bindRfbEvents(instance) {
   instance.addEventListener('credentialsrequired', () => {
     instance.sendCredentials({ password: instance._catixsPassword })
   })
-  instance.addEventListener('clipboard', (event) => {
-    remoteClipboardText.value = event.detail?.text || ''
-    if (remoteClipboardText.value) {
-      clipboardText.value = remoteClipboardText.value
-    }
-  })
 }
 
 function websocketUrl(path) {
@@ -123,6 +96,12 @@ function websocketUrl(path) {
   } else if (import.meta.env.VITE_WS_BASE_API) {
     const wsBaseApi = import.meta.env.VITE_WS_BASE_API
     const normalizedBase = wsBaseApi.replace(/\/$/, '')
+    const normalizedPath = path.replace(/^\/api\/v1/, '').replace(/^\//, '')
+    url = `${normalizedBase}/${normalizedPath}`
+  } else if (import.meta.env.VITE_BASE_API?.startsWith('http')) {
+    const baseApi = new URL(import.meta.env.VITE_BASE_API)
+    baseApi.protocol = baseApi.protocol === 'https:' ? 'wss:' : 'ws:'
+    const normalizedBase = baseApi.toString().replace(/\/$/, '')
     const normalizedPath = path.replace(/^\/api\/v1/, '').replace(/^\//, '')
     url = `${normalizedBase}/${normalizedPath}`
   } else {
@@ -177,43 +156,6 @@ async function connect() {
   }
 }
 
-async function readLocalClipboard() {
-  if (!navigator.clipboard?.readText) {
-    message.warning('当前浏览器不支持直接读取剪贴板，请手动粘贴到输入框')
-    return
-  }
-  try {
-    clipboardText.value = await navigator.clipboard.readText()
-  } catch (err) {
-    message.warning('读取剪贴板失败，请确认浏览器权限或手动粘贴')
-  }
-}
-
-function sendClipboard() {
-  if (!rfb || !connected.value) {
-    message.warning('控制台尚未连接')
-    return
-  }
-  rfb.clipboardPasteFrom(clipboardText.value)
-  message.success('已发送到终端剪贴板')
-}
-
-async function copyRemoteClipboard() {
-  if (!remoteClipboardText.value) return
-  if (!navigator.clipboard?.writeText) {
-    clipboardText.value = remoteClipboardText.value
-    message.warning('浏览器不支持自动写入剪贴板，内容已放入输入框')
-    return
-  }
-  try {
-    await navigator.clipboard.writeText(remoteClipboardText.value)
-    message.success('已复制终端剪贴板内容')
-  } catch (err) {
-    clipboardText.value = remoteClipboardText.value
-    message.warning('复制失败，内容已放入输入框')
-  }
-}
-
 watch(
   () => [props.remote, props.vmid, props.node, props.type],
   () => {
@@ -249,8 +191,7 @@ onBeforeUnmount(disconnect)
   overflow: hidden;
 }
 
-.novnc-toolbar,
-.clipboard-bar {
+.novnc-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -262,15 +203,6 @@ onBeforeUnmount(disconnect)
 
 .novnc-toolbar {
   min-height: 52px;
-}
-
-.clipboard-bar {
-  min-height: 44px;
-}
-
-.clipboard-bar :deep(.n-input) {
-  min-width: 180px;
-  flex: 1;
 }
 
 .console-title {
@@ -317,8 +249,7 @@ onBeforeUnmount(disconnect)
     min-width: 0;
   }
 
-  .novnc-toolbar,
-  .clipboard-bar {
+  .novnc-toolbar {
     align-items: stretch;
     flex-direction: column;
   }
