@@ -196,6 +196,9 @@ export default {
   virtualMachineApi: {
     pveNodes: () => request.get('/pve/nodes'),
     pveVms: (params = {}) => request.get('/pve/vms', { params }),
+    addNode: (data = {}) => request.post('/pve/nodes/add', data),
+    probeNode: (data = {}) => request.post('/pve/nodes/probe', data),
+    nodeRealms: (params = {}) => request.get('/pve/nodes/realms', { params }),
     createOptions: (params = {}) => request.get('/pve/vms/create-options', { params }),
     createVm: (data = {}) => request.post('/pve/vms/create', data),
     migrationOptions: (params = {}) => request.get('/pve/vms/migration-options', { params }),

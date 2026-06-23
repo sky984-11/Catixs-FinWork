@@ -1,6 +1,7 @@
 import asyncio
 import ipaddress
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Query
@@ -38,6 +39,26 @@ def pdm_auth_header() -> str:
         raise RuntimeError("PDM token is not configured")
 
     return f"PDMAPIToken {settings.PDM_TOKEN_ID}:{settings.PDM_TOKEN_SECRET}"
+
+
+def pve_api_host(hostname: str) -> str:
+    value = hostname.strip()
+    if not value or "://" in value or ":" in value:
+        return value
+    return f"{value}:8006"
+
+
+def pve_remote_node_entry(hostname: str, fingerprint: str | None = None) -> str:
+    value = hostname.strip()
+    if "://" in value:
+        parsed = urlparse(value)
+        value = parsed.netloc or parsed.path
+    value = value.split("/", 1)[0]
+    if value.endswith(":8006"):
+        value = value[:-5]
+    if fingerprint:
+        return f"{value},fingerprint={fingerprint.strip()}"
+    return value
 
 
 async def pdm_get(path: str, params: dict[str, Any] | None = None, timeout: float | None = None) -> Any:
@@ -518,6 +539,21 @@ class VMMigrateRequest(BaseModel):
     target_endpoint: str | None = None
 
 
+class PDMAddRemoteRequest(BaseModel):
+    hostname: str
+    authid: str | None = None
+    token: str | None = None
+    fingerprint: str | None = None
+    remote_id: str | None = None
+    create_token: str | None = None
+    web_url: str | None = None
+
+
+class PDMProbeRemoteRequest(BaseModel):
+    hostname: str
+    fingerprint: str | None = None
+
+
 def percent(value: Any) -> float:
     try:
         number = float(value or 0)
@@ -871,6 +907,87 @@ async def list_vms(
         "stopped": len([vm for vm in vms if vm.get("status") == "stopped"]),
     }
     return Success(data={"items": vms, "summary": summary})
+
+
+@router.post("/nodes/add", summary="Add PVE remote to PDM")
+async def add_pve_remote(payload: PDMAddRemoteRequest):
+    global _PDM_RESOURCE_CACHE
+
+    authid = (payload.authid or f"{settings.PVE_CREATE_SSH_USER}@pam").strip()
+    token = payload.token or settings.PVE_CREATE_SSH_PASSWORD
+    if not authid or not token:
+        return Fail(msg="添加 PVE 节点失败: 缺少默认认证信息")
+    if not payload.remote_id:
+        return Fail(msg="添加 PVE 节点失败: 请填写远程 ID")
+
+    target_host = pve_api_host(payload.hostname)
+    scan_payload: dict[str, Any] = {
+        "hostname": target_host,
+        "authid": authid,
+        "token": token,
+    }
+    if payload.fingerprint:
+        scan_payload["fingerprint"] = payload.fingerprint.strip()
+
+    try:
+        try:
+            scanned = await pdm_post("/pve/scan", scan_payload)
+        except Exception as scan_exc:
+            if "Connect" not in error_detail(scan_exc):
+                raise RuntimeError(f"扫描 PVE 节点失败: {error_detail(scan_exc)}") from scan_exc
+            scanned = {}
+        remote_payload = dict(scanned or {})
+        remote_payload["type"] = "pve"
+        remote_payload["authid"] = remote_payload.get("authid") or scan_payload["authid"]
+        remote_payload["token"] = remote_payload.get("token") or scan_payload["token"]
+
+        remote_payload["id"] = payload.remote_id.strip()
+        if payload.create_token:
+            remote_payload["create-token"] = payload.create_token.strip()
+        if payload.web_url:
+            remote_payload["web-url"] = payload.web_url.strip()
+
+        remote_payload["nodes"] = [
+            pve_remote_node_entry(payload.hostname, payload.fingerprint)
+        ]
+
+        try:
+            await pdm_post("/remotes/remote", remote_payload)
+        except Exception as save_exc:
+            raise RuntimeError(f"写入 PDM Remote 配置失败: {error_detail(save_exc)}") from save_exc
+        _PDM_RESOURCE_CACHE = []
+    except Exception as exc:
+        return Fail(msg=f"添加 PVE 节点失败: {error_detail(exc)}")
+
+    return Success(msg="PVE 节点已添加", data={"remote": remote_payload.get("id"), "nodes": remote_payload.get("nodes", [])})
+
+
+@router.post("/nodes/probe", summary="Probe PVE remote TLS")
+async def probe_pve_remote(payload: PDMProbeRemoteRequest):
+    request_payload: dict[str, Any] = {"hostname": pve_api_host(payload.hostname)}
+    if payload.fingerprint:
+        request_payload["fingerprint"] = payload.fingerprint.strip()
+
+    try:
+        data = await pdm_post("/pve/probe-tls", request_payload)
+    except Exception as exc:
+        return Fail(msg=f"探测 PVE 节点失败: {error_detail(exc)}")
+
+    return Success(msg="PVE 节点探测通过", data=data or {})
+
+
+@router.get("/nodes/realms", summary="PVE remote realms")
+async def pve_remote_realms(hostname: str = Query(...), fingerprint: str = Query("")):
+    params = {"hostname": pve_api_host(hostname)}
+    if fingerprint:
+        params["fingerprint"] = fingerprint.strip()
+
+    try:
+        data = await pdm_get("/pve/realms", params=params)
+    except Exception as exc:
+        return Fail(msg=f"读取 PVE 认证域失败: {error_detail(exc)}")
+
+    return Success(data=data or [])
 
 
 @router.get("/tasks/status", summary="PDM remote task status")

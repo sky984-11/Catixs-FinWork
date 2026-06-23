@@ -8,9 +8,9 @@
               <span class="eyebrow">PDM DATACENTER</span>
               <h2>节点列表</h2>
             </div>
-            <n-button secondary circle :loading="loading.nodes" @click="refreshNodes">
+            <n-button type="primary" secondary circle @click="openAddNodeModal">
               <template #icon>
-                <TheIcon icon="mdi:refresh" :size="18" />
+                <TheIcon icon="mdi:server-plus" :size="18" />
               </template>
             </n-button>
           </div>
@@ -162,15 +162,6 @@
               <n-form-item-gi label="所在节点">
                 <n-input v-model:value="createModal.form.region" readonly />
               </n-form-item-gi>
-              <n-form-item-gi label="SSH 地址">
-                <n-input :value="createModal.sshHost || '-'" readonly />
-              </n-form-item-gi>
-              <n-form-item-gi label="虚拟机名称">
-                <n-input-group>
-                  <n-input v-model:value="createModal.form.vm_name" placeholder="请输入虚拟机名称" />
-                  <n-button class="random-addon-button" ghost type="primary" @click="refreshCreateVmName">随机</n-button>
-                </n-input-group>
-              </n-form-item-gi>
               <n-form-item-gi label="操作系统" required>
                 <n-cascader
                   v-model:value="createModal.form.os_selection"
@@ -179,6 +170,12 @@
                   check-strategy="child"
                   @update:value="handleCreateOsChange"
                 />
+              </n-form-item-gi>
+              <n-form-item-gi label="虚拟机名称">
+                <n-input-group>
+                  <n-input v-model:value="createModal.form.vm_name" placeholder="请输入虚拟机名称" />
+                  <n-button class="random-addon-button" ghost type="primary" @click="refreshCreateVmName">随机</n-button>
+                </n-input-group>
               </n-form-item-gi>
               <n-form-item-gi label="存储位置">
                 <n-select
@@ -302,6 +299,122 @@
             <n-space v-else>
               <n-button @click="createModal.show = false">关闭</n-button>
               <n-button type="primary" @click="resetCreateModalForNext">继续创建</n-button>
+            </n-space>
+          </div>
+        </template>
+      </n-modal>
+
+      <n-modal
+        v-model:show="addNodeModal.show"
+        preset="card"
+        title="添加节点"
+        class="vm-add-node-modal"
+        :style="vmAddNodeModalStyle"
+      >
+        <n-steps :current="addNodeModal.step" class="add-node-steps">
+          <n-step title="Probe Remote" />
+          <n-step title="设置" />
+          <n-step title="概要" />
+        </n-steps>
+
+        <n-form v-if="addNodeModal.step === 1" label-placement="left" label-width="104">
+          <n-form-item label="服务器地址" required>
+            <n-input v-model:value="addNodeModal.form.hostname" placeholder="<IP/Hostname>:Port" />
+          </n-form-item>
+          <n-form-item label="指纹">
+            <n-input
+              v-model:value="addNodeModal.form.fingerprint"
+              type="textarea"
+              placeholder="服务器凭证 SHA-256 指纹，自签名证书通常必填"
+              :autosize="{ minRows: 2, maxRows: 3 }"
+            />
+          </n-form-item>
+        </n-form>
+
+        <n-form v-else-if="addNodeModal.step === 2" label-placement="left" label-width="128">
+          <n-form-item label="远程 ID" required>
+            <n-input v-model:value="addNodeModal.form.remote_id" placeholder="例如 HK-PVE" />
+          </n-form-item>
+
+          <n-radio-group v-model:value="addNodeModal.form.authMode" class="add-node-auth-mode">
+            <n-grid :cols="2" :x-gap="24">
+              <n-gi>
+                <n-radio value="login">Login and create Token</n-radio>
+              </n-gi>
+              <n-gi>
+                <n-radio value="token">Use existing Token</n-radio>
+              </n-gi>
+            </n-grid>
+          </n-radio-group>
+
+          <n-grid v-if="addNodeModal.form.authMode === 'login'" :cols="2" :x-gap="36">
+            <n-gi>
+              <n-form-item label="用户" required>
+                <n-input v-model:value="addNodeModal.form.username" autocomplete="username" />
+              </n-form-item>
+              <n-form-item label="密码" required>
+                <n-input
+                  v-model:value="addNodeModal.form.password"
+                  type="password"
+                  show-password-on="click"
+                  autocomplete="current-password"
+                  placeholder="请输入密码"
+                />
+              </n-form-item>
+            </n-gi>
+            <n-gi>
+              <n-form-item label="领域" required>
+                <n-select v-model:value="addNodeModal.form.realm" :options="addNodeRealmOptions" />
+              </n-form-item>
+              <n-form-item label="API Token Name" required>
+                <n-input v-model:value="addNodeModal.form.create_token" />
+              </n-form-item>
+            </n-gi>
+          </n-grid>
+
+          <n-grid v-else :cols="2" :x-gap="36">
+            <n-gi>
+              <n-form-item label="令牌" required>
+                <n-input v-model:value="addNodeModal.form.authid" placeholder="user@realm!token-id" />
+              </n-form-item>
+            </n-gi>
+            <n-gi>
+              <n-form-item label="密钥" required>
+                <n-input
+                  v-model:value="addNodeModal.form.token"
+                  type="password"
+                  show-password-on="click"
+                  autocomplete="off"
+                  placeholder="API Token Secret"
+                />
+              </n-form-item>
+            </n-gi>
+          </n-grid>
+        </n-form>
+
+        <n-descriptions v-else bordered :column="1" size="small">
+          <n-descriptions-item label="服务器地址">{{ addNodeModal.form.hostname || '-' }}</n-descriptions-item>
+          <n-descriptions-item label="远程 ID">{{ addNodeModal.form.remote_id || '使用 PDM 探测结果' }}</n-descriptions-item>
+          <n-descriptions-item label="认证方式">
+            {{ addNodeModal.form.authMode === 'login' ? 'Login and create Token' : 'Use existing Token' }}
+          </n-descriptions-item>
+          <n-descriptions-item label="Auth ID">{{ resolvedAddNodeAuthid || '-' }}</n-descriptions-item>
+        </n-descriptions>
+        <template #footer>
+          <div class="modal-footer">
+            <span>{{ addNodeFooterText }}</span>
+            <n-space>
+              <n-button v-if="addNodeModal.step === 1" @click="addNodeModal.show = false">取消</n-button>
+              <n-button v-else @click="addNodeModal.step -= 1">返回</n-button>
+              <n-button
+                v-if="addNodeModal.step < 3"
+                type="primary"
+                :loading="addNodeModal.probing"
+                @click="nextAddNodeStep"
+              >
+                下一步
+              </n-button>
+              <n-button v-else type="primary" :loading="addNodeModal.submitting" @click="submitAddNode">添加</n-button>
             </n-space>
           </div>
         </template>
@@ -465,6 +578,15 @@ const createModal = reactive({
   form: createEmptyVmForm(),
 })
 
+const addNodeModal = reactive({
+  show: false,
+  step: 1,
+  probing: false,
+  submitting: false,
+  realms: [],
+  form: createEmptyAddNodeForm(),
+})
+
 const migrationModal = reactive({
   show: false,
   loading: false,
@@ -502,6 +624,11 @@ const tableRenderKey = ref(0)
 const createOptionsCache = new Map()
 
 const vmCreateModalStyle = {
+  width: '760px',
+  maxWidth: 'calc(100vw - 32px)',
+}
+
+const vmAddNodeModalStyle = {
   width: '760px',
   maxWidth: 'calc(100vw - 32px)',
 }
@@ -568,6 +695,29 @@ const createStorageOptions = computed(() =>
     value: storage.value,
   }))
 )
+
+const addNodeFooterText = computed(() => {
+  if (addNodeModal.step === 1) return '先探测目标 PVE 的 TLS 指纹。'
+  if (addNodeModal.step === 2) return '填写 Remote 名称，选择登录创建 Token 或使用已有 API Token。'
+  return '确认后会写入 PDM Remote 配置。'
+})
+
+const addNodeRealmOptions = computed(() => {
+  const realms = addNodeModal.realms.length ? addNodeModal.realms : [{ realm: 'pam', type: 'pam' }]
+  return realms.map((item) => {
+    const value = item.realm || item.value || item.id
+    return {
+      label: item.comment ? `${value} - ${item.comment}` : value,
+      value,
+    }
+  })
+})
+
+const resolvedAddNodeAuthid = computed(() => {
+  if (addNodeModal.form.authMode === 'token') return addNodeModal.form.authid
+  if (!addNodeModal.form.username || !addNodeModal.form.realm) return ''
+  return `${addNodeModal.form.username}@${addNodeModal.form.realm}`
+})
 
 const taskFinished = computed(() => Boolean(taskModal.detail?.finished))
 
@@ -734,6 +884,30 @@ function createEmptyVmForm() {
       rate_limit: 5,
     },
   }
+}
+
+function createEmptyAddNodeForm() {
+  return {
+    hostname: '',
+    fingerprint: '',
+    authMode: 'login',
+    username: 'root',
+    realm: 'pam',
+    password: '',
+    authid: '',
+    token: '',
+    remote_id: '',
+    create_token: 'pdm-admin-HK-datacenter',
+    web_url: '',
+  }
+}
+
+function extractProbeFingerprint(data) {
+  if (!data || typeof data !== 'object') return ''
+  if (data.fingerprint) return data.fingerprint
+  if (data.UntrustedCertificate?.fingerprint) return data.UntrustedCertificate.fingerprint
+  if (data.TrustedCertificate?.fingerprint) return data.TrustedCertificate.fingerprint
+  return ''
 }
 
 function generateRandomVmName() {
@@ -916,6 +1090,115 @@ function resetCreateModalForNext() {
     ...createEmptyVmForm(),
     region,
     storage,
+  }
+}
+
+function openAddNodeModal() {
+  addNodeModal.form = createEmptyAddNodeForm()
+  addNodeModal.realms = []
+  addNodeModal.step = 1
+  addNodeModal.show = true
+}
+
+function validateAddNodeForm() {
+  if (!addNodeModal.form.hostname) return '请输入服务器地址'
+  if (!addNodeModal.form.remote_id) return '请输入远程 ID'
+  if (addNodeModal.form.authMode === 'login') {
+    if (!addNodeModal.form.username) return '请输入用户'
+    if (!addNodeModal.form.password) return '请输入密码'
+    if (!addNodeModal.form.realm) return '请选择领域'
+    if (!addNodeModal.form.create_token) return '请输入 API Token Name'
+    return ''
+  }
+  if (!addNodeModal.form.authid) return '请输入令牌'
+  if (!addNodeModal.form.token) return '请输入密钥'
+  return ''
+}
+
+async function nextAddNodeStep() {
+  if (addNodeModal.step === 1) {
+    if (!addNodeModal.form.hostname) {
+      message.warning('请输入服务器地址')
+      return
+    }
+    addNodeModal.probing = true
+    try {
+      const probeRes = await api.virtualMachineApi.probeNode({
+        hostname: addNodeModal.form.hostname,
+        fingerprint: addNodeModal.form.fingerprint || undefined,
+      })
+      const probedFingerprint = extractProbeFingerprint(probeRes.data)
+      if (probedFingerprint) {
+        addNodeModal.form.fingerprint = probedFingerprint
+      }
+      const realmsRes = await api.virtualMachineApi.nodeRealms({
+        hostname: addNodeModal.form.hostname,
+        fingerprint: addNodeModal.form.fingerprint || undefined,
+      })
+      addNodeModal.realms = realmsRes.data || []
+      if (
+        addNodeModal.realms.length &&
+        !addNodeModal.realms.some((item) => (item.realm || item.value || item.id) === addNodeModal.form.realm)
+      ) {
+        addNodeModal.form.realm = addNodeModal.realms[0].realm || addNodeModal.realms[0].value || 'pam'
+      }
+      addNodeModal.step = 2
+    } catch (error) {
+      message.error(error.message || '探测 PVE 节点失败')
+    } finally {
+      addNodeModal.probing = false
+    }
+    return
+  }
+
+  const error = validateAddNodeForm()
+  if (error) {
+    message.warning(error)
+    return
+  }
+  addNodeModal.step = 3
+}
+
+function buildAddNodePayload() {
+  const payload = {
+    hostname: addNodeModal.form.hostname,
+    fingerprint: addNodeModal.form.fingerprint || undefined,
+    remote_id: addNodeModal.form.remote_id,
+    web_url: addNodeModal.form.web_url || undefined,
+  }
+  if (addNodeModal.form.authMode === 'login') {
+    return {
+      ...payload,
+      authid: resolvedAddNodeAuthid.value,
+      token: addNodeModal.form.password,
+      create_token: addNodeModal.form.create_token,
+    }
+  }
+  return {
+    ...payload,
+    authid: addNodeModal.form.authid,
+    token: addNodeModal.form.token,
+  }
+}
+
+async function submitAddNode() {
+  const error = validateAddNodeForm()
+  if (error) {
+    message.warning(error)
+    return
+  }
+
+  addNodeModal.submitting = true
+  try {
+    const res = await api.virtualMachineApi.addNode(buildAddNodePayload())
+    message.success(res.msg || 'PVE 节点已添加')
+    addNodeModal.show = false
+    createOptionsCache.clear()
+    await refreshNodes()
+  } catch (error) {
+    message.error(error.message || '添加 PVE 节点失败')
+  } finally {
+    addNodeModal.submitting = false
   }
 }
 
@@ -1494,8 +1777,24 @@ onBeforeUnmount(() => {
   width: min(480px, calc(100vw - 32px));
 }
 
+.add-node-steps {
+  margin-bottom: 22px;
+}
+
 .create-result-panel {
   padding: 4px 0 8px;
+}
+
+.add-node-hint {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.add-node-auth-mode {
+  display: block;
+  margin-bottom: 18px;
 }
 
 .password-code {
