@@ -197,6 +197,12 @@ export default {
     pveNodes: () => request.get('/pve/nodes'),
     pveVms: (params = {}) => request.get('/pve/vms', { params }),
     addNode: (data = {}) => request.post('/pve/nodes/add', data),
+    updateNode: (remote, data = {}) => request.put(`/pve/nodes/remote/${encodeURIComponent(remote)}`, data),
+    deleteNode: (remote) => request.delete(`/pve/nodes/remote/${encodeURIComponent(remote)}`),
+    nodeRemark: (remote, params = {}) =>
+      request.get(`/pve/nodes/remote/${encodeURIComponent(remote)}/remark`, { params }),
+    updateNodeRemark: (remote, data = {}) =>
+      request.put(`/pve/nodes/remote/${encodeURIComponent(remote)}/remark`, data),
     probeNode: (data = {}) => request.post('/pve/nodes/probe', data),
     nodeRealms: (params = {}) => request.get('/pve/nodes/realms', { params }),
     createOptions: (params = {}) => request.get('/pve/vms/create-options', { params }),
