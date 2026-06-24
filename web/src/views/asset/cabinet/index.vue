@@ -27,6 +27,12 @@
             <div>
               <span class="eyebrow">{{ selectedRegion?.code || '-' }}</span>
               <h2>{{ selectedRegion?.name || '请选择地区' }}</h2>
+              <div class="region-meta">
+                <span>{{ selectedRegionNode?.locations.length || 0 }} 机房</span>
+                <span>{{ selectedRegionNode?.cabinetCount || 0 }} 机柜</span>
+                <span>{{ selectedRegionNode?.deviceCount || 0 }} 设备</span>
+                <span>{{ rackUsedUnits }}/{{ rackCapacity }}U</span>
+              </div>
             </div>
             <n-space align="center">
               <n-select
@@ -41,27 +47,12 @@
             </n-space>
           </div>
 
-          <div class="cabinet-overview">
-            <article>
-              <span>机房</span>
-              <strong>{{ selectedRegionNode?.locations.length || 0 }}</strong>
-            </article>
-            <article>
-              <span>机柜</span>
-              <strong>{{ selectedRegionNode?.cabinetCount || 0 }}</strong>
-            </article>
-            <article>
-              <span>设备</span>
-              <strong>{{ selectedRegionNode?.deviceCount || 0 }}</strong>
-            </article>
-            <article>
-              <span>当前机柜占用</span>
-              <strong>{{ rackUsedUnits }}/{{ rackCapacity }}U</strong>
-            </article>
-          </div>
-
           <div class="cabinet-content">
             <div class="cabinet-list">
+              <div class="side-section-title">
+                <span>Cabinets</span>
+                <strong>{{ selectedCabinets.length }}</strong>
+              </div>
               <button
                 v-for="cabinet in selectedCabinets"
                 :key="cabinet.id"
@@ -82,45 +73,68 @@
                     <span class="eyebrow">Rack Diagram</span>
                     <h3>{{ selectedCabinet.name }}</h3>
                   </div>
-                  <n-tag round :type="rackConflictCount ? 'error' : 'success'">
-                    {{ rackConflictCount ? `${rackConflictCount} 个冲突U位` : 'U位正常' }}
-                  </n-tag>
-                  <n-button type="primary" round @click="openDeviceModal">新增设备</n-button>
+                  <n-space align="center">
+                    <n-tag round :type="rackConflictCount ? 'error' : 'success'">
+                      {{ rackConflictCount ? `${rackConflictCount} 个冲突U位` : 'U位正常' }}
+                    </n-tag>
+                    <n-button type="primary" round @click="openDeviceModal()">新增设备</n-button>
+                  </n-space>
                 </div>
 
-                <div class="rack-shell">
-                  <div class="rack-cap"></div>
-                  <div class="rack-body">
-                    <div class="rack-rail left"></div>
-                    <div class="rack-rail right"></div>
-                    <div class="rack-slots" :style="{ '--rack-units': rackCapacity }">
-                      <div
-                        v-for="unit in rackUnits"
-                        :key="unit.no"
-                        class="rack-row"
-                        :class="{ occupied: unit.occupied, conflict: unit.conflict }"
-                        :style="{ gridRow: rackUnitGridRow(unit) }"
-                      >
-                        <span>{{ unit.no }}U</span>
-                      </div>
-                      <button
-                        v-for="block in rackBlocks"
-                        :key="block.device.id"
-                        class="device-block"
-                        :class="[
-                          `device-type-${Number(block.device.type)}`,
-                          `device-status-${Number(block.device.status)}`,
-                          { compact: block.height <= 1, conflict: block.conflict },
-                        ]"
-                        :style="rackBlockStyle(block)"
-                        @click="openDeviceDetail(block.device)"
-                      >
-                        <strong>{{ block.device.name || '-' }}</strong>
-                        <span>{{ getDeviceType(block.device.type) }} / {{ formatDeviceUPosition(block.device) }}</span>
-                      </button>
-                    </div>
+                <div
+                  class="rack-table-shell"
+                  :style="{ '--rack-units': rackCapacity }"
+                  @click="closeRackContextMenu"
+                >
+                  <table class="rack-table">
+                    <thead>
+                      <tr>
+                        <th class="rack-u-head">U</th>
+                        <th>{{ selectedCabinet.name }}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="row in rackTableRows" :key="row.u">
+                        <td class="rack-u-cell">{{ row.u }}</td>
+                        <td
+                          v-if="row.block"
+                          class="rack-device-cell"
+                          :class="[
+                            `device-type-${Number(row.block.device.type)}`,
+                            `device-status-${Number(row.block.device.status)}`,
+                            { conflict: row.block.conflict },
+                          ]"
+                          :rowspan="row.block.height"
+                          :title="row.block.device.remark || row.block.device.name"
+                          @click.stop="openDeviceDetail(row.block.device)"
+                          @contextmenu.prevent.stop="openRackContextMenu($event, row.u, row.block.device)"
+                        >
+                          <div class="rack-device-main">
+                            <strong>{{ row.block.device.name || '-' }}</strong>
+                            <span>{{ row.block.device.mgmt_ip || row.block.device.business_ip || formatDeviceUPosition(row.block.device) }}</span>
+                          </div>
+                          <i class="rack-status-dot"></i>
+                        </td>
+                        <td
+                          v-else-if="!row.hidden"
+                          class="rack-empty-cell"
+                          @dblclick="openDeviceModal(null, row.u)"
+                          @contextmenu.prevent.stop="openRackContextMenu($event, row.u)"
+                        ></td>
+                      </tr>
+                    </tbody>
+                  </table>
+
+                  <div
+                    v-if="rackContextMenu.show"
+                    class="rack-context-menu"
+                    :style="{ left: `${rackContextMenu.x}px`, top: `${rackContextMenu.y}px` }"
+                    @click.stop
+                  >
+                    <button v-if="!rackContextMenu.device" @click="handleRackMenuAdd">新增设备</button>
+                    <button v-if="rackContextMenu.device" @click="handleRackMenuEdit">编辑设备</button>
+                    <button v-if="rackContextMenu.device" @click="handleRackMenuDelete">删除设备</button>
                   </div>
-                  <div class="rack-cap base"></div>
                 </div>
 
                 <n-empty
@@ -164,6 +178,19 @@
                   <span>{{ item.key }}</span>
                   <strong>{{ item.value || '-' }}</strong>
                 </div>
+              </div>
+            </div>
+
+            <div v-if="fourNodeDetailNodes.length" class="detail-section">
+              <h3>四合一节点</h3>
+              <div class="node-detail-grid">
+                <article v-for="node in fourNodeDetailNodes" :key="node.name" class="node-detail-card">
+                  <strong>{{ node.name }}</strong>
+                  <span>IP: {{ node.ip || '-' }}</span>
+                  <span>CPU: {{ node.cpu || '-' }}</span>
+                  <span>内存: {{ node.memory || '-' }}</span>
+                  <span>磁盘: {{ node.disk || '-' }}</span>
+                </article>
               </div>
             </div>
           </template>
@@ -229,7 +256,7 @@
         </template>
       </n-modal>
 
-      <n-modal v-model:show="deviceModal.show" preset="dialog" title="新增设备" style="width: 760px">
+      <n-modal v-model:show="deviceModal.show" preset="dialog" :title="deviceModalTitle" style="width: 760px">
         <n-form label-placement="top">
           <n-grid :cols="2" :x-gap="12">
             <n-form-item-gi label="设备名称" required>
@@ -276,6 +303,25 @@
           <n-form-item label="备注">
             <n-input v-model:value="deviceModal.form.remark" type="textarea" />
           </n-form-item>
+
+          <div v-if="deviceModal.form.form_factor === 'four_node'" class="four-node-editor">
+            <div class="four-node-head">
+              <div>
+                <span class="eyebrow">Four Node Server</span>
+                <h3>四合一节点配置</h3>
+              </div>
+              <n-tag round type="info">2U / N1-N4</n-tag>
+            </div>
+            <div class="four-node-grid">
+              <article v-for="node in deviceModal.form.nodeList" :key="node.name" class="four-node-card">
+                <strong>{{ node.name }}</strong>
+                <n-input v-model:value="node.ip" size="small" placeholder="节点 IP" />
+                <n-input v-model:value="node.cpu" size="small" placeholder="CPU" />
+                <n-input v-model:value="node.memory" size="small" placeholder="内存" />
+                <n-input v-model:value="node.disk" size="small" placeholder="磁盘" />
+              </article>
+            </div>
+          </div>
         </n-form>
         <template #action>
           <n-button @click="deviceModal.show = false">取消</n-button>
@@ -320,6 +366,13 @@ const deviceModal = reactive({
   show: false,
   submitting: false,
   form: createDeviceForm(),
+})
+const rackContextMenu = reactive({
+  show: false,
+  x: 0,
+  y: 0,
+  u: null,
+  device: null,
 })
 let mapInstance = null
 let mapTileLayer = null
@@ -435,7 +488,26 @@ const rackBlocks = computed(() =>
     ),
   }))
 )
-const attributeRows = computed(() => attributesToList(deviceDrawer.row?.attributes))
+const rackTableRows = computed(() => {
+  const rows = []
+  for (let u = rackCapacity.value; u >= 1; u -= 1) {
+    const block = rackBlocks.value.find((item) => item.end === u)
+    const covered = rackBlocks.value.some((item) => item.start <= u && item.end >= u)
+    rows.push({
+      u,
+      block,
+      hidden: covered && !block,
+    })
+  }
+  return rows
+})
+const attributeRows = computed(() =>
+  attributesToList(deviceDrawer.row?.attributes).filter(
+    (item) => !['nodes', 'form_factor', 'node_count'].includes(item.key)
+  )
+)
+const deviceModalTitle = computed(() => (deviceModal.form.id ? '编辑设备' : '新增设备'))
+const fourNodeDetailNodes = computed(() => normalizeFourNodeList(deviceDrawer.row?.attributes?.nodes || []))
 
 function createRegionForm() {
   return {
@@ -480,7 +552,32 @@ function createDeviceForm() {
     attributes: {},
     remark: '',
     form_factor: 'standard',
+    nodeList: createFourNodeList(),
   }
+}
+
+function createFourNodeList() {
+  return ['N1', 'N2', 'N3', 'N4'].map((name) => ({
+    name,
+    ip: '',
+    cpu: '',
+    memory: '',
+    disk: '',
+  }))
+}
+
+function normalizeFourNodeList(nodes) {
+  const source = Array.isArray(nodes) ? nodes : []
+  return createFourNodeList().map((fallback) => {
+    const matched = source.find((item) => item?.name === fallback.name) || {}
+    return {
+      ...fallback,
+      ip: String(matched.ip || ''),
+      cpu: String(matched.cpu || ''),
+      memory: String(matched.memory || ''),
+      disk: String(matched.disk || ''),
+    }
+  })
 }
 
 function regionPoint(region, index) {
@@ -700,14 +797,28 @@ async function submitCabinet() {
   }
 }
 
-function openDeviceModal() {
+function openDeviceModal(device = null, uPosition = null) {
   if (!selectedCabinetId.value) {
     window.$message?.warning('请先选择机柜')
     return
   }
-  deviceModal.form = createDeviceForm()
+  deviceModal.form = device
+    ? {
+        ...createDeviceForm(),
+        ...device,
+        form_factor:
+          device.attributes?.form_factor === 'four_node' ||
+          device.attributes?.设备形态 === '四合一服务器' ||
+          Array.isArray(device.attributes?.nodes)
+            ? 'four_node'
+            : 'standard',
+        nodeList: normalizeFourNodeList(device.attributes?.nodes || []),
+      }
+    : createDeviceForm()
   deviceModal.form.cabinet_id = selectedCabinetId.value
-  deviceModal.form.u_position = firstAvailableU()
+  if (!device) {
+    deviceModal.form.u_position = uPosition || firstAvailableU()
+  }
   deviceModal.show = true
 }
 
@@ -715,6 +826,7 @@ function handleDeviceFormFactorChange(value) {
   if (value === 'four_node') {
     deviceModal.form.type = 0
     deviceModal.form.u_height = Math.min(2, rackCapacity.value)
+    deviceModal.form.nodeList = normalizeFourNodeList(deviceModal.form.nodeList)
   } else if (!deviceModal.form.u_height || deviceModal.form.u_height < 1) {
     deviceModal.form.u_height = 1
   }
@@ -728,15 +840,18 @@ function firstAvailableU() {
   return null
 }
 
-function hasRackOverlap(start, height) {
+function hasRackOverlap(start, height, ignoredDeviceId = null) {
   const end = start + height - 1
-  return rackPlacedDevices.value.some((device) => device.start <= end && device.end >= start)
+  return rackPlacedDevices.value.some(
+    (device) => device.id !== ignoredDeviceId && device.start <= end && device.end >= start
+  )
 }
 
 async function submitDevice() {
   const name = String(deviceModal.form.name || '').trim()
   const start = Number(deviceModal.form.u_position || 0)
-  const height = Number(deviceModal.form.u_height || 1)
+  const isFourNode = deviceModal.form.form_factor === 'four_node'
+  const height = isFourNode ? 2 : Number(deviceModal.form.u_height || 1)
   if (!deviceModal.form.cabinet_id || !name) {
     window.$message?.warning('请选择机柜并填写设备名称')
     return
@@ -745,19 +860,27 @@ async function submitDevice() {
     window.$message?.warning('请填写有效的 U 位和占用 U 数')
     return
   }
-  if (hasRackOverlap(start, height)) {
+  if (hasRackOverlap(start, height, deviceModal.form.id || null)) {
     window.$message?.warning('该 U 位已被占用，请调整起始 U 位或占用 U 数')
     return
   }
 
   deviceModal.submitting = true
   try {
-    const isFourNode = deviceModal.form.form_factor === 'four_node'
     const attributes = {
       ...(deviceModal.form.attributes || {}),
+      form_factor: isFourNode ? 'four_node' : 'standard',
       设备形态: isFourNode ? '四合一服务器' : '标准设备',
     }
-    if (isFourNode) attributes.节点数量 = '4'
+    if (isFourNode) {
+      attributes.node_count = '4'
+      attributes.节点数量 = '4'
+      attributes.nodes = normalizeFourNodeList(deviceModal.form.nodeList)
+    } else {
+      delete attributes.node_count
+      delete attributes.节点数量
+      delete attributes.nodes
+    }
     const payload = {
       ...deviceModal.form,
       asset_no: String(deviceModal.form.asset_no || name).trim(),
@@ -767,7 +890,9 @@ async function submitDevice() {
       attributes,
     }
     delete payload.form_factor
-    await api.assetApi.createDevice(payload)
+    delete payload.nodeList
+    const submit = payload.id ? api.assetApi.updateDevice : api.assetApi.createDevice
+    await submit(payload)
     deviceModal.show = false
     await loadData()
     selectedCabinetId.value = payload.cabinet_id
@@ -776,6 +901,42 @@ async function submitDevice() {
   } finally {
     deviceModal.submitting = false
   }
+}
+
+function openRackContextMenu(event, u, device = null) {
+  const shell = event.currentTarget?.closest?.('.rack-table-shell')
+  const rect = shell?.getBoundingClientRect()
+  rackContextMenu.show = true
+  rackContextMenu.x = rect ? event.clientX - rect.left : event.offsetX
+  rackContextMenu.y = rect ? event.clientY - rect.top : event.offsetY
+  rackContextMenu.u = u
+  rackContextMenu.device = device
+}
+
+function closeRackContextMenu() {
+  rackContextMenu.show = false
+}
+
+function handleRackMenuAdd() {
+  const u = rackContextMenu.u
+  closeRackContextMenu()
+  openDeviceModal(null, u)
+}
+
+function handleRackMenuEdit() {
+  const device = rackContextMenu.device
+  closeRackContextMenu()
+  if (device) openDeviceModal(device)
+}
+
+async function handleRackMenuDelete() {
+  const device = rackContextMenu.device
+  closeRackContextMenu()
+  if (!device?.id) return
+  await api.assetApi.deleteDevice({ device_id: device.id })
+  window.$message?.success('设备已删除')
+  await loadData()
+  await loadCabinetDevices()
 }
 
 function cabinetLocationName(cabinet) {
@@ -843,9 +1004,11 @@ onBeforeUnmount(() => {
 <style scoped>
 .cabinet-world-page {
   display: flex;
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
   flex-direction: column;
   gap: 16px;
+  overflow: hidden;
   background: #f5f7fb;
   padding: 16px;
 }
@@ -1013,6 +1176,8 @@ onBeforeUnmount(() => {
 
 .region-layout {
   display: grid;
+  min-height: 0;
+  flex: 1;
   grid-template-columns: minmax(0, 1fr);
   gap: 16px;
 }
@@ -1020,6 +1185,13 @@ onBeforeUnmount(() => {
 .region-list,
 .cabinet-stage {
   padding: 16px;
+}
+
+.cabinet-stage {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  padding: 12px;
 }
 
 .region-list {
@@ -1034,13 +1206,13 @@ onBeforeUnmount(() => {
   display: flex;
   width: 100%;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   background: #fff;
   color: #0f172a;
   cursor: pointer;
-  padding: 11px 12px;
+  padding: 9px 10px;
   text-align: left;
 }
 
@@ -1061,59 +1233,289 @@ onBeforeUnmount(() => {
 }
 
 .cabinet-select {
-  width: min(360px, 45vw);
+  width: min(300px, 34vw);
 }
 
-.cabinet-overview {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 14px;
-}
-
-.cabinet-overview article {
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 8px;
-  background: #f8fafc;
-  padding: 12px 14px;
-}
-
-.cabinet-overview span {
-  display: block;
-  color: #64748b;
-  font-size: 12px;
-}
-
-.cabinet-overview strong {
-  display: block;
+.region-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   margin-top: 6px;
-  color: #0f172a;
-  font-size: 22px;
+}
+
+.region-meta span {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1;
+  padding: 5px 9px;
 }
 
 .cabinet-content {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
-  gap: 16px;
-  margin-top: 16px;
+  min-height: 0;
+  flex: 1;
+  grid-template-columns: minmax(420px, 520px) minmax(240px, 1fr);
+  gap: 12px;
+  margin-top: 12px;
 }
 
 .cabinet-list {
+  order: 2;
   display: flex;
-  max-height: 760px;
+  max-height: none;
+  min-height: 0;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   overflow-y: auto;
-  padding-right: 2px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 10px;
+}
+
+.side-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 0 2px 9px;
+  text-transform: uppercase;
+}
+
+.side-section-title strong {
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.rack-spin {
+  order: 1;
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
 }
 
 .rack-spin :deep(.n-spin-container),
 .rack-spin :deep(.n-spin-content) {
-  min-height: 100%;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
 }
 
 .rack-board {
-  min-height: 760px;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.rack-title {
+  min-height: 42px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 8px 10px;
+}
+
+.rack-title h3 {
+  font-size: 16px;
+}
+
+.rack-title :deep(.n-button) {
+  height: 30px;
+  padding-inline: 12px;
+}
+
+.rack-title :deep(.n-tag) {
+  height: 26px;
+}
+
+.rack-table-shell {
+  position: relative;
+  width: 100%;
+  max-height: none;
+  min-height: 0;
+  flex: 1;
+  margin: 8px 0 0;
+  overflow: auto;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.12);
+}
+
+.rack-table {
+  width: 100%;
+  min-width: 420px;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.rack-table th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  height: 30px;
+  border: 1px solid #4b5563;
+  background: #4b5563;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.rack-table th:not(.rack-u-head) {
+  color: #f59e0b;
+}
+
+.rack-u-head,
+.rack-u-cell {
+  width: 54px;
+}
+
+.rack-u-cell,
+.rack-empty-cell,
+.rack-device-cell {
+  height: clamp(13px, calc((100vh - 270px) / var(--rack-units, 42)), 22px);
+  border: 1px solid #d1d5db;
+}
+
+.rack-u-cell {
+  background: #f8fafc;
+  color: #475569;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  text-align: center;
+}
+
+.rack-empty-cell {
+  background:
+    linear-gradient(90deg, rgba(148, 163, 184, 0.08), transparent 24%, transparent 76%, rgba(148, 163, 184, 0.08)),
+    #fff;
+  cursor: context-menu;
+}
+
+.rack-empty-cell:hover {
+  background: #fef3c7;
+}
+
+.rack-device-cell {
+  position: relative;
+  overflow: hidden;
+  background: #2563eb;
+  color: #fff;
+  cursor: pointer;
+  padding: 2px 30px 2px 10px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.rack-device-cell:hover {
+  filter: brightness(1.05);
+}
+
+.rack-device-cell.conflict {
+  outline: 2px solid #dc2626;
+  outline-offset: -2px;
+}
+
+.rack-device-main {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rack-device-main strong,
+.rack-device-main span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rack-device-main strong {
+  font-size: 12px;
+  line-height: 1.1;
+}
+
+.rack-device-main span {
+  opacity: 0.9;
+  font-size: 10px;
+  line-height: 1.1;
+}
+
+.rack-status-dot {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border: 2px solid rgba(255, 255, 255, 0.86);
+  border-radius: 999px;
+  background: #9ca3af;
+  transform: translateY(-50%);
+}
+
+.rack-device-cell.device-type-1,
+.rack-device-cell.device-type-2 {
+  background: #059669;
+}
+
+.rack-device-cell.device-type-3 {
+  background: #d97706;
+}
+
+.rack-device-cell.device-type-4,
+.rack-device-cell.device-type-5 {
+  background: #db2777;
+}
+
+.rack-device-cell.device-status-1 .rack-status-dot {
+  background: #22c55e;
+}
+
+.rack-device-cell.device-status-2 .rack-status-dot {
+  background: #a855f7;
+}
+
+.rack-device-cell.device-status-3 .rack-status-dot,
+.rack-device-cell.device-status-5 .rack-status-dot {
+  background: #ef4444;
+}
+
+.rack-device-cell.device-status-4 .rack-status-dot {
+  background: #64748b;
+}
+
+.rack-context-menu {
+  position: absolute;
+  z-index: 20;
+  min-width: 118px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
+}
+
+.rack-context-menu button {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: #0f172a;
+  cursor: pointer;
+  padding: 9px 12px;
+  text-align: left;
+}
+
+.rack-context-menu button:hover {
+  background: #f1f5f9;
 }
 
 .rack-shell {
@@ -1302,6 +1704,60 @@ onBeforeUnmount(() => {
   font-size: 15px;
 }
 
+.node-detail-grid,
+.four-node-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.node-detail-card,
+.four-node-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 10px;
+}
+
+.node-detail-card strong,
+.four-node-card strong {
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.node-detail-card span {
+  overflow: hidden;
+  color: #475569;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.four-node-editor {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.four-node-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.four-node-head h3 {
+  margin: 2px 0 0;
+  color: #0f172a;
+  font-size: 15px;
+}
+
 .attribute-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -1341,9 +1797,16 @@ onBeforeUnmount(() => {
   }
 
   .cabinet-list {
-    display: grid;
-    max-height: none;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: flex;
+    max-height: 88px;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 2px;
+  }
+
+  .cabinet-card {
+    min-width: 190px;
   }
 }
 
@@ -1355,7 +1818,6 @@ onBeforeUnmount(() => {
     flex-direction: column;
   }
 
-  .cabinet-overview,
   .cabinet-list {
     grid-template-columns: 1fr;
   }
