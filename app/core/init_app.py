@@ -402,7 +402,7 @@ async def ensure_ticket_route_menus():
             await route_menu.save()
 
 
-async def ensure_asset_menu():
+async def ensure_asset_menu_old():
     ops_menu = await get_service_module_menu("/ops")
     asset_menu = await Menu.filter(path="/asset").first()
     if asset_menu:
@@ -438,6 +438,72 @@ async def ensure_asset_menu():
         keepalive=False,
         redirect="",
     )
+
+async def ensure_asset_menu():
+    ops_menu = await get_service_module_menu("/ops")
+    legacy_menu = await Menu.filter(path="/asset").first()
+    legacy_values = {
+        "name": "资产管理",
+        "path": "/asset",
+        "order": 20,
+        "parent_id": ops_menu.id,
+        "icon": "material-symbols:videogame-asset",
+        "is_hidden": True,
+        "component": "/asset",
+        "keepalive": False,
+        "redirect": "",
+    }
+    if legacy_menu:
+        changed = False
+        for field, value in legacy_values.items():
+            if getattr(legacy_menu, field) != value:
+                setattr(legacy_menu, field, value)
+                changed = True
+        if changed:
+            await legacy_menu.save()
+    else:
+        await Menu.create(menu_type=MenuType.MENU, **legacy_values)
+
+    asset_menus = [
+        {
+            "name": "机柜管理",
+            "path": "/asset/cabinet",
+            "order": 2,
+            "icon": "mdi:server-network",
+            "component": "/asset/cabinet",
+        },
+        {
+            "name": "库存管理",
+            "path": "/asset/inventory",
+            "order": 3,
+            "icon": "mdi:package-variant-closed",
+            "component": "/asset/inventory",
+        },
+    ]
+    for menu_data in asset_menus:
+        menu = await Menu.filter(path=menu_data["path"]).first()
+        values = {
+            "menu_type": MenuType.MENU,
+            "name": menu_data["name"],
+            "path": menu_data["path"],
+            "order": menu_data["order"],
+            "parent_id": ops_menu.id,
+            "icon": menu_data["icon"],
+            "is_hidden": False,
+            "component": menu_data["component"],
+            "keepalive": False,
+            "redirect": "",
+        }
+        if menu:
+            changed = False
+            for field, value in values.items():
+                if getattr(menu, field) != value:
+                    setattr(menu, field, value)
+                    changed = True
+            if changed:
+                await menu.save()
+        else:
+            await Menu.create(**values)
 
 
 async def ensure_syslog_menu():
