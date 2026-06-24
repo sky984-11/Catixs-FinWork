@@ -646,6 +646,14 @@ class VMDeleteRequest(BaseModel):
     status: str | None = None
 
 
+class VMPowerRequest(BaseModel):
+    remote: str
+    vmid: int
+    type: str = "pve-qemu"
+    node: str | None = None
+    action: str
+
+
 class PDMAddRemoteRequest(BaseModel):
     hostname: str
     authid: str | None = None
@@ -1480,4 +1488,29 @@ async def delete_vm(payload: VMDeleteRequest):
 
     _PDM_RESOURCE_CACHE = []
     return Success(msg="虚拟机删除任务已提交", data={"remote": payload.remote, "vmid": payload.vmid})
+
+
+@router.post("/vms/power", summary="Start or shutdown PDM virtual machine")
+async def power_vm(payload: VMPowerRequest):
+    if not payload.remote or not payload.vmid:
+        return Fail(msg="虚拟机操作失败: 缺少远程或 VMID")
+
+    action = (payload.action or "").strip().lower()
+    if action not in {"start", "stop"}:
+        return Fail(msg="虚拟机操作失败: 不支持的操作")
+
+    kind = guest_kind(payload.type)
+    request_payload: dict[str, Any] = {}
+    if payload.node:
+        request_payload["node"] = payload.node
+
+    try:
+        task_id = await pdm_post(f"/pve/remotes/{payload.remote}/{kind}/{payload.vmid}/{action}", request_payload)
+    except Exception as exc:
+        return Fail(msg=f"虚拟机{'开机' if action == 'start' else '停止'}失败: {error_detail(exc)}")
+
+    return Success(
+        msg=f"{'开机' if action == 'start' else '停止'}请求已发送",
+        data={"upid": task_id, "remote": payload.remote, "vmid": payload.vmid, "action": action},
+    )
 

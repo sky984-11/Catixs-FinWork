@@ -912,13 +912,20 @@ const consoleTitle = computed(() => {
   return `${row.name || `VM ${row.vmid}`} 控制台`
 })
 
+function noVncCellProps() {
+  return {
+    title: '双击打开 noVNC 控制台',
+  }
+}
+
 const columns = [
-  { title: 'VMID', key: 'vmid', width: 90 },
+  { title: 'VMID', key: 'vmid', width: 90, cellProps: noVncCellProps },
   {
     title: '虚拟机名称',
     key: 'name',
     minWidth: 300,
     ellipsis: { tooltip: true },
+    cellProps: noVncCellProps,
     render(row) {
       return h('div', { class: 'vm-name-cell' }, [
         h('strong', row.name || '-'),
@@ -929,6 +936,7 @@ const columns = [
     title: '状态',
     key: 'status',
     width: 110,
+    cellProps: noVncCellProps,
     render(row) {
       const running = row.status === 'running'
       return h(
@@ -942,6 +950,7 @@ const columns = [
     title: 'CPU',
     key: 'cpu',
     width: 150,
+    cellProps: noVncCellProps,
     render(row) {
       return `${row.cpu || 0}% / ${row.maxcpu || 0} 核`
     },
@@ -950,6 +959,7 @@ const columns = [
     title: '内存',
     key: 'mem',
     width: 260,
+    cellProps: noVncCellProps,
     render(row) {
       return `${formatBytes(row.mem)} / ${formatBytes(row.maxmem)}`
     },
@@ -958,6 +968,7 @@ const columns = [
     title: '磁盘',
     key: 'disk',
     width: 190,
+    cellProps: noVncCellProps,
     render(row) {
       const disk = formatBytes(row.disk)
       const maxdisk = formatBytes(row.maxdisk)
@@ -970,6 +981,7 @@ const columns = [
     title: '运行时间',
     key: 'uptime',
     width: 140,
+    cellProps: noVncCellProps,
     render(row) {
       return formatUptime(row.uptime)
     },
@@ -979,6 +991,7 @@ const columns = [
     key: 'remark',
     minWidth: 140,
     ellipsis: { tooltip: true },
+    cellProps: noVncCellProps,
     render(row) {
       return row.remark || '暂无备注'
     },
@@ -988,10 +1001,18 @@ const columns = [
     key: 'actions',
     width: 360,
     fixed: 'right',
+    className: 'vm-actions-column',
     render(row) {
       return h(
         NSpace,
-        { class: 'vm-row-actions', size: 6, wrap: false },
+        {
+          class: 'vm-row-actions',
+          size: 6,
+          wrap: false,
+          onClick: (event) => event.stopPropagation(),
+          onDblclick: (event) => event.stopPropagation(),
+          onMousedown: (event) => event.stopPropagation(),
+        },
         {
           default: () => [
             actionButton('监控', 'mdi:chart-line', 'info', row, 'vm-button-monitor', openMonitor),
@@ -1008,8 +1029,11 @@ const columns = [
 
 function vmRowProps(row) {
   return {
-    title: '双击打开 noVNC 控制台',
-    onDblclick: () => openNoVnc(row),
+    onDblclick: (event) => {
+      const target = event?.target
+      if (target?.closest?.('.vm-actions-column, .vm-row-actions')) return
+      openNoVnc(row)
+    },
   }
 }
 
@@ -1053,6 +1077,8 @@ function actionButton(label, icon, type, row, className = '', handler = null) {
         }
         message.info(`${label}功能后续实现：${row.name}`)
       },
+      onDblclick: (event) => event.stopPropagation(),
+      onMousedown: (event) => event.stopPropagation(),
     },
     {
       icon: () => h(TheIcon, { icon, size: 14 }),
@@ -1067,8 +1093,39 @@ function powerButton(row) {
     isRunning ? '关机' : '开机',
     isRunning ? 'mdi:power' : 'mdi:play-circle-outline',
     isRunning ? 'warning' : 'success',
-    row
+    row,
+    '',
+    handlePowerVm
   )
+}
+
+function handlePowerVm(row) {
+  if (!row?.remote || !row?.vmid) {
+    message.warning('缺少虚拟机远程或 VMID 信息')
+    return
+  }
+
+  const isRunning = row.status === 'running'
+  const action = isRunning ? 'stop' : 'start'
+  const nextStatus = isRunning ? 'stopped' : 'running'
+  const previousStatus = row.status
+  const text = isRunning ? '关机' : '开机'
+
+  row.status = nextStatus
+  message.success(`${text}请求已发送，请稍后刷新列表查看`)
+  api.virtualMachineApi
+    .powerVm({
+      remote: row.remote,
+      vmid: row.vmid,
+      type: row.type,
+      node: row.node || undefined,
+      action,
+    })
+    .then(() => fetchVms())
+    .catch((error) => {
+      row.status = previousStatus
+      message.error(error.message || `${text}失败`)
+    })
 }
 
 function confirmDeleteVm(row) {
