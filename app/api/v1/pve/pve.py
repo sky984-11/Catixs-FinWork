@@ -7,14 +7,16 @@ from typing import Any
 from urllib.parse import quote, urlparse
 
 import httpx
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request, Response
 from pydantic import BaseModel
 
 from app.schemas.base import Fail, Success
+from app.core.dependency import AuthControl
 from app.settings.config import settings
 from app.utils.zabbix_api import sync_pve_host_to_zabbix
 
 router = APIRouter()
+grafana_router = APIRouter()
 logger = logging.getLogger(__name__)
 
 _PDM_RESOURCE_CACHE: list[dict[str, Any]] = []
@@ -44,6 +46,26 @@ def pdm_auth_header() -> str:
         raise RuntimeError("PDM token is not configured")
 
     return f"PDMAPIToken {settings.PDM_TOKEN_ID}:{settings.PDM_TOKEN_SECRET}"
+
+
+def grafana_base_url() -> str:
+    if not settings.GRAFANA_URL:
+        raise RuntimeError("Grafana URL is not configured")
+    return settings.GRAFANA_URL.rstrip("/")
+
+
+def grafana_proxy_prefix() -> str:
+    return "/api/v1/pve/grafana/proxy"
+
+
+def rewrite_grafana_html(content: bytes) -> bytes:
+    prefix = grafana_proxy_prefix()
+    text = content.decode("utf-8", errors="replace")
+    text = text.replace('<base href="/">', f'<base href="{prefix}/">')
+    text = text.replace('"appSubUrl":""', f'"appSubUrl":"{prefix}"')
+    text = text.replace('href="/', f'href="{prefix}/')
+    text = text.replace('src="/', f'src="{prefix}/')
+    return text.encode("utf-8")
 
 
 def pve_api_host(hostname: str) -> str:
@@ -1072,6 +1094,68 @@ async def list_vms(
         "stopped": len([vm for vm in vms if vm.get("status") == "stopped"]),
     }
     return Success(data={"items": vms, "summary": summary})
+
+
+@grafana_router.api_route(
+    "/grafana/proxy/{path:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    summary="Proxy Grafana with service account token",
+)
+async def grafana_proxy(path: str, request: Request, token: str = Query("")):
+    try:
+        await AuthControl.is_authed(token=token)
+    except Exception:
+        return Response("Unauthorized", status_code=401)
+
+    if not settings.GRAFANA_API_TOKEN:
+        return Response("Grafana token is not configured", status_code=500)
+
+    target_url = f"{grafana_base_url()}/{path.lstrip('/')}"
+    upstream_params = [(key, value) for key, value in request.query_params.multi_items() if key != "token"]
+
+    headers = {
+        "Authorization": f"Bearer {settings.GRAFANA_API_TOKEN}",
+        "Accept": request.headers.get("accept", "*/*"),
+        "User-Agent": request.headers.get("user-agent", "Catixs-FinWork"),
+    }
+    content_type = request.headers.get("content-type")
+    if content_type:
+        headers["Content-Type"] = content_type
+
+    body = await request.body()
+    try:
+        async with httpx.AsyncClient(timeout=settings.PDM_TIMEOUT, verify=False, trust_env=False, follow_redirects=False) as client:
+            upstream = await client.request(
+                request.method,
+                target_url,
+                params=upstream_params,
+                content=body,
+                headers=headers,
+            )
+    except httpx.RequestError as exc:
+        return Response(
+            f"Grafana upstream request failed: {type(exc).__name__}: {exc}",
+            status_code=502,
+            media_type="text/plain; charset=utf-8",
+        )
+
+    response_headers = {}
+    for key, value in upstream.headers.items():
+        lower = key.lower()
+        if lower in {"content-length", "transfer-encoding", "connection", "content-encoding"}:
+            continue
+        if lower == "location" and value.startswith(grafana_base_url()):
+            response_headers[key] = value.replace(grafana_base_url(), grafana_proxy_prefix(), 1)
+            continue
+        response_headers[key] = value
+
+    media_type = upstream.headers.get("content-type", "")
+    content = upstream.content
+    if "text/html" in media_type:
+        content = rewrite_grafana_html(content)
+        response_headers["content-length"] = str(len(content))
+
+    return Response(content=content, status_code=upstream.status_code, headers=response_headers)
 
 
 @router.post("/nodes/add", summary="Add PVE remote to PDM")

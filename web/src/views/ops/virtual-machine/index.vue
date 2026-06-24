@@ -600,6 +600,29 @@
         />
       </n-modal>
 
+      <n-modal
+        v-model:show="monitorModal.show"
+        preset="card"
+        :title="monitorTitle"
+        class="vm-monitor-modal"
+        :style="vmMonitorModalStyle"
+        :bordered="false"
+      >
+        <div class="monitor-toolbar">
+          <div>
+            <span class="eyebrow">Grafana</span>
+            <strong>{{ monitorModal.row?.remote || '-' }} / {{ monitorModal.row?.name || '-' }}</strong>
+          </div>
+          <n-select
+            v-model:value="monitorModal.range"
+            :options="monitorRangeOptions"
+            size="small"
+            class="monitor-range-select"
+          />
+        </div>
+        <iframe v-if="monitorModal.row" class="monitor-frame" :src="monitorUrl" title="Grafana VM Monitor" />
+      </n-modal>
+
       <button v-if="taskModal.upid && !taskModal.show" class="task-float-button" @click="taskModal.show = true">
         <TheIcon icon="mdi:progress-clock" :size="18" />
         <span>{{ taskModal.vmName || '迁移任务' }}</span>
@@ -614,6 +637,7 @@ import { computed, h, nextTick, onBeforeUnmount, onMounted, reactive, ref } from
 import { NButton, NSpace, NTag, useDialog, useMessage } from 'naive-ui'
 import api from '@/api'
 import TheIcon from '@/components/icon/TheIcon.vue'
+import { getToken } from '@/utils/auth'
 import NoVncConsole from './NoVncConsole.vue'
 
 const message = useMessage()
@@ -716,9 +740,25 @@ const consoleModal = reactive({
   row: null,
 })
 
+const monitorModal = reactive({
+  show: false,
+  row: null,
+  range: 'now-30d',
+})
+
 const taskTimer = ref(null)
 const tableRenderKey = ref(0)
 const createOptionsCache = new Map()
+
+const grafanaDashboardUrl = '/api/v1/pve/grafana/proxy/d/zbx-pve-vm-metrics/zabbix-pve-vm-metrics'
+
+const monitorRangeOptions = [
+  { label: '最近 1 小时', value: 'now-1h' },
+  { label: '最近 6 小时', value: 'now-6h' },
+  { label: '最近 24 小时', value: 'now-24h' },
+  { label: '最近 7 天', value: 'now-7d' },
+  { label: '最近 30 天', value: 'now-30d' },
+]
 
 const vmCreateModalStyle = {
   width: '760px',
@@ -747,6 +787,11 @@ const vmTaskModalStyle = {
 
 const vmConsoleModalStyle = {
   width: 'min(1120px, calc(100vw - 32px))',
+  maxWidth: 'calc(100vw - 32px)',
+}
+
+const vmMonitorModalStyle = {
+  width: 'min(1240px, calc(100vw - 32px))',
   maxWidth: 'calc(100vw - 32px)',
 }
 
@@ -808,6 +853,30 @@ const targetEndpointOptions = computed(() => [
   { label: '自动', value: '' },
   ...(selectedTargetRemote.value?.endpoints || []).map((endpoint) => ({ label: endpoint, value: endpoint })),
 ])
+
+const monitorTitle = computed(() => {
+  if (!monitorModal.row) return '监控'
+  return `监控 · ${monitorModal.row.name || `VM ${monitorModal.row.vmid}`}`
+})
+
+const monitorUrl = computed(() => {
+  if (!monitorModal.row) return ''
+  const url = new URL(grafanaDashboardUrl, window.location.origin)
+  url.searchParams.set('orgId', '1')
+  url.searchParams.set('from', monitorModal.range)
+  url.searchParams.set('to', 'now')
+  url.searchParams.set('timezone', 'browser')
+  url.searchParams.set('var-DS_ZABBIX', 'bflbfxqfe1vk0d')
+  url.searchParams.set('var-group', 'PVE')
+  url.searchParams.set('var-host', monitorModal.row.remote || '')
+  url.searchParams.set('var-item_tag', `name: ${monitorModal.row.name || ''}`)
+  url.searchParams.set('refresh', '1m')
+  const token = getToken()
+  if (token) {
+    url.searchParams.set('token', token)
+  }
+  return url.toString()
+})
 
 const createStorageOptions = computed(() =>
   createModal.storages.map((storage) => ({
@@ -952,7 +1021,7 @@ const columns = [
         { class: 'vm-row-actions', size: 6, wrap: false },
         {
           default: () => [
-            actionButton('监控', 'mdi:chart-line', 'info', row, 'vm-button-monitor'),
+            actionButton('监控', 'mdi:chart-line', 'info', row, 'vm-button-monitor', openMonitor),
             powerButton(row),
             actionButton('编辑', 'material-symbols:edit-outline-rounded', 'info', row),
             actionButton('删除', 'material-symbols:delete-outline-rounded', 'error', row),
@@ -983,6 +1052,15 @@ async function openNoVnc(row) {
 
 function resetConsoleModal() {
   consoleModal.row = null
+}
+
+function openMonitor(row) {
+  if (!row?.remote || !row?.name) {
+    message.warning('缺少 Grafana 监控所需的节点或虚拟机名称')
+    return
+  }
+  monitorModal.row = { ...row }
+  monitorModal.show = true
 }
 
 function actionButton(label, icon, type, row, className = '', handler = null) {
@@ -2041,6 +2119,42 @@ onBeforeUnmount(() => {
   --n-border-hover: 1px solid rgba(250, 140, 22, 0.4) !important;
   --n-border-pressed: 1px solid rgba(250, 140, 22, 0.48) !important;
   --n-border-focus: 1px solid rgba(250, 140, 22, 0.4) !important;
+}
+
+.monitor-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.monitor-toolbar > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.monitor-toolbar strong {
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.monitor-range-select {
+  width: 140px;
+  flex: none;
+}
+
+.monitor-frame {
+  width: 100%;
+  height: min(72vh, 760px);
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #0b0f19;
 }
 
 .vm-list-actions {

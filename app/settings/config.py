@@ -50,6 +50,8 @@ class Settings(BaseSettings):
     ZABBIX_URL: str = ""
     ZABBIX_TOKEN: str = ""
     ZABBIX_PVE_REFERENCE_HOSTID: str = "10777"
+    GRAFANA_URL: str = "https://grafana.catixs.net"
+    GRAFANA_API_TOKEN: str = ""
 
     TORTOISE_ORM: dict[str, Any] = {}
     DATETIME_FORMAT: str = "%Y-%m-%d %H:%M:%S"
