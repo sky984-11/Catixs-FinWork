@@ -638,6 +638,14 @@ class VMMigrateRequest(BaseModel):
     target_endpoint: str | None = None
 
 
+class VMDeleteRequest(BaseModel):
+    remote: str
+    vmid: int
+    type: str = "pve-qemu"
+    node: str | None = None
+    status: str | None = None
+
+
 class PDMAddRemoteRequest(BaseModel):
     hostname: str
     authid: str | None = None
@@ -1102,8 +1110,9 @@ async def list_vms(
     summary="Proxy Grafana with service account token",
 )
 async def grafana_proxy(path: str, request: Request, token: str = Query("")):
+    auth_token = token or request.cookies.get("grafana_proxy_token", "")
     try:
-        await AuthControl.is_authed(token=token)
+        await AuthControl.is_authed(token=auth_token)
     except Exception:
         return Response("Unauthorized", status_code=401)
 
@@ -1155,7 +1164,16 @@ async def grafana_proxy(path: str, request: Request, token: str = Query("")):
         content = rewrite_grafana_html(content)
         response_headers["content-length"] = str(len(content))
 
-    return Response(content=content, status_code=upstream.status_code, headers=response_headers)
+    response = Response(content=content, status_code=upstream.status_code, headers=response_headers)
+    if token:
+        response.set_cookie(
+            "grafana_proxy_token",
+            token,
+            max_age=60 * 60,
+            httponly=True,
+            samesite="lax",
+        )
+    return response
 
 
 @router.post("/nodes/add", summary="Add PVE remote to PDM")
@@ -1429,4 +1447,37 @@ async def migrate_vm(payload: VMMigrateRequest):
         return Fail(msg=f"读取 PDM 数据失败: {error_detail(exc)}")
 
     return Success(msg="迁移任务已发起", data={"upid": task_id, "source_remote": payload.remote, "target_remote": payload.target})
+
+
+@router.post("/vms/delete", summary="Delete PDM virtual machine")
+async def delete_vm(payload: VMDeleteRequest):
+    global _PDM_RESOURCE_CACHE
+
+    if not payload.remote or not payload.vmid:
+        return Fail(msg="删除虚拟机失败: 缺少远程或 VMID")
+    if payload.status == "running":
+        return Fail(msg="删除虚拟机失败: 请先关机后再删除")
+
+    kind = guest_kind(payload.type)
+    api_kind = "lxc" if kind == "lxc" else "qemu"
+
+    try:
+        host = await pdm_remote_config_host(payload.remote)
+    except Exception as exc:
+        return Fail(msg=f"删除虚拟机失败: {error_detail(exc)}")
+
+    if not host:
+        return Fail(msg="删除虚拟机失败: 未找到 PVE 节点 IP")
+
+    command = (
+        f"pvesh delete /nodes/$(hostname -s)/{api_kind}/{int(payload.vmid)} "
+        "--purge 1 --destroy-unreferenced-disks 1"
+    )
+    exit_status, output, error = ssh_execute_pve(host, command)
+    if exit_status != 0:
+        detail = (error or output or "未知错误").strip()
+        return Fail(msg=f"删除虚拟机失败: {detail}")
+
+    _PDM_RESOURCE_CACHE = []
+    return Success(msg="虚拟机删除任务已提交", data={"remote": payload.remote, "vmid": payload.vmid})
 

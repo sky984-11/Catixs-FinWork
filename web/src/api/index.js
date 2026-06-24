@@ -209,6 +209,7 @@ export default {
     createVm: (data = {}) => request.post('/pve/vms/create', data),
     migrationOptions: (params = {}) => request.get('/pve/vms/migration-options', { params }),
     migrateVm: (data = {}) => request.post('/pve/vms/migrate', data),
+    deleteVm: (data = {}) => request.post('/pve/vms/delete', data),
     novnc: (data = {}) => request.post('/pve/vms/novnc', data),
     taskStatus: (params = {}) => request.get('/pve/tasks/status', { params }),
   },

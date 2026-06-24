@@ -175,9 +175,6 @@
         <n-spin v-if="!createModal.created" :show="createModal.loading">
           <n-form label-placement="left" label-width="110">
             <n-grid :cols="2" :x-gap="14">
-              <n-form-item-gi label="所在节点">
-                <n-input v-model:value="createModal.form.region" readonly />
-              </n-form-item-gi>
               <n-form-item-gi label="操作系统" required>
                 <n-cascader
                   v-model:value="createModal.form.os_selection"
@@ -271,9 +268,6 @@
               <n-descriptions bordered :column="2" size="small">
                 <n-descriptions-item label="虚拟机名称">
                   {{ createModal.createdConfig?.vm_name || '-' }}
-                </n-descriptions-item>
-                <n-descriptions-item label="所在节点">
-                  {{ createModal.createdConfig?.region || '-' }}
                 </n-descriptions-item>
                 <n-descriptions-item label="规格">
                   {{ createModal.createdConfig?.cpu_cores || 0 }} 核 /
@@ -608,18 +602,6 @@
         :style="vmMonitorModalStyle"
         :bordered="false"
       >
-        <div class="monitor-toolbar">
-          <div>
-            <span class="eyebrow">Grafana</span>
-            <strong>{{ monitorModal.row?.remote || '-' }} / {{ monitorModal.row?.name || '-' }}</strong>
-          </div>
-          <n-select
-            v-model:value="monitorModal.range"
-            :options="monitorRangeOptions"
-            size="small"
-            class="monitor-range-select"
-          />
-        </div>
         <iframe v-if="monitorModal.row" class="monitor-frame" :src="monitorUrl" title="Grafana VM Monitor" />
       </n-modal>
 
@@ -743,7 +725,6 @@ const consoleModal = reactive({
 const monitorModal = reactive({
   show: false,
   row: null,
-  range: 'now-30d',
 })
 
 const taskTimer = ref(null)
@@ -751,14 +732,6 @@ const tableRenderKey = ref(0)
 const createOptionsCache = new Map()
 
 const grafanaDashboardUrl = '/api/v1/pve/grafana/proxy/d/zbx-pve-vm-metrics/zabbix-pve-vm-metrics'
-
-const monitorRangeOptions = [
-  { label: '最近 1 小时', value: 'now-1h' },
-  { label: '最近 6 小时', value: 'now-6h' },
-  { label: '最近 24 小时', value: 'now-24h' },
-  { label: '最近 7 天', value: 'now-7d' },
-  { label: '最近 30 天', value: 'now-30d' },
-]
 
 const vmCreateModalStyle = {
   width: '760px',
@@ -863,7 +836,7 @@ const monitorUrl = computed(() => {
   if (!monitorModal.row) return ''
   const url = new URL(grafanaDashboardUrl, window.location.origin)
   url.searchParams.set('orgId', '1')
-  url.searchParams.set('from', monitorModal.range)
+  url.searchParams.set('from', 'now-30d')
   url.searchParams.set('to', 'now')
   url.searchParams.set('timezone', 'browser')
   url.searchParams.set('var-DS_ZABBIX', 'bflbfxqfe1vk0d')
@@ -1024,7 +997,7 @@ const columns = [
             actionButton('监控', 'mdi:chart-line', 'info', row, 'vm-button-monitor', openMonitor),
             powerButton(row),
             actionButton('编辑', 'material-symbols:edit-outline-rounded', 'info', row),
-            actionButton('删除', 'material-symbols:delete-outline-rounded', 'error', row),
+            actionButton('删除', 'material-symbols:delete-outline-rounded', 'error', row, '', confirmDeleteVm),
             actionButton('迁移', 'material-symbols:send-rounded', 'warning', row, 'vm-button-send', openMigration),
           ],
         }
@@ -1096,6 +1069,40 @@ function powerButton(row) {
     isRunning ? 'warning' : 'success',
     row
   )
+}
+
+function confirmDeleteVm(row) {
+  if (!row?.remote || !row?.vmid) {
+    message.warning('缺少虚拟机远程或 VMID 信息')
+    return
+  }
+  if (row.status === 'running') {
+    message.warning('请先关机后再删除虚拟机')
+    return
+  }
+
+  dialog.warning({
+    title: '删除虚拟机',
+    content: `确认删除 ${row.name || `VM ${row.vmid}`} 吗？该操作不可恢复。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: () => {
+      const payload = {
+        remote: row.remote,
+        vmid: row.vmid,
+        type: row.type,
+        node: row.node || undefined,
+        status: row.status,
+      }
+      message.success('删除请求已发送，请稍后刷新列表查看')
+      api.virtualMachineApi
+        .deleteVm(payload)
+        .then(() => fetchVms())
+        .catch((error) => {
+          message.error(error.message || '删除虚拟机失败')
+        })
+    },
+  })
 }
 
 function createEmptyVmForm() {
@@ -2121,37 +2128,9 @@ onBeforeUnmount(() => {
   --n-border-focus: 1px solid rgba(250, 140, 22, 0.4) !important;
 }
 
-.monitor-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 12px;
-}
-
-.monitor-toolbar > div {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.monitor-toolbar strong {
-  overflow: hidden;
-  color: #0f172a;
-  font-size: 16px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.monitor-range-select {
-  width: 140px;
-  flex: none;
-}
-
 .monitor-frame {
   width: 100%;
-  height: min(72vh, 760px);
+  height: min(82vh, 880px);
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   background: #0b0f19;
