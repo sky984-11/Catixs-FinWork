@@ -116,6 +116,26 @@ export const basicRoutes = [
     },
   },
   {
+    name: 'OpsVirtualMachineMonitor',
+    path: '/virtual-machine/monitor',
+    component: Layout,
+    isHidden: true,
+    children: [
+      {
+        name: 'OpsVirtualMachineMonitorDefault',
+        path: '',
+        component: () => import('@/views/ops/virtual-machine/monitor/index.vue'),
+        meta: {
+          title: '监控',
+          icon: 'mdi:chart-line',
+        },
+      },
+    ],
+    meta: {
+      title: '监控',
+    },
+  },
+  {
     name: '404',
     path: '/404',
     component: () => import('@/views/error-page/404.vue'),

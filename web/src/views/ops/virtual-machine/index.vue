@@ -142,7 +142,7 @@
               :columns="columns"
               :data="pagedVmList"
               :pagination="false"
-              :scroll-x="1440"
+              :scroll-x="2050"
               :row-key="(row) => row.id"
               :row-class-name="() => 'vm-table-row'"
               :row-props="vmRowProps"
@@ -594,31 +594,6 @@
         />
       </n-modal>
 
-      <n-modal
-        v-model:show="monitorModal.show"
-        preset="card"
-        :title="monitorTitle"
-        class="vm-monitor-modal"
-        :style="vmMonitorModalStyle"
-        :bordered="false"
-      >
-        <div class="monitor-modal-toolbar">
-          <n-date-picker
-            v-model:value="monitorModal.timeRange"
-            type="datetimerange"
-            :shortcuts="monitorRangeShortcuts"
-            :time-picker-props="monitorTimePickerProps"
-            :update-value-on-close="true"
-            format="yyyy-MM-dd HH:00"
-            clearable
-            class="monitor-date-range"
-            start-placeholder="开始时间"
-            end-placeholder="结束时间"
-          />
-        </div>
-        <iframe v-if="monitorModal.row" class="monitor-frame" :src="monitorUrl" title="Grafana Monitor" />
-      </n-modal>
-
       <button v-if="taskModal.upid && !taskModal.show" class="task-float-button" @click="taskModal.show = true">
         <TheIcon icon="mdi:progress-clock" :size="18" />
         <span>{{ taskModal.vmName || '迁移任务' }}</span>
@@ -630,14 +605,15 @@
 
 <script setup>
 import { computed, h, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { NButton, NSpace, NTag, useDialog, useMessage } from 'naive-ui'
 import api from '@/api'
 import TheIcon from '@/components/icon/TheIcon.vue'
-import { getToken } from '@/utils/auth'
 import NoVncConsole from './NoVncConsole.vue'
 
 const message = useMessage()
 const dialog = useDialog()
+const router = useRouter()
 
 const loading = reactive({
   nodes: false,
@@ -736,38 +712,9 @@ const consoleModal = reactive({
   row: null,
 })
 
-const monitorModal = reactive({
-  show: false,
-  row: null,
-  type: 'vm',
-  timeRange: recentRange(6 * 60 * 60 * 1000),
-})
-
 const taskTimer = ref(null)
 const tableRenderKey = ref(0)
 const createOptionsCache = new Map()
-
-const grafanaDashboardUrls = {
-  vm: '/api/v1/pve/grafana/proxy/d/zbx-pve-vm-metrics/zabbix-pve-vm-metrics',
-  node: '/api/v1/pve/grafana/proxy/d/zbx-pve-node-metrics/zabbix-pve-node-metrics',
-}
-
-const monitorRangeShortcuts = {
-  '最近 1 小时': () => recentRange(60 * 60 * 1000),
-  '最近 3 小时': () => recentRange(3 * 60 * 60 * 1000),
-  '最近 6 小时': () => recentRange(6 * 60 * 60 * 1000),
-  '最近 12 小时': () => recentRange(12 * 60 * 60 * 1000),
-  '最近 24 小时': () => recentRange(24 * 60 * 60 * 1000),
-  '最近 2 天': () => recentRange(2 * 24 * 60 * 60 * 1000),
-  '最近 7 天': () => recentRange(7 * 24 * 60 * 60 * 1000),
-  '最近 15 天': () => recentRange(15 * 24 * 60 * 60 * 1000),
-  '最近 30 天': () => recentRange(30 * 24 * 60 * 60 * 1000),
-  '最近 90 天': () => recentRange(90 * 24 * 60 * 60 * 1000),
-}
-
-const monitorTimePickerProps = {
-  format: 'HH:00',
-}
 
 const vmCreateModalStyle = {
   width: '760px',
@@ -796,11 +743,6 @@ const vmTaskModalStyle = {
 
 const vmConsoleModalStyle = {
   width: 'min(1120px, calc(100vw - 32px))',
-  maxWidth: 'calc(100vw - 32px)',
-}
-
-const vmMonitorModalStyle = {
-  width: 'min(1240px, calc(100vw - 32px))',
   maxWidth: 'calc(100vw - 32px)',
 }
 
@@ -867,58 +809,6 @@ const targetEndpointOptions = computed(() => [
   { label: '自动', value: '' },
   ...(selectedTargetRemote.value?.endpoints || []).map((endpoint) => ({ label: endpoint, value: endpoint })),
 ])
-
-const monitorTitle = computed(() => {
-  if (!monitorModal.row) return '监控'
-  if (monitorModal.type === 'node') return `监控 · ${monitorModal.row.label || monitorModal.row.remote || '节点'}`
-  return `监控 · ${monitorModal.row.name || `VM ${monitorModal.row.vmid}`}`
-})
-
-const monitorUrl = computed(() => {
-  if (!monitorModal.row) return ''
-  const url = new URL(grafanaDashboardUrls[monitorModal.type] || grafanaDashboardUrls.vm, window.location.origin)
-  const [from, to] = resolveMonitorTimeRange()
-  url.searchParams.set('orgId', '1')
-  url.searchParams.set('from', from)
-  url.searchParams.set('to', to)
-  url.searchParams.set('timezone', 'browser')
-  url.searchParams.set('var-DS_ZABBIX', 'bflbfxqfe1vk0d')
-  url.searchParams.set('var-group', 'PVE')
-  url.searchParams.set('var-host', monitorModal.row.remote || monitorModal.row.label || '')
-  if (monitorModal.type === 'node') {
-    url.searchParams.set('var-item_tag', '$__all')
-  } else {
-    url.searchParams.set('var-item_tag', `name: ${monitorModal.row.name || ''}`)
-  }
-  url.searchParams.set('refresh', '1m')
-  url.searchParams.set('kiosk', '')
-  url.searchParams.set('catixs_embed', '1')
-  const token = getToken()
-  if (token) {
-    url.searchParams.set('token', token)
-  }
-  return url.toString()
-})
-
-function resolveMonitorTimeRange() {
-  if (Array.isArray(monitorModal.timeRange)) {
-    const [from, to] = monitorModal.timeRange
-    if (from && to) return [String(toHourStart(from)), String(toHourStart(to))]
-  }
-  const [from, to] = recentRange(6 * 60 * 60 * 1000)
-  return [String(from), String(to)]
-}
-
-function recentRange(duration) {
-  const now = toHourStart(Date.now())
-  return [now - duration, now]
-}
-
-function toHourStart(value) {
-  const date = new Date(value)
-  date.setMinutes(0, 0, 0)
-  return date.getTime()
-}
 
 const createStorageOptions = computed(() =>
   createModal.storages.map((storage) => ({
@@ -1049,7 +939,7 @@ const columns = [
   {
     title: '运行时间',
     key: 'uptime',
-    width: 140,
+    width: 150,
     cellProps: noVncCellProps,
     render(row) {
       return formatUptime(row.uptime)
@@ -1058,7 +948,7 @@ const columns = [
   {
     title: '备注',
     key: 'remark',
-    minWidth: 140,
+    width: 220,
     ellipsis: { tooltip: true },
     cellProps: noVncCellProps,
     render(row) {
@@ -1066,9 +956,23 @@ const columns = [
     },
   },
   {
+    title: '有效时间',
+    key: 'expire',
+    width: 140,
+    cellProps: noVncCellProps,
+    render(row) {
+      const expire = resolveVmExpire(row)
+      return h(
+        NTag,
+        { size: 'small', type: expire.type },
+        { default: () => expire.text }
+      )
+    },
+  },
+  {
     title: '操作',
     key: 'actions',
-    width: 360,
+    width: 430,
     fixed: 'right',
     className: 'vm-actions-column',
     render(row) {
@@ -1125,9 +1029,14 @@ function openMonitor(row) {
     message.warning('缺少 Grafana 监控所需的节点或虚拟机名称')
     return
   }
-  monitorModal.type = 'vm'
-  monitorModal.row = { ...row }
-  monitorModal.show = true
+  router.push({
+    path: '/virtual-machine/monitor',
+    query: {
+      type: 'vm',
+      remote: row.remote,
+      name: row.name,
+    },
+  })
 }
 
 function openNodeMonitor(node) {
@@ -1136,9 +1045,14 @@ function openNodeMonitor(node) {
     message.warning('缺少 Grafana 节点监控所需的节点名称')
     return
   }
-  monitorModal.type = 'node'
-  monitorModal.row = { ...node, remote }
-  monitorModal.show = true
+  router.push({
+    path: '/virtual-machine/monitor',
+    query: {
+      type: 'node',
+      remote,
+      name: node?.label || remote,
+    },
+  })
 }
 
 function actionButton(label, icon, type, row, className = '', handler = null) {
@@ -1178,6 +1092,24 @@ function powerButton(row) {
     '',
     handlePowerVm
   )
+}
+
+function resolveVmExpire(row) {
+  const remark = String(row?.remark || '').trim()
+  if (!remark) return { text: '无限', type: 'info' }
+
+  const match = remark.match(/(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})(?:日)?(?:\s+(\d{1,2})(?::(\d{1,2}))?)?/)
+  if (!match) return { text: '未设置', type: 'default' }
+
+  const [, year, month, day, hour = '0', minute = '0'] = match
+  const expireAt = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute))
+  if (Number.isNaN(expireAt.getTime())) return { text: '未设置', type: 'default' }
+
+  const text = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
+  const diff = expireAt.getTime() - Date.now()
+  if (diff < 0) return { text, type: 'error' }
+  if (diff <= 3 * 24 * 60 * 60 * 1000) return { text, type: 'warning' }
+  return { text, type: 'success' }
 }
 
 function handlePowerVm(row) {
@@ -2268,25 +2200,6 @@ onBeforeUnmount(() => {
   --n-border-hover: 1px solid rgba(250, 140, 22, 0.4) !important;
   --n-border-pressed: 1px solid rgba(250, 140, 22, 0.48) !important;
   --n-border-focus: 1px solid rgba(250, 140, 22, 0.4) !important;
-}
-
-.monitor-modal-toolbar {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 10px;
-}
-
-.monitor-date-range {
-  width: 420px;
-  max-width: 100%;
-}
-
-.monitor-frame {
-  width: 100%;
-  height: min(82vh, 900px);
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  background: #0b0f19;
 }
 
 .vm-list-actions {
