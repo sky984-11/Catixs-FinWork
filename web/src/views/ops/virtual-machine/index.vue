@@ -251,6 +251,18 @@
               <n-form-item-gi v-if="createModal.form.network.mode === 'static'" label="VLAN" required>
                 <n-input-number v-model:value="createModal.form.network.vlan" :min="1" :max="4094" class="full-width" />
               </n-form-item-gi>
+              <n-form-item-gi label="有效时间" :span="2">
+                <n-date-picker
+                  v-model:value="createModal.form.expire_at"
+                  type="datetime"
+                  clearable
+                  class="full-width"
+                  placeholder="不选择则为无限制"
+                  format="yyyy-MM-dd HH:mm"
+                  :time-picker-props="createExpireTimePickerProps"
+                  :shortcuts="createExpireShortcuts"
+                />
+              </n-form-item-gi>
               <n-form-item-gi label="描述" :span="2">
                 <n-input
                   v-model:value="createModal.form.description"
@@ -279,7 +291,6 @@
                 </n-descriptions-item>
                 <n-descriptions-item label="root 密码" :span="2">
                   <code class="password-code">{{ createModal.createdConfig?.password || '-' }}</code>
-                  <n-button text type="primary" class="copy-password-button" @click="copyCreatePassword">复制</n-button>
                 </n-descriptions-item>
                 <n-descriptions-item label="网络模式">
                   {{ createModal.createdConfig?.network?.mode === 'static' ? '静态 IP' : 'DHCP' }}
@@ -295,7 +306,13 @@
                   {{ createModal.createdConfig.network.ip || '-' }}
                   <span v-if="createModal.createdConfig.network.vlan"> / VLAN {{ createModal.createdConfig.network.vlan }}</span>
                 </n-descriptions-item>
+                <n-descriptions-item label="有效时间" :span="2">
+                  {{ createModal.createdConfig?.expire_at ? formatCreateExpireTime(createModal.createdConfig.expire_at) : '无限制' }}
+                </n-descriptions-item>
               </n-descriptions>
+              <div class="create-config-actions">
+                <n-button type="primary" secondary @click="copyCreateConfig">复制配置</n-button>
+              </div>
             </template>
           </n-result>
         </div>
@@ -614,6 +631,14 @@ import NoVncConsole from './NoVncConsole.vue'
 const message = useMessage()
 const dialog = useDialog()
 const router = useRouter()
+
+const createExpireTimePickerProps = {
+  format: 'HH:mm',
+}
+
+const createExpireShortcuts = {
+  '7 天后': () => Date.now() + 7 * 24 * 60 * 60 * 1000,
+}
 
 const loading = reactive({
   nodes: false,
@@ -1098,14 +1123,16 @@ function resolveVmExpire(row) {
   const remark = String(row?.remark || '').trim()
   if (!remark) return { text: '无限', type: 'info' }
 
-  const match = remark.match(/(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})(?:日)?(?:\s+(\d{1,2})(?::(\d{1,2}))?)?/)
+  const match =
+    remark.match(/有效期至[:：]\s*(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})(?:日)?(?:\s+(\d{1,2})(?::(\d{1,2}))?)?/) ||
+    remark.match(/(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})(?:日)?(?:\s+(\d{1,2})(?::(\d{1,2}))?)?/)
   if (!match) return { text: '未设置', type: 'default' }
 
   const [, year, month, day, hour = '0', minute = '0'] = match
   const expireAt = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute))
   if (Number.isNaN(expireAt.getTime())) return { text: '未设置', type: 'default' }
 
-  const text = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
+  const text = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
   const diff = expireAt.getTime() - Date.now()
   if (diff < 0) return { text, type: 'error' }
   if (diff <= 3 * 24 * 60 * 60 * 1000) return { text, type: 'warning' }
@@ -1181,6 +1208,7 @@ function createEmptyVmForm() {
     storage: '',
     vm_name: generateRandomVmName(),
     description: '',
+    expire_at: null,
     os_selection: null,
     os_type: '',
     os_version: '',
@@ -1250,12 +1278,23 @@ function refreshCreatePassword() {
   createModal.form.password = generateRandomPassword()
 }
 
-async function copyCreatePassword() {
-  const password = createModal.createdConfig?.password
-  if (!password) return
+async function copyCreateConfig() {
+  const config = createModal.createdConfig
+  if (!config) return
+
+  const network = config.network || {}
+  const lines = [
+    `IP：${network.mode === 'static' ? network.ip || '-' : 'DHCP'}`,
+    `CPU：${config.cpu_cores || 0} 核`,
+    `内存：${config.memory_gb || 0} GiB`,
+    `磁盘：${config.disk_gb || 0} GiB`,
+    `root 密码：${config.password || '-'}`,
+    `到期时间：${config.expire_at ? formatCreateExpireTime(config.expire_at) : '无限制'}`,
+  ]
+
   try {
-    await navigator.clipboard.writeText(password)
-    message.success('root 密码已复制')
+    await navigator.clipboard.writeText(lines.join('\n'))
+    message.success('虚拟机配置已复制')
   } catch (error) {
     message.error('复制失败，请手动复制')
   }
@@ -1376,8 +1415,14 @@ async function submitCreateVm() {
 
   createModal.submitting = true
   try {
-    const res = await api.virtualMachineApi.createVm(createModal.form)
-    createModal.createdConfig = JSON.parse(JSON.stringify(res.data?.config || createModal.form))
+    const payload = JSON.parse(JSON.stringify(createModal.form))
+    payload.description = buildCreateVmDescription()
+    const res = await api.virtualMachineApi.createVm(payload)
+    createModal.createdConfig = {
+      ...JSON.parse(JSON.stringify(res.data?.config || payload)),
+      expire_at: createModal.form.expire_at,
+      description: payload.description,
+    }
     createModal.created = true
     message.success(res.msg || '创建任务已提交')
     await refreshNodes()
@@ -1405,6 +1450,26 @@ function resetCreateModalForNext() {
     region,
     storage,
   }
+}
+
+function buildCreateVmDescription() {
+  const lines = []
+  const description = String(createModal.form.description || '').trim()
+  if (description) {
+    lines.push(description)
+  }
+  if (createModal.form.expire_at) {
+    lines.push(`有效期至: ${formatCreateExpireTime(createModal.form.expire_at)}`)
+  }
+  return lines.join('\n')
+}
+
+function formatCreateExpireTime(value) {
+  if (!value) return ''
+  const date = new Date(Number(value))
+  if (Number.isNaN(date.getTime())) return ''
+  const pad = (number) => String(number).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 function openAddNodeModal() {
@@ -2288,6 +2353,12 @@ onBeforeUnmount(() => {
 
 .copy-password-button {
   margin-left: 8px;
+}
+
+.create-config-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
 }
 
 .full-width {

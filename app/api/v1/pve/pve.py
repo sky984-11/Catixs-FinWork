@@ -3,6 +3,7 @@ import ipaddress
 import logging
 import json
 import shlex
+import time
 from typing import Any
 from urllib.parse import quote, urlparse
 
@@ -1082,6 +1083,14 @@ def normalize_vm(item: dict[str, Any], remote: str) -> dict[str, Any]:
     maxdisk = int(item.get("maxdisk") or 0)
     disk = int(item.get("disk") or 0)
     maxcpu = int(float(item.get("maxcpu") or 0))
+    remark = (
+        item.get("description")
+        or item.get("comment")
+        or item.get("comments")
+        or item.get("notes")
+        or item.get("remark")
+        or ""
+    )
     return {
         "id": item.get("id") or f"remote/{remote}/guest/{item.get('vmid')}",
         "remote": remote,
@@ -1102,8 +1111,67 @@ def normalize_vm(item: dict[str, Any], remote: str) -> dict[str, Any]:
         "template": bool(item.get("template")),
         "tags": item.get("tags") or [],
         "pool": item.get("pool") or "",
-        "remark": "",
+        "remark": str(remark),
     }
+
+
+def vm_remark_from_config(data: Any) -> str:
+    if not isinstance(data, dict):
+        return ""
+    for key in ("description", "comment", "comments", "notes", "remark"):
+        value = data.get(key)
+        if value:
+            return str(value)
+    return ""
+
+
+async def fetch_vm_config_remark(vm: dict[str, Any]) -> str:
+    remote = str(vm.get("remote") or "")
+    vmid = vm.get("vmid")
+    if not remote or not vmid:
+        return ""
+
+    kind = guest_kind(str(vm.get("type") or ""))
+    node = str(vm.get("node") or "")
+    paths = [f"/pve/remotes/{remote}/{kind}/{vmid}/config"]
+    if node:
+        paths.append(f"/pve/remotes/{remote}/nodes/{node}/{kind}/{vmid}/config")
+
+    for path in paths:
+        try:
+            remark = vm_remark_from_config(await pdm_get(path, timeout=3))
+        except Exception:
+            continue
+        if remark:
+            return remark
+
+    try:
+        host = await pdm_remote_config_host(remote)
+    except Exception:
+        host = ""
+    if not host:
+        return ""
+
+    command = f"pvesh get /nodes/$(hostname -s)/{kind}/{int(vmid)}/config --output-format json"
+    code, output, _error = await asyncio.to_thread(ssh_execute_pve, host, command)
+    if code != 0:
+        return ""
+    try:
+        return vm_remark_from_config(json.loads(output or "{}"))
+    except Exception:
+        return ""
+    return ""
+
+
+async def enrich_vm_remarks(vms: list[dict[str, Any]]) -> None:
+    pending = [vm for vm in vms if not str(vm.get("remark") or "").strip()]
+    if not pending:
+        return
+
+    results = await asyncio.gather(*(fetch_vm_config_remark(vm) for vm in pending), return_exceptions=True)
+    for vm, result in zip(pending, results):
+        if isinstance(result, str) and result:
+            vm["remark"] = result
 
 
 def all_vms(data: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1298,10 +1366,30 @@ def ssh_execute_pve(host: str, command: str) -> tuple[int, str, str]:
             password=settings.PVE_CREATE_SSH_PASSWORD,
             timeout=settings.PVE_CREATE_SSH_TIMEOUT,
         )
-        _, stdout, stderr = client.exec_command(command, timeout=settings.PVE_CREATE_SSH_TIMEOUT)
-        exit_status = stdout.channel.recv_exit_status()
-        output = stdout.read().decode("utf-8", errors="replace")
-        error = stderr.read().decode("utf-8", errors="replace")
+        transport = client.get_transport()
+        if transport is None:
+            return -1, "", "SSH transport is not available"
+        channel = transport.open_session(timeout=settings.PVE_CREATE_SSH_TIMEOUT)
+        channel.settimeout(settings.PVE_CREATE_SSH_TIMEOUT)
+        channel.exec_command(command)
+        stdout_chunks: list[bytes] = []
+        stderr_chunks: list[bytes] = []
+        while True:
+            while channel.recv_ready():
+                stdout_chunks.append(channel.recv(65535))
+            while channel.recv_stderr_ready():
+                stderr_chunks.append(channel.recv_stderr(65535))
+            if channel.exit_status_ready():
+                exit_status = channel.recv_exit_status()
+                while channel.recv_ready():
+                    stdout_chunks.append(channel.recv(65535))
+                while channel.recv_stderr_ready():
+                    stderr_chunks.append(channel.recv_stderr(65535))
+                break
+            time.sleep(0.05)
+        output = b"".join(stdout_chunks).decode("utf-8", errors="replace")
+        error = b"".join(stderr_chunks).decode("utf-8", errors="replace")
+        channel.close()
         return exit_status, output, error
     except Exception as exc:
         return -1, "", str(exc)
@@ -1345,6 +1433,7 @@ async def list_vms(
     vms = all_vms(data)
     if node:
         vms = [vm for vm in vms if vm.get("remote") == node]
+    await enrich_vm_remarks(vms)
     vms.sort(key=lambda row: (str(row.get("remote") or ""), str(row.get("node") or ""), int(row.get("vmid") or 0)))
     summary = {
         "total": len(vms),
