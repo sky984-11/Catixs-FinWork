@@ -58,13 +58,255 @@ def grafana_proxy_prefix() -> str:
     return "/api/v1/pve/grafana/proxy"
 
 
-def rewrite_grafana_html(content: bytes) -> bytes:
+def rewrite_grafana_html(content: bytes, embed: bool = False) -> bytes:
     prefix = grafana_proxy_prefix()
     text = content.decode("utf-8", errors="replace")
     text = text.replace('<base href="/">', f'<base href="{prefix}/">')
     text = text.replace('"appSubUrl":""', f'"appSubUrl":"{prefix}"')
     text = text.replace('href="/', f'href="{prefix}/')
     text = text.replace('src="/', f'src="{prefix}/')
+    if embed:
+        embed_style = """
+<style id="catixs-grafana-embed-style">
+  header,
+  aside,
+  nav,
+  .sidemenu,
+  .navbar,
+  .page-header,
+  .page-toolbar,
+  .dashboard-toolbar,
+  .dashboard-submenu,
+  .submenu-controls,
+  .dashboard-controls,
+  .drawer,
+  .drawer-content,
+  .drawerContent,
+  .right-side-drawer,
+  .right-sidebar,
+  .dashboard-right-sidebar,
+  .css-1q5rl7h,
+  [data-testid="sidemenu"],
+  [data-testid="nav-toolbar"],
+  [data-testid="dashboard-toolbar"],
+  [data-testid="dashboard-submenu"],
+  [data-testid="dashboard-drawer"],
+  [data-testid="drawer"],
+  [data-testid="data-testid NavToolbar"],
+  [aria-label="Download"],
+  [aria-label="Inspect"],
+  [aria-label="Panel inspector"],
+  [aria-label="Right sidebar"],
+  [aria-label="Dashboard actions"],
+  [aria-label="Dashboard controls"],
+  [class*="Drawer"],
+  [class*="drawer"],
+  [class*="RightSidebar"],
+  [class*="RightSide"],
+  [class*="NavToolbar"],
+  [class*="DashboardToolbar"],
+  [class*="DashboardSubMenu"],
+  [class*="SubMenu"],
+  nav[aria-label="Main menu"] {
+    display: none !important;
+  }
+  body.catixs-grafana-embed header,
+  body.catixs-grafana-embed nav,
+  body.catixs-grafana-embed aside,
+  body.catixs-grafana-embed .catixs-grafana-hidden {
+    display: none !important;
+  }
+  body.catixs-grafana-embed [style*="right: 0px"],
+  body.catixs-grafana-embed [style*="right:0px"] {
+    display: none !important;
+  }
+  body.catixs-grafana-embed {
+    overflow: auto !important;
+  }
+  html,
+  body.catixs-grafana-embed,
+  body.catixs-grafana-embed #reactRoot,
+  body.catixs-grafana-embed .grafana-app,
+  body.catixs-grafana-embed main {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  .main-view,
+  .page-container,
+  .dashboard-container,
+  .dashboard-page,
+  .dashboard-content,
+  .dashboard-scroll,
+  .scrollbar-view,
+  .view,
+  [data-testid="dashboard-scene"],
+  [data-testid="dashboard-container"],
+  [class*="Page"] {
+    margin: 0 !important;
+    padding: 0 !important;
+    padding-right: 0 !important;
+    inset: auto !important;
+    right: auto !important;
+    max-width: none !important;
+    width: 100% !important;
+  }
+  .react-grid-layout,
+  [data-testid="dashboard-canvas"] {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+  }
+  footer,
+  [class*="Footer"],
+  [class*="footer"],
+  [aria-label="Grafana"] {
+    display: none !important;
+  }
+</style>
+<script id="catixs-grafana-embed-script">
+(() => {
+  const hideElement = (element) => {
+    if (element && element.style) {
+      element.classList.add('catixs-grafana-hidden')
+      element.style.setProperty('display', 'none', 'important')
+    }
+  }
+  const hideCompactParent = (element) => {
+    let current = element
+    for (let i = 0; current && i < 6; i += 1) {
+      const height = current.getBoundingClientRect?.().height || 0
+      const width = current.getBoundingClientRect?.().width || 0
+      if (height > 0 && height < 150 && width > window.innerWidth * 0.35) {
+        hideElement(current)
+        return
+      }
+      current = current.parentElement
+    }
+  }
+  const resetBox = (element) => {
+    if (!element?.style) return
+    element.style.setProperty('margin', '0', 'important')
+    element.style.setProperty('padding', '0', 'important')
+    element.style.setProperty('padding-right', '0', 'important')
+    element.style.setProperty('right', 'auto', 'important')
+    element.style.setProperty('max-width', 'none', 'important')
+    element.style.setProperty('width', '100%', 'important')
+  }
+  const tightenDashboard = () => {
+    document
+      .querySelectorAll([
+        'main',
+        '#reactRoot',
+        '.grafana-app',
+        '.main-view',
+        '.page-container',
+        '.dashboard-container',
+        '.dashboard-page',
+        '.dashboard-content',
+        '.dashboard-scroll',
+        '.scrollbar-view',
+        '.react-grid-layout',
+        '[data-testid="dashboard-scene"]',
+        '[data-testid="dashboard-container"]',
+        '[data-testid="dashboard-canvas"]'
+      ].join(','))
+      .forEach(resetBox)
+
+    const canvas = document.querySelector('[data-testid="dashboard-canvas"], .react-grid-layout')
+    let current = canvas?.parentElement
+    for (let i = 0; current && i < 8; i += 1) {
+      resetBox(current)
+      current = current.parentElement
+    }
+  }
+  const hideRightChrome = () => {
+    const rightLimit = window.innerWidth - 180
+    document.querySelectorAll('div, aside, section, button').forEach((element) => {
+      const rect = element.getBoundingClientRect?.()
+      if (!rect || rect.width <= 0 || rect.height <= 0) return
+      const text = (element.innerText || element.getAttribute?.('aria-label') || '').replace(/\\s+/g, ' ')
+      const isRightRail = rect.left > rightLimit && rect.width < 130 && rect.height > 120
+      const hasRightToolText = ['Download', 'Inspect', 'Panel inspector', 'Drawer', 'List view'].some((value) =>
+        text.includes(value)
+      )
+      const hasRightToolButton = element.querySelector?.(
+        '[aria-label="Download"], [aria-label="Inspect"], [aria-label="Panel inspector"], [data-testid*="drawer"], [class*="Drawer"], [class*="drawer"]'
+      )
+      if (isRightRail || hasRightToolText || hasRightToolButton) {
+        hideCompactParent(element)
+        hideElement(element)
+      }
+    })
+  }
+  const hideGrafanaChrome = () => {
+    document.body?.classList.add('catixs-grafana-embed')
+    document
+      .querySelectorAll([
+        'header',
+        'aside',
+        'nav',
+        '.sidemenu',
+        '.navbar',
+        '.page-header',
+        '.page-toolbar',
+        '.dashboard-toolbar',
+        '.dashboard-submenu',
+        '.submenu-controls',
+        '.drawer',
+        '.drawer-content',
+        '.drawerContent',
+        '.right-side-drawer',
+        '.right-sidebar',
+        '.dashboard-right-sidebar',
+        '[data-testid="sidemenu"]',
+        '[data-testid="nav-toolbar"]',
+        '[data-testid="dashboard-toolbar"]',
+        '[data-testid="dashboard-submenu"]',
+        '[data-testid="dashboard-drawer"]',
+        '[data-testid="drawer"]',
+        '[aria-label="Download"]',
+        '[aria-label="Inspect"]',
+        '[aria-label="Panel inspector"]',
+        '[aria-label="Right sidebar"]',
+        '[class*="Drawer"]',
+        '[class*="drawer"]',
+        '[class*="RightSidebar"]',
+        '[class*="RightSide"]',
+        '[class*="NavToolbar"]',
+        '[class*="DashboardToolbar"]',
+        '[class*="DashboardSubMenu"]',
+        '[class*="SubMenu"]'
+      ].join(','))
+      .forEach(hideElement)
+
+    document.querySelectorAll('div, section').forEach((element) => {
+      const text = (element.innerText || '').replace(/\\s+/g, ' ')
+      if (
+        (text.includes('Datasource') && text.includes('Group') && text.includes('Host')) ||
+        (text.includes('PVE') && text.includes('ctrl+k')) ||
+        (text.includes('Refresh') && text.includes('Share')) ||
+        (text.includes('Datasource') && text.includes('Item tag'))
+      ) {
+        hideCompactParent(element)
+      }
+    })
+    hideRightChrome()
+    tightenDashboard()
+  }
+  hideGrafanaChrome()
+  window.addEventListener('load', hideGrafanaChrome)
+  setInterval(hideGrafanaChrome, 500)
+  new MutationObserver(hideGrafanaChrome).observe(document.documentElement, {
+    childList: true,
+    subtree: true
+  })
+})()
+</script>
+"""
+        if "</head>" in text:
+            text = text.replace("</head>", f"{embed_style}</head>", 1)
+        else:
+            text = f"{embed_style}{text}"
     return text.encode("utf-8")
 
 
@@ -1169,7 +1411,7 @@ async def grafana_proxy(path: str, request: Request, token: str = Query("")):
     media_type = upstream.headers.get("content-type", "")
     content = upstream.content
     if "text/html" in media_type:
-        content = rewrite_grafana_html(content)
+        content = rewrite_grafana_html(content, embed=request.query_params.get("catixs_embed") == "1")
         response_headers["content-length"] = str(len(content))
 
     response = Response(content=content, status_code=upstream.status_code, headers=response_headers)

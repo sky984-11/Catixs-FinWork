@@ -602,7 +602,21 @@
         :style="vmMonitorModalStyle"
         :bordered="false"
       >
-        <iframe v-if="monitorModal.row" class="monitor-frame" :src="monitorUrl" title="Grafana VM Monitor" />
+        <div class="monitor-modal-toolbar">
+          <n-date-picker
+            v-model:value="monitorModal.timeRange"
+            type="datetimerange"
+            :shortcuts="monitorRangeShortcuts"
+            :time-picker-props="monitorTimePickerProps"
+            :update-value-on-close="true"
+            format="yyyy-MM-dd HH:00"
+            clearable
+            class="monitor-date-range"
+            start-placeholder="开始时间"
+            end-placeholder="结束时间"
+          />
+        </div>
+        <iframe v-if="monitorModal.row" class="monitor-frame" :src="monitorUrl" title="Grafana Monitor" />
       </n-modal>
 
       <button v-if="taskModal.upid && !taskModal.show" class="task-float-button" @click="taskModal.show = true">
@@ -725,13 +739,35 @@ const consoleModal = reactive({
 const monitorModal = reactive({
   show: false,
   row: null,
+  type: 'vm',
+  timeRange: recentRange(6 * 60 * 60 * 1000),
 })
 
 const taskTimer = ref(null)
 const tableRenderKey = ref(0)
 const createOptionsCache = new Map()
 
-const grafanaDashboardUrl = '/api/v1/pve/grafana/proxy/d/zbx-pve-vm-metrics/zabbix-pve-vm-metrics'
+const grafanaDashboardUrls = {
+  vm: '/api/v1/pve/grafana/proxy/d/zbx-pve-vm-metrics/zabbix-pve-vm-metrics',
+  node: '/api/v1/pve/grafana/proxy/d/zbx-pve-node-metrics/zabbix-pve-node-metrics',
+}
+
+const monitorRangeShortcuts = {
+  '最近 1 小时': () => recentRange(60 * 60 * 1000),
+  '最近 3 小时': () => recentRange(3 * 60 * 60 * 1000),
+  '最近 6 小时': () => recentRange(6 * 60 * 60 * 1000),
+  '最近 12 小时': () => recentRange(12 * 60 * 60 * 1000),
+  '最近 24 小时': () => recentRange(24 * 60 * 60 * 1000),
+  '最近 2 天': () => recentRange(2 * 24 * 60 * 60 * 1000),
+  '最近 7 天': () => recentRange(7 * 24 * 60 * 60 * 1000),
+  '最近 15 天': () => recentRange(15 * 24 * 60 * 60 * 1000),
+  '最近 30 天': () => recentRange(30 * 24 * 60 * 60 * 1000),
+  '最近 90 天': () => recentRange(90 * 24 * 60 * 60 * 1000),
+}
+
+const monitorTimePickerProps = {
+  format: 'HH:00',
+}
 
 const vmCreateModalStyle = {
   width: '760px',
@@ -788,6 +824,11 @@ const filteredNodes = computed(() => {
 
 const nodeMenuOptions = computed(() => [
   {
+    label: '监控',
+    key: 'monitor',
+    icon: () => h(TheIcon, { icon: 'mdi:chart-line', size: 16 }),
+  },
+  {
     label: '编辑',
     key: 'edit',
     icon: () => h(TheIcon, { icon: 'material-symbols:edit-outline-rounded', size: 16 }),
@@ -829,27 +870,55 @@ const targetEndpointOptions = computed(() => [
 
 const monitorTitle = computed(() => {
   if (!monitorModal.row) return '监控'
+  if (monitorModal.type === 'node') return `监控 · ${monitorModal.row.label || monitorModal.row.remote || '节点'}`
   return `监控 · ${monitorModal.row.name || `VM ${monitorModal.row.vmid}`}`
 })
 
 const monitorUrl = computed(() => {
   if (!monitorModal.row) return ''
-  const url = new URL(grafanaDashboardUrl, window.location.origin)
+  const url = new URL(grafanaDashboardUrls[monitorModal.type] || grafanaDashboardUrls.vm, window.location.origin)
+  const [from, to] = resolveMonitorTimeRange()
   url.searchParams.set('orgId', '1')
-  url.searchParams.set('from', 'now-30d')
-  url.searchParams.set('to', 'now')
+  url.searchParams.set('from', from)
+  url.searchParams.set('to', to)
   url.searchParams.set('timezone', 'browser')
   url.searchParams.set('var-DS_ZABBIX', 'bflbfxqfe1vk0d')
   url.searchParams.set('var-group', 'PVE')
-  url.searchParams.set('var-host', monitorModal.row.remote || '')
-  url.searchParams.set('var-item_tag', `name: ${monitorModal.row.name || ''}`)
+  url.searchParams.set('var-host', monitorModal.row.remote || monitorModal.row.label || '')
+  if (monitorModal.type === 'node') {
+    url.searchParams.set('var-item_tag', '$__all')
+  } else {
+    url.searchParams.set('var-item_tag', `name: ${monitorModal.row.name || ''}`)
+  }
   url.searchParams.set('refresh', '1m')
+  url.searchParams.set('kiosk', '')
+  url.searchParams.set('catixs_embed', '1')
   const token = getToken()
   if (token) {
     url.searchParams.set('token', token)
   }
   return url.toString()
 })
+
+function resolveMonitorTimeRange() {
+  if (Array.isArray(monitorModal.timeRange)) {
+    const [from, to] = monitorModal.timeRange
+    if (from && to) return [String(toHourStart(from)), String(toHourStart(to))]
+  }
+  const [from, to] = recentRange(6 * 60 * 60 * 1000)
+  return [String(from), String(to)]
+}
+
+function recentRange(duration) {
+  const now = toHourStart(Date.now())
+  return [now - duration, now]
+}
+
+function toHourStart(value) {
+  const date = new Date(value)
+  date.setMinutes(0, 0, 0)
+  return date.getTime()
+}
 
 const createStorageOptions = computed(() =>
   createModal.storages.map((storage) => ({
@@ -1056,7 +1125,19 @@ function openMonitor(row) {
     message.warning('缺少 Grafana 监控所需的节点或虚拟机名称')
     return
   }
+  monitorModal.type = 'vm'
   monitorModal.row = { ...row }
+  monitorModal.show = true
+}
+
+function openNodeMonitor(node) {
+  const remote = node?.remote || node?.value || node?.label
+  if (!remote) {
+    message.warning('缺少 Grafana 节点监控所需的节点名称')
+    return
+  }
+  monitorModal.type = 'node'
+  monitorModal.row = { ...node, remote }
   monitorModal.show = true
 }
 
@@ -1412,6 +1493,10 @@ function handleNodeMenuSelect(key) {
   const node = nodeMenu.node
   nodeMenu.show = false
   if (!node) return
+  if (key === 'monitor') {
+    openNodeMonitor(node)
+    return
+  }
   if (key === 'edit') {
     openEditNodeModal(node)
     return
@@ -2185,9 +2270,20 @@ onBeforeUnmount(() => {
   --n-border-focus: 1px solid rgba(250, 140, 22, 0.4) !important;
 }
 
+.monitor-modal-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
+.monitor-date-range {
+  width: 420px;
+  max-width: 100%;
+}
+
 .monitor-frame {
   width: 100%;
-  height: min(82vh, 880px);
+  height: min(82vh, 900px);
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   background: #0b0f19;
