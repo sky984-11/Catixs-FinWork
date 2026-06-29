@@ -258,7 +258,7 @@
                   clearable
                   class="full-width"
                   placeholder="不选择则为无限制"
-                  format="yyyy-MM-dd HH:mm"
+                  format="yyyy-MM-dd HH:00"
                   :time-picker-props="createExpireTimePickerProps"
                   :shortcuts="createExpireShortcuts"
                 />
@@ -633,11 +633,11 @@ const dialog = useDialog()
 const router = useRouter()
 
 const createExpireTimePickerProps = {
-  format: 'HH:mm',
+  format: 'HH:00',
 }
 
 const createExpireShortcuts = {
-  '7 天后': () => Date.now() + 7 * 24 * 60 * 60 * 1000,
+  '7 天后': () => toCreateExpireHour(Date.now() + 7 * 24 * 60 * 60 * 1000),
 }
 
 const loading = reactive({
@@ -1468,8 +1468,16 @@ function formatCreateExpireTime(value) {
   if (!value) return ''
   const date = new Date(Number(value))
   if (Number.isNaN(date.getTime())) return ''
+  date.setMinutes(0, 0, 0)
   const pad = (number) => String(number).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:00`
+}
+
+function toCreateExpireHour(value) {
+  const date = new Date(Number(value))
+  if (Number.isNaN(date.getTime())) return Date.now()
+  date.setMinutes(0, 0, 0)
+  return date.getTime()
 }
 
 function openAddNodeModal() {
