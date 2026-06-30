@@ -260,6 +260,7 @@ async def init_menus():
     await ensure_asset_menu()
     await ensure_syslog_menu()
     await ensure_akvorado_menu()
+    await ensure_ipam_menu()
     await ensure_business_party_menu()
     await ensure_bill_menu()
     await ensure_inventory_sale_menu()
@@ -561,6 +562,36 @@ async def ensure_akvorado_menu():
             changed = True
         if changed:
             await akvorado_menu.save()
+        return
+
+    await Menu.create(menu_type=MenuType.MENU, **values)
+
+
+async def ensure_ipam_menu():
+    ops_menu = await get_service_module_menu("/ops")
+    ipam_menu = await Menu.filter(path="/ipam").first()
+    values = {
+        "name": "IP管理",
+        "path": "/ipam",
+        "order": 5,
+        "parent_id": ops_menu.id,
+        "icon": "mdi:ip-network-outline",
+        "is_hidden": False,
+        "component": "/ops/ipam",
+        "keepalive": False,
+        "redirect": "",
+    }
+    if ipam_menu:
+        changed = False
+        for field, value in values.items():
+            if getattr(ipam_menu, field) != value:
+                setattr(ipam_menu, field, value)
+                changed = True
+        if ipam_menu.menu_type != MenuType.MENU:
+            ipam_menu.menu_type = MenuType.MENU
+            changed = True
+        if changed:
+            await ipam_menu.save()
         return
 
     await Menu.create(menu_type=MenuType.MENU, **values)

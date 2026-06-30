@@ -13,6 +13,7 @@ from .companies import companies_router
 from .depts import depts_router
 from .dashboard import router as dashboard_router
 from .menus import menus_router
+from .netbox import netbox_router
 from .projects import projects_router
 from .pve import grafana_router as pve_grafana_router
 from .pve import pve_router
@@ -40,6 +41,7 @@ v1_router.include_router(dashboard_router, prefix="/ticket", tags=["仪表盘模
 v1_router.include_router(ticket_router, prefix="/ticket", tags=["工单模块"])
 v1_router.include_router(assets_router, prefix="/asset", dependencies=[DependPermission], tags=["资产管理模块"])
 v1_router.include_router(syslog_router, prefix="/syslog", dependencies=[DependPermission], tags=["Syslog日志管理模块"])
+v1_router.include_router(netbox_router, prefix="/netbox", dependencies=[DependPermission], tags=["NetBox IPAM"])
 v1_router.include_router(pve_novnc_ws_router, prefix="/pve", tags=["PVE noVNC模块"])
 v1_router.include_router(pve_router, prefix="/pve", dependencies=[DependPermission], tags=["PVE Datacenter模块"])
 v1_router.include_router(banks_router, prefix="/bank", dependencies=[DependPermission])

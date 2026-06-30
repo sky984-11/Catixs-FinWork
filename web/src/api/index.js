@@ -192,6 +192,11 @@ export default {
     raw: (params = {}) => request.get('/syslog/raw', { params }),
   },
 
+  // NetBox IPAM
+  netboxApi: {
+    ipamOverview: (params = {}) => request.get('/netbox/ipam/overview', { params }),
+  },
+
   // virtual machine
   virtualMachineApi: {
     pveNodes: () => request.get('/pve/nodes'),
