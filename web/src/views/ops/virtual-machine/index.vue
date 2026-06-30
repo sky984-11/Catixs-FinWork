@@ -1015,7 +1015,7 @@ const columns = [
           default: () => [
             actionButton('监控', 'mdi:chart-line', 'info', row, 'vm-button-monitor', openMonitor),
             powerButton(row),
-            actionButton('编辑', 'material-symbols:edit-outline-rounded', 'info', row),
+            actionButton('编辑', 'material-symbols:edit-outline-rounded', 'info', row, '', openEditVm),
             actionButton('删除', 'material-symbols:delete-outline-rounded', 'error', row, '', confirmDeleteVm),
             actionButton('迁移', 'material-symbols:send-rounded', 'warning', row, 'vm-button-send', openMigration),
           ],
@@ -1060,6 +1060,23 @@ function openMonitor(row) {
       type: 'vm',
       remote: row.remote,
       name: row.name,
+    },
+  })
+}
+
+function openEditVm(row) {
+  if (!row?.remote || !row?.vmid) {
+    message.warning('缺少虚拟机远程或 VMID 信息')
+    return
+  }
+  router.push({
+    path: '/virtual-machine/edit',
+    query: {
+      remote: row.remote,
+      vmid: row.vmid,
+      type: row.type || 'pve-qemu',
+      node: row.node || '',
+      name: row.name || `VM ${row.vmid}`,
     },
   })
 }
