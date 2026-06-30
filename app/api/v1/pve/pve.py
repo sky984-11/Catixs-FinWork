@@ -4,6 +4,7 @@ import logging
 import json
 import shlex
 import time
+import re
 from typing import Any
 from urllib.parse import quote, urlparse
 
@@ -897,6 +898,30 @@ class VMPowerRequest(BaseModel):
     action: str
 
 
+class VMNetworkDeviceRequest(BaseModel):
+    key: str | None = None
+    model: str = "virtio"
+    macaddr: str | None = None
+    bridge: str = "vmbr10"
+    vlan: int | None = None
+    mtu: int | None = None
+    rate: float | None = None
+    firewall: bool = False
+    delete: bool = False
+
+
+class VMConfigUpdateRequest(BaseModel):
+    remote: str
+    vmid: int
+    type: str = "pve-qemu"
+    node: str | None = None
+    cores: int | None = None
+    memory_gb: float | None = None
+    disk_gb: float | None = None
+    disk_key: str | None = None
+    networks: list[VMNetworkDeviceRequest] = []
+
+
 class PDMAddRemoteRequest(BaseModel):
     hostname: str
     authid: str | None = None
@@ -1123,6 +1148,109 @@ def vm_remark_from_config(data: Any) -> str:
         if value:
             return str(value)
     return ""
+
+
+def parse_qemu_kv(value: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for part in str(value or "").split(","):
+        if "=" not in part:
+            continue
+        key, item_value = part.split("=", 1)
+        result[key.strip()] = item_value.strip()
+    return result
+
+
+def parse_qemu_size_gb(value: str) -> float:
+    size = parse_qemu_kv(value).get("size", "")
+    match = re.match(r"^([\d.]+)\s*([kmgtp]?i?b?|[kmgtp])?$", str(size).strip(), re.I)
+    if not match:
+        return 0
+    number = float(match.group(1))
+    unit = (match.group(2) or "g").lower().replace("ib", "").replace("b", "")
+    factors = {"": 1 / 1024 / 1024 / 1024, "k": 1 / 1024 / 1024, "m": 1 / 1024, "g": 1, "t": 1024, "p": 1024 * 1024}
+    return round(number * factors.get(unit, 1), 2)
+
+
+def vm_disk_devices(config: dict[str, Any]) -> list[dict[str, Any]]:
+    disks: list[dict[str, Any]] = []
+    for key, value in config.items():
+        if not re.match(r"^(scsi|virtio|sata|ide)\d+$", str(key)):
+            continue
+        text = str(value or "")
+        if "media=cdrom" in text or "cloudinit" in text:
+            continue
+        disks.append({"key": str(key), "value": text, "size_gb": parse_qemu_size_gb(text)})
+    return sorted(disks, key=lambda item: item["key"])
+
+
+def vm_network_devices(config: dict[str, Any]) -> list[dict[str, Any]]:
+    networks: list[dict[str, Any]] = []
+    for key, value in config.items():
+        if not re.match(r"^net\d+$", str(key)):
+            continue
+        text = str(value or "")
+        first, *rest = text.split(",", 1)
+        model = "virtio"
+        macaddr = ""
+        if "=" in first:
+            model, macaddr = first.split("=", 1)
+        options = parse_qemu_kv(rest[0] if rest else "")
+        networks.append(
+            {
+                "key": str(key),
+                "model": model or "virtio",
+                "macaddr": macaddr,
+                "bridge": options.get("bridge") or "vmbr10",
+                "vlan": int(options["tag"]) if str(options.get("tag") or "").isdigit() else None,
+                "mtu": int(options["mtu"]) if str(options.get("mtu") or "").isdigit() else None,
+                "rate": float(options["rate"]) if str(options.get("rate") or "").replace(".", "", 1).isdigit() else None,
+                "firewall": str(options.get("firewall") or "0") == "1",
+                "raw": text,
+            }
+        )
+    return sorted(networks, key=lambda item: item["key"])
+
+
+def qemu_net_value(network: VMNetworkDeviceRequest) -> str:
+    model = (network.model or "virtio").strip()
+    macaddr = (network.macaddr or "").strip()
+    head = f"{model}={macaddr}" if macaddr else model
+    parts = [head, f"bridge={(network.bridge or 'vmbr10').strip()}"]
+    if network.vlan is not None:
+        parts.append(f"tag={int(network.vlan)}")
+    if network.mtu is not None and int(network.mtu) > 0:
+        parts.append(f"mtu={int(network.mtu)}")
+    if network.rate is not None and float(network.rate) > 0:
+        parts.append(f"rate={float(network.rate):g}")
+    if network.firewall:
+        parts.append("firewall=1")
+    return ",".join(parts)
+
+
+def qemu_hotplug_without_network(value: Any) -> str:
+    items = [item.strip() for item in str(value or "disk,network,usb").split(",") if item.strip()]
+    filtered = [item for item in items if item != "network"]
+    return ",".join(filtered) or "0"
+
+
+def next_net_key(existing: set[str]) -> str:
+    for index in range(32):
+        key = f"net{index}"
+        if key not in existing:
+            return key
+    raise RuntimeError("No free network slot")
+
+
+async def vm_config_from_pve(remote: str, vmid: int, vm_type: str = "pve-qemu") -> tuple[str, dict[str, Any]]:
+    host = await pdm_remote_config_host(remote)
+    if not host:
+        raise RuntimeError("PVE node IP not found")
+    kind = guest_kind(vm_type)
+    command = f"pvesh get /nodes/$(hostname -s)/{kind}/{int(vmid)}/config --output-format json"
+    code, output, error = await asyncio.to_thread(ssh_execute_pve, host, command)
+    if code != 0:
+        raise RuntimeError(error or output or "Failed to read VM config")
+    return host, json.loads(output or "{}")
 
 
 async def fetch_vm_config_remark(vm: dict[str, Any]) -> str:
@@ -1844,4 +1972,173 @@ async def power_vm(payload: VMPowerRequest):
         msg=f"{'开机' if action == 'start' else '停止'}请求已发送",
         data={"upid": task_id, "remote": payload.remote, "vmid": payload.vmid, "action": action},
     )
+
+
+@router.get("/vms/config", summary="Read PVE virtual machine core config")
+async def vm_config(
+    remote: str = Query(...),
+    vmid: int = Query(...),
+    type: str = Query("pve-qemu"),
+):
+    try:
+        host, config = await vm_config_from_pve(remote, vmid, type)
+        disks = vm_disk_devices(config)
+        networks = vm_network_devices(config)
+        bridges: list[str] = []
+        code, output, _error = await asyncio.to_thread(
+            ssh_execute_pve,
+            host,
+            "pvesh get /nodes/$(hostname -s)/network --output-format json",
+        )
+        if code == 0:
+            for item in json.loads(output or "[]"):
+                if item.get("type") == "bridge" and item.get("iface"):
+                    bridges.append(str(item["iface"]))
+    except Exception as exc:
+        return Fail(msg=f"读取虚拟机配置失败: {error_detail(exc)}")
+
+    return Success(
+        data={
+            "remote": remote,
+            "vmid": vmid,
+            "type": type,
+            "cores": int(config.get("cores") or config.get("vcpus") or 1),
+            "sockets": int(config.get("sockets") or 1),
+            "memory_gb": round(number_value(config.get("memory")) / 1024, 2),
+            "disks": disks,
+            "disk_gb": disks[0]["size_gb"] if disks else 0,
+            "disk_key": disks[0]["key"] if disks else "",
+            "networks": networks,
+            "bridges": sorted(set(bridges)) or ["vmbr10", "vmbr20"],
+        }
+    )
+
+
+@router.post("/vms/config", summary="Update PVE virtual machine core config")
+async def update_vm_config(payload: VMConfigUpdateRequest):
+    if payload.type != "pve-qemu":
+        return Fail(msg="编辑虚拟机配置失败: 当前只支持 QEMU 虚拟机")
+
+    try:
+        host, current = await vm_config_from_pve(payload.remote, payload.vmid, payload.type)
+        commands: list[str] = []
+        set_args: list[str] = []
+
+        if payload.cores is not None:
+            set_args.extend(["--cores", str(max(1, int(payload.cores)))])
+        if payload.memory_gb is not None:
+            set_args.extend(["--memory", str(max(1, int(float(payload.memory_gb) * 1024)))])
+
+        current_networks = {item["key"]: item for item in vm_network_devices(current)}
+        used_keys = set(current_networks.keys())
+        delete_keys: list[str] = []
+        has_network_changes = False
+        for network in payload.networks:
+            key = (network.key or "").strip()
+            if network.delete:
+                if key and key in used_keys:
+                    delete_keys.append(key)
+                    has_network_changes = True
+                continue
+            if not key:
+                key = next_net_key(used_keys)
+                used_keys.add(key)
+            set_args.extend([f"--{key}", qemu_net_value(network)])
+            has_network_changes = True
+        if delete_keys:
+            set_args.extend(["--delete", ",".join(delete_keys)])
+
+        if set_args:
+            if has_network_changes:
+                original_hotplug = str(current.get("hotplug") or "").strip()
+                config_path = f"/nodes/$(hostname -s)/qemu/{int(payload.vmid)}/config"
+                commands.append(
+                    " ".join(
+                        [
+                            "pvesh",
+                            "set",
+                            config_path,
+                            "--hotplug",
+                            shlex.quote(qemu_hotplug_without_network(original_hotplug)),
+                        ]
+                    )
+                )
+            commands.append(
+                " ".join(
+                    [
+                        "pvesh",
+                        "set",
+                        f"/nodes/$(hostname -s)/qemu/{int(payload.vmid)}/config",
+                        *[shlex.quote(value) for value in set_args],
+                    ]
+                )
+            )
+            if has_network_changes:
+                if original_hotplug:
+                    commands.append(
+                        " ".join(
+                            [
+                                "pvesh",
+                                "set",
+                                config_path,
+                                "--hotplug",
+                                shlex.quote(original_hotplug),
+                            ]
+                        )
+                    )
+                else:
+                    commands.append(" ".join(["pvesh", "set", config_path, "--delete", "hotplug"]))
+
+        if payload.disk_gb is not None:
+            disk_key = (payload.disk_key or "").strip()
+            current_disks = {item["key"]: item for item in vm_disk_devices(current)}
+            current_disk = current_disks.get(disk_key) or (next(iter(current_disks.values())) if current_disks else None)
+            if current_disk:
+                target_size = float(payload.disk_gb)
+                current_size = float(current_disk.get("size_gb") or 0)
+                if target_size + 0.001 < current_size:
+                    return Fail(msg="编辑虚拟机配置失败: 磁盘不支持缩小，只能扩容")
+                if target_size > current_size + 0.001:
+                    grow_size = round(target_size - current_size, 2)
+                    commands.append(
+                        " ".join(
+                            [
+                                "pvesh",
+                                "set",
+                                f"/nodes/$(hostname -s)/qemu/{int(payload.vmid)}/resize",
+                                "--disk",
+                                shlex.quote(str(current_disk["key"])),
+                                "--size",
+                                shlex.quote(f"+{grow_size:g}G"),
+                            ]
+                        )
+                    )
+
+        if not commands:
+            return Success(msg="没有需要更新的配置")
+
+        command = " && ".join(commands)
+        code, output, error = await asyncio.to_thread(ssh_execute_pve, host, command)
+        if code != 0:
+            return Fail(msg=f"编辑虚拟机配置失败: {error or output}")
+    except Exception as exc:
+        return Fail(msg=f"编辑虚拟机配置失败: {error_detail(exc)}")
+
+    return Success(msg="虚拟机配置已更新，部分配置需重启虚拟机后生效")
+
+
+@router.post("/vms/reboot", summary="Reboot PVE virtual machine")
+async def reboot_vm(payload: VMDeleteRequest):
+    try:
+        host = await pdm_remote_config_host(payload.remote)
+        if not host:
+            return Fail(msg="重启虚拟机失败: 未找到 PVE 节点 IP")
+        command = f"pvesh create /nodes/$(hostname -s)/qemu/{int(payload.vmid)}/status/reboot"
+        code, output, error = await asyncio.to_thread(ssh_execute_pve, host, command)
+        if code != 0:
+            return Fail(msg=f"重启虚拟机失败: {error or output}")
+    except Exception as exc:
+        return Fail(msg=f"重启虚拟机失败: {error_detail(exc)}")
+
+    return Success(msg="重启请求已发送")
 

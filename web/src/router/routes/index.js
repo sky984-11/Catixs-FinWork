@@ -136,6 +136,26 @@ export const basicRoutes = [
     },
   },
   {
+    name: 'OpsVirtualMachineEdit',
+    path: '/virtual-machine/edit',
+    component: Layout,
+    isHidden: true,
+    children: [
+      {
+        name: 'OpsVirtualMachineEditDefault',
+        path: '',
+        component: () => import('@/views/ops/virtual-machine/edit/index.vue'),
+        meta: {
+          title: '编辑虚拟机',
+          icon: 'material-symbols:edit-outline-rounded',
+        },
+      },
+    ],
+    meta: {
+      title: '编辑虚拟机',
+    },
+  },
+  {
     name: '404',
     path: '/404',
     component: () => import('@/views/error-page/404.vue'),
