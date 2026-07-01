@@ -654,6 +654,7 @@ const nodeOptions = ref([])
 const selectedNode = ref(null)
 const vmList = ref([])
 let vmIpRequestId = 0
+const VM_SELECTED_NODE_STORAGE_KEY = 'ops.virtualMachine.selectedNode'
 const nodeRemarkCache = reactive({})
 const vmSummary = reactive({
   total: 0,
@@ -897,6 +898,35 @@ const consoleTitle = computed(() => {
   if (!row) return 'noVNC 控制台'
   return `${row.name || `VM ${row.vmid}`} 控制台`
 })
+
+function readRememberedNodeValue() {
+  try {
+    return localStorage.getItem(VM_SELECTED_NODE_STORAGE_KEY) || ''
+  } catch (_error) {
+    return ''
+  }
+}
+
+function rememberSelectedNode(node) {
+  try {
+    const value = node?.value || node?.remote || ''
+    if (value) {
+      localStorage.setItem(VM_SELECTED_NODE_STORAGE_KEY, value)
+    } else {
+      localStorage.removeItem(VM_SELECTED_NODE_STORAGE_KEY)
+    }
+  } catch (_error) {
+    // ignore storage failures
+  }
+}
+
+function forgetSelectedNode() {
+  try {
+    localStorage.removeItem(VM_SELECTED_NODE_STORAGE_KEY)
+  } catch (_error) {
+    // ignore storage failures
+  }
+}
 
 function noVncCellProps() {
   return {
@@ -1622,6 +1652,7 @@ function confirmDeleteNode(node) {
         message.success(res.msg || 'PVE 节点已删除')
         if (selectedNode.value?.value === remote) {
           selectedNode.value = null
+          forgetSelectedNode()
         }
         await refreshNodes()
       } catch (error) {
@@ -1899,8 +1930,17 @@ async function fetchNodes() {
   try {
     const res = await api.virtualMachineApi.pveNodes()
     nodeOptions.value = res.data || []
-    if (!selectedNode.value && nodeOptions.value.length) {
+    const selectedValue = selectedNode.value?.value || readRememberedNodeValue()
+    const rememberedNode = selectedValue
+      ? nodeOptions.value.find((node) => node.value === selectedValue || node.remote === selectedValue)
+      : null
+    if (rememberedNode) {
+      selectedNode.value = rememberedNode
+    } else if (!selectedNode.value && nodeOptions.value.length) {
       selectedNode.value = nodeOptions.value[0]
+      rememberSelectedNode(selectedNode.value)
+    } else if (selectedValue && !rememberedNode) {
+      forgetSelectedNode()
     }
     if (selectedNode.value?.value && !selectedNode.value.error) {
       preloadCreateOptions(selectedNode.value.value)
@@ -1917,6 +1957,7 @@ async function refreshNodes() {
   await fetchNodes()
   if (selectedNode.value && !nodeOptions.value.some((node) => node.value === selectedNode.value.value)) {
     selectedNode.value = nodeOptions.value[0] || null
+    rememberSelectedNode(selectedNode.value)
   }
   await fetchVms()
 }
@@ -1997,6 +2038,7 @@ async function fetchVmIps(nodeValue) {
 
 function selectNode(node) {
   selectedNode.value = node
+  rememberSelectedNode(node)
   if (node.error) {
     vmIpRequestId += 1
     vmList.value = []
