@@ -56,6 +56,24 @@ def grafana_base_url() -> str:
     return settings.GRAFANA_URL.rstrip("/")
 
 
+def netbox_base_url() -> str:
+    if not settings.NETBOX_URL:
+        raise RuntimeError("NetBox URL is not configured")
+    return settings.NETBOX_URL.rstrip("/")
+
+
+def netbox_headers() -> dict[str, str]:
+    if not settings.NETBOX_TOKEN:
+        raise RuntimeError("NetBox token is not configured")
+    token = settings.NETBOX_TOKEN.strip()
+    authorization = token if token.lower().startswith(("bearer ", "token ")) else f"Token {token}"
+    return {
+        "Authorization": authorization,
+        "Accept": "application/json",
+        "User-Agent": "Catixs-FinWork NetBox ProxBox/1.0",
+    }
+
+
 def grafana_proxy_prefix() -> str:
     return "/api/v1/pve/grafana/proxy"
 
@@ -1137,7 +1155,123 @@ def normalize_vm(item: dict[str, Any], remote: str) -> dict[str, Any]:
         "tags": item.get("tags") or [],
         "pool": item.get("pool") or "",
         "remark": str(remark),
+        "ips": [],
+        "ip_addresses": [],
+        "primary_ip": "",
     }
+
+
+def normalize_vm_key(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def netbox_vm_identifier(item: dict[str, Any]) -> tuple[str, str]:
+    vm = item.get("virtual_machine") if isinstance(item.get("virtual_machine"), dict) else {}
+    custom_fields = item.get("custom_fields") if isinstance(item.get("custom_fields"), dict) else {}
+    vm_name = normalize_vm_key(vm.get("name") or vm.get("display") or item.get("name") or item.get("display"))
+    vmid = custom_fields.get("proxmox_vm_id") or custom_fields.get("proxmox_vmid")
+    if not vmid:
+        link = str(custom_fields.get("proxmox_link") or "")
+        match = re.search(r"/(?:qemu|lxc)/(\d+)", link)
+        if match:
+            vmid = match.group(1)
+    return vm_name, str(vmid or "").strip()
+
+
+def ip_without_prefix(value: Any) -> str:
+    text = str(value or "").strip()
+    if "/" in text:
+        return text.split("/", 1)[0]
+    return text
+
+
+async def netbox_get_all(path: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    url = f"{netbox_base_url()}/{path.lstrip('/')}"
+    query = {"limit": 200, **(params or {})}
+    results: list[dict[str, Any]] = []
+    async with httpx.AsyncClient(timeout=20, verify=False, trust_env=False) as client:
+        while url:
+            response = await client.get(url, params=query, headers=netbox_headers())
+            query = None
+            response.raise_for_status()
+            data = response.json()
+            if isinstance(data, list):
+                results.extend(data)
+                break
+            results.extend(data.get("results") or [])
+            url = data.get("next") or ""
+    return results
+
+
+async def netbox_vm_ip_map() -> dict[str, list[str]]:
+    if not settings.NETBOX_URL or not settings.NETBOX_TOKEN:
+        return {}
+
+    vm_rows = await netbox_get_all("/api/virtualization/virtual-machines/")
+    vm_names_by_id: dict[int, str] = {}
+    vmids_by_name: dict[str, str] = {}
+    for item in vm_rows:
+        vm_name, vmid = netbox_vm_identifier(item)
+        if item.get("id") is not None and vm_name:
+            try:
+                vm_names_by_id[int(item["id"])] = vm_name
+            except (TypeError, ValueError):
+                pass
+        if vm_name and vmid:
+            vmids_by_name[vm_name] = vmid
+
+    ip_rows = await netbox_get_all(
+        "/api/ipam/ip-addresses/",
+        {"assigned_object_type": "virtualization.vminterface"},
+    )
+    mapping: dict[str, list[str]] = {}
+    for item in ip_rows:
+        address = ip_without_prefix(item.get("address"))
+        if not address:
+            continue
+        assigned = item.get("assigned_object") if isinstance(item.get("assigned_object"), dict) else {}
+        vm = assigned.get("virtual_machine") if isinstance(assigned.get("virtual_machine"), dict) else {}
+        vm_name = normalize_vm_key(vm.get("name") or vm.get("display"))
+        vm_id = vm.get("id")
+        if not vm_name and vm_id is not None:
+            try:
+                vm_name = vm_names_by_id.get(int(vm_id), "")
+            except (TypeError, ValueError):
+                vm_name = ""
+        if not vm_name:
+            continue
+        keys = {f"name:{vm_name}"}
+        if vmids_by_name.get(vm_name):
+            keys.add(f"vmid:{vmids_by_name[vm_name]}")
+        for key in keys:
+            mapping.setdefault(key, [])
+            if address not in mapping[key]:
+                mapping[key].append(address)
+    return mapping
+
+
+async def enrich_vm_ips(vms: list[dict[str, Any]]) -> None:
+    if not vms:
+        return
+    try:
+        ip_map = await netbox_vm_ip_map()
+    except Exception as exc:
+        logger.warning("Failed to read VM IPs from NetBox: %s", error_detail(exc))
+        return
+
+    for vm in vms:
+        keys = [
+            f"vmid:{vm.get('vmid')}",
+            f"name:{normalize_vm_key(vm.get('name'))}",
+        ]
+        ips: list[str] = []
+        for key in keys:
+            for address in ip_map.get(key, []):
+                if address not in ips:
+                    ips.append(address)
+        vm["ips"] = ips
+        vm["ip_addresses"] = ips
+        vm["primary_ip"] = ips[0] if ips else ""
 
 
 def vm_remark_from_config(data: Any) -> str:
@@ -1561,6 +1695,7 @@ async def list_vms(
     vms = all_vms(data)
     if node:
         vms = [vm for vm in vms if vm.get("remote") == node]
+    await enrich_vm_ips(vms)
     await enrich_vm_remarks(vms)
     vms.sort(key=lambda row: (str(row.get("remote") or ""), str(row.get("node") or ""), int(row.get("vmid") or 0)))
     summary = {

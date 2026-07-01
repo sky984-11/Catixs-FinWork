@@ -917,6 +917,24 @@ const columns = [
     },
   },
   {
+    title: 'IP 地址',
+    key: 'primary_ip',
+    width: 190,
+    ellipsis: { tooltip: true },
+    cellProps: noVncCellProps,
+    render(row) {
+      const ips = row.ips || row.ip_addresses || []
+      if (!ips.length) return '-'
+      return h(
+        NSpace,
+        { size: 4, wrap: true },
+        {
+          default: () => ips.slice(0, 3).map((ip) => h(NTag, { size: 'small', round: true, type: 'info' }, { default: () => ip })),
+        }
+      )
+    },
+  },
+  {
     title: '状态',
     key: 'status',
     width: 110,
