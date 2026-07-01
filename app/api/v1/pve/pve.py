@@ -1144,6 +1144,12 @@ def normalize_vm(item: dict[str, Any], remote: str) -> dict[str, Any]:
     }
 
 
+def vm_cpu_topology(config: dict[str, Any]) -> tuple[int, int, int]:
+    cores = max(1, int(float(config.get("cores") or config.get("vcpus") or 1)))
+    sockets = max(1, int(float(config.get("sockets") or 1)))
+    return cores, sockets, cores * sockets
+
+
 def guest_agent_ips_from_payload(data: Any) -> list[str]:
     interfaces = data.get("result") if isinstance(data, dict) else data
     if not isinstance(interfaces, list):
@@ -2133,13 +2139,16 @@ async def vm_config(
     except Exception as exc:
         return Fail(msg=f"读取虚拟机配置失败: {error_detail(exc)}")
 
+    cores_per_socket, sockets, total_cores = vm_cpu_topology(config)
     return Success(
         data={
             "remote": remote,
             "vmid": vmid,
             "type": type,
-            "cores": int(config.get("cores") or config.get("vcpus") or 1),
-            "sockets": int(config.get("sockets") or 1),
+            "cores": total_cores,
+            "total_cores": total_cores,
+            "cores_per_socket": cores_per_socket,
+            "sockets": sockets,
             "memory_gb": round(number_value(config.get("memory")) / 1024, 2),
             "disks": disks,
             "disk_gb": disks[0]["size_gb"] if disks else 0,
@@ -2161,7 +2170,13 @@ async def update_vm_config(payload: VMConfigUpdateRequest):
         set_args: list[str] = []
 
         if payload.cores is not None:
-            set_args.extend(["--cores", str(max(1, int(payload.cores)))])
+            desired_total_cores = max(1, int(payload.cores))
+            _current_cores_per_socket, current_sockets, current_total_cores = vm_cpu_topology(current)
+            if desired_total_cores != current_total_cores:
+                if current_sockets > 1 and desired_total_cores % current_sockets == 0:
+                    set_args.extend(["--cores", str(desired_total_cores // current_sockets)])
+                else:
+                    set_args.extend(["--sockets", "1", "--cores", str(desired_total_cores)])
         if payload.memory_gb is not None:
             set_args.extend(["--memory", str(max(1, int(float(payload.memory_gb) * 1024)))])
 
