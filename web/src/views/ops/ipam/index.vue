@@ -2,160 +2,89 @@
   <AppPage :show-footer="false">
     <div class="ipam-page">
       <section class="ipam-toolbar">
-        <div class="toolbar-title">
-          <span class="eyebrow">NetBox IPAM</span>
-          <h2>IP 管理</h2>
-        </div>
         <div class="toolbar-filters">
-          <n-input v-model:value="filters.search" clearable placeholder="搜索子网 / 客户 / 供应商 / 地址" @keyup.enter="fetchOverview">
-            <template #prefix>
-              <TheIcon icon="mdi:magnify" :size="18" />
-            </template>
-          </n-input>
-          <n-select v-model:value="filters.family" clearable placeholder="IP 版本" :options="familyOptions" />
-          <n-select v-model:value="filters.status" clearable placeholder="状态" :options="statusOptions" />
-          <n-button secondary round @click="resetFilters">
-            <template #icon>
-              <TheIcon icon="mdi:refresh" :size="18" />
-            </template>
-            重置
-          </n-button>
-          <n-button type="primary" round :loading="loading" @click="fetchOverview">
-            <template #icon>
-              <TheIcon icon="mdi:database-search-outline" :size="18" />
-            </template>
-            同步
-          </n-button>
+          <n-select
+            v-model:value="filters.supplier"
+            clearable
+            filterable
+            placeholder="供应商"
+            :options="filterOptions.suppliers"
+            @update:value="fetchOverview"
+          />
+          <n-select
+            v-model:value="filters.customer"
+            clearable
+            filterable
+            placeholder="客户"
+            :options="filterOptions.customers"
+            @update:value="fetchOverview"
+          />
+          <n-select
+            v-model:value="filters.region"
+            clearable
+            filterable
+            placeholder="地区"
+            :options="filterOptions.regions"
+            @update:value="fetchOverview"
+          />
         </div>
       </section>
 
-      <section class="summary-grid">
-        <article>
-          <span>子网数量</span>
-          <strong>{{ summary.prefix_count || 0 }}</strong>
-        </article>
-        <article>
-          <span>已登记 IP</span>
-          <strong>{{ summary.ip_count || 0 }}</strong>
-        </article>
-        <article>
-          <span>可用容量</span>
-          <strong>{{ formatNumber(summary.usable) }}</strong>
-        </article>
-        <article>
-          <span>整体利用率</span>
-          <strong>{{ formatPercent(summary.utilization) }}</strong>
-        </article>
-        <article>
-          <span>客户数量</span>
-          <strong>{{ summary.customer_count || 0 }}</strong>
-        </article>
-        <article>
-          <span>供应商数量</span>
-          <strong>{{ summary.supplier_count || 0 }}</strong>
-        </article>
+      <section class="tree-table-panel">
+        <n-data-table
+          size="small"
+          :loading="loading"
+          :columns="prefixColumns"
+          :data="prefixTreeData"
+          :pagination="false"
+          :row-key="prefixRowKey"
+          :bordered="false"
+          striped
+        />
       </section>
 
-      <section class="ipam-layout">
-        <aside class="prefix-panel">
-          <div class="panel-head">
-            <h3>子网划分</h3>
-            <n-tag round size="small">{{ prefixes.length }}</n-tag>
-          </div>
-          <div class="prefix-list">
-            <button
-              v-for="prefix in prefixes"
-              :key="prefix.id || prefix.prefix"
-              class="prefix-item"
-              :class="{ active: selectedPrefix?.prefix === prefix.prefix }"
-              @click="selectPrefix(prefix)"
-            >
-              <span class="prefix-main">
-                <strong>{{ prefix.prefix }}</strong>
-                <em>{{ prefixMaskMeta(prefix) }}</em>
-              </span>
-              <span class="prefix-meta">
-                <n-progress
-                  type="line"
-                  :percentage="Math.min(prefix.utilization || 0, 100)"
-                  :height="6"
-                  :show-indicator="false"
-                  :status="progressStatus(prefix.utilization)"
-                />
-                <b>{{ formatPercent(prefix.utilization) }}</b>
-              </span>
-            </button>
-            <n-empty v-if="!prefixes.length && !loading" description="暂无子网数据" />
-          </div>
-        </aside>
-
-        <main class="detail-panel">
-          <n-spin :show="loading">
-            <template v-if="selectedPrefix">
-              <div class="detail-head">
-                <div>
-                  <span class="eyebrow">Prefix</span>
-                  <h2>{{ selectedPrefix.prefix }}</h2>
-                  <p>{{ prefixSubtitle(selectedPrefix) }}</p>
-                </div>
-                <div class="detail-meter">
-                  <n-progress
-                    type="circle"
-                    :percentage="Math.min(selectedPrefix.utilization || 0, 100)"
-                    :status="progressStatus(selectedPrefix.utilization)"
-                  />
-                  <span>{{ selectedPrefix.used }} / {{ selectedPrefix.usable }}</span>
-                </div>
-              </div>
-
-              <div class="prefix-stats">
-                <article>
-                  <span>可用</span>
-                  <strong>{{ formatNumber(selectedPrefix.available) }}</strong>
-                </article>
-                <article>
-                  <span>已用</span>
-                  <strong>{{ formatNumber(selectedPrefix.used) }}</strong>
-                </article>
-                <article>
-                  <span>客户</span>
-                  <strong>{{ selectedPrefix.top_customers?.length || 0 }}</strong>
-                </article>
-                <article>
-                  <span>下级前缀</span>
-                  <strong>{{ selectedPrefix.child_prefix_count || 0 }}</strong>
-                </article>
-                <article>
-                  <span>IP 范围</span>
-                  <strong>{{ selectedPrefix.range_count || 0 }}</strong>
-                </article>
-                <article>
-                  <span>状态</span>
-                  <strong>{{ mapPrefixStatus(selectedPrefix) }}</strong>
-                </article>
-              </div>
-
-              <n-data-table
-                size="small"
-                :columns="ipColumns"
-                :data="selectedPrefix.ips || []"
-                :pagination="ipPagination"
-                :row-key="(row) => row.id || row.address"
+      <n-modal
+        v-model:show="showIpModal"
+        preset="card"
+        :title="selectedPrefix?.prefix || 'IP Addresses'"
+        class="ip-detail-modal"
+        :bordered="false"
+      >
+        <template v-if="selectedPrefix">
+          <div class="detail-head">
+            <div>
+              <span class="eyebrow">IP Addresses</span>
+              <h3>{{ selectedPrefix.prefix }}</h3>
+              <p>{{ prefixSubtitle(selectedPrefix) }}</p>
+            </div>
+            <div class="detail-meter">
+              <n-progress
+                type="circle"
+                :percentage="Math.min(selectedPrefix.utilization || 0, 100)"
+                :status="progressStatus(selectedPrefix.utilization)"
               />
-            </template>
-            <n-empty v-else description="请选择一个子网" />
-          </n-spin>
-        </main>
-      </section>
+              <span>{{ formatNumber(selectedPrefix.used) }} / {{ formatNumber(selectedPrefix.usable) }}</span>
+            </div>
+          </div>
+
+          <n-data-table
+            size="small"
+            :columns="ipColumns"
+            :data="selectedPrefixIps"
+            :pagination="ipPagination"
+            :row-key="(row) => row.id || row.address"
+            striped
+          />
+        </template>
+      </n-modal>
     </div>
   </AppPage>
 </template>
 
 <script setup>
-import { h, onMounted, reactive, ref } from 'vue'
-import { NTag, useMessage } from 'naive-ui'
+import { computed, h, onMounted, reactive, ref } from 'vue'
+import { NProgress, NTag, useMessage } from 'naive-ui'
 import api from '@/api'
-import TheIcon from '@/components/icon/TheIcon.vue'
 
 defineOptions({ name: 'OpsIpam' })
 
@@ -163,6 +92,7 @@ const message = useMessage()
 const loading = ref(false)
 const prefixes = ref([])
 const selectedPrefix = ref(null)
+const showIpModal = ref(false)
 const summary = reactive({
   prefix_count: 0,
   ip_count: 0,
@@ -175,28 +105,149 @@ const summary = reactive({
 })
 
 const filters = reactive({
-  search: '',
-  family: null,
-  status: null,
+  region: null,
+  customer: null,
+  supplier: null,
 })
 
-const familyOptions = [
-  { label: 'IPv4', value: 4 },
-  { label: 'IPv6', value: 6 },
-]
-
-const statusOptions = [
-  { label: '启用 / 已用', value: 'active' },
-  { label: '预留', value: 'reserved' },
-  { label: '废弃', value: 'deprecated' },
-  { label: '容器', value: 'container' },
-]
+const filterOptions = reactive({
+  regions: [],
+  customers: [],
+  suppliers: [],
+})
 
 const ipPagination = reactive({
   pageSize: 12,
   showSizePicker: true,
   pageSizes: [12, 24, 48],
 })
+
+const prefixTreeData = computed(() => buildPrefixTree(prefixes.value))
+const selectedPrefixIps = computed(() => collectPrefixIps(selectedPrefix.value))
+
+const prefixColumns = [
+  {
+    title: 'IP 前缀',
+    key: 'prefix',
+    resizable: true,
+    width: 260,
+    minWidth: 240,
+    render(row) {
+      return h(
+        'button',
+        {
+          class: 'prefix-link',
+          onClick: (event) => {
+            event.stopPropagation()
+            selectPrefix(row)
+          },
+        },
+        [
+          h(NTag, { size: 'tiny', round: true, type: prefixTypeTag(row).type }, { default: () => prefixTypeTag(row).text }),
+          h('span', row.prefix || '-'),
+        ]
+      )
+    },
+  },
+  {
+    title: '状态',
+    key: 'status',
+    resizable: true,
+    width: 90,
+    minWidth: 82,
+    render(row) {
+      return h(NTag, { size: 'small', round: true, type: statusTagType(row.status) }, {
+        default: () => mapPrefixStatus(row),
+      })
+    },
+  },
+  {
+    title: '子网',
+    key: 'child_prefix_count',
+    resizable: true,
+    width: 60,
+    minWidth: 52,
+    render(row) {
+      return Number(row.child_prefix_count || 0)
+    },
+  },
+  {
+    title: '利用率',
+    key: 'utilization',
+    resizable: true,
+    width: 150,
+    minWidth: 130,
+    render(row) {
+      return h('div', { class: 'usage-cell' }, [
+        h(NProgress, {
+          type: 'line',
+          percentage: Math.min(Number(row.utilization || 0), 100),
+          height: 18,
+          borderRadius: 4,
+          fillBorderRadius: 4,
+          showIndicator: false,
+          status: progressStatus(row.utilization),
+        }),
+        h('span', formatPercent(row.utilization)),
+      ])
+    },
+  },
+  {
+    title: '供应商',
+    key: 'supplier',
+    resizable: true,
+    width: 130,
+    minWidth: 110,
+    ellipsis: { tooltip: true },
+    render(row) {
+      return row.supplier || row.owner || '未知'
+    },
+  },
+  {
+    title: '客户',
+    key: 'customer',
+    resizable: true,
+    width: 120,
+    minWidth: 100,
+    ellipsis: { tooltip: true },
+    render(row) {
+      return row.customer || '—'
+    },
+  },
+  {
+    title: '地区',
+    key: 'region',
+    resizable: true,
+    width: 90,
+    minWidth: 72,
+    ellipsis: { tooltip: true },
+    render(row) {
+      return row.region || row.scope || row.site || '—'
+    },
+  },
+  {
+    title: 'VLAN',
+    key: 'vlan',
+    resizable: true,
+    width: 90,
+    minWidth: 72,
+    ellipsis: { tooltip: true },
+    render(row) {
+      return row.vlan || '—'
+    },
+  },
+  {
+    title: '描述',
+    key: 'description',
+    resizable: true,
+    width: 320,
+    minWidth: 260,
+    ellipsis: { tooltip: true },
+    render(row) {
+      return row.description || '—'
+    },
+  },
+]
 
 const ipColumns = [
   { title: 'IP 地址', key: 'address', width: 170 },
@@ -220,13 +271,18 @@ const ipColumns = [
       })
     },
   },
-  { title: '说明', key: 'description', minWidth: 200 },
+  { title: '说明', key: 'description', minWidth: 220, ellipsis: { tooltip: true } },
 ]
+
+function prefixRowKey(row) {
+  return row.id || row.prefix
+}
 
 function statusTagType(status) {
   if (status === 'active') return 'success'
   if (status === 'reserved') return 'warning'
   if (status === 'deprecated') return 'error'
+  if (status === 'container') return 'info'
   return 'default'
 }
 
@@ -249,6 +305,79 @@ function mapPrefixStatus(prefix) {
   }[String(prefix?.status || '').toLowerCase()] || prefix?.status || '未知'
 }
 
+function prefixTypeTag(row) {
+  if (row.segment_type === 'range' || String(row.id || '').startsWith('range-')) return { text: '范围', type: 'warning' }
+  if (row.children?.length) return { text: '父级', type: 'info' }
+  if (row.parent_prefix) return { text: '子级', type: 'success' }
+  return { text: '前缀', type: 'default' }
+}
+
+function prefixSortValue(prefix) {
+  const value = String(prefix?.prefix || '')
+  const [address = '', mask = '0'] = value.split('/')
+  const versionWeight = value.includes(':') ? 6 : 4
+  const addressParts = address.split('.')
+  const addressWeight = addressParts.length === 4 && addressParts.every((part) => /^\d+$/.test(part))
+    ? addressParts.reduce((total, part) => total * 256 + Number(part || 0), 0)
+    : Number.MAX_SAFE_INTEGER
+  return [versionWeight, addressWeight, Number(mask || 0), value]
+}
+
+function comparePrefixes(left, right) {
+  const leftValue = prefixSortValue(left)
+  const rightValue = prefixSortValue(right)
+  for (let index = 0; index < leftValue.length; index += 1) {
+    if (leftValue[index] < rightValue[index]) return -1
+    if (leftValue[index] > rightValue[index]) return 1
+  }
+  return 0
+}
+
+function buildPrefixTree(items) {
+  const clones = new Map()
+  const roots = []
+
+  items.forEach((item) => {
+    if (!item?.prefix) return
+    clones.set(item.prefix, { ...item, children: [] })
+  })
+
+  clones.forEach((item) => {
+    const parent = item.parent_prefix
+    if (parent && parent !== item.prefix && clones.has(parent)) {
+      clones.get(parent).children.push(item)
+    } else {
+      roots.push(item)
+    }
+  })
+
+  const sortTree = (nodes) => {
+    nodes.sort(comparePrefixes)
+    nodes.forEach((node) => {
+      sortTree(node.children)
+      if (!node.children.length) delete node.children
+    })
+  }
+  sortTree(roots)
+  return roots
+}
+
+function collectPrefixIps(prefix) {
+  if (!prefix) return []
+  const ipMap = new Map()
+  const addIp = (ip) => {
+    if (!ip?.address && !ip?.ip) return
+    ipMap.set(ip.id || ip.address || ip.ip, ip)
+  }
+
+  ;(prefix.ips || []).forEach(addIp)
+  ;(prefix.ip_ranges || []).forEach((range) => {
+    ;(range.ips || []).forEach(addIp)
+  })
+
+  return Array.from(ipMap.values())
+}
+
 function progressStatus(value) {
   const current = Number(value || 0)
   if (current >= 90) return 'error'
@@ -267,40 +396,29 @@ function formatNumber(value) {
 function prefixSubtitle(prefix) {
   const supplier = prefix.supplier && prefix.supplier !== '未指定' ? `供应商: ${prefix.supplier}` : ''
   const parent = prefix.parent_prefix ? `父前缀: ${prefix.parent_prefix}` : ''
-  return [supplier, parent, prefix.site, prefix.role, prefix.vlan, prefix.vrf].filter(Boolean).join(' / ') || '未分类'
-}
-
-function prefixMaskMeta(prefix) {
-  const supplier = prefix.supplier && prefix.supplier !== '未指定' ? `供应商: ${prefix.supplier}` : ''
-  return [supplier].filter(Boolean).join(' / ') || '未归属'
+  const region = prefix.region || prefix.scope || prefix.site
+  return [supplier, parent, region, prefix.role, prefix.vlan, prefix.vrf].filter(Boolean).join(' / ') || '未分类'
 }
 
 function selectPrefix(prefix) {
   selectedPrefix.value = prefix
-}
-
-function resetFilters() {
-  filters.search = ''
-  filters.family = null
-  filters.status = null
-  fetchOverview()
+  showIpModal.value = true
 }
 
 async function fetchOverview() {
   loading.value = true
   try {
     const res = await api.netboxApi.ipamOverview({
-      search: filters.search || undefined,
-      family: filters.family || undefined,
-      status: filters.status || undefined,
+      region: filters.region || undefined,
+      customer: filters.customer || undefined,
+      supplier: filters.supplier || undefined,
     })
     Object.assign(summary, res.data?.summary || {})
+    Object.assign(filterOptions, res.data?.filter_options || { regions: [], customers: [], suppliers: [] })
     prefixes.value = res.data?.prefixes || []
-    if (!selectedPrefix.value || !prefixes.value.some((item) => item.prefix === selectedPrefix.value.prefix)) {
-      selectedPrefix.value = prefixes.value[0] || null
-    } else {
-      selectedPrefix.value = prefixes.value.find((item) => item.prefix === selectedPrefix.value.prefix)
-    }
+    const currentPrefix = selectedPrefix.value?.prefix
+    selectedPrefix.value = currentPrefix ? prefixes.value.find((item) => item.prefix === currentPrefix) || null : null
+    if (!selectedPrefix.value) showIpModal.value = false
   } catch (error) {
     message.error(error.message || '读取 NetBox IPAM 数据失败')
   } finally {
@@ -320,9 +438,7 @@ onMounted(fetchOverview)
 }
 
 .ipam-toolbar,
-.summary-grid article,
-.prefix-panel,
-.detail-panel {
+.tree-table-panel {
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 8px;
   background: #fff;
@@ -330,23 +446,13 @@ onMounted(fetchOverview)
 }
 
 .ipam-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
   padding: 12px;
 }
 
-.toolbar-title h2,
-.detail-head h2,
-.panel-head h3 {
+.detail-head h3 {
   margin: 0;
   color: #0f172a;
   letter-spacing: 0;
-}
-
-.toolbar-title h2 {
-  font-size: 20px;
 }
 
 .eyebrow {
@@ -359,130 +465,14 @@ onMounted(fetchOverview)
 
 .toolbar-filters {
   display: grid;
-  width: min(920px, 100%);
-  grid-template-columns: minmax(220px, 1fr) 120px 140px auto auto;
-  gap: 8px;
-}
-
-.summary-grid {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.summary-grid article,
-.prefix-stats article {
-  padding: 12px;
-}
-
-.summary-grid span,
-.prefix-stats span {
-  display: block;
-  color: #64748b;
-  font-size: 12px;
-}
-
-.summary-grid strong,
-.prefix-stats strong {
-  display: block;
-  margin-top: 4px;
-  color: #0f172a;
-  font-size: 24px;
-  line-height: 1.1;
-}
-
-.prefix-panel,
-.detail-panel {
-  padding: 12px;
-}
-
-.panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-.panel-head h3 {
-  font-size: 15px;
-}
-
-.ipam-layout {
-  display: grid;
-  grid-template-columns: 360px minmax(0, 1fr);
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.prefix-panel,
-.detail-panel {
-  min-height: 0;
-}
-
-.prefix-list {
-  display: grid;
-  max-height: calc(100vh - 270px);
-  gap: 8px;
-  overflow-y: auto;
-  padding-right: 2px;
-}
-
-.prefix-item {
-  display: grid;
   width: 100%;
-  grid-template-columns: minmax(0, 1fr) 110px;
-  gap: 10px;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #fff;
-  cursor: pointer;
-  padding: 10px;
-  text-align: left;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 8px;
 }
 
-.prefix-item:hover,
-.prefix-item.active {
-  border-color: #0ea5e9;
-  background: #f0f9ff;
-}
-
-.prefix-main,
-.prefix-meta {
-  min-width: 0;
-}
-
-.prefix-main strong,
-.prefix-main em {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.prefix-main strong {
-  color: #0f172a;
-  font-size: 14px;
-}
-
-.prefix-main em {
-  margin-top: 3px;
-  color: #64748b;
-  font-size: 12px;
-  font-style: normal;
-}
-
-.prefix-meta {
-  display: grid;
-  align-content: center;
-  gap: 5px;
-}
-
-.prefix-meta b {
-  color: #334155;
-  font-size: 12px;
-  text-align: right;
+.tree-table-panel {
+  margin-top: 8px;
+  padding: 12px;
 }
 
 .detail-head {
@@ -490,15 +480,46 @@ onMounted(fetchOverview)
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-}
-
-.detail-head h2 {
-  font-size: 24px;
+  margin-bottom: 12px;
 }
 
 .detail-head p {
-  margin: 6px 0 0;
+  margin: 4px 0 0;
   color: #64748b;
+  font-size: 12px;
+}
+
+.prefix-link {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: #0369a1;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  padding: 0;
+}
+
+.prefix-link span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-cell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 48px;
+  align-items: center;
+  gap: 8px;
+}
+
+.usage-cell span {
+  color: #334155;
+  font-size: 12px;
+  text-align: right;
 }
 
 .detail-meter {
@@ -509,63 +530,32 @@ onMounted(fetchOverview)
   color: #475569;
 }
 
-.prefix-stats {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 8px;
-  margin: 12px 0;
-}
-
-.prefix-stats article {
-  border-radius: 8px;
-  background: #f8fafc;
-}
-
 html.dark .ipam-page {
   background: #0f172a;
 }
 
 html.dark .ipam-toolbar,
-html.dark .summary-grid article,
-html.dark .prefix-panel,
-html.dark .detail-panel,
-html.dark .prefix-item {
+html.dark .tree-table-panel {
   border-color: rgba(148, 163, 184, 0.22);
   background: rgba(17, 24, 39, 0.92);
   box-shadow: none;
 }
 
-html.dark .toolbar-title h2,
-html.dark .detail-head h2,
-html.dark .panel-head h3,
-html.dark .summary-grid strong,
-html.dark .prefix-stats strong,
-html.dark .prefix-main strong {
+html.dark .detail-head h3 {
   color: #e5e7eb;
 }
 
-html.dark .prefix-item:hover,
-html.dark .prefix-item.active,
-html.dark .prefix-stats article {
-  border-color: #38bdf8;
-  background: rgba(14, 165, 233, 0.12);
+html.dark .prefix-link {
+  color: #7dd3fc;
+}
+
+:deep(.ip-detail-modal) {
+  width: min(1080px, calc(100vw - 48px));
 }
 
 @media (max-width: 1180px) {
   .toolbar-filters {
-    grid-template-columns: 1fr 120px 140px;
-  }
-
-  .summary-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .ipam-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .prefix-list {
-    max-height: 360px;
+    grid-template-columns: repeat(3, minmax(160px, 1fr));
   }
 }
 
@@ -576,9 +566,7 @@ html.dark .prefix-stats article {
     flex-direction: column;
   }
 
-  .toolbar-filters,
-  .summary-grid,
-  .prefix-stats {
+  .toolbar-filters {
     grid-template-columns: 1fr;
   }
 }
