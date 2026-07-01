@@ -56,24 +56,6 @@ def grafana_base_url() -> str:
     return settings.GRAFANA_URL.rstrip("/")
 
 
-def netbox_base_url() -> str:
-    if not settings.NETBOX_URL:
-        raise RuntimeError("NetBox URL is not configured")
-    return settings.NETBOX_URL.rstrip("/")
-
-
-def netbox_headers() -> dict[str, str]:
-    if not settings.NETBOX_TOKEN:
-        raise RuntimeError("NetBox token is not configured")
-    token = settings.NETBOX_TOKEN.strip()
-    authorization = token if token.lower().startswith(("bearer ", "token ")) else f"Token {token}"
-    return {
-        "Authorization": authorization,
-        "Accept": "application/json",
-        "User-Agent": "Catixs-FinWork NetBox ProxBox/1.0",
-    }
-
-
 def grafana_proxy_prefix() -> str:
     return "/api/v1/pve/grafana/proxy"
 
@@ -1161,114 +1143,75 @@ def normalize_vm(item: dict[str, Any], remote: str) -> dict[str, Any]:
     }
 
 
-def normalize_vm_key(value: Any) -> str:
-    return str(value or "").strip().lower()
+def guest_agent_ips_from_payload(data: Any) -> list[str]:
+    interfaces = data.get("result") if isinstance(data, dict) else data
+    if not isinstance(interfaces, list):
+        return []
+
+    ips: list[str] = []
+    for interface in interfaces:
+        if not isinstance(interface, dict):
+            continue
+        if str(interface.get("name") or "").lower() == "lo":
+            continue
+        for item in interface.get("ip-addresses") or []:
+            if not isinstance(item, dict):
+                continue
+            address = str(item.get("ip-address") or "").strip()
+            if not address or address in {"127.0.0.1", "::1"}:
+                continue
+            if address.startswith("169.254.") or address.lower().startswith("fe80:"):
+                continue
+            if address not in ips:
+                ips.append(address)
+    return ips
 
 
-def netbox_vm_identifier(item: dict[str, Any]) -> tuple[str, str]:
-    vm = item.get("virtual_machine") if isinstance(item.get("virtual_machine"), dict) else {}
-    custom_fields = item.get("custom_fields") if isinstance(item.get("custom_fields"), dict) else {}
-    vm_name = normalize_vm_key(vm.get("name") or vm.get("display") or item.get("name") or item.get("display"))
-    vmid = custom_fields.get("proxmox_vm_id") or custom_fields.get("proxmox_vmid")
-    if not vmid:
-        link = str(custom_fields.get("proxmox_link") or "")
-        match = re.search(r"/(?:qemu|lxc)/(\d+)", link)
-        if match:
-            vmid = match.group(1)
-    return vm_name, str(vmid or "").strip()
+async def fetch_vm_guest_agent_ips(vm: dict[str, Any]) -> list[str]:
+    if vm.get("type") != "pve-qemu" or vm.get("status") != "running" or not vm.get("vmid"):
+        return []
 
+    try:
+        host = await pdm_remote_config_host(str(vm.get("remote") or ""))
+    except Exception:
+        host = ""
+    if not host:
+        return []
 
-def ip_without_prefix(value: Any) -> str:
-    text = str(value or "").strip()
-    if "/" in text:
-        return text.split("/", 1)[0]
-    return text
-
-
-async def netbox_get_all(path: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    url = f"{netbox_base_url()}/{path.lstrip('/')}"
-    query = {"limit": 200, **(params or {})}
-    results: list[dict[str, Any]] = []
-    async with httpx.AsyncClient(timeout=20, verify=False, trust_env=False) as client:
-        while url:
-            response = await client.get(url, params=query, headers=netbox_headers())
-            query = None
-            response.raise_for_status()
-            data = response.json()
-            if isinstance(data, list):
-                results.extend(data)
-                break
-            results.extend(data.get("results") or [])
-            url = data.get("next") or ""
-    return results
-
-
-async def netbox_vm_ip_map() -> dict[str, list[str]]:
-    if not settings.NETBOX_URL or not settings.NETBOX_TOKEN:
-        return {}
-
-    vm_rows = await netbox_get_all("/api/virtualization/virtual-machines/")
-    vm_names_by_id: dict[int, str] = {}
-    vmids_by_name: dict[str, str] = {}
-    for item in vm_rows:
-        vm_name, vmid = netbox_vm_identifier(item)
-        if item.get("id") is not None and vm_name:
-            try:
-                vm_names_by_id[int(item["id"])] = vm_name
-            except (TypeError, ValueError):
-                pass
-        if vm_name and vmid:
-            vmids_by_name[vm_name] = vmid
-
-    ip_rows = await netbox_get_all(
-        "/api/ipam/ip-addresses/",
-        {"assigned_object_type": "virtualization.vminterface"},
+    node = str(vm.get("node") or "")
+    node_path = shlex.quote(node) if node else "$(hostname -s)"
+    command = (
+        f"pvesh get /nodes/{node_path}/qemu/{int(vm['vmid'])}/agent/network-get-interfaces "
+        "--output-format json"
     )
-    mapping: dict[str, list[str]] = {}
-    for item in ip_rows:
-        address = ip_without_prefix(item.get("address"))
-        if not address:
-            continue
-        assigned = item.get("assigned_object") if isinstance(item.get("assigned_object"), dict) else {}
-        vm = assigned.get("virtual_machine") if isinstance(assigned.get("virtual_machine"), dict) else {}
-        vm_name = normalize_vm_key(vm.get("name") or vm.get("display"))
-        vm_id = vm.get("id")
-        if not vm_name and vm_id is not None:
-            try:
-                vm_name = vm_names_by_id.get(int(vm_id), "")
-            except (TypeError, ValueError):
-                vm_name = ""
-        if not vm_name:
-            continue
-        keys = {f"name:{vm_name}"}
-        if vmids_by_name.get(vm_name):
-            keys.add(f"vmid:{vmids_by_name[vm_name]}")
-        for key in keys:
-            mapping.setdefault(key, [])
-            if address not in mapping[key]:
-                mapping[key].append(address)
-    return mapping
+    code, output, error = await asyncio.to_thread(ssh_execute_pve, host, command)
+    if code != 0:
+        logger.debug("Failed to read guest agent IPs for VM %s: %s", vm.get("vmid"), error or output)
+        return []
+    try:
+        return guest_agent_ips_from_payload(json.loads(output or "[]"))
+    except Exception as exc:
+        logger.debug("Failed to parse guest agent IPs for VM %s: %s", vm.get("vmid"), exc)
+        return []
 
 
 async def enrich_vm_ips(vms: list[dict[str, Any]]) -> None:
-    if not vms:
-        return
-    try:
-        ip_map = await netbox_vm_ip_map()
-    except Exception as exc:
-        logger.warning("Failed to read VM IPs from NetBox: %s", error_detail(exc))
+    pending = [vm for vm in vms if vm.get("type") == "pve-qemu" and vm.get("status") == "running"]
+    if not pending:
         return
 
-    for vm in vms:
-        keys = [
-            f"vmid:{vm.get('vmid')}",
-            f"name:{normalize_vm_key(vm.get('name'))}",
-        ]
-        ips: list[str] = []
-        for key in keys:
-            for address in ip_map.get(key, []):
-                if address not in ips:
-                    ips.append(address)
+    semaphore = asyncio.Semaphore(8)
+
+    async def load(vm: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+        async with semaphore:
+            return vm, await fetch_vm_guest_agent_ips(vm)
+
+    results = await asyncio.gather(*(load(vm) for vm in pending), return_exceptions=True)
+    for result in results:
+        if isinstance(result, Exception):
+            logger.debug("Failed to enrich VM IPs: %s", result)
+            continue
+        vm, ips = result
         vm["ips"] = ips
         vm["ip_addresses"] = ips
         vm["primary_ip"] = ips[0] if ips else ""
