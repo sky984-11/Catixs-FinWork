@@ -138,6 +138,20 @@ def most_common_value(items: list[dict[str, Any]], key: str, empty_value: str) -
     return counts.most_common(1)[0][0]
 
 
+def parse_network(value: str) -> ipaddress._BaseNetwork | None:
+    try:
+        return ipaddress.ip_network(value, strict=False)
+    except ValueError:
+        return None
+
+
+def parse_address(value: str) -> ipaddress._BaseAddress | None:
+    try:
+        return ipaddress.ip_address(value.split("/", 1)[0])
+    except ValueError:
+        return None
+
+
 def normalize_ip(item: dict[str, Any]) -> dict[str, Any]:
     address = str(item.get("address") or "")
     try:
@@ -168,21 +182,193 @@ def normalize_ip(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def normalize_prefix(item: dict[str, Any], ips: list[dict[str, Any]]) -> dict[str, Any]:
+def normalize_ip_range(item: dict[str, Any], ips: list[dict[str, Any]]) -> dict[str, Any]:
+    start_address = str(item.get("start_address") or "")
+    end_address = str(item.get("end_address") or "")
+    start_ip = parse_address(start_address)
+    end_ip = parse_address(end_address)
+    contained_ips = []
+    if start_ip and end_ip:
+        for ip in ips:
+            ip_value = parse_address(ip["ip"])
+            if ip_value and ip_value.version == start_ip.version and start_ip <= ip_value <= end_ip:
+                contained_ips.append(ip)
+    status = status_value(item.get("status")) or "unknown"
+    return {
+        "id": item.get("id"),
+        "range": f"{start_address}-{end_address}",
+        "start_address": start_address,
+        "end_address": end_address,
+        "family": start_ip.version if start_ip else 0,
+        "status": status,
+        "status_label": prefix_status_label(status),
+        "role": nested_name(item.get("role")),
+        "tenant": nested_name(item.get("tenant")),
+        "customer": ip_customer(item),
+        "owner": nested_name(item.get("owner")),
+        "supplier": ip_supplier(item),
+        "description": item.get("description") or "",
+        "ips": contained_ips,
+    }
+
+
+def range_cidr_label(start_ip: ipaddress._BaseAddress | None, end_ip: ipaddress._BaseAddress | None) -> str:
+    if not start_ip or not end_ip:
+        return ""
+    networks = list(ipaddress.summarize_address_range(start_ip, end_ip))
+    if len(networks) == 1:
+        return str(networks[0])
+    return f"{start_ip}-{end_ip}"
+
+
+def parent_prefix_for_range(
+    start_ip: ipaddress._BaseAddress | None,
+    end_ip: ipaddress._BaseAddress | None,
+    prefixes_raw: list[dict[str, Any]],
+) -> str:
+    if not start_ip or not end_ip:
+        return ""
+    candidates = []
+    for item in prefixes_raw:
+        network = prefix_network(item)
+        if network and network.version == start_ip.version and start_ip in network and end_ip in network:
+            candidates.append(network)
+    if not candidates:
+        return ""
+    return str(sorted(candidates, key=lambda network: network.prefixlen, reverse=True)[0])
+
+
+def normalize_range_segment(
+    item: dict[str, Any],
+    prefixes_raw: list[dict[str, Any]],
+) -> dict[str, Any]:
+    start_ip = parse_address(item["start_address"])
+    end_ip = parse_address(item["end_address"])
+    prefix = range_cidr_label(start_ip, end_ip) or item["range"]
+    total = int(end_ip) - int(start_ip) + 1 if start_ip and end_ip and start_ip.version == end_ip.version else len(item["ips"])
+    used = len([ip for ip in item["ips"] if ip.get("is_used")])
+    reserved = len([ip for ip in item["ips"] if str(ip.get("status") or "").lower() == "reserved"])
+    registered = len(item["ips"])
+    utilization = round(used / total * 100, 2) if total else 0
+    customer_counts = Counter(ip["customer"] for ip in item["ips"])
+    top_customers = [{"name": name, "count": count} for name, count in customer_counts.most_common(5)]
+    customer = item["customer"]
+    if customer == "未归属" and item["ips"]:
+        customer = most_common_value(item["ips"], "customer", "未归属")
+    supplier = item["supplier"]
+    if supplier == "未指定" and item["ips"]:
+        supplier = most_common_value(item["ips"], "supplier", "未指定")
+    return {
+        "id": f"range-{item['id']}",
+        "prefix": prefix,
+        "family": item["family"],
+        "status": item["status"],
+        "status_label": item["status_label"],
+        "role": item["role"],
+        "site": "",
+        "vrf": "",
+        "tenant": item["tenant"],
+        "customer": customer,
+        "owner": item["owner"],
+        "supplier": supplier,
+        "vlan": "",
+        "description": item["description"],
+        "total": total,
+        "usable": total,
+        "used": used,
+        "reserved": reserved,
+        "registered": registered,
+        "available": max(total - used, 0),
+        "utilization": utilization,
+        "top_customers": top_customers,
+        "child_prefix_count": 0,
+        "range_count": 1,
+        "child_prefixes": [],
+        "ip_ranges": [item],
+        "parent_prefix": parent_prefix_for_range(start_ip, end_ip, prefixes_raw),
+        "ips": item["ips"],
+    }
+
+
+def prefix_network(item: dict[str, Any]) -> ipaddress._BaseNetwork | None:
+    return parse_network(str(item.get("prefix") or ""))
+
+
+def child_prefixes_for(parent: dict[str, Any], prefixes_raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    parent_network = prefix_network(parent)
+    if not parent_network:
+        return []
+    parent_id = parent.get("id")
+    children = []
+    for item in prefixes_raw:
+        if item.get("id") == parent_id:
+            continue
+        child_network = prefix_network(item)
+        if child_network and child_network.version == parent_network.version and child_network.subnet_of(parent_network):
+            children.append(item)
+    return children
+
+
+def ranges_for_prefix(parent_network: ipaddress._BaseNetwork | None, ranges: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not parent_network:
+        return []
+    matched = []
+    for item in ranges:
+        start_ip = parse_address(item["start_address"])
+        end_ip = parse_address(item["end_address"])
+        if (
+            start_ip
+            and end_ip
+            and start_ip.version == parent_network.version
+            and start_ip in parent_network
+            and end_ip in parent_network
+        ):
+            matched.append(item)
+    return matched
+
+
+def prefix_is_container(item: dict[str, Any]) -> bool:
+    item_id = str(item.get("id") or "")
+    return not item_id.startswith("range-") and (
+        int(item.get("child_prefix_count") or 0) > 0 or int(item.get("range_count") or 0) > 0
+    )
+
+
+def normalize_prefix(
+    item: dict[str, Any],
+    ips: list[dict[str, Any]],
+    prefixes_raw: list[dict[str, Any]],
+    ranges: list[dict[str, Any]],
+) -> dict[str, Any]:
     prefix = str(item.get("prefix") or "")
-    try:
-        network = ipaddress.ip_network(prefix, strict=False)
-    except ValueError:
-        network = None
+    network = parse_network(prefix)
+    child_prefixes_raw = child_prefixes_for(item, prefixes_raw)
+    child_prefixes = []
+    for child in child_prefixes_raw:
+        child_network = prefix_network(child)
+        child_prefixes.append(
+            {
+                "id": child.get("id"),
+                "prefix": child.get("prefix"),
+                "status": status_value(child.get("status")) or "unknown",
+                "status_label": prefix_status_label(status_value(child.get("status")) or "unknown"),
+                "role": nested_name(child.get("role")),
+                "tenant": nested_name(child.get("tenant")),
+                "customer": ip_customer(child),
+                "owner": nested_name(child.get("owner")),
+                "supplier": ip_supplier(child),
+                "usable": int(child_network.num_addresses) if child_network else 0,
+                "description": child.get("description") or "",
+            }
+        )
+    child_ranges = ranges_for_prefix(network, ranges)
 
     contained_ips = []
     if network:
         for ip in ips:
-            try:
-                if ipaddress.ip_address(ip["ip"]) in network:
-                    contained_ips.append(ip)
-            except ValueError:
-                continue
+            ip_value = parse_address(ip["ip"])
+            if ip_value and ip_value.version == network.version and ip_value in network:
+                contained_ips.append(ip)
 
     total = int(network.num_addresses) if network else 0
     usable = total
@@ -199,8 +385,9 @@ def normalize_prefix(item: dict[str, Any], ips: list[dict[str, Any]]) -> dict[st
     if not customer and contained_ips:
         customer = most_common_value(contained_ips, "customer", "未归属")
     supplier = ip_supplier(item)
-    if supplier == "未指定" and contained_ips:
-        supplier = most_common_value(contained_ips, "supplier", "未指定")
+    if supplier == "未指定":
+        supplier_sources = child_prefixes + child_ranges + contained_ips
+        supplier = most_common_value(supplier_sources, "supplier", "未指定")
     status = status_value(item.get("status")) or "unknown"
     return {
         "id": item.get("id"),
@@ -225,6 +412,10 @@ def normalize_prefix(item: dict[str, Any], ips: list[dict[str, Any]]) -> dict[st
         "available": max(usable - used, 0),
         "utilization": utilization,
         "top_customers": top_customers,
+        "child_prefix_count": len(child_prefixes),
+        "range_count": len(child_ranges),
+        "child_prefixes": child_prefixes,
+        "ip_ranges": child_ranges,
         "ips": contained_ips,
     }
 
@@ -259,12 +450,16 @@ async def ipam_overview(
     status: str = Query(""),
 ):
     try:
-        prefixes_raw, ips_raw = await fetch_ipam_data()
+        prefixes_raw, ranges_raw, ips_raw = await fetch_ipam_data()
     except Exception as exc:
         return Fail(msg=f"读取 NetBox IPAM 数据失败: {type(exc).__name__}: {exc}")
 
     ips = [normalize_ip(item) for item in ips_raw]
-    prefixes = [normalize_prefix(item, ips) for item in prefixes_raw]
+    ip_ranges = [normalize_ip_range(item, ips) for item in ranges_raw]
+    prefixes = [normalize_prefix(item, ips, prefixes_raw, ip_ranges) for item in prefixes_raw]
+    existing_prefixes = {item["prefix"] for item in prefixes}
+    range_segments = [normalize_range_segment(item, prefixes_raw) for item in ip_ranges]
+    prefixes.extend(item for item in range_segments if item["prefix"] not in existing_prefixes)
 
     if family in {4, 6}:
         prefixes = [item for item in prefixes if item["family"] == family]
@@ -312,8 +507,9 @@ async def ipam_overview(
         supplier_counts[item["supplier"]] += 1
     role_counts = Counter(item["role"] or "未分类" for item in prefixes)
     site_counts = Counter(item["site"] or "未指定" for item in prefixes)
-    total_usable = sum(item["usable"] for item in prefixes)
-    total_used = sum(item["used"] for item in prefixes)
+    summary_prefixes = [item for item in prefixes if not prefix_is_container(item)]
+    total_usable = sum(item["usable"] for item in summary_prefixes)
+    total_used = sum(item["used"] for item in summary_prefixes)
     summary = {
         "prefix_count": len(prefixes),
         "ip_count": len(ips),
@@ -337,7 +533,8 @@ async def ipam_overview(
     )
 
 
-async def fetch_ipam_data() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+async def fetch_ipam_data() -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     prefixes = await netbox_get_all("/api/ipam/prefixes/")
+    ranges = await netbox_get_all("/api/ipam/ip-ranges/")
     ips = await netbox_get_all("/api/ipam/ip-addresses/")
-    return prefixes, ips
+    return prefixes, ranges, ips

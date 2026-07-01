@@ -122,6 +122,14 @@
                   <strong>{{ selectedPrefix.top_customers?.length || 0 }}</strong>
                 </article>
                 <article>
+                  <span>下级前缀</span>
+                  <strong>{{ selectedPrefix.child_prefix_count || 0 }}</strong>
+                </article>
+                <article>
+                  <span>IP 范围</span>
+                  <strong>{{ selectedPrefix.range_count || 0 }}</strong>
+                </article>
+                <article>
                   <span>状态</span>
                   <strong>{{ mapPrefixStatus(selectedPrefix) }}</strong>
                 </article>
@@ -258,7 +266,8 @@ function formatNumber(value) {
 
 function prefixSubtitle(prefix) {
   const supplier = prefix.supplier && prefix.supplier !== '未指定' ? `供应商: ${prefix.supplier}` : ''
-  return [supplier, prefix.site, prefix.role, prefix.vlan, prefix.vrf].filter(Boolean).join(' / ') || '未分类'
+  const parent = prefix.parent_prefix ? `父前缀: ${prefix.parent_prefix}` : ''
+  return [supplier, parent, prefix.site, prefix.role, prefix.vlan, prefix.vrf].filter(Boolean).join(' / ') || '未分类'
 }
 
 function prefixMaskMeta(prefix) {
@@ -502,7 +511,7 @@ onMounted(fetchOverview)
 
 .prefix-stats {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 8px;
   margin: 12px 0;
 }
