@@ -201,6 +201,7 @@ export default {
   virtualMachineApi: {
     pveNodes: () => request.get('/pve/nodes'),
     pveVms: (params = {}) => request.get('/pve/vms', { params }),
+    pveVmIps: (params = {}) => request.get('/pve/vms/ips', { params }),
     addNode: (data = {}) => request.post('/pve/nodes/add', data),
     updateNode: (remote, data = {}) => request.put(`/pve/nodes/remote/${encodeURIComponent(remote)}`, data),
     deleteNode: (remote) => request.delete(`/pve/nodes/remote/${encodeURIComponent(remote)}`),

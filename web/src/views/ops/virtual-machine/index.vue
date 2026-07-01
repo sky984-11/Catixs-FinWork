@@ -643,6 +643,7 @@ const createExpireShortcuts = {
 const loading = reactive({
   nodes: false,
   vms: false,
+  ips: false,
 })
 
 const filters = reactive({
@@ -652,6 +653,7 @@ const filters = reactive({
 const nodeOptions = ref([])
 const selectedNode = ref(null)
 const vmList = ref([])
+let vmIpRequestId = 0
 const nodeRemarkCache = reactive({})
 const vmSummary = reactive({
   total: 0,
@@ -924,7 +926,12 @@ const columns = [
     cellProps: noVncCellProps,
     render(row) {
       const ips = row.ips || row.ip_addresses || []
-      if (!ips.length) return '-'
+      if (!ips.length) {
+        if (row.ip_loading) {
+          return h(NTag, { size: 'small', round: true, type: 'default' }, { default: () => '查询中' })
+        }
+        return '-'
+      }
       return h(
         NSpace,
         { size: 4, wrap: true },
@@ -1915,7 +1922,9 @@ async function refreshNodes() {
 }
 
 async function fetchVms() {
+  const requestNode = selectedNode.value?.value
   if (!selectedNode.value?.value) {
+    vmIpRequestId += 1
     vmList.value = []
     Object.assign(vmSummary, { total: 0, running: 0, stopped: 0 })
     pagination.itemCount = 0
@@ -1926,16 +1935,21 @@ async function fetchVms() {
   loading.vms = true
   try {
     const res = await api.virtualMachineApi.pveVms({
-      node: selectedNode.value.value,
+      node: requestNode,
     })
-    vmList.value = res.data?.items || []
+    vmList.value = (res.data?.items || []).map((vm) => ({
+      ...vm,
+      ip_loading: vm.type === 'pve-qemu' && vm.status === 'running',
+    }))
     Object.assign(vmSummary, res.data?.summary || { total: 0, running: 0, stopped: 0 })
     syncSelectedNodeSummary(vmSummary)
     pagination.itemCount = vmList.value.length
     pagination.page = 1
     await nextTick()
     tableRenderKey.value += 1
+    fetchVmIps(requestNode)
   } catch (error) {
+    vmIpRequestId += 1
     vmList.value = []
     Object.assign(vmSummary, { total: 0, running: 0, stopped: 0 })
     syncSelectedNodeSummary(vmSummary)
@@ -1946,9 +1960,45 @@ async function fetchVms() {
   }
 }
 
+async function fetchVmIps(nodeValue) {
+  if (!nodeValue) return
+  const requestId = ++vmIpRequestId
+  loading.ips = true
+  try {
+    const res = await api.virtualMachineApi.pveVmIps({ node: nodeValue })
+    if (requestId !== vmIpRequestId || selectedNode.value?.value !== nodeValue) return
+    const ipMap = new Map(
+      (res.data?.items || []).map((item) => [
+        `${item.remote || ''}|${item.type || ''}|${item.vmid || ''}`,
+        item,
+      ])
+    )
+    vmList.value = vmList.value.map((vm) => {
+      const item = ipMap.get(`${vm.remote || ''}|${vm.type || ''}|${vm.vmid || ''}`)
+      if (!item) return { ...vm, ip_loading: false }
+      return {
+        ...vm,
+        ips: item.ips || [],
+        ip_addresses: item.ip_addresses || item.ips || [],
+        primary_ip: item.primary_ip || '',
+        ip_loading: false,
+      }
+    })
+  } catch (error) {
+    if (requestId === vmIpRequestId) {
+      vmList.value = vmList.value.map((vm) => ({ ...vm, ip_loading: false }))
+    }
+  } finally {
+    if (requestId === vmIpRequestId) {
+      loading.ips = false
+    }
+  }
+}
+
 function selectNode(node) {
   selectedNode.value = node
   if (node.error) {
+    vmIpRequestId += 1
     vmList.value = []
     Object.assign(vmSummary, { total: 0, running: 0, stopped: 0 })
     pagination.itemCount = 0

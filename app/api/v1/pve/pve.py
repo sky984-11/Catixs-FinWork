@@ -22,6 +22,7 @@ grafana_router = APIRouter()
 logger = logging.getLogger(__name__)
 
 _PDM_RESOURCE_CACHE: list[dict[str, Any]] = []
+_PVE_VM_IP_CACHE: dict[tuple[str, str, int], tuple[float, list[str]]] = {}
 
 
 def pdm_base_url() -> str:
@@ -1167,20 +1168,33 @@ def guest_agent_ips_from_payload(data: Any) -> list[str]:
     return ips
 
 
-async def fetch_vm_guest_agent_ips(vm: dict[str, Any]) -> list[str]:
+async def fetch_vm_guest_agent_ips(vm: dict[str, Any], host: str = "") -> list[str]:
     if vm.get("type") != "pve-qemu" or vm.get("status") != "running" or not vm.get("vmid"):
         return []
 
-    try:
-        host = await pdm_remote_config_host(str(vm.get("remote") or ""))
-    except Exception:
-        host = ""
+    cache_key = (
+        str(vm.get("remote") or ""),
+        str(vm.get("node") or ""),
+        int(vm.get("vmid") or 0),
+    )
+    cached = _PVE_VM_IP_CACHE.get(cache_key)
+    cache_ttl = max(0, float(settings.PVE_GUEST_AGENT_IP_CACHE_TTL or 0))
+    if cached and cache_ttl and time.time() - cached[0] <= cache_ttl:
+        return list(cached[1])
+
+    if not host:
+        try:
+            host = await pdm_remote_config_host(str(vm.get("remote") or ""))
+        except Exception:
+            host = ""
     if not host:
         return []
 
     node = str(vm.get("node") or "")
     node_path = shlex.quote(node) if node else "$(hostname -s)"
+    timeout_seconds = max(1, min(int(settings.PVE_GUEST_AGENT_IP_TIMEOUT or 2), 10))
     command = (
+        f"timeout {timeout_seconds}s "
         f"pvesh get /nodes/{node_path}/qemu/{int(vm['vmid'])}/agent/network-get-interfaces "
         "--output-format json"
     )
@@ -1189,7 +1203,9 @@ async def fetch_vm_guest_agent_ips(vm: dict[str, Any]) -> list[str]:
         logger.debug("Failed to read guest agent IPs for VM %s: %s", vm.get("vmid"), error or output)
         return []
     try:
-        return guest_agent_ips_from_payload(json.loads(output or "[]"))
+        ips = guest_agent_ips_from_payload(json.loads(output or "[]"))
+        _PVE_VM_IP_CACHE[cache_key] = (time.time(), ips)
+        return ips
     except Exception as exc:
         logger.debug("Failed to parse guest agent IPs for VM %s: %s", vm.get("vmid"), exc)
         return []
@@ -1200,11 +1216,19 @@ async def enrich_vm_ips(vms: list[dict[str, Any]]) -> None:
     if not pending:
         return
 
+    remote_hosts: dict[str, str] = {}
+    for remote in sorted({str(vm.get("remote") or "") for vm in pending if vm.get("remote")}):
+        try:
+            remote_hosts[remote] = await pdm_remote_config_host(remote)
+        except Exception as exc:
+            logger.debug("Failed to resolve PVE host for %s: %s", remote, exc)
+
     semaphore = asyncio.Semaphore(8)
 
     async def load(vm: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
         async with semaphore:
-            return vm, await fetch_vm_guest_agent_ips(vm)
+            host = remote_hosts.get(str(vm.get("remote") or ""), "")
+            return vm, await fetch_vm_guest_agent_ips(vm, host)
 
     results = await asyncio.gather(*(load(vm) for vm in pending), return_exceptions=True)
     for result in results:
@@ -1638,7 +1662,6 @@ async def list_vms(
     vms = all_vms(data)
     if node:
         vms = [vm for vm in vms if vm.get("remote") == node]
-    await enrich_vm_ips(vms)
     await enrich_vm_remarks(vms)
     vms.sort(key=lambda row: (str(row.get("remote") or ""), str(row.get("node") or ""), int(row.get("vmid") or 0)))
     summary = {
@@ -1647,6 +1670,41 @@ async def list_vms(
         "stopped": len([vm for vm in vms if vm.get("status") == "stopped"]),
     }
     return Success(data={"items": vms, "summary": summary})
+
+
+@router.get("/vms/ips", summary="PVE virtual machine guest-agent IP list")
+async def list_vm_ips(
+    node: str = Query(""),
+):
+    try:
+        if node:
+            try:
+                resources = await pdm_remote_resources(node)
+            except Exception:
+                resources = []
+            data = [{"remote": node, "resources": resources}]
+        else:
+            data = await pdm_resources_list()
+    except Exception as exc:
+        return Fail(msg=f"读取 PVE 虚拟机 IP 失败: {error_detail(exc)}")
+
+    vms = all_vms(data)
+    if node:
+        vms = [vm for vm in vms if vm.get("remote") == node]
+    await enrich_vm_ips(vms)
+    items = [
+        {
+            "remote": vm.get("remote") or "",
+            "node": vm.get("node") or "",
+            "vmid": vm.get("vmid"),
+            "type": vm.get("type") or "",
+            "ips": vm.get("ips") or [],
+            "ip_addresses": vm.get("ip_addresses") or [],
+            "primary_ip": vm.get("primary_ip") or "",
+        }
+        for vm in vms
+    ]
+    return Success(data={"items": items})
 
 
 @grafana_router.api_route(

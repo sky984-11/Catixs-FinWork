@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     PVE_CREATE_SSH_USER: str = "root"
     PVE_CREATE_SSH_PASSWORD: str = "Catixs@3202"
     PVE_CREATE_SSH_TIMEOUT: float = 10
+    PVE_GUEST_AGENT_IP_TIMEOUT: float = 2
+    PVE_GUEST_AGENT_IP_CACHE_TTL: float = 60
     ZABBIX_URL: str = ""
     ZABBIX_TOKEN: str = ""
     ZABBIX_PVE_REFERENCE_HOSTID: str = "10777"
