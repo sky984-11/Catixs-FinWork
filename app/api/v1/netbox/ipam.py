@@ -413,6 +413,97 @@ def strip_embedded_ips(prefixes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return cleaned
 
 
+def segment_contains_ip(segment: str, ip_value: str) -> bool:
+    address = parse_address(ip_value)
+    if not address:
+        return False
+    if "-" in segment:
+        start_value, end_value = segment.split("-", 1)
+        start_ip = parse_address(start_value.strip())
+        end_ip = parse_address(end_value.strip())
+        return bool(start_ip and end_ip and address.version == start_ip.version == end_ip.version and start_ip <= address <= end_ip)
+    network = parse_network(segment)
+    return bool(network and address.version == network.version and address in network)
+
+
+def ip_sort_key(item: dict[str, Any]) -> tuple[int, int, str]:
+    address = parse_address(str(item.get("address") or item.get("ip") or item.get("start_address") or ""))
+    if address:
+        return address.version, int(address), str(item.get("address") or "")
+    return 0, 0, str(item.get("address") or "")
+
+
+def normalize_available_segment(start_ip: ipaddress._BaseAddress, end_ip: ipaddress._BaseAddress) -> dict[str, Any]:
+    count = int(end_ip) - int(start_ip) + 1
+    label = f"{count} 可用 IP" if count > 1 else f"{start_ip} 可用"
+    return {
+        "id": f"available-{start_ip}-{end_ip}",
+        "entry_type": "available",
+        "address": label,
+        "ip": str(start_ip),
+        "start_address": str(start_ip),
+        "end_address": str(end_ip),
+        "family": start_ip.version,
+        "status": "available",
+        "status_label": "Available",
+        "is_used": False,
+        "role": "",
+        "tenant": "",
+        "customer": "",
+        "owner": "",
+        "supplier": "",
+        "assignee": "",
+        "dns_name": "",
+        "description": "",
+        "available_count": count,
+    }
+
+
+def network_usable_bounds(network: ipaddress._BaseNetwork) -> tuple[int, int] | None:
+    first = int(network.network_address)
+    last = int(network.broadcast_address)
+    if network.version == 4 and network.prefixlen < 31:
+        first += 1
+        last -= 1
+    elif network.version == 6 and network.prefixlen < 127:
+        first += 1
+    if first > last:
+        return None
+    return first, last
+
+
+def build_prefix_ip_rows(prefix: str, assigned_ips: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    network = parse_network(prefix)
+    if not network:
+        return sorted([normalize_ip(item) for item in assigned_ips], key=ip_sort_key)
+
+    normalized_ips = sorted([normalize_ip(item) for item in assigned_ips], key=ip_sort_key)
+    assigned_by_value = {
+        int(address): item
+        for item in normalized_ips
+        if (address := parse_address(str(item.get("ip") or item.get("address") or ""))) and address.version == network.version
+    }
+    bounds = network_usable_bounds(network)
+    if not bounds:
+        return list(assigned_by_value.values())
+
+    first, last = bounds
+    cursor = first
+    rows: list[dict[str, Any]] = []
+    for value, item in sorted(assigned_by_value.items()):
+        if value < first or value > last:
+            continue
+        if cursor < value:
+            rows.append(normalize_available_segment(ipaddress.ip_address(cursor), ipaddress.ip_address(value - 1)))
+        rows.append(item)
+        cursor = value + 1
+
+    if cursor <= last:
+        rows.append(normalize_available_segment(ipaddress.ip_address(cursor), ipaddress.ip_address(last)))
+
+    return rows
+
+
 async def netbox_get_all_optional(path: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     try:
         return await netbox_get_all(path, params)
@@ -587,6 +678,32 @@ async def netbox_get_page(path: str, params: dict[str, Any] | None = None) -> tu
         return int(data.get("count") or 0), data.get("results") or []
 
 
+async def netbox_filter_ips_by_segment(segment: str, page: int, page_size: int) -> tuple[int, list[dict[str, Any]]]:
+    offset = 0
+    limit = 200
+    matched: list[dict[str, Any]] = []
+    total_matches = 0
+    page_start = (page - 1) * page_size
+    page_end = page_start + page_size
+
+    while True:
+        total, batch = await netbox_get_page(
+            "/api/ipam/ip-addresses/",
+            {"limit": limit, "offset": offset, "ordering": "address"},
+        )
+        if not batch:
+            break
+        for item in batch:
+            if segment_contains_ip(segment, str(item.get("address") or "")):
+                if page_start <= total_matches < page_end:
+                    matched.append(item)
+                total_matches += 1
+        offset += len(batch)
+        if offset >= total:
+            break
+    return total_matches, matched
+
+
 async def prefix_ip_count(prefix: str, status: str = "") -> int:
     params: dict[str, Any] = {"parent": prefix, "limit": 1, "offset": 0}
     if status:
@@ -756,25 +873,34 @@ async def ipam_overview(
 @router.get("/ipam/prefix-ips", summary="NetBox IPAM prefix IP list")
 async def ipam_prefix_ips(
     prefix: str = Query(...),
+    prefix_id: str = Query(""),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
 ):
     try:
-        total, ips_raw = await netbox_get_page(
-            "/api/ipam/ip-addresses/",
-            {
-                "parent": prefix,
-                "limit": page_size,
-                "offset": (page - 1) * page_size,
-                "ordering": "address",
-            },
-        )
+        numeric_prefix_id = int(prefix_id) if str(prefix_id or "").isdigit() else None
+        if numeric_prefix_id:
+            _, prefix_items = await netbox_get_page("/api/ipam/prefixes/", {"id": numeric_prefix_id, "limit": 1})
+            if prefix_items and prefix_items[0].get("prefix"):
+                prefix = str(prefix_items[0]["prefix"])
+        params = {"parent": prefix, "ordering": "address"}
+        try:
+            ips_raw = await netbox_get_all("/api/ipam/ip-addresses/", params)
+        except Exception:
+            if not parse_network(prefix):
+                raise
+            total, ips_raw = await netbox_filter_ips_by_segment(prefix, 1, 100000)
+        if not ips_raw and parse_network(prefix):
+            total, ips_raw = await netbox_filter_ips_by_segment(prefix, 1, 100000)
+        rows = build_prefix_ip_rows(prefix, ips_raw)
+        total = len(rows)
+        start = (page - 1) * page_size
     except Exception as exc:
         return Fail(msg=f"璇诲彇 NetBox IP 鏁版嵁澶辫触: {type(exc).__name__}: {exc}")
 
     return Success(
         data={
-            "items": [normalize_ip(item) for item in ips_raw],
+            "items": rows[start : start + page_size],
             "total": total,
             "page": page,
             "page_size": page_size,

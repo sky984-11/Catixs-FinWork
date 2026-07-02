@@ -78,10 +78,14 @@
             :data="ipRows"
             :pagination="ipPagination"
             remote
-            flex-height
+            max-height="calc(100vh - 360px)"
             :row-key="(row) => row.id || row.address"
             striped
-          />
+          >
+            <template #empty>
+              <n-empty description="暂无 IP 地址或可用段" />
+            </template>
+          </n-data-table>
         </template>
       </n-modal>
     </div>
@@ -297,7 +301,17 @@ const prefixColumns = [
 ]
 
 const ipColumns = [
-  { title: 'IP 地址', key: 'address', width: 170 },
+  {
+    title: 'IP 地址',
+    key: 'address',
+    width: 170,
+    render(row) {
+      if (row.entry_type === 'available') {
+        return h(NTag, { size: 'small', round: true, type: 'success' }, { default: () => row.address })
+      }
+      return row.address || '—'
+    },
+  },
   {
     title: '角色',
     key: 'role',
@@ -337,6 +351,7 @@ function prefixRowKey(row) {
 
 function statusTagType(status) {
   if (status === 'active') return 'success'
+  if (status === 'available') return 'success'
   if (status === 'reserved') return 'warning'
   if (status === 'deprecated') return 'error'
   if (status === 'container') return 'info'
@@ -345,6 +360,7 @@ function statusTagType(status) {
 
 function mapIpStatus(status) {
   return {
+    available: '可用',
     active: '已用',
     reserved: '预留/空闲',
     deprecated: '废弃',
@@ -460,6 +476,7 @@ async function fetchPrefixIps() {
   try {
     const res = await api.netboxApi.prefixIps({
       prefix: selectedPrefix.value.prefix,
+      prefix_id: Number.isFinite(Number(selectedPrefix.value.id)) ? selectedPrefix.value.id : undefined,
       page: ipPagination.page,
       page_size: ipPagination.pageSize,
     })
@@ -644,16 +661,12 @@ html.dark .prefix-link {
 }
 
 :deep(.ip-detail-modal .n-card__content) {
-  display: flex;
   max-height: calc(100vh - 150px);
-  min-height: 0;
-  flex-direction: column;
-  overflow: hidden;
+  overflow: auto;
 }
 
 :deep(.ip-detail-modal .ip-table) {
   min-height: 260px;
-  flex: 1;
 }
 
 @media (max-width: 1180px) {
