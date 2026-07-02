@@ -3,6 +3,18 @@
     <div class="ipam-page">
       <section class="ipam-toolbar">
         <div class="toolbar-filters">
+          <n-input
+            v-model:value="filters.search"
+            clearable
+            placeholder="搜索 IP / 前缀"
+            @clear="handleFilterChange"
+            @keydown.enter="handleFilterChange"
+            @update:value="handleSearchInput"
+          >
+            <template #prefix>
+              <TheIcon icon="mdi:magnify" :size="17" />
+            </template>
+          </n-input>
           <n-select
             v-model:value="filters.supplier"
             clearable
@@ -128,6 +140,7 @@ const summary = reactive({
 })
 
 const filters = reactive({
+  search: '',
   region: null,
   customer: null,
   supplier: null,
@@ -174,6 +187,7 @@ const ipPagination = reactive({
 })
 
 const prefixTreeData = computed(() => buildPrefixTree(prefixes.value))
+let searchTimer = null
 
 const prefixColumns = [
   {
@@ -476,8 +490,19 @@ function selectPrefix(prefix) {
 }
 
 function handleFilterChange() {
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+    searchTimer = null
+  }
   prefixPagination.page = 1
   fetchOverview()
+}
+
+function handleSearchInput() {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    handleFilterChange()
+  }, 400)
 }
 
 async function fetchPrefixIps() {
@@ -503,6 +528,7 @@ async function fetchOverview() {
   loading.value = true
   try {
     const res = await api.netboxApi.ipamOverview({
+      search: filters.search?.trim() || undefined,
       region: filters.region || undefined,
       customer: filters.customer || undefined,
       supplier: filters.supplier || undefined,
@@ -600,7 +626,7 @@ onMounted(fetchOverview)
   display: grid;
   width: 100%;
   flex: 1;
-  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  grid-template-columns: minmax(220px, 1.25fr) repeat(3, minmax(160px, 1fr));
   gap: 8px;
 }
 
@@ -713,7 +739,7 @@ html.dark .prefix-link {
 
 @media (max-width: 1180px) {
   .toolbar-filters {
-    grid-template-columns: repeat(3, minmax(160px, 1fr));
+    grid-template-columns: repeat(2, minmax(180px, 1fr));
   }
 }
 

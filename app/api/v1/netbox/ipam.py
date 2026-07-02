@@ -845,6 +845,32 @@ async def pve_vms_for_sync(node: str = "") -> list[dict[str, Any]]:
     return vms
 
 
+def prefix_matches_keyword(item: dict[str, Any], keyword: str) -> bool:
+    search_text = " ".join(
+        str(item.get(key) or "")
+        for key in (
+            "prefix",
+            "customer",
+            "supplier",
+            "tenant",
+            "owner",
+            "site",
+            "scope",
+            "region",
+            "role",
+            "description",
+            "vlan",
+            "vrf",
+        )
+    ).lower()
+    if keyword in search_text:
+        return True
+
+    ip_value = parse_address(keyword)
+    network = parse_network(str(item.get("prefix") or ""))
+    return bool(ip_value and network and ip_value.version == network.version and ip_value in network)
+
+
 def paginate_items(items: list[dict[str, Any]], page: int, page_size: int) -> list[dict[str, Any]]:
     start = (page - 1) * page_size
     return items[start : start + page_size]
@@ -861,7 +887,7 @@ async def ipam_overview(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
 ):
-    needs_global_filter = any(value.strip() for value in (region, customer, supplier))
+    needs_global_filter = any(value.strip() for value in (search, region, customer, supplier))
     try:
         prefix_total, prefixes_raw, ranges_raw, ips_raw = await fetch_ipam_data(
             page,
@@ -904,28 +930,7 @@ async def ipam_overview(
         ips = [item for item in ips if same_filter_value(item.get("supplier") or item.get("owner") or "", supplier)]
     keyword = search.strip().lower()
     if keyword:
-        prefixes = [
-            item
-            for item in prefixes
-            if keyword
-            in " ".join(
-                str(item.get(key) or "")
-                for key in (
-                    "prefix",
-                    "customer",
-                    "supplier",
-                    "tenant",
-                    "owner",
-                    "site",
-                    "scope",
-                    "region",
-                    "role",
-                    "description",
-                    "vlan",
-                    "vrf",
-                )
-            ).lower()
-        ]
+        prefixes = [item for item in prefixes if prefix_matches_keyword(item, keyword)]
         prefix_networks = []
         for item in prefixes:
             try:
@@ -1103,7 +1108,7 @@ async def fetch_ipam_data(
     params: dict[str, Any] = {
         "ordering": "prefix",
     }
-    if search.strip():
+    if search.strip() and not fetch_all_prefixes:
         params["q"] = search.strip()
     if family in {4, 6}:
         params["family"] = family
