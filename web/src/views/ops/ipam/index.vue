@@ -306,7 +306,6 @@ function mapPrefixStatus(prefix) {
 }
 
 function prefixTypeTag(row) {
-  if (row.segment_type === 'range' || String(row.id || '').startsWith('range-')) return { text: '范围', type: 'warning' }
   if (row.children?.length) return { text: '父级', type: 'info' }
   if (row.parent_prefix) return { text: '子级', type: 'success' }
   return { text: '前缀', type: 'default' }

@@ -578,9 +578,6 @@ async def ipam_overview(
     ips = [normalize_ip(item) for item in ips_raw]
     ip_ranges = [normalize_ip_range(item, ips) for item in ranges_raw]
     prefixes = [normalize_prefix(item, ips, prefixes_raw, ip_ranges) for item in prefixes_raw]
-    existing_prefixes = {item["prefix"] for item in prefixes}
-    range_segments = [normalize_range_segment(item, prefixes_raw) for item in ip_ranges]
-    prefixes.extend(item for item in range_segments if item["prefix"] not in existing_prefixes)
     filter_options = build_filter_options(prefixes_raw, ranges_raw, filter_sources)
 
     if family in {4, 6}:
