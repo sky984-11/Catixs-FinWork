@@ -195,6 +195,7 @@ export default {
   // NetBox IPAM
   netboxApi: {
     ipamOverview: (params = {}) => request.get('/netbox/ipam/overview', { params }),
+    prefixIps: (params = {}) => request.get('/netbox/ipam/prefix-ips', { params }),
   },
 
   // virtual machine

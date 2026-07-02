@@ -9,7 +9,7 @@
             filterable
             placeholder="供应商"
             :options="filterOptions.suppliers"
-            @update:value="fetchOverview"
+            @update:value="handleFilterChange"
           />
           <n-select
             v-model:value="filters.customer"
@@ -17,7 +17,7 @@
             filterable
             placeholder="客户"
             :options="filterOptions.customers"
-            @update:value="fetchOverview"
+            @update:value="handleFilterChange"
           />
           <n-select
             v-model:value="filters.region"
@@ -25,18 +25,21 @@
             filterable
             placeholder="地区"
             :options="filterOptions.regions"
-            @update:value="fetchOverview"
+            @update:value="handleFilterChange"
           />
         </div>
       </section>
 
       <section class="tree-table-panel">
         <n-data-table
+          class="prefix-table"
           size="small"
           :loading="loading"
           :columns="prefixColumns"
           :data="prefixTreeData"
-          :pagination="false"
+          :pagination="prefixPagination"
+          remote
+          flex-height
           :row-key="prefixRowKey"
           :bordered="false"
           striped
@@ -68,10 +71,14 @@
           </div>
 
           <n-data-table
+            class="ip-table"
             size="small"
+            :loading="ipLoading"
             :columns="ipColumns"
-            :data="selectedPrefixIps"
+            :data="ipRows"
             :pagination="ipPagination"
+            remote
+            flex-height
             :row-key="(row) => row.id || row.address"
             striped
           />
@@ -90,7 +97,9 @@ defineOptions({ name: 'OpsIpam' })
 
 const message = useMessage()
 const loading = ref(false)
+const ipLoading = ref(false)
 const prefixes = ref([])
+const ipRows = ref([])
 const selectedPrefix = ref(null)
 const showIpModal = ref(false)
 const summary = reactive({
@@ -116,14 +125,41 @@ const filterOptions = reactive({
   suppliers: [],
 })
 
-const ipPagination = reactive({
-  pageSize: 12,
+const prefixPagination = reactive({
+  page: 1,
+  pageSize: 20,
+  itemCount: 0,
   showSizePicker: true,
-  pageSizes: [12, 24, 48],
+  pageSizes: [20, 50, 100],
+  onUpdatePage: (page) => {
+    prefixPagination.page = page
+    fetchOverview()
+  },
+  onUpdatePageSize: (pageSize) => {
+    prefixPagination.pageSize = pageSize
+    prefixPagination.page = 1
+    fetchOverview()
+  },
+})
+
+const ipPagination = reactive({
+  page: 1,
+  pageSize: 20,
+  itemCount: 0,
+  showSizePicker: true,
+  pageSizes: [20, 50, 100],
+  onUpdatePage: (page) => {
+    ipPagination.page = page
+    fetchPrefixIps()
+  },
+  onUpdatePageSize: (pageSize) => {
+    ipPagination.pageSize = pageSize
+    ipPagination.page = 1
+    fetchPrefixIps()
+  },
 })
 
 const prefixTreeData = computed(() => buildPrefixTree(prefixes.value))
-const selectedPrefixIps = computed(() => collectPrefixIps(selectedPrefix.value))
 
 const prefixColumns = [
   {
@@ -169,6 +205,17 @@ const prefixColumns = [
     minWidth: 52,
     render(row) {
       return Number(row.child_prefix_count || 0)
+    },
+  },
+  {
+    title: '角色',
+    key: 'role',
+    resizable: true,
+    width: 96,
+    minWidth: 84,
+    ellipsis: { tooltip: true },
+    render(row) {
+      return row.role || '—'
     },
   },
   {
@@ -251,6 +298,16 @@ const prefixColumns = [
 
 const ipColumns = [
   { title: 'IP 地址', key: 'address', width: 170 },
+  {
+    title: '角色',
+    key: 'role',
+    width: 96,
+    minWidth: 84,
+    ellipsis: { tooltip: true },
+    render(row) {
+      return row.role || '—'
+    },
+  },
   {
     title: '客户',
     key: 'customer',
@@ -361,22 +418,6 @@ function buildPrefixTree(items) {
   return roots
 }
 
-function collectPrefixIps(prefix) {
-  if (!prefix) return []
-  const ipMap = new Map()
-  const addIp = (ip) => {
-    if (!ip?.address && !ip?.ip) return
-    ipMap.set(ip.id || ip.address || ip.ip, ip)
-  }
-
-  ;(prefix.ips || []).forEach(addIp)
-  ;(prefix.ip_ranges || []).forEach((range) => {
-    ;(range.ips || []).forEach(addIp)
-  })
-
-  return Array.from(ipMap.values())
-}
-
 function progressStatus(value) {
   const current = Number(value || 0)
   if (current >= 90) return 'error'
@@ -401,7 +442,34 @@ function prefixSubtitle(prefix) {
 
 function selectPrefix(prefix) {
   selectedPrefix.value = prefix
+  ipRows.value = []
+  ipPagination.page = 1
+  ipPagination.itemCount = 0
   showIpModal.value = true
+  fetchPrefixIps()
+}
+
+function handleFilterChange() {
+  prefixPagination.page = 1
+  fetchOverview()
+}
+
+async function fetchPrefixIps() {
+  if (!selectedPrefix.value?.prefix) return
+  ipLoading.value = true
+  try {
+    const res = await api.netboxApi.prefixIps({
+      prefix: selectedPrefix.value.prefix,
+      page: ipPagination.page,
+      page_size: ipPagination.pageSize,
+    })
+    ipRows.value = res.data?.items || []
+    ipPagination.itemCount = Number(res.data?.total || 0)
+  } catch (error) {
+    message.error(error.message || '璇诲彇 NetBox IP 鏁版嵁澶辫触')
+  } finally {
+    ipLoading.value = false
+  }
 }
 
 async function fetchOverview() {
@@ -411,13 +479,23 @@ async function fetchOverview() {
       region: filters.region || undefined,
       customer: filters.customer || undefined,
       supplier: filters.supplier || undefined,
+      page: prefixPagination.page,
+      page_size: prefixPagination.pageSize,
     })
     Object.assign(summary, res.data?.summary || {})
     Object.assign(filterOptions, res.data?.filter_options || { regions: [], customers: [], suppliers: [] })
     prefixes.value = res.data?.prefixes || []
+    prefixPagination.itemCount = Number(res.data?.total || prefixes.value.length)
     const currentPrefix = selectedPrefix.value?.prefix
     selectedPrefix.value = currentPrefix ? prefixes.value.find((item) => item.prefix === currentPrefix) || null : null
-    if (!selectedPrefix.value) showIpModal.value = false
+    if (selectedPrefix.value && showIpModal.value) {
+      ipPagination.page = 1
+      fetchPrefixIps()
+    } else if (!selectedPrefix.value) {
+      showIpModal.value = false
+      ipRows.value = []
+      ipPagination.itemCount = 0
+    }
   } catch (error) {
     message.error(error.message || '读取 NetBox IPAM 数据失败')
   } finally {
@@ -431,8 +509,12 @@ onMounted(fetchOverview)
 <style scoped>
 .ipam-page {
   box-sizing: border-box;
-  min-height: calc(100vh - 92px);
+  display: flex;
+  height: calc(100vh - 92px);
+  min-height: 0;
+  flex-direction: column;
   padding: 12px;
+  overflow: hidden;
   background: #f4f7fb;
 }
 
@@ -470,8 +552,17 @@ onMounted(fetchOverview)
 }
 
 .tree-table-panel {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
   margin-top: 8px;
   padding: 12px;
+}
+
+.prefix-table {
+  min-height: 0;
+  flex: 1;
 }
 
 .detail-head {
@@ -550,6 +641,19 @@ html.dark .prefix-link {
 
 :deep(.ip-detail-modal) {
   width: min(1080px, calc(100vw - 48px));
+}
+
+:deep(.ip-detail-modal .n-card__content) {
+  display: flex;
+  max-height: calc(100vh - 150px);
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+:deep(.ip-detail-modal .ip-table) {
+  min-height: 260px;
+  flex: 1;
 }
 
 @media (max-width: 1180px) {

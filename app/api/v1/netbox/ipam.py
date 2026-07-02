@@ -1,3 +1,4 @@
+import asyncio
 import ipaddress
 from collections import Counter
 from typing import Any
@@ -403,6 +404,15 @@ def option_items(values: list[str]) -> list[dict[str, str]]:
     return [{"label": value, "value": value} for value in sorted({value for value in values if value})]
 
 
+def strip_embedded_ips(prefixes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    cleaned = []
+    for item in prefixes:
+        prefix = {**item, "ips": []}
+        prefix["ip_ranges"] = [{**ip_range, "ips": []} for ip_range in item.get("ip_ranges") or []]
+        cleaned.append(prefix)
+    return cleaned
+
+
 async def netbox_get_all_optional(path: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     try:
         return await netbox_get_all(path, params)
@@ -560,6 +570,62 @@ async def netbox_get_all(path: str, params: dict[str, Any] | None = None) -> lis
     return results
 
 
+async def netbox_get_page(path: str, params: dict[str, Any] | None = None) -> tuple[int, list[dict[str, Any]]]:
+    url = urljoin(netbox_base_url(), path.lstrip("/"))
+    query = params or {}
+    async with httpx.AsyncClient(timeout=30, verify=False, trust_env=False) as client:
+        response = await client.get(url, params=query, headers=netbox_headers())
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            if "Just a moment" in response.text or "challenges.cloudflare.com" in response.text:
+                raise RuntimeError("NetBox API is blocked by Cloudflare challenge; allowlist this server or bypass /api/") from exc
+            raise RuntimeError(f"NetBox API HTTP {response.status_code}: {response.text[:500]}") from exc
+        data = response.json()
+        if isinstance(data, list):
+            return len(data), data
+        return int(data.get("count") or 0), data.get("results") or []
+
+
+async def prefix_ip_count(prefix: str, status: str = "") -> int:
+    params: dict[str, Any] = {"parent": prefix, "limit": 1, "offset": 0}
+    if status:
+        params["status"] = status
+    total, _ = await netbox_get_page("/api/ipam/ip-addresses/", params)
+    return total
+
+
+async def build_prefix_ip_stats(prefixes_raw: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    async def build_item(item: dict[str, Any]) -> tuple[str, dict[str, int]]:
+        prefix = str(item.get("prefix") or "")
+        if not prefix:
+            return prefix, {"registered": 0, "used": 0, "reserved": 0}
+        registered, used, reserved = await asyncio.gather(
+            prefix_ip_count(prefix),
+            prefix_ip_count(prefix, "active"),
+            prefix_ip_count(prefix, "reserved"),
+        )
+        return prefix, {"registered": registered, "used": used, "reserved": reserved}
+
+    pairs = await asyncio.gather(*(build_item(item) for item in prefixes_raw))
+    return {prefix: stats for prefix, stats in pairs if prefix}
+
+
+def apply_prefix_ip_stats(prefixes: list[dict[str, Any]], stats: dict[str, dict[str, int]]) -> list[dict[str, Any]]:
+    for item in prefixes:
+        item_stats = stats.get(item.get("prefix") or "", {})
+        used = int(item_stats.get("used") or 0)
+        reserved = int(item_stats.get("reserved") or 0)
+        registered = int(item_stats.get("registered") or 0)
+        usable = int(item.get("usable") or 0)
+        item["used"] = used
+        item["reserved"] = reserved
+        item["registered"] = registered
+        item["available"] = max(usable - used, 0)
+        item["utilization"] = round(used / usable * 100, 2) if usable else 0
+    return prefixes
+
+
 @router.get("/ipam/overview", summary="NetBox IPAM overview")
 async def ipam_overview(
     search: str = Query(""),
@@ -568,16 +634,21 @@ async def ipam_overview(
     region: str = Query(""),
     customer: str = Query(""),
     supplier: str = Query(""),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
 ):
     try:
-        prefixes_raw, ranges_raw, ips_raw = await fetch_ipam_data()
+        prefix_total, prefixes_raw, ranges_raw, ips_raw = await fetch_ipam_data(page, page_size, search, family, status)
     except Exception as exc:
         return Fail(msg=f"读取 NetBox IPAM 数据失败: {type(exc).__name__}: {exc}")
-    filter_sources = await fetch_filter_source_data()
+    filter_sources, prefix_stats = await asyncio.gather(
+        fetch_filter_source_data(),
+        build_prefix_ip_stats(prefixes_raw),
+    )
 
     ips = [normalize_ip(item) for item in ips_raw]
     ip_ranges = [normalize_ip_range(item, ips) for item in ranges_raw]
-    prefixes = [normalize_prefix(item, ips, prefixes_raw, ip_ranges) for item in prefixes_raw]
+    prefixes = apply_prefix_ip_stats([normalize_prefix(item, ips, prefixes_raw, ip_ranges) for item in prefixes_raw], prefix_stats)
     filter_options = build_filter_options(prefixes_raw, ranges_raw, filter_sources)
 
     if family in {4, 6}:
@@ -668,8 +739,11 @@ async def ipam_overview(
     return Success(
         data={
             "summary": summary,
-            "prefixes": sorted(prefixes, key=lambda item: (item["family"], item["prefix"])),
-            "ips": sorted(ips, key=lambda item: item["ip"]),
+            "prefixes": strip_embedded_ips(sorted(prefixes, key=lambda item: (item["family"], item["prefix"]))),
+            "ips": [],
+            "total": prefix_total,
+            "page": page,
+            "page_size": page_size,
             "customers": [{"name": name, "count": count} for name, count in customer_counts.most_common()],
             "suppliers": [{"name": name, "count": count} for name, count in supplier_counts.most_common()],
             "roles": [{"name": name, "count": count} for name, count in role_counts.most_common()],
@@ -679,8 +753,53 @@ async def ipam_overview(
     )
 
 
-async def fetch_ipam_data() -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
-    prefixes = await netbox_get_all("/api/ipam/prefixes/")
-    ranges = await netbox_get_all("/api/ipam/ip-ranges/")
-    ips = await netbox_get_all("/api/ipam/ip-addresses/")
-    return prefixes, ranges, ips
+@router.get("/ipam/prefix-ips", summary="NetBox IPAM prefix IP list")
+async def ipam_prefix_ips(
+    prefix: str = Query(...),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+):
+    try:
+        total, ips_raw = await netbox_get_page(
+            "/api/ipam/ip-addresses/",
+            {
+                "parent": prefix,
+                "limit": page_size,
+                "offset": (page - 1) * page_size,
+                "ordering": "address",
+            },
+        )
+    except Exception as exc:
+        return Fail(msg=f"璇诲彇 NetBox IP 鏁版嵁澶辫触: {type(exc).__name__}: {exc}")
+
+    return Success(
+        data={
+            "items": [normalize_ip(item) for item in ips_raw],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+    )
+
+
+async def fetch_ipam_data(
+    page: int,
+    page_size: int,
+    search: str = "",
+    family: int | None = None,
+    status: str = "",
+) -> tuple[int, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    params: dict[str, Any] = {
+        "limit": page_size,
+        "offset": (page - 1) * page_size,
+        "ordering": "prefix",
+    }
+    if search.strip():
+        params["q"] = search.strip()
+    if family in {4, 6}:
+        params["family"] = family
+    if status.strip():
+        params["status"] = status.strip()
+
+    total, prefixes = await netbox_get_page("/api/ipam/prefixes/", params)
+    return total, prefixes, [], []
