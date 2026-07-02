@@ -743,6 +743,11 @@ def apply_prefix_ip_stats(prefixes: list[dict[str, Any]], stats: dict[str, dict[
     return prefixes
 
 
+def paginate_items(items: list[dict[str, Any]], page: int, page_size: int) -> list[dict[str, Any]]:
+    start = (page - 1) * page_size
+    return items[start : start + page_size]
+
+
 @router.get("/ipam/overview", summary="NetBox IPAM overview")
 async def ipam_overview(
     search: str = Query(""),
@@ -754,19 +759,27 @@ async def ipam_overview(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
 ):
+    needs_global_filter = any(value.strip() for value in (region, customer, supplier))
     try:
-        prefix_total, prefixes_raw, ranges_raw, ips_raw = await fetch_ipam_data(page, page_size, search, family, status)
+        prefix_total, prefixes_raw, ranges_raw, ips_raw = await fetch_ipam_data(
+            page,
+            page_size,
+            search,
+            family,
+            status,
+            needs_global_filter,
+        )
     except Exception as exc:
         return Fail(msg=f"读取 NetBox IPAM 数据失败: {type(exc).__name__}: {exc}")
-    filter_sources, prefix_stats = await asyncio.gather(
+    filter_sources, filter_prefixes_raw = await asyncio.gather(
         fetch_filter_source_data(),
-        build_prefix_ip_stats(prefixes_raw),
+        fetch_filter_prefixes(prefixes_raw, search, family, status, needs_global_filter),
     )
 
     ips = [normalize_ip(item) for item in ips_raw]
     ip_ranges = [normalize_ip_range(item, ips) for item in ranges_raw]
-    prefixes = apply_prefix_ip_stats([normalize_prefix(item, ips, prefixes_raw, ip_ranges) for item in prefixes_raw], prefix_stats)
-    filter_options = build_filter_options(prefixes_raw, ranges_raw, filter_sources)
+    prefixes = [normalize_prefix(item, ips, prefixes_raw, ip_ranges) for item in prefixes_raw]
+    filter_options = build_filter_options(filter_prefixes_raw, ranges_raw, filter_sources)
 
     if family in {4, 6}:
         prefixes = [item for item in prefixes if item["family"] == family]
@@ -833,6 +846,11 @@ async def ipam_overview(
                 filtered_ips.append(item)
         ips = filtered_ips
 
+    filtered_prefix_values = {item["prefix"] for item in prefixes}
+    prefix_stats_raw = [item for item in prefixes_raw if str(item.get("prefix") or "") in filtered_prefix_values]
+    prefix_stats = await build_prefix_ip_stats(prefix_stats_raw)
+    prefixes = apply_prefix_ip_stats(prefixes, prefix_stats)
+
     customer_counts = Counter()
     supplier_counts = Counter()
     for item in ips:
@@ -853,10 +871,13 @@ async def ipam_overview(
         "customer_count": len(customer_counts),
         "supplier_count": len(supplier_counts),
     }
+    prefixes = sorted(prefixes, key=lambda item: (item["family"], item["prefix"]))
+    prefix_total = len(prefixes) if needs_global_filter else prefix_total
+    page_prefixes = paginate_items(prefixes, page, page_size) if needs_global_filter else prefixes
     return Success(
         data={
             "summary": summary,
-            "prefixes": strip_embedded_ips(sorted(prefixes, key=lambda item: (item["family"], item["prefix"]))),
+            "prefixes": strip_embedded_ips(page_prefixes),
             "ips": [],
             "total": prefix_total,
             "page": page,
@@ -914,10 +935,9 @@ async def fetch_ipam_data(
     search: str = "",
     family: int | None = None,
     status: str = "",
+    fetch_all_prefixes: bool = False,
 ) -> tuple[int, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     params: dict[str, Any] = {
-        "limit": page_size,
-        "offset": (page - 1) * page_size,
         "ordering": "prefix",
     }
     if search.strip():
@@ -927,5 +947,34 @@ async def fetch_ipam_data(
     if status.strip():
         params["status"] = status.strip()
 
-    total, prefixes = await netbox_get_page("/api/ipam/prefixes/", params)
+    if fetch_all_prefixes:
+        prefixes = await netbox_get_all("/api/ipam/prefixes/", params)
+        return len(prefixes), prefixes, [], []
+
+    page_params = {
+        **params,
+        "limit": page_size,
+        "offset": (page - 1) * page_size,
+    }
+    total, prefixes = await netbox_get_page("/api/ipam/prefixes/", page_params)
     return total, prefixes, [], []
+
+
+async def fetch_filter_prefixes(
+    current_prefixes: list[dict[str, Any]],
+    search: str = "",
+    family: int | None = None,
+    status: str = "",
+    already_global: bool = False,
+) -> list[dict[str, Any]]:
+    if already_global:
+        return current_prefixes
+
+    params: dict[str, Any] = {"ordering": "prefix"}
+    if search.strip():
+        params["q"] = search.strip()
+    if family in {4, 6}:
+        params["family"] = family
+    if status.strip():
+        params["status"] = status.strip()
+    return await netbox_get_all_optional("/api/ipam/prefixes/", params)
