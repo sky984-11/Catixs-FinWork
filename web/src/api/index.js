@@ -196,6 +196,7 @@ export default {
   netboxApi: {
     ipamOverview: (params = {}) => request.get('/netbox/ipam/overview', { params }),
     prefixIps: (params = {}) => request.get('/netbox/ipam/prefix-ips', { params }),
+    syncPveIps: (params = {}) => request.post('/netbox/ipam/sync-pve-ips', {}, { params }),
   },
 
   // virtual machine

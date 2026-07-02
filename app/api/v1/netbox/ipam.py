@@ -7,6 +7,7 @@ from urllib.parse import urljoin
 import httpx
 from fastapi import APIRouter, Query
 
+from app.api.v1.pve.pve import all_vms, enrich_vm_ips, pdm_remote_resources, pdm_resources_list
 from app.schemas.base import Fail, Success
 from app.settings.config import settings
 
@@ -678,6 +679,28 @@ async def netbox_get_page(path: str, params: dict[str, Any] | None = None) -> tu
         return int(data.get("count") or 0), data.get("results") or []
 
 
+async def netbox_request(
+    method: str,
+    path: str,
+    params: dict[str, Any] | None = None,
+    json_body: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    url = urljoin(netbox_base_url(), path.lstrip("/"))
+    headers = {**netbox_headers(), "Content-Type": "application/json"}
+    async with httpx.AsyncClient(timeout=30, verify=False, trust_env=False) as client:
+        response = await client.request(method, url, params=params or {}, json=json_body, headers=headers)
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            if "Just a moment" in response.text or "challenges.cloudflare.com" in response.text:
+                raise RuntimeError("NetBox API is blocked by Cloudflare challenge; allowlist this server or bypass /api/") from exc
+            raise RuntimeError(f"NetBox API HTTP {response.status_code}: {response.text[:500]}") from exc
+        if not response.content:
+            return {}
+        data = response.json()
+        return data if isinstance(data, dict) else {"data": data}
+
+
 async def netbox_filter_ips_by_segment(segment: str, page: int, page_size: int) -> tuple[int, list[dict[str, Any]]]:
     offset = 0
     limit = 200
@@ -741,6 +764,85 @@ def apply_prefix_ip_stats(prefixes: list[dict[str, Any]], stats: dict[str, dict[
         item["available"] = max(usable - used, 0)
         item["utilization"] = round(used / usable * 100, 2) if usable else 0
     return prefixes
+
+
+def pve_ip_address_with_prefix(ip_value: str) -> str:
+    address = ipaddress.ip_address(str(ip_value).strip())
+    prefix_length = 32 if address.version == 4 else 128
+    return f"{address}/{prefix_length}"
+
+
+def pve_sync_description(vm: dict[str, Any]) -> str:
+    remote = str(vm.get("remote") or "")
+    vmid = str(vm.get("vmid") or "")
+    name = str(vm.get("name") or "").strip()
+    node = str(vm.get("node") or "").strip()
+    suffix = " ".join([value for value in (name, node) if value])
+    return f"[CATIXS_VM_SYNC remote={remote} vmid={vmid}] {suffix}".strip()
+
+
+def same_netbox_address(left: str, right: str) -> bool:
+    try:
+        return ipaddress.ip_interface(left) == ipaddress.ip_interface(right)
+    except ValueError:
+        return left == right
+
+
+async def find_netbox_ip_address(address: str) -> dict[str, Any] | None:
+    items = await netbox_get_all("/api/ipam/ip-addresses/", {"address": address})
+    for item in items:
+        if same_netbox_address(str(item.get("address") or ""), address):
+            return item
+
+    ip_value = address.split("/", 1)[0]
+    items = await netbox_get_all("/api/ipam/ip-addresses/", {"q": ip_value})
+    for item in items:
+        if same_netbox_address(str(item.get("address") or ""), address):
+            return item
+    return None
+
+
+async def sync_pve_ip_to_netbox(vm: dict[str, Any], ip_value: str) -> dict[str, Any]:
+    address = pve_ip_address_with_prefix(ip_value)
+    description = pve_sync_description(vm)
+    existing = await find_netbox_ip_address(address)
+    payload = {
+        "address": address,
+        "status": "active",
+        "description": description,
+    }
+    if existing:
+        current_description = str(existing.get("description") or "").strip()
+        if current_description and "CATIXS_VM_SYNC" not in current_description and current_description != description:
+            return {"action": "skipped", "address": address, "id": existing.get("id"), "vm": vm.get("name") or ""}
+        update_payload = {
+            key: value
+            for key, value in payload.items()
+            if key != "address" and str(existing.get(key) or "") != str(value or "")
+        }
+        if update_payload:
+            await netbox_request("PATCH", f"/api/ipam/ip-addresses/{existing['id']}/", json_body=update_payload)
+            return {"action": "updated", "address": address, "id": existing.get("id"), "vm": vm.get("name") or ""}
+        return {"action": "unchanged", "address": address, "id": existing.get("id"), "vm": vm.get("name") or ""}
+
+    created = await netbox_request("POST", "/api/ipam/ip-addresses/", json_body=payload)
+    return {"action": "created", "address": address, "id": created.get("id"), "vm": vm.get("name") or ""}
+
+
+async def pve_vms_for_sync(node: str = "") -> list[dict[str, Any]]:
+    if node:
+        try:
+            resources = await pdm_remote_resources(node)
+        except Exception:
+            resources = []
+        data = [{"remote": node, "resources": resources}]
+    else:
+        data = await pdm_resources_list()
+    vms = all_vms(data)
+    if node:
+        vms = [vm for vm in vms if vm.get("remote") == node]
+    await enrich_vm_ips(vms)
+    return vms
 
 
 def paginate_items(items: list[dict[str, Any]], page: int, page_size: int) -> list[dict[str, Any]]:
@@ -926,6 +1028,67 @@ async def ipam_prefix_ips(
             "page": page,
             "page_size": page_size,
         }
+    )
+
+
+@router.post("/ipam/sync-pve-ips", summary="Sync PVE guest-agent IPs to NetBox")
+async def sync_pve_ips_to_netbox(
+    node: str = Query(""),
+):
+    try:
+        vms = await pve_vms_for_sync(node)
+    except Exception as exc:
+        return Fail(msg=f"读取 PVE IP 数据失败: {type(exc).__name__}: {exc}")
+
+    targets: list[tuple[dict[str, Any], str]] = []
+    seen: set[str] = set()
+    for vm in vms:
+        for ip_value in vm.get("ips") or vm.get("ip_addresses") or []:
+            try:
+                address = pve_ip_address_with_prefix(str(ip_value))
+            except ValueError:
+                continue
+            key = address.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            targets.append((vm, str(ip_value)))
+
+    semaphore = asyncio.Semaphore(6)
+
+    async def sync_one(vm: dict[str, Any], ip_value: str) -> dict[str, Any]:
+        async with semaphore:
+            try:
+                return await sync_pve_ip_to_netbox(vm, ip_value)
+            except Exception as exc:
+                try:
+                    address = pve_ip_address_with_prefix(ip_value)
+                except ValueError:
+                    address = str(ip_value)
+                return {
+                    "action": "failed",
+                    "address": address,
+                    "vm": vm.get("name") or "",
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+
+    results = await asyncio.gather(*(sync_one(vm, ip_value) for vm, ip_value in targets))
+    counts = Counter(str(item.get("action") or "unknown") for item in results)
+    failures = [item for item in results if item.get("action") == "failed"]
+
+    return Success(
+        msg="PVE IP 同步完成" if not failures else "PVE IP 同步完成，部分失败",
+        data={
+            "vm_count": len(vms),
+            "ip_count": len(targets),
+            "created": counts.get("created", 0),
+            "updated": counts.get("updated", 0),
+            "unchanged": counts.get("unchanged", 0),
+            "skipped": counts.get("skipped", 0),
+            "failed": counts.get("failed", 0),
+            "failures": failures[:20],
+            "items": results,
+        },
     )
 
 

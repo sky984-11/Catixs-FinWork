@@ -28,6 +28,14 @@
             @update:value="handleFilterChange"
           />
         </div>
+        <div class="toolbar-actions">
+          <n-button type="primary" round :loading="syncLoading" @click="syncPveIps">
+            <template #icon>
+              <TheIcon icon="mdi:sync" :size="17" />
+            </template>
+            同步IP
+          </n-button>
+        </div>
       </section>
 
       <section class="tree-table-panel">
@@ -96,12 +104,14 @@
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import { NProgress, NTag, useMessage } from 'naive-ui'
 import api from '@/api'
+import TheIcon from '@/components/icon/TheIcon.vue'
 
 defineOptions({ name: 'OpsIpam' })
 
 const message = useMessage()
 const loading = ref(false)
 const ipLoading = ref(false)
+const syncLoading = ref(false)
 const prefixes = ref([])
 const ipRows = ref([])
 const selectedPrefix = ref(null)
@@ -520,6 +530,28 @@ async function fetchOverview() {
   }
 }
 
+async function syncPveIps() {
+  syncLoading.value = true
+  try {
+    const res = await api.netboxApi.syncPveIps()
+    const data = res.data || {}
+    const summaryText = `发现 ${data.ip_count || 0} 个 IP，新增 ${data.created || 0}，更新 ${data.updated || 0}，未变 ${data.unchanged || 0}，跳过 ${data.skipped || 0}`
+    if (data.failed) {
+      message.warning(`${res.msg || 'PVE IP 同步完成，部分失败'}：${summaryText}，失败 ${data.failed}`)
+    } else {
+      message.success(`${res.msg || 'PVE IP 同步完成'}：${summaryText}`)
+    }
+    await fetchOverview()
+    if (selectedPrefix.value && showIpModal.value) {
+      await fetchPrefixIps()
+    }
+  } catch (error) {
+    message.error(error.message || 'PVE IP 同步 NetBox 失败')
+  } finally {
+    syncLoading.value = false
+  }
+}
+
 onMounted(fetchOverview)
 </script>
 
@@ -544,6 +576,9 @@ onMounted(fetchOverview)
 }
 
 .ipam-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   padding: 12px;
 }
 
@@ -564,8 +599,15 @@ onMounted(fetchOverview)
 .toolbar-filters {
   display: grid;
   width: 100%;
+  flex: 1;
   grid-template-columns: repeat(3, minmax(180px, 1fr));
   gap: 8px;
+}
+
+.toolbar-actions {
+  display: flex;
+  flex-shrink: 0;
+  justify-content: flex-end;
 }
 
 .tree-table-panel {
@@ -684,6 +726,14 @@ html.dark .prefix-link {
 
   .toolbar-filters {
     grid-template-columns: 1fr;
+  }
+
+  .toolbar-actions {
+    justify-content: stretch;
+  }
+
+  .toolbar-actions :deep(.n-button) {
+    width: 100%;
   }
 }
 </style>
