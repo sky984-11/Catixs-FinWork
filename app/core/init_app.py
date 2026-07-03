@@ -1344,5 +1344,8 @@ async def init_data():
     await ensure_task_permissions()
     await ensure_virtual_machine_permissions()
     await ensure_database_backup_task()
+    from app.controllers.task import ensure_pve_ip_sync_task
+
+    await ensure_pve_ip_sync_task()
     await init_companies()
     await ensure_company_branding()

@@ -62,3 +62,37 @@ class ScheduledTaskController(CRUDBase[ScheduledTask, ScheduledTaskCreate, Sched
 
 
 scheduled_task_controller = ScheduledTaskController()
+
+
+PVE_IP_SYNC_TASK_NAME = "PVE IP 同步 NetBox"
+PVE_IP_SYNC_TASK_VALUES = {
+    "task_type": "script",
+    "script_path": "scripts/sync_pve_ips_to_netbox.py",
+    "command": None,
+    "schedule_type": "daily",
+    "day_of_week": None,
+    "hour": 3,
+    "minute": 0,
+    "interval_minutes": None,
+    "is_enabled": True,
+}
+
+
+async def ensure_pve_ip_sync_task() -> ScheduledTask:
+    task = await ScheduledTask.filter(name=PVE_IP_SYNC_TASK_NAME).first()
+    if task:
+        changed = False
+        for field, value in PVE_IP_SYNC_TASK_VALUES.items():
+            if getattr(task, field) != value:
+                setattr(task, field, value)
+                changed = True
+        if changed or task.next_run_at is None:
+            task.next_run_at = scheduled_task_controller.calc_next_run_at(task)
+            changed = True
+        if changed:
+            await task.save()
+        return task
+
+    return await scheduled_task_controller.create(
+        ScheduledTaskCreate(name=PVE_IP_SYNC_TASK_NAME, **PVE_IP_SYNC_TASK_VALUES)
+    )

@@ -41,11 +41,17 @@
           />
         </div>
         <div class="toolbar-actions">
+          <n-button type="primary" round @click="openCreateModal">
+            <template #icon>
+              <TheIcon icon="mdi:plus" :size="17" />
+            </template>
+            新增
+          </n-button>
           <n-button type="primary" round :loading="syncLoading" @click="syncPveIps">
             <template #icon>
               <TheIcon icon="mdi:sync" :size="17" />
             </template>
-            同步IP
+            提交同步
           </n-button>
         </div>
       </section>
@@ -108,13 +114,230 @@
           </n-data-table>
         </template>
       </n-modal>
+
+      <n-modal
+        v-model:show="ipEditModal.show"
+        preset="card"
+        title="编辑 IP"
+        class="ip-edit-modal"
+        :bordered="false"
+      >
+        <n-form label-placement="left" label-width="88" :model="ipEditModal.form">
+          <n-form-item label="IP 地址">
+            <n-input v-model:value="ipEditModal.form.address" placeholder="例如 2.59.61.14/32" />
+          </n-form-item>
+          <n-form-item label="状态">
+            <n-select v-model:value="ipEditModal.form.status" :options="ipStatusOptions" />
+          </n-form-item>
+          <n-form-item label="DNS 名称">
+            <n-input v-model:value="ipEditModal.form.dns_name" placeholder="DNS 名称" />
+          </n-form-item>
+          <n-form-item label="说明">
+            <n-input
+              v-model:value="ipEditModal.form.description"
+              type="textarea"
+              placeholder="说明"
+              :autosize="{ minRows: 3, maxRows: 6 }"
+            />
+          </n-form-item>
+        </n-form>
+        <template #footer>
+          <div class="modal-actions">
+            <n-button round @click="ipEditModal.show = false">取消</n-button>
+            <n-button type="primary" round :loading="ipEditModal.saving" @click="saveIpAddress">保存</n-button>
+          </div>
+        </template>
+      </n-modal>
+
+      <n-modal
+        v-model:show="prefixEditModal.show"
+        preset="card"
+        title="编辑前缀"
+        class="ip-edit-modal"
+        :bordered="false"
+      >
+        <n-form label-placement="left" label-width="88" :model="prefixEditModal.form">
+          <n-form-item label="IP 前缀">
+            <n-input v-model:value="prefixEditModal.form.prefix" placeholder="例如 2.59.61.0/24" />
+          </n-form-item>
+          <n-form-item label="状态">
+            <n-select v-model:value="prefixEditModal.form.status" :options="prefixStatusOptions" />
+          </n-form-item>
+          <n-form-item label="供应商">
+            <n-select
+              v-model:value="prefixEditModal.form.supplier"
+              clearable
+              filterable
+              placeholder="Owner"
+              :options="prefixFieldOptions.suppliers"
+            />
+          </n-form-item>
+          <n-form-item label="客户">
+            <n-select
+              v-model:value="prefixEditModal.form.customer_id"
+              clearable
+              filterable
+              placeholder="租户"
+              :options="prefixFieldOptions.tenants"
+            />
+          </n-form-item>
+          <n-form-item label="角色">
+            <n-select
+              v-model:value="prefixEditModal.form.role_id"
+              clearable
+              filterable
+              placeholder="角色"
+              :options="prefixFieldOptions.roles"
+            />
+          </n-form-item>
+          <n-form-item label="地区">
+            <div class="scope-selects">
+              <n-select
+                v-model:value="prefixEditModal.form.scope_type"
+                placeholder="作用域类型"
+                :options="prefixFieldOptions.scopeTypes"
+              />
+              <n-select
+                v-model:value="prefixEditModal.form.scope_id"
+                clearable
+                filterable
+                placeholder="站点"
+                :options="prefixFieldOptions.sites"
+              />
+            </div>
+          </n-form-item>
+          <n-form-item label="VLAN">
+            <n-select
+              v-model:value="prefixEditModal.form.vlan_id"
+              clearable
+              filterable
+              placeholder="VLAN"
+              :options="prefixFieldOptions.vlans"
+            />
+          </n-form-item>
+          <n-form-item label="说明">
+            <n-input
+              v-model:value="prefixEditModal.form.description"
+              type="textarea"
+              placeholder="说明"
+              :autosize="{ minRows: 3, maxRows: 6 }"
+            />
+          </n-form-item>
+        </n-form>
+        <template #footer>
+          <div class="modal-actions">
+            <n-button round @click="prefixEditModal.show = false">取消</n-button>
+            <n-button type="primary" round :loading="prefixEditModal.saving" @click="savePrefix">保存</n-button>
+          </div>
+        </template>
+      </n-modal>
+
+      <n-modal
+        v-model:show="createModal.show"
+        preset="card"
+        title="新增"
+        class="ip-edit-modal"
+        :bordered="false"
+      >
+        <n-form label-placement="left" label-width="88" :model="createModal.form">
+          <n-form-item label="类型">
+            <n-radio-group v-model:value="createModal.type">
+              <n-radio-button value="ip">IP 地址</n-radio-button>
+              <n-radio-button value="prefix">前缀</n-radio-button>
+            </n-radio-group>
+          </n-form-item>
+          <n-form-item v-if="createModal.type === 'ip'" label="IP 地址">
+            <n-input v-model:value="createModal.form.address" placeholder="例如 2.59.61.14/32" />
+          </n-form-item>
+          <n-form-item v-else label="IP 前缀">
+            <n-input v-model:value="createModal.form.prefix" placeholder="例如 2.59.61.0/24" />
+          </n-form-item>
+          <n-form-item label="状态">
+            <n-select
+              v-model:value="createModal.form.status"
+              :options="createModal.type === 'ip' ? ipStatusOptions : prefixStatusOptions"
+            />
+          </n-form-item>
+          <n-form-item v-if="createModal.type === 'ip'" label="DNS 名称">
+            <n-input v-model:value="createModal.form.dns_name" placeholder="DNS 名称" />
+          </n-form-item>
+          <template v-else>
+            <n-form-item label="供应商">
+              <n-select
+                v-model:value="createModal.form.supplier"
+                clearable
+                filterable
+                placeholder="Owner"
+                :options="prefixFieldOptions.suppliers"
+              />
+            </n-form-item>
+            <n-form-item label="客户">
+              <n-select
+                v-model:value="createModal.form.customer_id"
+                clearable
+                filterable
+                placeholder="租户"
+                :options="prefixFieldOptions.tenants"
+              />
+            </n-form-item>
+            <n-form-item label="角色">
+              <n-select
+                v-model:value="createModal.form.role_id"
+                clearable
+                filterable
+                placeholder="角色"
+                :options="prefixFieldOptions.roles"
+              />
+            </n-form-item>
+            <n-form-item label="地区">
+              <div class="scope-selects">
+                <n-select
+                  v-model:value="createModal.form.scope_type"
+                  placeholder="作用域类型"
+                  :options="prefixFieldOptions.scopeTypes"
+                />
+                <n-select
+                  v-model:value="createModal.form.scope_id"
+                  clearable
+                  filterable
+                  placeholder="站点"
+                  :options="prefixFieldOptions.sites"
+                />
+              </div>
+            </n-form-item>
+            <n-form-item label="VLAN">
+              <n-select
+                v-model:value="createModal.form.vlan_id"
+                clearable
+                filterable
+                placeholder="VLAN"
+                :options="prefixFieldOptions.vlans"
+              />
+            </n-form-item>
+          </template>
+          <n-form-item label="说明">
+            <n-input
+              v-model:value="createModal.form.description"
+              type="textarea"
+              placeholder="说明"
+              :autosize="{ minRows: 3, maxRows: 6 }"
+            />
+          </n-form-item>
+        </n-form>
+        <template #footer>
+          <div class="modal-actions">
+            <n-button round @click="createModal.show = false">取消</n-button>
+            <n-button type="primary" round :loading="createModal.saving" @click="saveCreate">保存</n-button>
+          </div>
+        </template>
+      </n-modal>
     </div>
   </AppPage>
 </template>
 
 <script setup>
 import { computed, h, onMounted, reactive, ref } from 'vue'
-import { NProgress, NTag, useMessage } from 'naive-ui'
+import { NButton, NPopconfirm, NProgress, NSpace, NTag, useMessage } from 'naive-ui'
 import api from '@/api'
 import TheIcon from '@/components/icon/TheIcon.vue'
 
@@ -128,6 +351,51 @@ const prefixes = ref([])
 const ipRows = ref([])
 const selectedPrefix = ref(null)
 const showIpModal = ref(false)
+const ipEditModal = reactive({
+  show: false,
+  saving: false,
+  row: null,
+  form: {
+    address: '',
+    status: 'active',
+    dns_name: '',
+    description: '',
+  },
+})
+const prefixEditModal = reactive({
+  show: false,
+  saving: false,
+  row: null,
+  form: {
+    prefix: '',
+    status: 'active',
+    supplier: '',
+    customer_id: null,
+    role_id: null,
+    scope_type: 'dcim.site',
+    scope_id: null,
+    vlan_id: null,
+    description: '',
+  },
+})
+const createModal = reactive({
+  show: false,
+  saving: false,
+  type: 'ip',
+  form: {
+    address: '',
+    prefix: '',
+    status: 'active',
+    dns_name: '',
+    supplier: '',
+    customer_id: null,
+    role_id: null,
+    scope_type: 'dcim.site',
+    scope_id: null,
+    vlan_id: null,
+    description: '',
+  },
+})
 const summary = reactive({
   prefix_count: 0,
   ip_count: 0,
@@ -151,6 +419,31 @@ const filterOptions = reactive({
   customers: [],
   suppliers: [],
 })
+const prefixFieldOptions = reactive({
+  loaded: false,
+  loading: false,
+  suppliers: [],
+  tenants: [],
+  roles: [],
+  vlans: [],
+  scopeTypes: [{ label: 'DCIM > 站点', value: 'dcim.site' }],
+  sites: [],
+})
+
+const ipStatusOptions = [
+  { label: '已用', value: 'active' },
+  { label: '预留', value: 'reserved' },
+  { label: '废弃', value: 'deprecated' },
+  { label: 'DHCP', value: 'dhcp' },
+  { label: 'SLAAC', value: 'slaac' },
+]
+
+const prefixStatusOptions = [
+  { label: '启用', value: 'active' },
+  { label: '预留', value: 'reserved' },
+  { label: '废弃', value: 'deprecated' },
+  { label: '容器', value: 'container' },
+]
 
 const prefixPagination = reactive({
   page: 1,
@@ -322,6 +615,43 @@ const prefixColumns = [
       return row.description || '—'
     },
   },
+  {
+    title: '操作',
+    key: 'actions',
+    width: 120,
+    fixed: 'right',
+    render(row) {
+      if (!Number.isFinite(Number(row.id))) return ''
+      return h(NSpace, { size: 8 }, {
+        default: () => [
+          h(
+            NButton,
+            {
+              text: true,
+              size: 'small',
+              type: 'primary',
+              onClick: () => openPrefixEditModal(row),
+            },
+            { default: () => '编辑' }
+          ),
+          h(
+            NPopconfirm,
+            {
+              onPositiveClick: () => deletePrefix(row),
+            },
+            {
+              trigger: () => h(
+                NButton,
+                { text: true, size: 'small', type: 'error' },
+                { default: () => '删除' }
+              ),
+              default: () => `确认删除 ${row.prefix || '该前缀'}？`,
+            }
+          ),
+        ],
+      })
+    },
+  },
 ]
 
 const ipColumns = [
@@ -367,6 +697,43 @@ const ipColumns = [
     },
   },
   { title: '说明', key: 'description', minWidth: 220, ellipsis: { tooltip: true } },
+  {
+    title: '操作',
+    key: 'actions',
+    width: 120,
+    fixed: 'right',
+    render(row) {
+      if (row.entry_type === 'available' || !Number.isFinite(Number(row.id))) return ''
+      return h(NSpace, { size: 8 }, {
+        default: () => [
+          h(
+            NButton,
+            {
+              text: true,
+              size: 'small',
+              type: 'primary',
+              onClick: () => openIpEditModal(row),
+            },
+            { default: () => '编辑' }
+          ),
+          h(
+            NPopconfirm,
+            {
+              onPositiveClick: () => deleteIpAddress(row),
+            },
+            {
+              trigger: () => h(
+                NButton,
+                { text: true, size: 'small', type: 'error' },
+                { default: () => '删除' }
+              ),
+              default: () => `确认删除 ${row.address || '该 IP'}？`,
+            }
+          ),
+        ],
+      })
+    },
+  },
 ]
 
 function prefixRowKey(row) {
@@ -489,6 +856,209 @@ function selectPrefix(prefix) {
   fetchPrefixIps()
 }
 
+function optionValueByLabel(options, label) {
+  if (!label) return null
+  const option = (options || []).find((item) => item.label === label || String(item.value) === String(label))
+  return option ? option.value : null
+}
+
+function ensureStringOption(options, value) {
+  if (!value || (options || []).some((item) => item.value === value)) return
+  options.push({ label: value, value })
+}
+
+async function loadPrefixFieldOptions() {
+  if (prefixFieldOptions.loaded || prefixFieldOptions.loading) return
+  prefixFieldOptions.loading = true
+  try {
+    const res = await api.netboxApi.prefixOptions()
+    const data = res.data || {}
+    prefixFieldOptions.suppliers = data.suppliers || []
+    prefixFieldOptions.tenants = data.tenants || []
+    prefixFieldOptions.roles = data.roles || []
+    prefixFieldOptions.vlans = data.vlans || []
+    prefixFieldOptions.scopeTypes = data.scope_types || [{ label: 'DCIM > 站点', value: 'dcim.site' }]
+    prefixFieldOptions.sites = data.sites || []
+    prefixFieldOptions.loaded = true
+  } catch (error) {
+    message.error(error.message || '加载 NetBox 下拉选项失败')
+  } finally {
+    prefixFieldOptions.loading = false
+  }
+}
+
+async function openCreateModal() {
+  await loadPrefixFieldOptions()
+  createModal.type = 'ip'
+  createModal.form.address = ''
+  createModal.form.prefix = selectedPrefix.value?.prefix || ''
+  createModal.form.status = 'active'
+  createModal.form.dns_name = ''
+  createModal.form.supplier = ''
+  createModal.form.customer_id = null
+  createModal.form.role_id = null
+  createModal.form.scope_type = 'dcim.site'
+  createModal.form.scope_id = null
+  createModal.form.vlan_id = null
+  createModal.form.description = ''
+  createModal.show = true
+}
+
+async function saveCreate() {
+  createModal.saving = true
+  try {
+    if (createModal.type === 'ip') {
+      if (!String(createModal.form.address || '').trim()) {
+        message.warning('请填写 IP 地址')
+        return
+      }
+      const res = await api.netboxApi.createIpAddress({
+        address: createModal.form.address.trim(),
+        status: createModal.form.status,
+        dns_name: createModal.form.dns_name?.trim() || '',
+        description: createModal.form.description || '',
+      })
+      message.success(res.msg || 'IP 已新增')
+    } else {
+      if (!String(createModal.form.prefix || '').trim()) {
+        message.warning('请填写 IP 前缀')
+        return
+      }
+      const res = await api.netboxApi.createPrefix({
+        prefix: createModal.form.prefix.trim(),
+        status: createModal.form.status,
+        supplier: createModal.form.supplier || '',
+        customer_id: createModal.form.customer_id,
+        role_id: createModal.form.role_id,
+        scope_type: createModal.form.scope_type,
+        scope_id: createModal.form.scope_id,
+        vlan_id: createModal.form.vlan_id,
+        description: createModal.form.description || '',
+      })
+      message.success(res.msg || '前缀已新增')
+    }
+    createModal.show = false
+    await fetchOverview()
+    if (selectedPrefix.value && showIpModal.value) {
+      await fetchPrefixIps()
+    }
+  } catch (error) {
+    message.error(error.message || '新增失败')
+  } finally {
+    createModal.saving = false
+  }
+}
+
+async function openPrefixEditModal(row) {
+  await loadPrefixFieldOptions()
+  ensureStringOption(prefixFieldOptions.suppliers, row.supplier === '未指定' ? '' : row.supplier || '')
+  prefixEditModal.row = row
+  prefixEditModal.form.prefix = row.prefix || ''
+  prefixEditModal.form.status = row.status || 'active'
+  prefixEditModal.form.supplier = row.supplier === '未指定' ? '' : row.supplier || ''
+  prefixEditModal.form.customer_id = row.tenant_id || optionValueByLabel(prefixFieldOptions.tenants, row.customer)
+  prefixEditModal.form.role_id = row.role_id || optionValueByLabel(prefixFieldOptions.roles, row.role)
+  prefixEditModal.form.scope_type = row.scope_type || 'dcim.site'
+  prefixEditModal.form.scope_id = row.scope_id || optionValueByLabel(prefixFieldOptions.sites, row.region || row.scope || row.site)
+  prefixEditModal.form.vlan_id = row.vlan_id || optionValueByLabel(prefixFieldOptions.vlans, row.vlan)
+  prefixEditModal.form.description = row.description || ''
+  prefixEditModal.show = true
+}
+
+async function savePrefix() {
+  const id = Number(prefixEditModal.row?.id)
+  if (!Number.isFinite(id)) return
+  if (!String(prefixEditModal.form.prefix || '').trim()) {
+    message.warning('请填写 IP 前缀')
+    return
+  }
+  prefixEditModal.saving = true
+  try {
+    const res = await api.netboxApi.updatePrefix(id, {
+      prefix: prefixEditModal.form.prefix.trim(),
+      status: prefixEditModal.form.status,
+      supplier: prefixEditModal.form.supplier || '',
+      customer_id: prefixEditModal.form.customer_id,
+      role_id: prefixEditModal.form.role_id,
+      scope_type: prefixEditModal.form.scope_type,
+      scope_id: prefixEditModal.form.scope_id,
+      vlan_id: prefixEditModal.form.vlan_id,
+      description: prefixEditModal.form.description || '',
+    })
+    message.success(res.msg || '前缀已更新')
+    prefixEditModal.show = false
+    await fetchOverview()
+  } catch (error) {
+    message.error(error.message || '更新前缀失败')
+  } finally {
+    prefixEditModal.saving = false
+  }
+}
+
+async function deletePrefix(row) {
+  const id = Number(row?.id)
+  if (!Number.isFinite(id)) return
+  try {
+    const res = await api.netboxApi.deletePrefix(id)
+    message.success(res.msg || '前缀已删除')
+    if (selectedPrefix.value?.id === row.id) {
+      selectedPrefix.value = null
+      showIpModal.value = false
+      ipRows.value = []
+      ipPagination.itemCount = 0
+    }
+    await fetchOverview()
+  } catch (error) {
+    message.error(error.message || '删除前缀失败')
+  }
+}
+
+function openIpEditModal(row) {
+  ipEditModal.row = row
+  ipEditModal.form.address = row.address || ''
+  ipEditModal.form.status = row.status || 'active'
+  ipEditModal.form.dns_name = row.dns_name || ''
+  ipEditModal.form.description = row.description || ''
+  ipEditModal.show = true
+}
+
+async function saveIpAddress() {
+  const id = Number(ipEditModal.row?.id)
+  if (!Number.isFinite(id)) return
+  if (!String(ipEditModal.form.address || '').trim()) {
+    message.warning('请填写 IP 地址')
+    return
+  }
+  ipEditModal.saving = true
+  try {
+    const res = await api.netboxApi.updateIpAddress(id, {
+      address: ipEditModal.form.address.trim(),
+      status: ipEditModal.form.status,
+      dns_name: ipEditModal.form.dns_name?.trim() || '',
+      description: ipEditModal.form.description || '',
+    })
+    message.success(res.msg || 'IP 已更新')
+    ipEditModal.show = false
+    await fetchPrefixIps()
+  } catch (error) {
+    message.error(error.message || '更新 IP 失败')
+  } finally {
+    ipEditModal.saving = false
+  }
+}
+
+async function deleteIpAddress(row) {
+  const id = Number(row?.id)
+  if (!Number.isFinite(id)) return
+  try {
+    const res = await api.netboxApi.deleteIpAddress(id)
+    message.success(res.msg || 'IP 已删除')
+    await fetchPrefixIps()
+  } catch (error) {
+    message.error(error.message || '删除 IP 失败')
+  }
+}
+
 function handleFilterChange() {
   if (searchTimer) {
     clearTimeout(searchTimer)
@@ -536,7 +1106,6 @@ async function fetchOverview() {
       page_size: prefixPagination.pageSize,
     })
     Object.assign(summary, res.data?.summary || {})
-    Object.assign(filterOptions, res.data?.filter_options || { regions: [], customers: [], suppliers: [] })
     prefixes.value = res.data?.prefixes || []
     prefixPagination.itemCount = Number(res.data?.total || prefixes.value.length)
     const currentPrefix = selectedPrefix.value?.prefix
@@ -556,29 +1125,31 @@ async function fetchOverview() {
   }
 }
 
+async function fetchFilterOptions() {
+  try {
+    const res = await api.netboxApi.ipamFilterOptions()
+    Object.assign(filterOptions, res.data || { regions: [], customers: [], suppliers: [] })
+  } catch (error) {
+    message.error(error.message || '加载 IPAM 过滤选项失败')
+  }
+}
+
 async function syncPveIps() {
   syncLoading.value = true
   try {
     const res = await api.netboxApi.syncPveIps()
-    const data = res.data || {}
-    const summaryText = `发现 ${data.ip_count || 0} 个 IP，新增 ${data.created || 0}，更新 ${data.updated || 0}，未变 ${data.unchanged || 0}，跳过 ${data.skipped || 0}`
-    if (data.failed) {
-      message.warning(`${res.msg || 'PVE IP 同步完成，部分失败'}：${summaryText}，失败 ${data.failed}`)
-    } else {
-      message.success(`${res.msg || 'PVE IP 同步完成'}：${summaryText}`)
-    }
-    await fetchOverview()
-    if (selectedPrefix.value && showIpModal.value) {
-      await fetchPrefixIps()
-    }
+    message.success(res.msg || 'PVE IP 同步任务已提交')
   } catch (error) {
-    message.error(error.message || 'PVE IP 同步 NetBox 失败')
+    message.error(error.message || '提交 PVE IP 同步任务失败')
   } finally {
     syncLoading.value = false
   }
 }
 
-onMounted(fetchOverview)
+onMounted(() => {
+  fetchOverview()
+  fetchFilterOptions()
+})
 </script>
 
 <style scoped>
@@ -633,6 +1204,7 @@ onMounted(fetchOverview)
 .toolbar-actions {
   display: flex;
   flex-shrink: 0;
+  gap: 8px;
   justify-content: flex-end;
 }
 
@@ -728,6 +1300,10 @@ html.dark .prefix-link {
   width: min(1080px, calc(100vw - 48px));
 }
 
+:deep(.ip-edit-modal) {
+  width: min(680px, calc(100vw - 48px));
+}
+
 :deep(.ip-detail-modal .n-card__content) {
   max-height: calc(100vh - 150px);
   overflow: auto;
@@ -735,6 +1311,19 @@ html.dark .prefix-link {
 
 :deep(.ip-detail-modal .ip-table) {
   min-height: 260px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.scope-selects {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.45fr) minmax(220px, 0.55fr);
+  gap: 8px;
+  width: 100%;
 }
 
 @media (max-width: 1180px) {

@@ -195,7 +195,15 @@ export default {
   // NetBox IPAM
   netboxApi: {
     ipamOverview: (params = {}) => request.get('/netbox/ipam/overview', { params }),
+    ipamFilterOptions: (params = {}) => request.get('/netbox/ipam/filter-options', { params }),
     prefixIps: (params = {}) => request.get('/netbox/ipam/prefix-ips', { params }),
+    prefixOptions: () => request.get('/netbox/ipam/prefix-options'),
+    createIpAddress: (data = {}) => request.post('/netbox/ipam/ip-addresses', data),
+    updateIpAddress: (id, data = {}) => request.patch(`/netbox/ipam/ip-addresses/${id}`, data),
+    deleteIpAddress: (id) => request.delete(`/netbox/ipam/ip-addresses/${id}`),
+    createPrefix: (data = {}) => request.post('/netbox/ipam/prefixes', data),
+    updatePrefix: (id, data = {}) => request.patch(`/netbox/ipam/prefixes/${id}`, data),
+    deletePrefix: (id) => request.delete(`/netbox/ipam/prefixes/${id}`),
     syncPveIps: (params = {}) => request.post('/netbox/ipam/sync-pve-ips', {}, { params }),
   },
 

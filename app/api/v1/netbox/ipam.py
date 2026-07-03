@@ -1,6 +1,7 @@
 import asyncio
 import ipaddress
 from collections import Counter
+from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import urljoin
 
@@ -12,6 +13,9 @@ from app.schemas.base import Fail, Success
 from app.settings.config import settings
 
 router = APIRouter()
+
+FILTER_OPTIONS_CACHE_TTL = timedelta(minutes=5)
+_filter_options_cache: dict[str, Any] = {"expires_at": None, "data": None}
 
 
 def netbox_base_url() -> str:
@@ -62,6 +66,15 @@ def status_value(value: Any) -> str:
     if value is None:
         return ""
     return str(value).lower()
+
+
+def content_type_value(value: Any) -> str:
+    if isinstance(value, dict):
+        app_label = value.get("app_label")
+        model = value.get("model")
+        if app_label and model:
+            return f"{app_label}.{model}".lower()
+    return status_value(value)
 
 
 def custom_field_value(custom_fields: dict[str, Any], keys: tuple[str, ...]) -> str:
@@ -513,10 +526,12 @@ async def netbox_get_all_optional(path: str, params: dict[str, Any] | None = Non
 
 
 async def fetch_filter_source_data() -> dict[str, list[dict[str, Any]]]:
-    tenants = await netbox_get_all_optional("/api/tenancy/tenants/")
-    regions = await netbox_get_all_optional("/api/dcim/regions/")
-    sites = await netbox_get_all_optional("/api/dcim/sites/")
-    locations = await netbox_get_all_optional("/api/dcim/locations/")
+    tenants, regions, sites, locations = await asyncio.gather(
+        netbox_get_all_optional("/api/tenancy/tenants/"),
+        netbox_get_all_optional("/api/dcim/regions/"),
+        netbox_get_all_optional("/api/dcim/sites/"),
+        netbox_get_all_optional("/api/dcim/locations/"),
+    )
     return {
         "tenants": tenants,
         "regions": regions,
@@ -558,6 +573,7 @@ def normalize_prefix(
     ranges: list[dict[str, Any]],
 ) -> dict[str, Any]:
     prefix = str(item.get("prefix") or "")
+    custom_fields = item.get("custom_fields") or {}
     network = parse_network(prefix)
     child_prefixes_raw = child_prefixes_for(item, prefixes_raw)
     child_prefixes = []
@@ -569,7 +585,8 @@ def normalize_prefix(
                 "prefix": child.get("prefix"),
                 "status": status_value(child.get("status")) or "unknown",
                 "status_label": prefix_status_label(status_value(child.get("status")) or "unknown"),
-                "role": nested_name(child.get("role")),
+                "role": nested_name(child.get("role"))
+                or custom_field_value(child.get("custom_fields") or {}, ("role",)),
                 "tenant": nested_name(child.get("tenant")),
                 "customer": object_customer(child),
                 "owner": nested_name(child.get("owner")),
@@ -610,16 +627,21 @@ def normalize_prefix(
         "family": network.version if network else 0,
         "status": status,
         "status_label": prefix_status_label(status),
-        "role": nested_name(item.get("role")),
+        "role_id": nested_id(item.get("role")),
+        "role": nested_name(item.get("role")) or custom_field_value(custom_fields, ("role",)),
         "site": nested_name(item.get("site")),
+        "scope_id": nested_id(item.get("scope")) or nested_id(item.get("site")) or nested_id(item.get("location")),
+        "scope_type": content_type_value(item.get("scope_type")) or ("dcim.site" if item.get("site") else ""),
         "scope": scope_name(item),
         "region": scope_name(item),
         "vrf": nested_name(item.get("vrf")),
+        "tenant_id": nested_id(item.get("tenant")),
         "tenant": nested_name(item.get("tenant")),
         "customer": customer,
         "owner": nested_name(item.get("owner")),
         "supplier": supplier,
-        "vlan": nested_name(item.get("vlan")),
+        "vlan_id": nested_id(item.get("vlan")),
+        "vlan": nested_name(item.get("vlan")) or custom_field_value(custom_fields, ("vlan",)),
         "description": item.get("description") or "",
         "total": total,
         "usable": usable,
@@ -701,6 +723,147 @@ async def netbox_request(
         return data if isinstance(data, dict) else {"data": data}
 
 
+PREFIX_CUSTOM_FIELD_KEYS = ("supplier",)
+PREFIX_SUPPLIER_CUSTOM_FIELD_CANDIDATES = ("owner", "supplier", "vendor", "provider")
+
+
+def int_or_none(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def netbox_option(item: dict[str, Any]) -> dict[str, Any]:
+    label = nested_name(item) or str(item.get("display") or item.get("id") or "")
+    return {"label": label, "value": item.get("id")}
+
+
+def unique_options(options: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[Any] = set()
+    result: list[dict[str, Any]] = []
+    for option in options:
+        value = option.get("value")
+        label = option.get("label")
+        key = value if value not in (None, "") else label
+        if key in seen or label in (None, ""):
+            continue
+        seen.add(key)
+        result.append(option)
+    return result
+
+
+def custom_field_choice_options(fields: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    options: list[dict[str, Any]] = []
+    for field in fields:
+        choices = field.get("choices") or []
+        choice_set = field.get("choice_set") or {}
+        if isinstance(choice_set, dict):
+            choices.extend(choice_set.get("choices") or [])
+            choices.extend(choice_set.get("extra_choices") or [])
+        for choice in choices:
+            if isinstance(choice, dict):
+                value = choice.get("value") or choice.get("name") or choice.get("label")
+                label = choice.get("label") or choice.get("display") or value
+            elif isinstance(choice, (list, tuple)) and choice:
+                value = choice[0]
+                label = choice[1] if len(choice) > 1 else choice[0]
+            else:
+                value = choice
+                label = choice
+            if value not in (None, ""):
+                options.append({"label": str(label or value), "value": str(value)})
+    return options
+
+
+def apply_prefix_custom_fields(
+    netbox_payload: dict[str, Any],
+    source_payload: dict[str, Any] | None,
+    existing_custom_fields: dict[str, Any] | None = None,
+) -> bool:
+    custom_fields = dict(existing_custom_fields or {})
+    changed = False
+    for key in PREFIX_CUSTOM_FIELD_KEYS:
+        if key not in (source_payload or {}):
+            continue
+        target_key = next(
+            (field_key for field_key in PREFIX_SUPPLIER_CUSTOM_FIELD_CANDIDATES if field_key in custom_fields),
+            None,
+        )
+        if not target_key:
+            continue
+        value = source_payload.get(key)
+        custom_fields[target_key] = str(value or "").strip()
+        changed = True
+    if changed:
+        netbox_payload["custom_fields"] = custom_fields
+    return changed
+
+
+def apply_prefix_native_fields(
+    netbox_payload: dict[str, Any],
+    source_payload: dict[str, Any] | None,
+) -> bool:
+    changed = False
+    field_map = {
+        "customer_id": "tenant",
+        "tenant_id": "tenant",
+        "role_id": "role",
+        "vlan_id": "vlan",
+    }
+    for source_key, netbox_key in field_map.items():
+        if source_key not in (source_payload or {}):
+            continue
+        netbox_payload[netbox_key] = int_or_none(source_payload.get(source_key))
+        changed = True
+
+    if "scope_type" in (source_payload or {}) or "scope_id" in (source_payload or {}):
+        scope_type = str(source_payload.get("scope_type") or "").strip()
+        scope_id = int_or_none(source_payload.get("scope_id"))
+        netbox_payload["scope_type"] = scope_type if scope_type and scope_id else None
+        netbox_payload["scope_id"] = scope_id if scope_type and scope_id else None
+        changed = True
+    return changed
+
+
+@router.get("/ipam/prefix-options", summary="NetBox prefix edit options")
+async def prefix_options():
+    tenants, roles, vlans, sites, prefixes, owner_fields, supplier_fields = await asyncio.gather(
+        netbox_get_all_optional("/api/tenancy/tenants/"),
+        netbox_get_all_optional("/api/ipam/roles/"),
+        netbox_get_all_optional("/api/ipam/vlans/"),
+        netbox_get_all_optional("/api/dcim/sites/"),
+        netbox_get_all_optional("/api/ipam/prefixes/", {"ordering": "prefix"}),
+        netbox_get_all_optional("/api/extras/custom-fields/", {"name": "owner"}),
+        netbox_get_all_optional("/api/extras/custom-fields/", {"name": "supplier"}),
+    )
+
+    supplier_options: list[dict[str, Any]] = custom_field_choice_options(owner_fields + supplier_fields)
+    for item in prefixes:
+        custom_fields = item.get("custom_fields") or {}
+        supplier = (
+            nested_name(item.get("owner"))
+            or custom_field_value(custom_fields, ("owner", "supplier", "vendor", "provider"))
+        )
+        if supplier:
+            supplier_options.append({"label": supplier, "value": supplier})
+
+    return Success(
+        data={
+            "suppliers": unique_options(supplier_options),
+            "tenants": unique_options([netbox_option(item) for item in tenants]),
+            "roles": unique_options([netbox_option(item) for item in roles]),
+            "vlans": unique_options([netbox_option(item) for item in vlans]),
+            "scope_types": [
+                {"label": "DCIM > 站点", "value": "dcim.site"},
+            ],
+            "sites": unique_options([netbox_option(item) for item in sites]),
+        }
+    )
+
+
 async def netbox_filter_ips_by_segment(segment: str, page: int, page_size: int) -> tuple[int, list[dict[str, Any]]]:
     offset = 0
     limit = 200
@@ -736,15 +899,23 @@ async def prefix_ip_count(prefix: str, status: str = "") -> int:
 
 
 async def build_prefix_ip_stats(prefixes_raw: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    semaphore = asyncio.Semaphore(8)
+
     async def build_item(item: dict[str, Any]) -> tuple[str, dict[str, int]]:
         prefix = str(item.get("prefix") or "")
         if not prefix:
             return prefix, {"registered": 0, "used": 0, "reserved": 0}
-        registered, used, reserved = await asyncio.gather(
-            prefix_ip_count(prefix),
-            prefix_ip_count(prefix, "active"),
-            prefix_ip_count(prefix, "reserved"),
-        )
+        async with semaphore:
+            ip_items = await netbox_get_all_optional("/api/ipam/ip-addresses/", {"parent": prefix, "ordering": "address"})
+        registered = len(ip_items)
+        used = 0
+        reserved = 0
+        for ip_item in ip_items:
+            item_status = status_value(ip_item.get("status"))
+            if item_status == "active":
+                used += 1
+            elif item_status == "reserved":
+                reserved += 1
         return prefix, {"registered": registered, "used": used, "reserved": reserved}
 
     pairs = await asyncio.gather(*(build_item(item) for item in prefixes_raw))
@@ -876,6 +1047,40 @@ def paginate_items(items: list[dict[str, Any]], page: int, page_size: int) -> li
     return items[start : start + page_size]
 
 
+@router.get("/ipam/filter-options", summary="NetBox IPAM filter options")
+async def ipam_filter_options(
+    search: str = Query(""),
+    family: int | None = Query(None),
+    status: str = Query(""),
+    refresh: bool = Query(False),
+):
+    cache_key = f"{search.strip()}|{family or ''}|{status.strip()}"
+    now = datetime.now()
+    cached = _filter_options_cache.get("data")
+    if (
+        not refresh
+        and _filter_options_cache.get("key") == cache_key
+        and _filter_options_cache.get("expires_at")
+        and _filter_options_cache["expires_at"] > now
+        and cached is not None
+    ):
+        return Success(data=cached)
+
+    filter_sources, filter_prefixes_raw = await asyncio.gather(
+        fetch_filter_source_data(),
+        fetch_filter_prefixes([], search, family, status, False),
+    )
+    data = build_filter_options(filter_prefixes_raw, [], filter_sources)
+    _filter_options_cache.update(
+        {
+            "key": cache_key,
+            "expires_at": now + FILTER_OPTIONS_CACHE_TTL,
+            "data": data,
+        }
+    )
+    return Success(data=data)
+
+
 @router.get("/ipam/overview", summary="NetBox IPAM overview")
 async def ipam_overview(
     search: str = Query(""),
@@ -899,15 +1104,11 @@ async def ipam_overview(
         )
     except Exception as exc:
         return Fail(msg=f"读取 NetBox IPAM 数据失败: {type(exc).__name__}: {exc}")
-    filter_sources, filter_prefixes_raw = await asyncio.gather(
-        fetch_filter_source_data(),
-        fetch_filter_prefixes(prefixes_raw, search, family, status, needs_global_filter),
-    )
 
     ips = [normalize_ip(item) for item in ips_raw]
     ip_ranges = [normalize_ip_range(item, ips) for item in ranges_raw]
     prefixes = [normalize_prefix(item, ips, prefixes_raw, ip_ranges) for item in prefixes_raw]
-    filter_options = build_filter_options(filter_prefixes_raw, ranges_raw, filter_sources)
+    filter_options = {"regions": [], "customers": [], "suppliers": []}
 
     if family in {4, 6}:
         prefixes = [item for item in prefixes if item["family"] == family]
@@ -1036,14 +1237,111 @@ async def ipam_prefix_ips(
     )
 
 
-@router.post("/ipam/sync-pve-ips", summary="Sync PVE guest-agent IPs to NetBox")
-async def sync_pve_ips_to_netbox(
-    node: str = Query(""),
+@router.patch("/ipam/ip-addresses/{ip_id}", summary="Update NetBox IP address")
+async def update_ip_address(
+    ip_id: int,
+    payload: dict[str, Any],
 ):
+    allowed_fields = {"address", "status", "dns_name", "description"}
+    update_payload = {
+        key: value
+        for key, value in (payload or {}).items()
+        if key in allowed_fields and value is not None
+    }
+    if not update_payload:
+        return Fail(msg="没有可更新的 IP 字段")
+    try:
+        updated = await netbox_request("PATCH", f"/api/ipam/ip-addresses/{ip_id}/", json_body=update_payload)
+    except Exception as exc:
+        return Fail(msg=f"更新 NetBox IP 失败: {type(exc).__name__}: {exc}")
+    return Success(msg="IP 已更新", data=normalize_ip(updated))
+
+
+@router.post("/ipam/ip-addresses", summary="Create NetBox IP address")
+async def create_ip_address(payload: dict[str, Any]):
+    allowed_fields = {"address", "status", "dns_name", "description"}
+    create_payload = {
+        key: value
+        for key, value in (payload or {}).items()
+        if key in allowed_fields and value is not None
+    }
+    if not str(create_payload.get("address") or "").strip():
+        return Fail(msg="请填写 IP 地址")
+    create_payload["status"] = create_payload.get("status") or "active"
+    try:
+        created = await netbox_request("POST", "/api/ipam/ip-addresses/", json_body=create_payload)
+    except Exception as exc:
+        return Fail(msg=f"新增 NetBox IP 失败: {type(exc).__name__}: {exc}")
+    return Success(msg="IP 已新增", data=normalize_ip(created))
+
+
+@router.delete("/ipam/ip-addresses/{ip_id}", summary="Delete NetBox IP address")
+async def delete_ip_address(ip_id: int):
+    try:
+        await netbox_request("DELETE", f"/api/ipam/ip-addresses/{ip_id}/")
+    except Exception as exc:
+        return Fail(msg=f"删除 NetBox IP 失败: {type(exc).__name__}: {exc}")
+    return Success(msg="IP 已删除")
+
+
+@router.post("/ipam/prefixes", summary="Create NetBox prefix")
+async def create_prefix(payload: dict[str, Any]):
+    allowed_fields = {"prefix", "status", "description"}
+    create_payload = {
+        key: value
+        for key, value in (payload or {}).items()
+        if key in allowed_fields and value is not None
+    }
+    apply_prefix_native_fields(create_payload, payload)
+    apply_prefix_custom_fields(create_payload, payload)
+    if not str(create_payload.get("prefix") or "").strip():
+        return Fail(msg="请填写 IP 前缀")
+    create_payload["status"] = create_payload.get("status") or "active"
+    try:
+        created = await netbox_request("POST", "/api/ipam/prefixes/", json_body=create_payload)
+    except Exception as exc:
+        return Fail(msg=f"新增 NetBox 前缀失败: {type(exc).__name__}: {exc}")
+    return Success(msg="前缀已新增", data=normalize_prefix(created, [], [created], []))
+
+
+@router.patch("/ipam/prefixes/{prefix_id}", summary="Update NetBox prefix")
+async def update_prefix(prefix_id: int, payload: dict[str, Any]):
+    allowed_fields = {"prefix", "status", "description"}
+    update_payload = {
+        key: value
+        for key, value in (payload or {}).items()
+        if key in allowed_fields and value is not None
+    }
+    apply_prefix_native_fields(update_payload, payload)
+    if any(key in (payload or {}) for key in PREFIX_CUSTOM_FIELD_KEYS):
+        try:
+            current = await netbox_request("GET", f"/api/ipam/prefixes/{prefix_id}/")
+        except Exception as exc:
+            return Fail(msg=f"获取 NetBox 前缀失败: {type(exc).__name__}: {exc}")
+        apply_prefix_custom_fields(update_payload, payload, current.get("custom_fields") or {})
+    if not update_payload:
+        return Fail(msg="没有可更新的前缀字段")
+    try:
+        updated = await netbox_request("PATCH", f"/api/ipam/prefixes/{prefix_id}/", json_body=update_payload)
+    except Exception as exc:
+        return Fail(msg=f"更新 NetBox 前缀失败: {type(exc).__name__}: {exc}")
+    return Success(msg="前缀已更新", data=normalize_prefix(updated, [], [updated], []))
+
+
+@router.delete("/ipam/prefixes/{prefix_id}", summary="Delete NetBox prefix")
+async def delete_prefix(prefix_id: int):
+    try:
+        await netbox_request("DELETE", f"/api/ipam/prefixes/{prefix_id}/")
+    except Exception as exc:
+        return Fail(msg=f"删除 NetBox 前缀失败: {type(exc).__name__}: {exc}")
+    return Success(msg="前缀已删除")
+
+
+async def sync_pve_ips_summary(node: str = "") -> dict[str, Any]:
     try:
         vms = await pve_vms_for_sync(node)
     except Exception as exc:
-        return Fail(msg=f"读取 PVE IP 数据失败: {type(exc).__name__}: {exc}")
+        raise RuntimeError(f"读取 PVE IP 数据失败: {type(exc).__name__}: {exc}") from exc
 
     targets: list[tuple[dict[str, Any], str]] = []
     seen: set[str] = set()
@@ -1081,18 +1379,48 @@ async def sync_pve_ips_to_netbox(
     counts = Counter(str(item.get("action") or "unknown") for item in results)
     failures = [item for item in results if item.get("action") == "failed"]
 
+    return {
+        "vm_count": len(vms),
+        "ip_count": len(targets),
+        "created": counts.get("created", 0),
+        "updated": counts.get("updated", 0),
+        "unchanged": counts.get("unchanged", 0),
+        "skipped": counts.get("skipped", 0),
+        "failed": counts.get("failed", 0),
+        "failures": failures[:20],
+        "items": results,
+    }
+
+
+@router.post("/ipam/sync-pve-ips/run-now", summary="Run PVE IP sync immediately")
+async def run_pve_ip_sync_now(
+    node: str = Query(""),
+):
+    try:
+        data = await sync_pve_ips_summary(node)
+    except Exception as exc:
+        return Fail(msg=f"PVE IP 同步失败: {type(exc).__name__}: {exc}")
+    failures = data.get("failed", 0)
     return Success(
         msg="PVE IP 同步完成" if not failures else "PVE IP 同步完成，部分失败",
+        data=data,
+    )
+
+
+@router.post("/ipam/sync-pve-ips", summary="Schedule PVE guest-agent IP sync to NetBox")
+async def sync_pve_ips_to_netbox():
+    from app.controllers.task import ensure_pve_ip_sync_task
+
+    task = await ensure_pve_ip_sync_task()
+    task.is_enabled = True
+    task.next_run_at = datetime.now()
+    await task.save()
+    return Success(
+        msg="PVE IP 同步任务已提交，将由后台定时任务执行",
         data={
-            "vm_count": len(vms),
-            "ip_count": len(targets),
-            "created": counts.get("created", 0),
-            "updated": counts.get("updated", 0),
-            "unchanged": counts.get("unchanged", 0),
-            "skipped": counts.get("skipped", 0),
-            "failed": counts.get("failed", 0),
-            "failures": failures[:20],
-            "items": results,
+            "task_id": task.id,
+            "task_name": task.name,
+            "next_run_at": task.next_run_at.isoformat() if task.next_run_at else None,
         },
     )
 
