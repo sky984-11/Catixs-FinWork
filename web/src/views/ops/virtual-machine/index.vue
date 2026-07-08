@@ -1218,6 +1218,22 @@ function handlePowerVm(row) {
   }
 
   const isRunning = row.status === 'running'
+  if (isRunning) {
+    dialog.warning({
+      title: '关机虚拟机',
+      content: `确认关闭 ${row.name || `VM ${row.vmid}`} 吗？`,
+      positiveText: '关机',
+      negativeText: '取消',
+      onPositiveClick: () => executePowerVm(row),
+    })
+    return
+  }
+
+  executePowerVm(row)
+}
+
+function executePowerVm(row) {
+  const isRunning = row.status === 'running'
   const action = isRunning ? 'stop' : 'start'
   const nextStatus = isRunning ? 'stopped' : 'running'
   const previousStatus = row.status
