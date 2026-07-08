@@ -142,7 +142,7 @@
               :columns="columns"
               :data="pagedVmList"
               :pagination="false"
-              :scroll-x="2050"
+              :scroll-x="2350"
               :row-key="(row) => row.id"
               :row-class-name="() => 'vm-table-row'"
               :row-props="vmRowProps"
