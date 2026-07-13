@@ -71,6 +71,7 @@ const rawRegions = [
   { code: 'SG', name: 'Singapore', url: 'http://10.6.10.53:8081' },
   { code: 'LON', name: 'London', url: 'http://10.1.10.208:8081' },
   { code: 'JP', name: 'Japan', url: 'http://10.5.10.17:8081' },
+  { code: 'NY2', name: 'New York 2', url: 'https://10.10.10.99:8081' },
 ]
 const regions = rawRegions.map((region) => ({
   ...region,
