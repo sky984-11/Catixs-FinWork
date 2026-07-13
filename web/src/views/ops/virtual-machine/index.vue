@@ -142,7 +142,7 @@
               :columns="columns"
               :data="pagedVmList"
               :pagination="false"
-              :scroll-x="2050"
+              :scroll-x="2350"
               :row-key="(row) => row.id"
               :row-class-name="() => 'vm-table-row'"
               :row-props="vmRowProps"
@@ -1218,6 +1218,22 @@ function handlePowerVm(row) {
   }
 
   const isRunning = row.status === 'running'
+  if (isRunning) {
+    dialog.warning({
+      title: '关机虚拟机',
+      content: `确认关闭 ${row.name || `VM ${row.vmid}`} 吗？`,
+      positiveText: '关机',
+      negativeText: '取消',
+      onPositiveClick: () => executePowerVm(row),
+    })
+    return
+  }
+
+  executePowerVm(row)
+}
+
+function executePowerVm(row) {
+  const isRunning = row.status === 'running'
   const action = isRunning ? 'stop' : 'start'
   const nextStatus = isRunning ? 'stopped' : 'running'
   const previousStatus = row.status
@@ -1356,7 +1372,7 @@ async function copyCreateConfig() {
 
   const network = config.network || {}
   const lines = [
-    `IP：${network.mode === 'static' ? network.ip || '-' : 'DHCP'}`,
+    `IP：${network.mode === 'static' ? formatCopyIp(network.ip) : 'DHCP'}`,
     `CPU：${config.cpu_cores || 0} 核`,
     `内存：${config.memory_gb || 0} GiB`,
     `磁盘：${config.disk_gb || 0} GiB`,
@@ -1370,6 +1386,11 @@ async function copyCreateConfig() {
   } catch (error) {
     message.error('复制失败，请手动复制')
   }
+}
+
+function formatCopyIp(value) {
+  const ip = String(value || '').trim()
+  return ip ? ip.split('/', 1)[0] : '-'
 }
 
 function normalizeOsOptions(options = []) {
