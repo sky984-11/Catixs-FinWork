@@ -51,14 +51,17 @@ def rewrite_text_content(content: bytes, content_type: str, region: str) -> byte
     base = akvorado_proxy_prefix(region)
     base_slash = f"{base}/"
     upstream_base = AKVORADO_REGIONS[region].rstrip("/")
+    already_proxied = r"api/v1/akvorado/proxy/"
 
     text = text.replace(upstream_base, base)
-    text = re.sub(r'((?:href|src|action)=["\'])/(?!/)', rf"\1{base_slash}", text)
-    text = re.sub(r'(url\(["\']?)/(?!/)', rf"\1{base_slash}", text)
-    text = re.sub(r'(["\'])/api/', rf"\1{base_slash}api/", text)
-    text = re.sub(r'(["\'])/static/', rf"\1{base_slash}static/", text)
-    if "text/html" in content_type and "<head" in text and "<base " not in text:
-        text = re.sub(r"(<head[^>]*>)", rf'\1<base href="{base_slash}">', text, count=1, flags=re.I)
+    text = re.sub(rf'((?:href|src|action)=["\'])/(?!/|{already_proxied})', rf"\1{base_slash}", text)
+    text = re.sub(rf"((?:href|src|action)=)/(?!/|{already_proxied})", rf"\1{base_slash}", text)
+    text = re.sub(rf'(url\(["\']?)/(?!/|{already_proxied})', rf"\1{base_slash}", text)
+    text = re.sub(
+        rf'(["\'`])/(?!{already_proxied})(api|static|assets|ui|login|logout|settings|console|flows)/',
+        rf"\1{base_slash}\2/",
+        text,
+    )
     return text.encode("utf-8")
 
 

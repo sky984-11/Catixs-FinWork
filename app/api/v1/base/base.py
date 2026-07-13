@@ -3,6 +3,7 @@ import binascii
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
+from urllib.parse import unquote, urlparse
 
 from fastapi import APIRouter, HTTPException
 
@@ -34,6 +35,27 @@ AVATAR_EXT_MAP = {
     "image/webp": ".webp",
     "image/svg+xml": ".svg",
 }
+
+
+def normalize_avatar_url(avatar: str | None) -> str:
+    avatar = str(avatar or "").strip()
+    if not avatar:
+        return DEFAULT_AVATAR
+
+    parsed = urlparse(avatar)
+    local_path = parsed.path if parsed.scheme or parsed.netloc else avatar
+    if not local_path.startswith("/uploads/avatars/"):
+        return avatar
+
+    filename = os.path.basename(unquote(local_path))
+    if not filename:
+        return DEFAULT_AVATAR
+
+    file_path = os.path.abspath(os.path.join(AVATAR_UPLOAD_DIR, filename))
+    avatar_root = os.path.abspath(AVATAR_UPLOAD_DIR)
+    if os.path.commonpath([avatar_root, file_path]) != avatar_root or not os.path.isfile(file_path):
+        return DEFAULT_AVATAR
+    return avatar
 
 
 async def menu_to_dict_with_fallback(menu: Menu) -> dict:
@@ -69,7 +91,7 @@ async def get_userinfo():
     user_id = CTX_USER_ID.get()
     user_obj = await user_controller.get(id=user_id)
     data = await user_obj.to_dict(m2m=True, exclude_fields=["password"])
-    data["avatar"] = data.get("avatar") or DEFAULT_AVATAR
+    data["avatar"] = normalize_avatar_url(data.get("avatar"))
     return Success(data=data)
 
 
@@ -86,7 +108,7 @@ async def update_user_profile(profile_in: UserProfileUpdate):
     user.avatar = profile_in.avatar or None
     await user.save(update_fields=["username", "email", "avatar", "updated_at"])
     data = await user.to_dict(m2m=True, exclude_fields=["password"])
-    data["avatar"] = data.get("avatar") or DEFAULT_AVATAR
+    data["avatar"] = normalize_avatar_url(data.get("avatar"))
     return Success(msg="Updated Successfully", data=data)
 
 
