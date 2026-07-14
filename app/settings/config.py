@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     NETBOX_TOKEN: str = ""
     GRAFANA_URL: str = "http://10.4.10.11:3000"
     GRAFANA_API_TOKEN: str = "glsa_sPkzKo8z4RCQX30C3kgr3iv3lJoacD19_e082c65a"
+    DATACENTER_PARTS_API_URL: str = "https://datacenter-parts-management.catixs.workers.dev"
+    DATACENTER_PARTS_API_TOKEN: str = ""
+    DATACENTER_PARTS_API_USERNAME: str = "admin"
+    DATACENTER_PARTS_API_PASSWORD: str = "Catixs@3202"
+    DATACENTER_PARTS_API_TIMEOUT: float = 20
 
     TORTOISE_ORM: dict[str, Any] = {}
     DATETIME_FORMAT: str = "%Y-%m-%d %H:%M:%S"
