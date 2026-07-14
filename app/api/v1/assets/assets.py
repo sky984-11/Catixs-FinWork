@@ -5,6 +5,7 @@ import json
 import os
 import urllib.error
 import urllib.request
+from copy import deepcopy
 from datetime import date, datetime
 
 from fastapi import APIRouter, File, Query, UploadFile
@@ -127,11 +128,37 @@ async def can_view_device_secrets() -> bool:
 def mask_device_secret_attributes(attributes: dict | None) -> dict:
     if not isinstance(attributes, dict):
         return {}
-    result = dict(attributes)
+    result = deepcopy(attributes)
     for key in SENSITIVE_DEVICE_ATTRIBUTE_KEYS:
         if result.get(key):
             result[key] = MASKED_DEVICE_SECRET
+    if isinstance(result.get("nodes"), list):
+        for node in result["nodes"]:
+            if isinstance(node, dict) and node.get("ipmi_password"):
+                node["ipmi_password"] = MASKED_DEVICE_SECRET
     return result
+
+
+def preserve_masked_four_node_secrets(attributes: dict, existed_attributes: dict) -> None:
+    nodes = attributes.get("nodes")
+    existed_nodes = existed_attributes.get("nodes")
+    if not isinstance(nodes, list):
+        return
+    if not isinstance(existed_nodes, list):
+        existed_nodes = []
+    existed_by_name = {
+        str(node.get("name") or ""): node
+        for node in existed_nodes
+        if isinstance(node, dict) and str(node.get("name") or "")
+    }
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        existed_node = existed_by_name.get(str(node.get("name") or ""))
+        if existed_node:
+            node["ipmi_password"] = existed_node.get("ipmi_password", "")
+        else:
+            node.pop("ipmi_password", None)
 
 
 async def prepare_device_attributes_for_save(device_in: AssetDeviceCreate | AssetDeviceUpdate) -> None:
@@ -151,6 +178,7 @@ async def prepare_device_attributes_for_save(device_in: AssetDeviceCreate | Asse
             attributes[key] = existed_attributes[key]
         else:
             attributes.pop(key, None)
+    preserve_masked_four_node_secrets(attributes, existed_attributes)
     device_in.attributes = attributes
 
 

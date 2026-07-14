@@ -51,7 +51,7 @@ class AssetDevice(BaseModel, TimestampMixin):
     serial_no = fields.CharField(max_length=100, null=True, description="序列号", index=True)
     u_position = fields.IntField(null=True, description="起始U位")
     u_height = fields.IntField(default=1, description="占用U数")
-    status = fields.IntField(default=0, description="设备状态", index=True)
+    status = fields.IntField(default=0, description="设备状态：0-空闲，3-故障，1-使用，4-下线", index=True)
     mgmt_ip = fields.CharField(max_length=64, null=True, description="管理IP", index=True)
     business_ip = fields.CharField(max_length=64, null=True, description="业务IP", index=True)
     owner = fields.CharField(max_length=100, null=True, description="负责人")
