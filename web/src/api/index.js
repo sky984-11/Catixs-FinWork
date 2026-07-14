@@ -233,4 +233,13 @@ export default {
     novnc: (data = {}) => request.post('/pve/vms/novnc', data),
     taskStatus: (params = {}) => request.get('/pve/tasks/status', { params }),
   },
+
+  // remote assistance and engineers
+  remoteAssistanceApi: {
+    overview: () => request.get('/remote-assistance/overview'),
+    createRemoteHands: (data = {}) => request.post('/remote-assistance/remote-hands', data),
+    updateRemoteHands: (id, data = {}) => request.put(`/remote-assistance/remote-hands/${id}`, data),
+    createEngineer: (data = {}) => request.post('/remote-assistance/engineers', data),
+    updateEngineer: (id, data = {}) => request.put(`/remote-assistance/engineers/${id}`, data),
+  },
 }

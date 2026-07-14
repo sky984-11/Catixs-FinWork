@@ -261,6 +261,7 @@ async def init_menus():
     await ensure_syslog_menu()
     await ensure_akvorado_menu()
     await ensure_ipam_menu()
+    await ensure_remote_assistance_menu()
     await ensure_business_party_menu()
     await ensure_bill_menu()
     await ensure_inventory_sale_menu()
@@ -592,6 +593,36 @@ async def ensure_ipam_menu():
             changed = True
         if changed:
             await ipam_menu.save()
+        return
+
+    await Menu.create(menu_type=MenuType.MENU, **values)
+
+
+async def ensure_remote_assistance_menu():
+    ops_menu = await get_service_module_menu("/ops")
+    menu = await Menu.filter(path="/remote-assistance").first()
+    values = {
+        "name": "运维记录",
+        "path": "/remote-assistance",
+        "order": 6,
+        "parent_id": ops_menu.id,
+        "icon": "mdi:account-hard-hat-outline",
+        "is_hidden": False,
+        "component": "/ops/remote-assistance",
+        "keepalive": False,
+        "redirect": "",
+    }
+    if menu:
+        changed = False
+        for field, value in values.items():
+            if getattr(menu, field) != value:
+                setattr(menu, field, value)
+                changed = True
+        if menu.menu_type != MenuType.MENU:
+            menu.menu_type = MenuType.MENU
+            changed = True
+        if changed:
+            await menu.save()
         return
 
     await Menu.create(menu_type=MenuType.MENU, **values)

@@ -18,6 +18,7 @@ from .projects import projects_router
 from .pve import grafana_router as pve_grafana_router
 from .pve import pve_router
 from .pve.novnc import ws_router as pve_novnc_ws_router
+from .remote_assistance import remote_assistance_router
 from .roles import roles_router
 from .syslog import syslog_router
 from .tasks import tasks_router
@@ -44,6 +45,12 @@ v1_router.include_router(syslog_router, prefix="/syslog", dependencies=[DependPe
 v1_router.include_router(netbox_router, prefix="/netbox", dependencies=[DependPermission], tags=["NetBox IPAM"])
 v1_router.include_router(pve_novnc_ws_router, prefix="/pve", tags=["PVE noVNC模块"])
 v1_router.include_router(pve_router, prefix="/pve", dependencies=[DependPermission], tags=["PVE Datacenter模块"])
+v1_router.include_router(
+    remote_assistance_router,
+    prefix="/remote-assistance",
+    dependencies=[DependPermission],
+    tags=["运维记录模块"],
+)
 v1_router.include_router(banks_router, prefix="/bank", dependencies=[DependPermission])
 v1_router.include_router(pve_grafana_router, prefix="/pve", tags=["PVE Grafana"])
 v1_router.include_router(bank_accounts_router, prefix="/bank_account", dependencies=[DependPermission])
