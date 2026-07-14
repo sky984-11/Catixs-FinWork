@@ -264,7 +264,8 @@ async def init_menus():
     await ensure_remote_assistance_menu()
     await ensure_business_party_menu()
     await ensure_bill_menu()
-    await ensure_inventory_sale_menu()
+    await ensure_finance_quote_menu()
+    await remove_inventory_sale_menu()
     await ensure_customer_project_menu()
     await ensure_task_menu()
 
@@ -668,34 +669,47 @@ async def ensure_bill_menu():
         )
 
 
-async def ensure_inventory_sale_menu():
+async def ensure_finance_quote_menu():
     finance_menu = await get_service_module_menu("/finance")
-    sale_menu = await Menu.filter(path="/inventory-sale").first()
+    quote_menu = await Menu.filter(path="/finance-quote").first()
     values = {
-        "name": "库存售卖",
-        "path": "/inventory-sale",
+        "name": "报价系统",
+        "path": "/finance-quote",
         "order": 3,
         "parent_id": finance_menu.id,
-        "icon": "mdi:cart-outline",
+        "icon": "mdi:clipboard-text-clock-outline",
         "is_hidden": False,
-        "component": "/finance/inventory-sale",
+        "component": "/finance/quote",
         "keepalive": False,
         "redirect": "",
     }
-    if sale_menu:
+    if quote_menu:
         changed = False
         for field, value in values.items():
-            if getattr(sale_menu, field) != value:
-                setattr(sale_menu, field, value)
+            if getattr(quote_menu, field) != value:
+                setattr(quote_menu, field, value)
                 changed = True
-        if sale_menu.menu_type != MenuType.MENU:
-            sale_menu.menu_type = MenuType.MENU
+        if quote_menu.menu_type != MenuType.MENU:
+            quote_menu.menu_type = MenuType.MENU
             changed = True
         if changed:
-            await sale_menu.save()
+            await quote_menu.save()
         return
 
     await Menu.create(menu_type=MenuType.MENU, **values)
+
+
+async def remove_inventory_sale_menu():
+    sale_menu = await Menu.filter(path="/inventory-sale").first()
+    if not sale_menu:
+        return
+
+    for role in await Role.all():
+        has_sale_menu = await role.menus.filter(id=sale_menu.id).exists()
+        if has_sale_menu:
+            await role.menus.remove(sale_menu)
+    await Menu.filter(parent_id=sale_menu.id).delete()
+    await sale_menu.delete()
 
 
 async def ensure_customer_project_menu():
@@ -861,7 +875,6 @@ async def ensure_business_api_permissions():
         | Q(path__startswith="/api/v1/asset/inventory-sale/")
         | Q(path__startswith="/api/v1/project/")
     )
-    sale_menu = await Menu.filter(path="/inventory-sale").first()
     project_menu = await Menu.filter(path="/project-board").first()
 
     for role in roles:
@@ -870,8 +883,6 @@ async def ensure_business_api_permissions():
         if is_admin_role_name(role.name):
             if manage_apis:
                 await role.apis.add(*manage_apis)
-            if sale_menu:
-                await role.menus.add(sale_menu)
             if project_menu:
                 await role.menus.add(project_menu)
 
@@ -1102,6 +1113,54 @@ async def ensure_ticket_columns():
     )
 
 
+async def ensure_finance_quote_columns():
+    if settings.DB_TYPE != "postgres":
+        return
+
+    conn = Tortoise.get_connection("postgres")
+    await conn.execute_script(
+        """
+        ALTER TABLE IF EXISTS "finance_quote"
+            ADD COLUMN IF NOT EXISTS "service_resource" VARCHAR(80),
+            ADD COLUMN IF NOT EXISTS "burst" VARCHAR(80),
+            ADD COLUMN IF NOT EXISTS "site_a" VARCHAR(120),
+            ADD COLUMN IF NOT EXISTS "protection" VARCHAR(80),
+            ADD COLUMN IF NOT EXISTS "xc_cabling" VARCHAR(80),
+            ADD COLUMN IF NOT EXISTS "contract_terms" VARCHAR(80),
+            ADD COLUMN IF NOT EXISTS "nrc" DOUBLE PRECISION DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS "mrc" DOUBLE PRECISION DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS "usd_per_mbps_nrc" VARCHAR(80),
+            ADD COLUMN IF NOT EXISTS "usd_per_mbps_mrc" DOUBLE PRECISION DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS "note" VARCHAR(500);
+
+        DO $$
+        DECLARE
+            column_type TEXT;
+        BEGIN
+            SELECT data_type INTO column_type
+            FROM information_schema.columns
+            WHERE table_name = 'finance_quote'
+              AND column_name = 'usd_per_mbps_mrc';
+
+            IF column_type IS NOT NULL AND column_type <> 'double precision' THEN
+                ALTER TABLE "finance_quote"
+                    ADD COLUMN IF NOT EXISTS "usd_per_mbps_mrc_num" DOUBLE PRECISION DEFAULT 0;
+
+                UPDATE "finance_quote"
+                SET "usd_per_mbps_mrc_num" = COALESCE(
+                    NULLIF((regexp_match(COALESCE("usd_per_mbps_mrc"::TEXT, ''), '[0-9]+\\.[0-9]+'))[1], '')::DOUBLE PRECISION,
+                    NULLIF((regexp_match(COALESCE("usd_per_mbps_mrc"::TEXT, ''), '[0-9]+'))[1], '')::DOUBLE PRECISION,
+                    0
+                );
+
+                ALTER TABLE "finance_quote" DROP COLUMN "usd_per_mbps_mrc";
+                ALTER TABLE "finance_quote" RENAME COLUMN "usd_per_mbps_mrc_num" TO "usd_per_mbps_mrc";
+            END IF;
+        END $$;
+        """
+    )
+
+
 async def ensure_company_columns():
     if settings.DB_TYPE != "postgres":
         return
@@ -1187,6 +1246,7 @@ async def init_db():
     await ensure_bill_columns()
     await ensure_project_columns()
     await ensure_ticket_columns()
+    await ensure_finance_quote_columns()
     await Tortoise.generate_schemas(safe=True)
     if os.getenv("AUTO_DB_MIGRATE", "false").lower() in {"1", "true", "yes", "on"}:
         try:

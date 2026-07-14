@@ -65,7 +65,7 @@ class AssetDeviceBase(BaseModel):
     serial_no: str = Field("", example="")
     u_position: Optional[int] = Field(None, example=1)
     u_height: int = Field(1, example=1)
-    status: int = Field(1, example=1)
+    status: int = Field(0, description="设备状态：0-空闲，3-故障，1-使用，4-下线", example=0)
     mgmt_ip: str = Field("", example="")
     business_ip: str = Field("", example="")
     owner: str = Field("", example="")

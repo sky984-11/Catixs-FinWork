@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.core.dependency import DependPermission
 
 from .apis import api_docs_router, apis_router
+from .akvorado import router as akvorado_router
 from .assets import assets_router
 from .auditlog import auditlog_router
 from .banks import banks_router
@@ -11,6 +12,7 @@ from .base import base_router
 from .bills import bills_router
 from .companies import companies_router
 from .depts import depts_router
+from .finance_quotes import finance_quotes_router
 from .dashboard import router as dashboard_router
 from .menus import menus_router
 from .netbox import netbox_router
@@ -55,5 +57,7 @@ v1_router.include_router(banks_router, prefix="/bank", dependencies=[DependPermi
 v1_router.include_router(pve_grafana_router, prefix="/pve", tags=["PVE Grafana"])
 v1_router.include_router(bank_accounts_router, prefix="/bank_account", dependencies=[DependPermission])
 v1_router.include_router(bills_router, prefix="/bill", dependencies=[DependPermission])
+v1_router.include_router(finance_quotes_router, prefix="/finance/quote", dependencies=[DependPermission])
 v1_router.include_router(companies_router, prefix="/company", dependencies=[DependPermission])
 v1_router.include_router(projects_router, prefix="/project", dependencies=[DependPermission])
+v1_router.include_router(akvorado_router, prefix="/akvorado", tags=["Akvorado"])

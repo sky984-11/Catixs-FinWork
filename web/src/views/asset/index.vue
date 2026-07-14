@@ -603,6 +603,13 @@
                 @update:value="handleDeviceTypeChange"
               />
             </n-form-item-gi>
+            <n-form-item-gi label="设备形态">
+              <n-select
+                v-model:value="deviceModal.form.form_factor"
+                :options="deviceFormFactorOptions"
+                @update:value="handleDeviceFormFactorChange"
+              />
+            </n-form-item-gi>
             <n-form-item-gi label="品牌">
               <n-select
                 v-model:value="deviceModal.form.brand"
@@ -671,6 +678,32 @@
                     "
                     >应用类型模板</n-button
                   >
+                </div>
+              </div>
+            </n-form-item-gi>
+            <n-form-item-gi v-if="deviceModal.form.form_factor === 'four_node'" :span="2" label="四合一节点">
+              <div class="four-node-editor">
+                <div class="four-node-head">
+                  <span>Four Node Server</span>
+                  <n-tag round type="info">2U / N1-N4</n-tag>
+                </div>
+                <div class="four-node-grid">
+                  <article v-for="node in deviceModal.form.nodeList" :key="node.name" class="four-node-card">
+                    <strong>{{ node.name }}</strong>
+                    <div class="four-node-fields">
+                      <n-input v-model:value="node.device_name" size="small" placeholder="设备名称" />
+                      <n-input v-model:value="node.serial_no" size="small" placeholder="设备序号" />
+                      <n-input-number v-model:value="node.cpu_count" size="small" placeholder="CPU数量" :min="0" />
+                      <n-input v-model:value="node.cpu_model" size="small" placeholder="CPU型号" />
+                      <n-input-number v-model:value="node.cpu_cores" size="small" placeholder="CPU核心数" :min="0" />
+                      <n-input v-model:value="node.memory" size="small" placeholder="内存" />
+                      <n-input v-model:value="node.disk" size="small" placeholder="磁盘" />
+                      <n-input v-model:value="node.mgmt_ip" size="small" placeholder="管理地址" />
+                      <n-input v-model:value="node.ipmi_user" size="small" placeholder="IPMI User" />
+                      <n-input v-model:value="node.ipmi_password" size="small" placeholder="IPMI Password" type="password" show-password-on="click" />
+                      <n-input v-model:value="node.remark" size="small" placeholder="备注" />
+                    </div>
+                  </article>
                 </div>
               </div>
             </n-form-item-gi>
@@ -1075,12 +1108,23 @@ const deviceTypeOptions = [
 ]
 
 const deviceStatusOptions = [
-  { label: '使用', value: 1 },
-  { label: '维护', value: 2 },
+  { label: '空闲', value: 0 },
   { label: '故障', value: 3 },
-  { label: '下架', value: 4 },
-  { label: '报废', value: 5 },
+  { label: '使用', value: 1 },
+  { label: '下线', value: 4 },
 ]
+
+const legacyDeviceStatusLabels = {
+  2: '故障',
+  5: '下线',
+}
+
+const deviceFormFactorOptions = [
+  { label: '标准设备', value: 'standard' },
+  { label: '四合一服务器', value: 'four_node' },
+]
+
+const deviceStructuredAttributeKeys = new Set(['nodes', 'form_factor', 'node_count', '节点数量', '设备形态'])
 
 const createOptions = [
   { label: '新增区域', key: 'region' },
@@ -1634,7 +1678,7 @@ function createEmptyDevice() {
     serial_no: '',
     u_position: null,
     u_height: 1,
-    status: 1,
+    status: 0,
     mgmt_ip: '',
     business_ip: '',
     owner: '',
@@ -1643,7 +1687,76 @@ function createEmptyDevice() {
     attributes: {},
     attributeList: [],
     remark: '',
+    form_factor: 'standard',
+    nodeList: createFourNodeList(),
   }
+}
+
+function createFourNodeList() {
+  return ['N1', 'N2', 'N3', 'N4'].map((name, index) => ({
+    name,
+    device_name: '',
+    serial_no: '',
+    cpu_count: null,
+    cpu_model: '',
+    cpu_cores: null,
+    memory: '',
+    disk: '',
+    mgmt_ip: '',
+    ipmi_user: '',
+    ipmi_password: '',
+    remark: '',
+    legacy_ip: '',
+    legacy_cpu: '',
+    sort: index + 1,
+  }))
+}
+
+function normalizeFourNodeList(nodes) {
+  const source = Array.isArray(nodes) ? nodes : []
+  return createFourNodeList().map((fallback) => {
+    const matched = source.find((item) => item?.name === fallback.name) || {}
+    return {
+      ...fallback,
+      device_name: String(matched.device_name || matched.deviceName || matched.name || ''),
+      serial_no: String(matched.serial_no || matched.serialNo || ''),
+      cpu_count: matched.cpu_count ?? matched.cpuCount ?? null,
+      cpu_model: String(matched.cpu_model || matched.cpuModel || matched.cpu || ''),
+      cpu_cores: matched.cpu_cores ?? matched.cpuCores ?? null,
+      memory: String(matched.memory || ''),
+      disk: String(matched.disk || ''),
+      mgmt_ip: String(matched.mgmt_ip || matched.mgmtIp || matched.ip || ''),
+      ipmi_user: String(matched.ipmi_user || matched.ipmiUser || ''),
+      ipmi_password: String(matched.ipmi_password || matched.ipmiPassword || ''),
+      remark: String(matched.remark || ''),
+      legacy_ip: String(matched.ip || ''),
+      legacy_cpu: String(matched.cpu || ''),
+      sort: Number(matched.sort || fallback.sort),
+    }
+  })
+}
+
+function formatFourNodeCpu(node) {
+  return [node.cpu_count ? `${node.cpu_count}颗` : '', node.cpu_model, node.cpu_cores ? `${node.cpu_cores}核` : '']
+    .filter(Boolean)
+    .join(' / ') || '-'
+}
+
+function serializeFourNodeList(nodes) {
+  return normalizeFourNodeList(nodes).map((node) => ({
+    name: node.name,
+    device_name: String(node.device_name || '').trim(),
+    serial_no: String(node.serial_no || '').trim(),
+    cpu_count: node.cpu_count === null || node.cpu_count === '' ? null : Number(node.cpu_count),
+    cpu_model: String(node.cpu_model || '').trim(),
+    cpu_cores: node.cpu_cores === null || node.cpu_cores === '' ? null : Number(node.cpu_cores),
+    memory: String(node.memory || '').trim(),
+    disk: String(node.disk || '').trim(),
+    mgmt_ip: String(node.mgmt_ip || '').trim(),
+    ipmi_user: String(node.ipmi_user || '').trim(),
+    ipmi_password: String(node.ipmi_password || '').trim(),
+    remark: String(node.remark || '').trim(),
+  }))
 }
 
 function createEmptyInventory() {
@@ -2613,7 +2726,25 @@ function syncDeviceAttributeTemplate(type = deviceModal.form.type) {
 
 function attributesToList(attributes) {
   if (!attributes || typeof attributes !== 'object') return []
-  return Object.entries(attributes).map(([key, value]) => ({ key, value: String(value ?? '') }))
+  return Object.entries(attributes)
+    .filter(([key]) => !deviceStructuredAttributeKeys.has(key))
+    .map(([key, value]) => ({ key, value: String(value ?? '') }))
+}
+
+function detectDeviceFormFactor(attributes) {
+  return attributes?.form_factor === 'four_node' || attributes?.设备形态 === '四合一服务器'
+    ? 'four_node'
+    : 'standard'
+}
+
+function handleDeviceFormFactorChange(value) {
+  if (value === 'four_node') {
+    deviceModal.form.type = 0
+    deviceModal.form.u_height = 2
+    deviceModal.form.nodeList = normalizeFourNodeList(deviceModal.form.nodeList)
+  } else if (!deviceModal.form.u_height || deviceModal.form.u_height < 1) {
+    deviceModal.form.u_height = 1
+  }
 }
 
 function getAttributeValue(attributes, key) {
@@ -2678,6 +2809,25 @@ function getDeviceAttributeRows(attributes, type) {
   const extraItems = attributesToList(attributes)
     .filter((item) => !groupedKeys.has(item.key))
     .map((item) => ({ label: item.key, value: item.value }))
+  if (detectDeviceFormFactor(attributes) === 'four_node') {
+    rows.push({
+      label: '四合一节点',
+      items: normalizeFourNodeList(attributes?.nodes || []).map((node) => ({
+        label: node.device_name || node.name,
+        value: [
+          node.serial_no,
+          formatFourNodeCpu(node),
+          node.memory,
+          node.disk,
+          node.mgmt_ip,
+          node.ipmi_user ? `IPMI ${node.ipmi_user}` : '',
+          node.remark,
+        ]
+          .filter((item) => item && item !== '-')
+          .join(' / '),
+      })),
+    })
+  }
   if (extraItems.length) rows.push({ label: '其他配置', items: extraItems })
   return rows
 }
@@ -2840,7 +2990,9 @@ function openDeviceModal(row = null) {
     ? {
         ...createEmptyDevice(),
         ...row,
-        status: Number(row.status) || 1,
+        status: Number(row.status ?? 0),
+        form_factor: detectDeviceFormFactor(row.attributes),
+        nodeList: normalizeFourNodeList(row.attributes?.nodes || []),
         attributeList: attributesToList(row.attributes),
       }
     : {
@@ -2851,6 +3003,7 @@ function openDeviceModal(row = null) {
             : cabinetOptions.value[0]?.value || null,
       }
   if (!row) syncDeviceAttributeTemplate()
+  if (!row) handleDeviceFormFactorChange(deviceModal.form.form_factor)
   deviceModal.show = true
 }
 
@@ -2864,11 +3017,30 @@ async function submitDevice() {
   deviceModal.submitting = true
   try {
     const submit = deviceModal.form.id ? api.assetApi.updateDevice : api.assetApi.createDevice
+    const isFourNode = deviceModal.form.form_factor === 'four_node'
+    const attributes = {
+      ...attributeListToObject(deviceModal.form.attributeList),
+      form_factor: isFourNode ? 'four_node' : 'standard',
+      设备形态: isFourNode ? '四合一服务器' : '标准设备',
+    }
+    if (isFourNode) {
+      attributes.node_count = '4'
+      attributes.节点数量 = '4'
+      attributes.nodes = serializeFourNodeList(deviceModal.form.nodeList)
+      deviceModal.form.type = 0
+      deviceModal.form.u_height = 2
+    } else {
+      delete attributes.node_count
+      delete attributes.节点数量
+      delete attributes.nodes
+    }
     const payload = {
       ...deviceModal.form,
-      attributes: attributeListToObject(deviceModal.form.attributeList),
+      attributes,
     }
     delete payload.attributeList
+    delete payload.form_factor
+    delete payload.nodeList
     await submit(payload)
     window.$message?.success('保存成功')
     deviceModal.show = false
@@ -2897,7 +3069,8 @@ function getDeviceType(value) {
 }
 
 function getDeviceStatus(value) {
-  return deviceStatusOptions.find((item) => item.value === Number(value))?.label || '未知'
+  const status = Number(value)
+  return deviceStatusOptions.find((item) => item.value === status)?.label || legacyDeviceStatusLabels[status] || '未知'
 }
 
 onMounted(refreshAll)
@@ -3290,8 +3463,12 @@ onMounted(refreshAll)
     linear-gradient(180deg, #64748b, #475569);
 }
 
+.rack-status-dot.device-status-0 {
+  background: #38bdf8;
+}
+
 .rack-status-dot.device-status-2 {
-  background: #f59e0b;
+  background: #ef4444;
 }
 
 .rack-status-dot.device-status-3,
@@ -3354,9 +3531,14 @@ onMounted(refreshAll)
   padding: 0 10px;
 }
 
+.rack-detail-status.device-status-0 {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
 .rack-detail-status.device-status-2 {
-  background: #fef3c7;
-  color: #b45309;
+  background: #fee2e2;
+  color: #b91c1c;
 }
 
 .rack-detail-status.device-status-3,
@@ -3604,9 +3786,14 @@ onMounted(refreshAll)
   padding: 0 11px;
 }
 
+.content-panel :deep(.device-status-0) {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
 .content-panel :deep(.device-status-2) {
-  background: #fef3c7;
-  color: #b45309;
+  background: #fee2e2;
+  color: #b91c1c;
 }
 
 .content-panel :deep(.device-status-3),
@@ -3822,6 +4009,58 @@ onMounted(refreshAll)
   gap: 8px;
 }
 
+.four-node-editor {
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.four-node-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.four-node-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.four-node-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px;
+}
+
+.four-node-card strong {
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.four-node-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.four-node-fields :deep(.n-input-number) {
+  width: 100%;
+}
+
 .asset-modal {
   width: min(880px, 92vw);
 }
@@ -3944,11 +4183,16 @@ html.dark .content-panel :deep(.device-status-badge) {
 }
 
 html.dark .content-panel :deep(.device-type-3),
-html.dark .content-panel :deep(.device-type-4),
-html.dark .content-panel :deep(.device-status-2) {
+html.dark .content-panel :deep(.device-type-4) {
   border-color: rgba(251, 191, 36, 0.3);
   background: rgba(146, 64, 14, 0.3);
   color: #fcd34d;
+}
+
+html.dark .content-panel :deep(.device-status-0) {
+  border-color: rgba(56, 189, 248, 0.32);
+  background: rgba(12, 74, 110, 0.42);
+  color: #7dd3fc;
 }
 
 html.dark .content-panel :deep(.device-type-5),
@@ -3960,6 +4204,7 @@ html.dark .content-panel :deep(.device-status-4) {
 }
 
 html.dark .content-panel :deep(.device-status-3),
+html.dark .content-panel :deep(.device-status-2),
 html.dark .content-panel :deep(.device-status-5) {
   background: rgba(127, 29, 29, 0.42);
   color: #fca5a5;

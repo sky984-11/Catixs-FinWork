@@ -45,7 +45,7 @@
           </div>
           <iframe
             :key="frameKey"
-            :src="selectedRegion.url"
+            :src="selectedFrameUrl"
             :title="`${selectedRegion.code} Akvorado`"
             @load="frameLoading = false"
           />
@@ -58,10 +58,11 @@
 <script setup>
 import { computed, ref } from 'vue'
 import TheIcon from '@/components/icon/TheIcon.vue'
+import { getToken } from '@/utils'
 
 defineOptions({ name: 'OpsAkvorado' })
 
-const regions = [
+const rawRegions = [
   { code: 'SZ', name: 'Shenzhen', url: 'http://10.0.10.99:8081' },
   { code: 'TW', name: 'Taiwan', url: 'http://10.9.10.99:8081' },
   { code: 'LA3', name: 'Los Angeles 3', url: 'http://10.3.10.90:8081' },
@@ -70,7 +71,12 @@ const regions = [
   { code: 'SG', name: 'Singapore', url: 'http://10.6.10.53:8081' },
   { code: 'LON', name: 'London', url: 'http://10.1.10.208:8081' },
   { code: 'JP', name: 'Japan', url: 'http://10.5.10.17:8081' },
+  { code: 'NY2', name: 'New York 2', url: 'https://10.10.10.99:8081' },
 ]
+const regions = rawRegions.map((region) => ({
+  ...region,
+  proxyBaseUrl: `${import.meta.env.VITE_BASE_API}/akvorado/proxy/${region.code}/`,
+}))
 
 const selectedRegion = ref(regions[0])
 const frameKey = ref(0)
@@ -89,6 +95,12 @@ function reloadFrame() {
   frameLoading.value = true
   frameKey.value += 1
 }
+
+const selectedFrameUrl = computed(() => {
+  const token = getToken()
+  const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : ''
+  return `${selectedRegion.value.proxyBaseUrl}${tokenQuery}`
+})
 </script>
 
 <style scoped>
