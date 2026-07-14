@@ -122,6 +122,7 @@ export default {
     list: (params = {}) => request.get('/finance/quote/list', { params }),
     get: (params = {}) => request.get('/finance/quote/get', { params }),
     siteOptions: (params = {}) => request.get('/finance/quote/site-options', { params }),
+    fieldOptions: (params = {}) => request.get('/finance/quote/field-options', { params }),
     create: (data = {}) => request.post('/finance/quote/create', data),
     update: (data = {}) => request.post('/finance/quote/update', data),
     delete: (params = {}) => request.delete('/finance/quote/delete', { params }),

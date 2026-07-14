@@ -2,6 +2,7 @@
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import {
   NButton,
+  NCheckbox,
   NDataTable,
   NForm,
   NFormItem,
@@ -27,13 +28,20 @@ import { renderIcon } from '@/utils'
 const loading = ref(false)
 const rows = ref([])
 const siteOptions = ref([])
+const fieldOptions = ref({
+  regions: [],
+  service_resources: [],
+  service_names: [],
+  currencies: [],
+})
+const checkedQuoteIds = ref([])
 const summary = ref({ count: 0, active: 0, by_type: [] })
 const DEFAULT_QUOTE_TYPE = 'ipt'
 
 const query = reactive({
   keyword: '',
   quote_type: DEFAULT_QUOTE_TYPE,
-  region: '',
+  region: null,
   status: null,
 })
 
@@ -41,6 +49,11 @@ const pagination = reactive({
   page: 1,
   pageSize: 20,
   itemCount: 0,
+})
+
+const sorterState = reactive({
+  columnKey: '',
+  order: '',
 })
 
 const quoteModal = reactive({
@@ -70,6 +83,22 @@ const currencyOptions = [
   { label: 'EUR', value: 'EUR' },
 ]
 
+const defaultResourceOptions = [
+  { label: 'Onnet', value: 'Onnet' },
+  { label: 'Offnet', value: 'Offnet' },
+]
+
+const defaultServiceNameOptions = [
+  { label: 'IP Transit', value: 'IP Transit' },
+  { label: 'DIA', value: 'DIA' },
+]
+
+const pageSizeOptions = computed(() => {
+  const sizes = [10, 20, 50, 100]
+  if (pagination.itemCount > 100) sizes.push(pagination.itemCount)
+  return Array.from(new Set(sizes)).filter(Boolean)
+})
+
 const modalTitle = computed(() => (quoteModal.form.id ? '编辑报价' : '新增报价'))
 const activeFormType = computed(() => quoteModal.form.quote_type || 'server')
 
@@ -87,6 +116,59 @@ const mergedSiteOptions = computed(() => {
     .sort()
     .map((value) => ({ label: value, value }))
 })
+
+const mergedRegionOptions = computed(() =>
+  makeTagOptions(
+    [
+      ...(fieldOptions.value.regions || []),
+      ...siteOptions.value,
+      { label: quoteModal.form.region, value: quoteModal.form.region },
+      { label: query.region, value: query.region },
+    ],
+    [quoteModal.form.region, query.region]
+  )
+)
+
+const mergedResourceOptions = computed(() =>
+  makeTagOptions(
+    [
+      ...defaultResourceOptions,
+      ...(fieldOptions.value.service_resources || []),
+      { label: quoteModal.form.service_resource, value: quoteModal.form.service_resource },
+    ],
+    [quoteModal.form.service_resource]
+  )
+)
+
+const mergedServiceNameOptions = computed(() =>
+  makeTagOptions(
+    [
+      ...defaultServiceNameOptions,
+      ...(fieldOptions.value.service_names || []),
+      { label: quoteModal.form.service_name, value: quoteModal.form.service_name },
+    ],
+    [quoteModal.form.service_name]
+  )
+)
+
+const mergedCurrencyOptions = computed(() => {
+  return makeTagOptions(
+    [
+      ...currencyOptions,
+      ...(fieldOptions.value.currencies || []),
+      { label: quoteModal.form.currency, value: quoteModal.form.currency },
+    ],
+    [quoteModal.form.currency],
+    (value) => String(value).trim().toUpperCase()
+  )
+})
+
+const checkedRows = computed(() => {
+  const selected = new Set(checkedQuoteIds.value)
+  return rows.value.filter((row) => selected.has(row.id))
+})
+
+const isCurrentPageChecked = computed(() => rows.value.length > 0 && rows.value.every((row) => checkedQuoteIds.value.includes(row.id)))
 
 const quoteTypeFields = {
   server: ['cpu_model', 'cpu_cores', 'memory', 'disk', 'bandwidth'],
@@ -272,11 +354,50 @@ const fieldMeta = {
   },
 }
 
-const columns = computed(() => columnDefinitions.filter((column) => !column.show || column.show()))
+const columns = computed(() =>
+  [
+    {
+      type: 'selection',
+      fixed: 'left',
+      width: 46,
+    },
+    ...columnDefinitions,
+  ]
+    .filter((column) => !column.show || column.show())
+    .map((column) =>
+      column.sorter
+        ? {
+            ...column,
+            resizable: column.key !== 'actions',
+            sortOrder: sorterState.columnKey === column.key ? sorterState.order : false,
+          }
+        : {
+            ...column,
+            resizable: column.type !== 'selection' && column.key !== 'actions',
+          }
+    )
+)
 const tableScrollX = computed(() =>
   columns.value.reduce((total, column) => total + Number(column.width || column.minWidth || 130), 0)
 )
 const isNetworkTable = computed(() => ['ipt', 'dia'].includes(query.quote_type))
+
+function sortableColumn(key) {
+  return {
+    sorter: true,
+  }
+}
+
+function makeTagOptions(options = [], extras = [], normalize = (value) => String(value).trim()) {
+  const values = new Map()
+  ;[...options, ...extras].forEach((item) => {
+    const rawValue = typeof item === 'object' ? item?.value : item
+    const value = normalize(rawValue ?? '')
+    if (!value) return
+    values.set(value, { label: value, value })
+  })
+  return Array.from(values.values()).sort((a, b) => a.label.localeCompare(b.label))
+}
 
 const columnDefinitions = [
   {
@@ -299,8 +420,8 @@ const columnDefinitions = [
       return h(NTag, { type: quoteTypeTag(row.quote_type), round: true, bordered: false }, { default: () => quoteTypeLabel(row.quote_type) })
     },
   },
-  { title: '地区', key: 'region', width: 110, fixed: 'left', ellipsis: { tooltip: true }, show: () => !isNetworkTable.value },
-  { title: '资源类型', key: 'service_resource', width: 130, ellipsis: { tooltip: true }, show: () => isNetworkTable.value },
+  { title: '地区', key: 'region', width: 110, fixed: 'left', ellipsis: { tooltip: true }, show: () => !isNetworkTable.value, ...sortableColumn('region') },
+  { title: '资源类型', key: 'service_resource', width: 126, ellipsis: { tooltip: true }, show: () => isNetworkTable.value, ...sortableColumn('service_resource') },
   {
     title: () => (query.quote_type && query.quote_type !== 'server' ? typeFieldLabel('service_name', query.quote_type) : 'CPU型号'),
     key: 'cpu_model',
@@ -308,33 +429,35 @@ const columnDefinitions = [
     ellipsis: { tooltip: true },
     show: () => !query.quote_type || query.quote_type === 'server',
     render: (row) => row.cpu_model || row.service_name || '-',
+    ...sortableColumn('cpu_model'),
   },
-  { title: '供应商', key: 'provider', minWidth: 150, ellipsis: { tooltip: true }, show: () => isNetworkTable.value },
-  { title: '逻辑核心数', key: 'cpu_cores', width: 110, ellipsis: { tooltip: true }, show: () => !query.quote_type || query.quote_type === 'server' },
-  { title: '内存', key: 'memory', width: 100, ellipsis: { tooltip: true }, show: () => !query.quote_type || query.quote_type === 'server' },
-  { title: '硬盘', key: 'disk', minWidth: 160, ellipsis: { tooltip: true }, show: () => !query.quote_type || query.quote_type === 'server' },
-  { title: () => typeFieldLabel('bandwidth', query.quote_type || 'server'), key: 'bandwidth', width: 120, ellipsis: { tooltip: true } },
-  { title: '突发带宽', key: 'burst', width: 110, ellipsis: { tooltip: true }, show: () => isNetworkTable.value },
-  { title: '站点A', key: 'site_a', minWidth: 150, ellipsis: { tooltip: true }, show: () => isNetworkTable.value },
-  { title: '币种', key: 'currency', width: 95, ellipsis: { tooltip: true }, show: () => isNetworkTable.value },
-  { title: '一次性费用', key: 'nrc', width: 110, align: 'right', sorter: true, render: (row) => formatNumber(row.nrc), show: () => isNetworkTable.value },
-  { title: '月费', key: 'mrc', width: 96, align: 'right', sorter: true, render: (row) => formatNumber(row.mrc), show: () => isNetworkTable.value },
-  { title: '每Mbps一次性费用', key: 'usd_per_mbps_nrc', width: 150, align: 'right', ellipsis: { tooltip: true }, show: () => isNetworkTable.value },
-  { title: '每Mbps月费', key: 'usd_per_mbps_mrc', width: 130, align: 'right', render: (row) => formatRate(row.usd_per_mbps_mrc), show: () => isNetworkTable.value },
-  { title: '成本价', key: 'cost_price', width: 110, align: 'right', sorter: true, render: (row) => formatMoney(row.cost_price, row.currency), show: () => !isNetworkTable.value },
-  { title: '目标价', key: 'target_price', width: 110, align: 'right', sorter: true, render: (row) => formatMoney(row.target_price, row.currency), show: () => !isNetworkTable.value },
-  { title: '报价', key: 'sale_price', width: 110, align: 'right', sorter: true, render: (row) => h('strong', formatMoney(row.sale_price, row.currency)), show: () => !isNetworkTable.value },
+  { title: '供应商', key: 'provider', minWidth: 150, ellipsis: { tooltip: true }, show: () => isNetworkTable.value, ...sortableColumn('provider') },
+  { title: '逻辑核心数', key: 'cpu_cores', width: 110, ellipsis: { tooltip: true }, show: () => !query.quote_type || query.quote_type === 'server', ...sortableColumn('cpu_cores') },
+  { title: '内存', key: 'memory', width: 100, ellipsis: { tooltip: true }, show: () => !query.quote_type || query.quote_type === 'server', ...sortableColumn('memory') },
+  { title: '硬盘', key: 'disk', minWidth: 160, ellipsis: { tooltip: true }, show: () => !query.quote_type || query.quote_type === 'server', ...sortableColumn('disk') },
+  { title: () => typeFieldLabel('bandwidth', query.quote_type || 'server'), key: 'bandwidth', width: 112, ellipsis: { tooltip: true }, ...sortableColumn('bandwidth') },
+  { title: '突发带宽', key: 'burst', width: 110, ellipsis: { tooltip: true }, show: () => isNetworkTable.value, ...sortableColumn('burst') },
+  { title: '站点A', key: 'site_a', minWidth: 150, ellipsis: { tooltip: true }, show: () => isNetworkTable.value, ...sortableColumn('site_a') },
+  { title: '币种', key: 'currency', width: 78, ellipsis: { tooltip: true }, show: () => isNetworkTable.value, ...sortableColumn('currency') },
+  { title: '一次性费用', key: 'nrc', width: 116, align: 'right', render: (row) => renderPriceCell(formatNumber(row.nrc)), show: () => isNetworkTable.value, ...sortableColumn('nrc') },
+  { title: '月费', key: 'mrc', width: 106, align: 'right', render: (row) => renderPriceCell(formatNumber(row.mrc), true), show: () => isNetworkTable.value, ...sortableColumn('mrc') },
+  { title: '每Mbps一次性费用', key: 'usd_per_mbps_nrc', width: 152, align: 'right', ellipsis: { tooltip: true }, render: (row) => renderPriceCell(row.usd_per_mbps_nrc || '-'), show: () => isNetworkTable.value, ...sortableColumn('usd_per_mbps_nrc') },
+  { title: '每Mbps月费', key: 'usd_per_mbps_mrc', width: 132, align: 'right', render: (row) => renderPriceCell(formatRate(row.usd_per_mbps_mrc), true), show: () => isNetworkTable.value, ...sortableColumn('usd_per_mbps_mrc') },
+  { title: '成本价', key: 'cost_price', width: 116, align: 'right', render: (row) => renderPriceCell(formatMoney(row.cost_price, row.currency)), show: () => !isNetworkTable.value, ...sortableColumn('cost_price') },
+  { title: '目标价', key: 'target_price', width: 116, align: 'right', render: (row) => renderPriceCell(formatMoney(row.target_price, row.currency)), show: () => !isNetworkTable.value, ...sortableColumn('target_price') },
+  { title: '报价', key: 'sale_price', width: 116, align: 'right', render: (row) => renderPriceCell(formatMoney(row.sale_price, row.currency), true), show: () => !isNetworkTable.value, ...sortableColumn('sale_price') },
   { title: '毛利', key: 'profit', width: 110, align: 'right', render: renderProfit, show: () => !isNetworkTable.value },
-  { title: () => typeFieldLabel('provider', query.quote_type || 'server'), key: 'provider', minWidth: 120, ellipsis: { tooltip: true }, show: () => query.quote_type && query.quote_type !== 'server' && !isNetworkTable.value },
-  { title: '保护方式', key: 'protection', width: 110, ellipsis: { tooltip: true }, show: () => isNetworkTable.value },
-  { title: '交叉/布线', key: 'xc_cabling', width: 115, ellipsis: { tooltip: true }, show: () => isNetworkTable.value },
-  { title: '合同周期', key: 'contract_terms', width: 135, ellipsis: { tooltip: true }, show: () => isNetworkTable.value },
+  { title: () => typeFieldLabel('provider', query.quote_type || 'server'), key: 'provider', minWidth: 120, ellipsis: { tooltip: true }, show: () => query.quote_type && query.quote_type !== 'server' && !isNetworkTable.value, ...sortableColumn('provider') },
+  { title: '保护方式', key: 'protection', width: 110, ellipsis: { tooltip: true }, show: () => isNetworkTable.value, ...sortableColumn('protection') },
+  { title: '交叉/布线', key: 'xc_cabling', width: 115, ellipsis: { tooltip: true }, show: () => isNetworkTable.value, ...sortableColumn('xc_cabling') },
+  { title: '合同周期', key: 'contract_terms', width: 135, ellipsis: { tooltip: true }, show: () => isNetworkTable.value, ...sortableColumn('contract_terms') },
   { title: '备注', key: 'remark', minWidth: 220, ellipsis: { tooltip: true }, render: (row) => row.remark || row.note || '-' },
   {
     title: '状态',
     key: 'status',
     width: 86,
     align: 'center',
+    ...sortableColumn('status'),
     render(row) {
       const active = Number(row.status) === 1
       return h(NTag, { type: active ? 'success' : 'default', round: true, bordered: false }, { default: () => (active ? '上架' : '下架') })
@@ -367,7 +490,7 @@ function createQuoteForm() {
     id: null,
     quote_type: 'server',
     service_resource: '',
-    region: '',
+    region: null,
     service_name: '',
     cpu_model: '',
     cpu_cores: '',
@@ -376,7 +499,7 @@ function createQuoteForm() {
     bandwidth: '',
     burst: '',
     traffic: '',
-    site_a: '',
+    site_a: null,
     protection: 'NA',
     xc_cabling: 'No',
     contract_terms: '12 Months',
@@ -436,9 +559,15 @@ async function loadQuotes() {
     rows.value = res.data || []
     pagination.itemCount = res.total || 0
     summary.value = res.summary || { count: 0, active: 0, by_type: [] }
+    syncCheckedRows()
   } finally {
     loading.value = false
   }
+}
+
+function syncCheckedRows() {
+  const currentIds = new Set(rows.value.map((row) => row.id))
+  checkedQuoteIds.value = checkedQuoteIds.value.filter((id) => currentIds.has(id))
 }
 
 async function loadSiteOptions(type = query.quote_type) {
@@ -448,6 +577,18 @@ async function loadSiteOptions(type = query.quote_type) {
   siteOptions.value = res.data || []
 }
 
+async function loadFieldOptions(type = query.quote_type) {
+  const res = await api.financeQuoteApi.fieldOptions({
+    quote_type: type || undefined,
+  })
+  fieldOptions.value = {
+    regions: res.data?.regions || [],
+    service_resources: res.data?.service_resources || [],
+    service_names: res.data?.service_names || [],
+    currencies: res.data?.currencies || [],
+  }
+}
+
 function handleSearch() {
   pagination.page = 1
   loadQuotes()
@@ -455,22 +596,26 @@ function handleSearch() {
 
 function handleTypeChange(value) {
   query.quote_type = value || DEFAULT_QUOTE_TYPE
-  query.region = ''
+  query.region = null
   pagination.page = 1
   loadSiteOptions()
+  loadFieldOptions()
   loadQuotes()
 }
 
 function handleFormTypeChange(value) {
   quoteModal.form.quote_type = value || 'server'
   loadSiteOptions(quoteModal.form.quote_type)
+  loadFieldOptions(quoteModal.form.quote_type)
 }
 
 function resetQuery() {
   query.keyword = ''
   query.quote_type = DEFAULT_QUOTE_TYPE
-  query.region = ''
+  query.region = null
   query.status = null
+  loadSiteOptions()
+  loadFieldOptions()
   handleSearch()
 }
 
@@ -491,12 +636,15 @@ function openQuote(row = null) {
     ? {
         ...createQuoteForm(),
         ...row,
+        region: row.region || null,
+        site_a: row.site_a || null,
         usd_per_mbps_mrc: parseRateNumber(row.usd_per_mbps_mrc),
         remark: row.remark || row.note || '',
         status: Number(row.status ?? 1),
       }
     : createQuoteForm()
   loadSiteOptions(quoteModal.form.quote_type)
+  loadFieldOptions(quoteModal.form.quote_type)
   quoteModal.show = true
 }
 
@@ -512,12 +660,17 @@ async function submitQuote() {
     await submit({
       ...quoteModal.form,
       region: isNetworkQuote ? quoteModal.form.site_a || quoteModal.form.region || '' : quoteModal.form.region || '',
+      service_resource: quoteModal.form.service_resource || '',
+      service_name: quoteModal.form.service_name || '',
+      site_a: quoteModal.form.site_a || '',
+      currency: quoteModal.form.currency ? String(quoteModal.form.currency).trim().toUpperCase() : 'USD',
       usd_per_mbps_mrc: parseRateNumber(quoteModal.form.usd_per_mbps_mrc),
       note: quoteModal.form.remark || '',
       status: Number(quoteModal.form.status),
     })
     window.$message?.success?.('保存成功')
     quoteModal.show = false
+    await loadFieldOptions(query.quote_type)
     await loadQuotes()
   } finally {
     quoteModal.submitting = false
@@ -541,9 +694,23 @@ function onPageSizeChange(pageSize) {
   loadQuotes()
 }
 
+function handleCheckedRowKeys(keys) {
+  checkedQuoteIds.value = keys
+}
+
+function toggleCurrentPageChecked(checked) {
+  checkedQuoteIds.value = checked ? rows.value.map((row) => row.id) : []
+}
+
 function onSorterChange(sorter) {
   const activeSorter = Array.isArray(sorter) ? sorter.find((item) => item.order) : sorter
-  if (!activeSorter?.order) return loadQuotes()
+  if (!activeSorter?.order) {
+    sorterState.columnKey = ''
+    sorterState.order = ''
+    return loadQuotes()
+  }
+  sorterState.columnKey = activeSorter.columnKey
+  sorterState.order = activeSorter.order
   api.financeQuoteApi
     .list({
       page: pagination.page,
@@ -559,7 +726,98 @@ function onSorterChange(sorter) {
       rows.value = res.data || []
       pagination.itemCount = res.total || 0
       summary.value = res.summary || summary.value
+      syncCheckedRows()
     })
+}
+
+function quoteExportColumns() {
+  if (isNetworkTable.value) {
+    return [
+      ['quote_type', '类型', (row) => quoteTypeLabel(row.quote_type)],
+      ['service_resource', '资源类型'],
+      ['provider', '供应商'],
+      ['bandwidth', '带宽'],
+      ['burst', '突发带宽'],
+      ['site_a', '站点A'],
+      ['currency', '币种'],
+      ['nrc', '一次性费用'],
+      ['mrc', '月费'],
+      ['usd_per_mbps_nrc', '每Mbps一次性费用'],
+      ['usd_per_mbps_mrc', '每Mbps月费', (row) => formatRate(row.usd_per_mbps_mrc)],
+      ['protection', '保护方式'],
+      ['xc_cabling', '交叉/布线'],
+      ['contract_terms', '合同周期'],
+      ['remark', '备注', (row) => row.remark || row.note || ''],
+      ['status', '状态', (row) => (Number(row.status) === 1 ? '上架' : '下架')],
+    ]
+  }
+  return [
+    ['quote_type', '类型', (row) => quoteTypeLabel(row.quote_type)],
+    ['region', '地区'],
+    ['cpu_model', 'CPU型号', (row) => row.cpu_model || row.service_name || ''],
+    ['cpu_cores', '逻辑核心数'],
+    ['memory', '内存'],
+    ['disk', '硬盘'],
+    ['bandwidth', '带宽'],
+    ['provider', '供应商'],
+    ['cost_price', '成本价', (row) => formatMoney(row.cost_price, row.currency)],
+    ['target_price', '目标价', (row) => formatMoney(row.target_price, row.currency)],
+    ['sale_price', '报价', (row) => formatMoney(row.sale_price, row.currency)],
+    ['profit', '毛利', (row) => formatMoney(Number(row.sale_price || 0) - Number(row.cost_price || 0), row.currency)],
+    ['remark', '备注', (row) => row.remark || row.note || ''],
+    ['status', '状态', (row) => (Number(row.status) === 1 ? '上架' : '下架')],
+  ]
+}
+
+function escapeExcelCell(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function exportSelectedQuotes() {
+  if (!checkedRows.value.length) {
+    window.$message?.warning?.('请先选择要导出的报价')
+    return
+  }
+
+  const exportColumns = quoteExportColumns()
+  const header = exportColumns.map(([, title]) => `<th>${escapeExcelCell(title)}</th>`).join('')
+  const body = checkedRows.value
+    .map((row) => {
+      const cells = exportColumns
+        .map(([key, , formatter]) => {
+          const value = formatter ? formatter(row) : row[key]
+          return `<td>${escapeExcelCell(value)}</td>`
+        })
+        .join('')
+      return `<tr>${cells}</tr>`
+    })
+    .join('')
+  const html = `
+    <html>
+      <head>
+        <meta charset="UTF-8" />
+        <style>
+          table { border-collapse: collapse; }
+          th, td { border: 1px solid #999; padding: 6px 8px; white-space: nowrap; }
+          th { background: #eaf2ff; font-weight: 700; }
+        </style>
+      </head>
+      <body><table><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table></body>
+    </html>
+  `
+  const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `报价系统_${new Date().toISOString().slice(0, 10)}.xls`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
 }
 
 function quoteTypeLabel(value) {
@@ -584,6 +842,10 @@ function formatRate(value) {
   return Number(value || 0).toLocaleString('zh-CN', { maximumFractionDigits: 6 })
 }
 
+function renderPriceCell(value, strong = false) {
+  return h('span', { class: ['price-cell', strong ? 'is-strong' : ''] }, value)
+}
+
 function parseRateNumber(value) {
   if (typeof value === 'number') return Number.isFinite(value) ? value : 0
   const text = String(value || '').replace(/,/g, '')
@@ -596,7 +858,7 @@ function parseRateNumber(value) {
 function renderProfit(row) {
   const profit = Number(row.sale_price || 0) - Number(row.cost_price || 0)
   const cls = profit >= 0 ? 'profit-positive' : 'profit-negative'
-  return h('span', { class: cls }, formatMoney(profit, row.currency))
+  return h('span', { class: ['price-cell', cls] }, formatMoney(profit, row.currency))
 }
 
 function rowClassName(row) {
@@ -611,6 +873,7 @@ function typeCount(type) {
 
 onMounted(() => {
   loadSiteOptions()
+  loadFieldOptions()
   loadQuotes()
 })
 </script>
@@ -643,7 +906,7 @@ onMounted(() => {
             clearable
             filterable
             tag
-            :options="mergedSiteOptions"
+            :options="mergedRegionOptions"
             :placeholder="regionFilterPlaceholder"
             @update:value="handleSearch"
           />
@@ -671,25 +934,40 @@ onMounted(() => {
           :data="rows"
           :loading="loading"
           :pagination="false"
+          :row-key="(row) => row.id"
+          :checked-row-keys="checkedQuoteIds"
           :row-class-name="rowClassName"
           :scroll-x="tableScrollX"
           flex-height
           :bordered="false"
           size="small"
+          @update:checked-row-keys="handleCheckedRowKeys"
           @update:sorter="onSorterChange"
         />
 
         <div class="quote-pagination">
-          <span class="pagination-total">共 {{ pagination.itemCount }} 条</span>
-          <NPagination
-            v-model:page="pagination.page"
-            v-model:page-size="pagination.pageSize"
-            show-size-picker
-            :page-sizes="[10, 20, 50, 100]"
-            :item-count="pagination.itemCount"
-            @update:page="onPageChange"
-            @update:page-size="onPageSizeChange"
-          />
+          <div class="quote-selection-actions">
+            <NCheckbox :checked="isCurrentPageChecked" :disabled="!rows.length" @update:checked="toggleCurrentPageChecked">
+              全选当前页
+            </NCheckbox>
+            <span class="selection-count">已选 {{ checkedQuoteIds.length }} 条</span>
+            <NButton size="small" secondary :disabled="!checkedQuoteIds.length" @click="exportSelectedQuotes">
+              <TheIcon icon="mdi:file-excel-outline" :size="16" class="mr-5" />
+              导出Excel
+            </NButton>
+          </div>
+          <div class="quote-page-actions">
+            <span class="pagination-total">共 {{ pagination.itemCount }} 条</span>
+            <NPagination
+              v-model:page="pagination.page"
+              v-model:page-size="pagination.pageSize"
+              show-size-picker
+              :page-sizes="pageSizeOptions"
+              :item-count="pagination.itemCount"
+              @update:page="onPageChange"
+              @update:page-size="onPageSizeChange"
+            />
+          </div>
         </div>
       </section>
     </div>
@@ -711,12 +989,26 @@ onMounted(() => {
           </NGridItem>
           <NGridItem>
             <NFormItem label="地区">
-              <NInput v-model:value="quoteModal.form.region" placeholder="硅谷 / 洛杉矶 / 凤凰城" />
+              <NSelect
+                v-model:value="quoteModal.form.region"
+                clearable
+                filterable
+                tag
+                :options="mergedRegionOptions"
+                placeholder="硅谷 / 洛杉矶 / 凤凰城"
+              />
             </NFormItem>
           </NGridItem>
           <NGridItem v-if="isQuoteFieldVisible('service_name')">
             <NFormItem :label="typeFieldLabel('service_name')">
-              <NInput v-model:value="quoteModal.form.service_name" :placeholder="typeFieldPlaceholder('service_name')" />
+              <NSelect
+                v-model:value="quoteModal.form.service_name"
+                clearable
+                filterable
+                tag
+                :options="mergedServiceNameOptions"
+                :placeholder="typeFieldPlaceholder('service_name')"
+              />
             </NFormItem>
           </NGridItem>
           <NGridItem>
@@ -734,7 +1026,14 @@ onMounted(() => {
 
           <NGridItem v-if="isQuoteFieldVisible('service_resource')">
             <NFormItem :label="typeFieldLabel('service_resource')">
-              <NInput v-model:value="quoteModal.form.service_resource" :placeholder="typeFieldPlaceholder('service_resource')" />
+              <NSelect
+                v-model:value="quoteModal.form.service_resource"
+                clearable
+                filterable
+                tag
+                :options="mergedResourceOptions"
+                :placeholder="typeFieldPlaceholder('service_resource')"
+              />
             </NFormItem>
           </NGridItem>
           <NGridItem v-if="isQuoteFieldVisible('provider')">
@@ -803,7 +1102,13 @@ onMounted(() => {
           </NGridItem>
           <NGridItem>
             <NFormItem label="币种">
-              <NSelect v-model:value="quoteModal.form.currency" :options="currencyOptions" />
+              <NSelect
+                v-model:value="quoteModal.form.currency"
+                filterable
+                tag
+                :options="mergedCurrencyOptions"
+                placeholder="USD / CNY / HKD"
+              />
             </NFormItem>
           </NGridItem>
           <NGridItem v-if="isQuoteFieldVisible('nrc')">
@@ -960,9 +1265,10 @@ onMounted(() => {
   flex: 1;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #d9e2ef;
   border-radius: 8px;
   background: #fff;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.04);
 }
 
 .quote-table {
@@ -972,6 +1278,16 @@ onMounted(() => {
 
 .quote-table :deep(.n-data-table-base-table) {
   min-height: 0;
+}
+
+.quote-table :deep(.n-data-table-wrapper) {
+  background: linear-gradient(180deg, #fff 0%, #fbfdff 100%);
+}
+
+.quote-table :deep(.n-data-table-resize-button) {
+  width: 3px;
+  border-radius: 999px;
+  background: #cbd5e1;
 }
 
 .quote-type-head {
@@ -987,12 +1303,52 @@ onMounted(() => {
 }
 
 .quote-table :deep(.n-data-table-th) {
-  background: #f8fafc;
+  height: 42px;
+  border-color: #dbe3ee;
+  background: #f6f8fb;
+  color: #334155;
+  font-size: 12px;
   font-weight: 700;
 }
 
+.quote-table :deep(.n-data-table-th__title) {
+  white-space: nowrap;
+}
+
+.quote-table :deep(.n-data-table-td) {
+  height: 42px;
+  border-color: #edf1f7;
+  color: #172033;
+  font-size: 13px;
+}
+
+.quote-table :deep(.n-data-table-tr:hover .n-data-table-td) {
+  background: #f8fbff;
+}
+
+.quote-table :deep(.n-data-table-th--fixed-left),
+.quote-table :deep(.n-data-table-td--fixed-left),
+.quote-table :deep(.n-data-table-th--fixed-right),
+.quote-table :deep(.n-data-table-td--fixed-right) {
+  box-shadow: 1px 0 0 #e5eaf2;
+}
+
+.price-cell {
+  display: inline-flex;
+  min-width: 74px;
+  justify-content: flex-end;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.price-cell.is-strong {
+  color: #0f3f77;
+  font-weight: 800;
+}
+
 .quote-table :deep(.quote-row-warning td) {
-  background: #fef3c7;
+  background: #fff8df;
 }
 
 .quote-table :deep(.quote-row-disabled td) {
@@ -1012,11 +1368,23 @@ onMounted(() => {
   display: flex;
   min-height: 52px;
   align-items: center;
-  justify-content: flex-end;
-  gap: 14px;
+  justify-content: space-between;
+  gap: 12px;
   border-top: 1px solid #e5e7eb;
   background: #fff;
   padding: 9px 12px;
+}
+
+.quote-selection-actions,
+.quote-page-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.selection-count {
+  color: #475569;
+  font-size: 13px;
 }
 
 .pagination-total {
@@ -1046,6 +1414,16 @@ onMounted(() => {
   .quote-filter,
   .quote-summary {
     grid-template-columns: 1fr;
+  }
+
+  .quote-pagination {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .quote-selection-actions,
+  .quote-page-actions {
+    flex-wrap: wrap;
   }
 }
 </style>

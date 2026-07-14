@@ -12,14 +12,23 @@ SORTABLE_FIELDS = {
     "service_resource",
     "region",
     "service_name",
+    "cpu_model",
+    "cpu_cores",
+    "memory",
+    "disk",
     "provider",
     "bandwidth",
     "burst",
     "site_a",
+    "currency",
+    "protection",
+    "xc_cabling",
     "contract_terms",
     "traffic",
     "nrc",
     "mrc",
+    "usd_per_mbps_nrc",
+    "usd_per_mbps_mrc",
     "cost_price",
     "target_price",
     "sale_price",
@@ -175,3 +184,34 @@ async def list_site_options(quote_type: str = Query("", description="报价类�
         if str(row.get("site_a") or row.get("region") or "").strip()
     }
     return Success(data=[{"label": site, "value": site} for site in sorted(sites)])
+
+
+@router.get("/field-options", summary="报价字段选项")
+async def list_field_options(quote_type: str = Query("", description="报价类型")):
+    q = Q()
+    if quote_type:
+        q &= Q(quote_type=quote_type)
+
+    rows = await finance_quote_controller.model.filter(q).values(
+        "region",
+        "service_resource",
+        "service_name",
+        "currency",
+    )
+
+    def option_list(field: str) -> list[dict[str, str]]:
+        values = {
+            str(row.get(field) or "").strip()
+            for row in rows
+            if str(row.get(field) or "").strip()
+        }
+        return [{"label": value, "value": value} for value in sorted(values)]
+
+    return Success(
+        data={
+            "regions": option_list("region"),
+            "service_resources": option_list("service_resource"),
+            "service_names": option_list("service_name"),
+            "currencies": option_list("currency"),
+        }
+    )
