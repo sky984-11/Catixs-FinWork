@@ -51,6 +51,7 @@
               :data="filteredRemoteHands"
               :pagination="remotePagination"
               :row-key="(row) => row.id"
+              flex-height
               :scroll-x="1500"
               striped
             >
@@ -81,6 +82,8 @@
               :data="filteredEngineers"
               :pagination="engineerPagination"
               :row-key="(row) => row.id"
+              flex-height
+              :scroll-x="1100"
               striped
             >
               <template #empty><n-empty description="暂无工程师" /></template>
@@ -88,7 +91,6 @@
           </n-tab-pane>
         </n-tabs>
       </section>
-
       <n-modal
         v-model:show="remoteEditor.show"
         preset="card"
@@ -109,8 +111,9 @@
                 v-model:value="remoteEditor.form.region"
                 filterable
                 clearable
+                tag
                 :options="regionOptions"
-                placeholder="选择地区"
+                placeholder="选择或输入地区，回车确认"
                 @update:value="handleRemoteRegionChange"
               />
             </n-form-item>
@@ -119,8 +122,9 @@
                 v-model:value="remoteEditor.form.site"
                 filterable
                 clearable
+                tag
                 :options="siteOptions"
-                placeholder="选择机房"
+                :placeholder="remoteEditor.form.region ? '选择或输入该地区机房' : '选择或输入机房，回车确认'"
                 @update:value="handleRemoteSiteChange"
               />
             </n-form-item>
@@ -130,7 +134,8 @@
                 filterable
                 clearable
                 :options="assignableEngineerOptions"
-                placeholder="选择启用工程师"
+                :disabled="!remoteEditor.form.region"
+                :placeholder="remoteEditor.form.region ? '选择启用工程师' : '请先选择地区'"
                 @update:value="handleEngineerSelected"
               />
             </n-form-item>
@@ -149,7 +154,10 @@
               <n-date-picker
                 v-model:formatted-value="remoteEditor.form.arrived_at"
                 type="datetime"
+                format="yyyy-MM-dd HH:mm"
                 value-format="yyyy-MM-dd'T'HH:mm"
+                :actions="datePickerActions"
+                :time-picker-props="minuteTimePickerProps"
                 clearable
                 style="width: 100%"
               />
@@ -158,14 +166,14 @@
               <n-date-picker
                 v-model:formatted-value="remoteEditor.form.left_at"
                 type="datetime"
+                format="yyyy-MM-dd HH:mm"
                 value-format="yyyy-MM-dd'T'HH:mm"
+                :actions="datePickerActions"
+                :time-picker-props="minuteTimePickerProps"
                 clearable
                 style="width: 100%"
                 @update:formatted-value="updateWorkMinutes"
               />
-            </n-form-item>
-            <n-form-item label="工时（分钟）">
-              <n-input-number v-model:value="remoteEditor.form.work_minutes" :min="0" style="width: 100%" />
             </n-form-item>
             <n-form-item label="工程师微信">
               <n-input v-model:value="remoteEditor.form.engineer_wechat" placeholder="选择工程师后自动填写" />
@@ -248,7 +256,7 @@
 
 <script setup>
 import { computed, h, onMounted, reactive, ref } from 'vue'
-import { NButton, NSpace, NTag, NTooltip, useMessage } from 'naive-ui'
+import { NButton, NPopconfirm, NSpace, NTag, NTooltip, useMessage } from 'naive-ui'
 import api from '@/api'
 
 const message = useMessage()
@@ -260,6 +268,8 @@ const datacenters = ref([])
 const engineerKeyword = ref('')
 
 const remoteFilters = reactive({ keyword: '', status: null })
+const datePickerActions = ['clear', 'now', 'confirm']
+const minuteTimePickerProps = { format: 'HH:mm' }
 const remotePagination = reactive({
   page: 1,
   pageSize: 10,
@@ -330,21 +340,37 @@ const regionOptions = computed(() => {
     const value = datacenterRegion(item)
     if (value) values.add(value)
   })
-  engineers.value.forEach((item) => splitRegions(item.region).forEach((value) => values.add(value)))
+  engineers.value.forEach((item) => engineerRegions(item).forEach((value) => values.add(value)))
+  remoteHands.value.forEach((item) => {
+    const value = fieldText(item.region)
+    if (value) values.add(value)
+  })
   return [...values].sort().map((value) => ({ label: value, value }))
 })
 
-const siteOptions = computed(() => datacenters.value
-  .filter((item) => !remoteEditor.form.region || datacenterRegion(item) === remoteEditor.form.region)
-  .map((item) => ({ label: datacenterLabel(item), value: datacenterValue(item) })))
+const siteOptions = computed(() => {
+  const selectedRegion = remoteEditor.form.region
+  const options = datacenters.value
+    .filter((item) => !selectedRegion || datacenterMatchesRegion(item, selectedRegion))
+    .map((item) => ({ label: datacenterLabel(item), value: datacenterValue(item) }))
 
-const assignableEngineerOptions = computed(() => engineers.value
-  .filter((item) => Number(item.is_active) === 1)
-  .filter((item) => !remoteEditor.form.region || splitRegions(item.region).includes(remoteEditor.form.region))
-  .map((item) => ({
-    label: [item.name, item.wechat_id || item.contact].filter(Boolean).join(' · '),
-    value: item.id,
-  })))
+  remoteHands.value
+    .filter((item) => item.site && (!selectedRegion || valuesMatch(item.region, selectedRegion)))
+    .forEach((item) => options.push({ label: fieldText(item.site), value: fieldText(item.site) }))
+
+  return uniqueOptions(options)
+})
+
+const assignableEngineerOptions = computed(() => {
+  if (!remoteEditor.form.region) return []
+  return engineers.value
+    .filter((item) => Number(item.is_active) === 1)
+    .filter((item) => regionMatches(engineerRegions(item), remoteEditor.form.region))
+    .map((item) => ({
+      label: [item.name, item.wechat_id || item.contact].filter(Boolean).join(' · '),
+      value: item.id,
+    }))
+})
 
 const filteredRemoteHands = computed(() => {
   const keyword = remoteFilters.keyword.trim().toLowerCase()
@@ -397,7 +423,7 @@ const remoteColumns = [
     render: (row) => renderNoteCell(row.note),
   },
   {
-    title: '操作', key: 'actions', width: 230, fixed: 'right',
+    title: '操作', key: 'actions', width: 290, fixed: 'right',
     render: (row) => h(NSpace, { size: 6, wrap: false }, {
       default: () => [
         row.status === 'scheduled' && !row.left_at
@@ -407,6 +433,11 @@ const remoteColumns = [
           ? h(NButton, { size: 'small', type: 'warning', secondary: true, onClick: () => updateRemoteStatus(row, 'done') }, { default: () => '离场' })
           : null,
         h(NButton, { size: 'small', type: 'primary', secondary: true, onClick: () => openRemoteEditor(row) }, { default: () => '编辑' }),
+        renderDeleteConfirm({
+          title: `确认删除 ${row.customer || row.ticket || '这条运维记录'}？`,
+          actionText: '删除',
+          onConfirm: () => deleteRemoteHands(row),
+        }),
       ].filter(Boolean),
     }),
   },
@@ -432,8 +463,17 @@ const engineerColumns = [
     render: (row) => renderNoteCell(row.note),
   },
   {
-    title: '操作', key: 'actions', width: 100, fixed: 'right',
-    render: (row) => h(NButton, { size: 'small', type: 'primary', secondary: true, onClick: () => openEngineerEditor(row) }, { default: () => '编辑' }),
+    title: '操作', key: 'actions', width: 170, fixed: 'right',
+    render: (row) => h(NSpace, { size: 6, wrap: false }, {
+      default: () => [
+        h(NButton, { size: 'small', type: 'primary', secondary: true, onClick: () => openEngineerEditor(row) }, { default: () => '编辑' }),
+        renderDeleteConfirm({
+          title: `确认删除工程师 ${row.name || ''}？`,
+          actionText: '删除',
+          onConfirm: () => deleteEngineer(row),
+        }),
+      ],
+    }),
   },
 ]
 
@@ -482,12 +522,102 @@ function datacenterLabel(item) {
 }
 
 function datacenterRegion(item) {
-  return String(item.region || item.continent_name || item.country_name || item.country || item.city_name || '').trim()
+  const region = fieldText(item.region) || fieldText(item.region_name)
+  const country = fieldText(item.country) || fieldText(item.country_name)
+  const city = fieldText(item.city) || fieldText(item.city_name)
+  const location = fieldText(item.location) || fieldText(item.location_name)
+  if (region && city && !normalizeRegion(region).includes(normalizeRegion(city))) return `${region} / ${city}`
+  if (country && city) return `${country} / ${city}`
+  return region || location || city || country || fieldText(item.continent) || fieldText(item.continent_name)
+}
+
+function engineerRegions(item) {
+  if (!item) return []
+  const country = fieldText(item.country) || fieldText(item.country_name)
+  const city = fieldText(item.city) || fieldText(item.city_name)
+  const location = fieldText(item.location) || fieldText(item.location_name)
+  return uniqueValues([
+    fieldText(item.region),
+    fieldText(item.region_name),
+    ...splitRegions(item.regions),
+    ...splitRegions(item.region),
+    location,
+    city,
+    country,
+    country && city ? `${country} / ${city}` : '',
+    country && location ? `${country} / ${location}` : '',
+  ])
+}
+
+function datacenterRegions(item) {
+  const region = fieldText(item.region) || fieldText(item.region_name)
+  const country = fieldText(item.country) || fieldText(item.country_name)
+  const city = fieldText(item.city) || fieldText(item.city_name)
+  const location = fieldText(item.location) || fieldText(item.location_name)
+  const continent = fieldText(item.continent) || fieldText(item.continent_name)
+  return uniqueValues([
+    datacenterRegion(item),
+    region,
+    location,
+    city,
+    country,
+    country && city ? `${country} / ${city}` : '',
+    country && location ? `${country} / ${location}` : '',
+    region && city ? `${region} / ${city}` : '',
+    continent && country ? `${continent} / ${country}` : '',
+  ])
+}
+
+function datacenterMatchesRegion(item, region) {
+  if (!region) return false
+  return datacenterRegions(item).some((value) => valuesMatch(value, region))
+}
+
+function regionMatches(regionValue, selectedRegion) {
+  if (!selectedRegion) return false
+  return splitRegions(regionValue).some((value) => valuesMatch(value, selectedRegion))
+}
+
+function valuesMatch(left, right) {
+  const normalizedLeft = normalizeRegion(left)
+  const normalizedRight = normalizeRegion(right)
+  return Boolean(normalizedLeft && normalizedRight) && normalizedLeft === normalizedRight
+}
+
+function normalizeRegion(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[\s　]+/g, '')
+    .replace(/[，、|]+/g, ',')
+    .replace(/[／\\]+/g, '/')
+    .replace(/\/+/g, '/')
+    .trim()
+}
+
+function uniqueValues(values) {
+  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))]
+}
+
+function uniqueOptions(options) {
+  const values = new Map()
+  options.forEach((option) => {
+    const value = fieldText(option?.value)
+    if (value && !values.has(value)) values.set(value, { label: fieldText(option.label) || value, value })
+  })
+  return [...values.values()]
+}
+
+function fieldText(value) {
+  if (value == null) return ''
+  if (typeof value === 'object') {
+    return String(value.name || value.label || value.title || value.value || value.code || value.id || '').trim()
+  }
+  return String(value).trim()
 }
 
 function splitRegions(value) {
   if (Array.isArray(value)) return value.filter(Boolean)
-  return String(value || '').split(/[,，]/).map((item) => item.trim()).filter(Boolean)
+  return String(value || '').split(/[,，;；|]+/).map((item) => item.trim()).filter(Boolean)
 }
 
 function openRemoteEditor(row = null) {
@@ -501,16 +631,18 @@ function openEngineerEditor(row = null) {
 }
 
 function handleRemoteRegionChange() {
-  const validSites = siteOptions.value.map((item) => item.value)
-  if (!validSites.includes(remoteEditor.form.site)) remoteEditor.form.site = ''
+  clearInvalidSite()
   const validEngineers = assignableEngineerOptions.value.map((item) => item.value)
   if (!validEngineers.includes(remoteEditor.form.engineer_id)) handleEngineerSelected(null)
 }
 
 function handleRemoteSiteChange(value) {
-  const site = datacenters.value.find((item) => datacenterValue(item) === value)
+  const site = datacenters.value.find((item) => valuesMatch(datacenterValue(item), value))
+  const savedRecord = remoteHands.value.find((item) => valuesMatch(item.site, value))
   if (site?.timezone) remoteEditor.form.timezone = site.timezone
-  if (!remoteEditor.form.region && site) remoteEditor.form.region = datacenterRegion(site)
+  if (!remoteEditor.form.region) {
+    remoteEditor.form.region = site ? datacenterRegion(site) : fieldText(savedRecord?.region)
+  }
 }
 
 function handleEngineerSelected(value) {
@@ -520,6 +652,20 @@ function handleEngineerSelected(value) {
   remoteEditor.form.engineer_contact = engineer?.contact || ''
   remoteEditor.form.engineer_wechat = engineer?.wechat_id || ''
   remoteEditor.form.engineer_group = engineer?.wechat_group || ''
+}
+
+function clearInvalidSite() {
+  if (!remoteEditor.form.site) return
+  const selectedSite = fieldText(remoteEditor.form.site)
+  const knownDatacenters = datacenters.value.filter((item) => valuesMatch(datacenterValue(item), selectedSite))
+  const knownRecords = remoteHands.value.filter((item) => valuesMatch(item.site, selectedSite))
+
+  // Preserve a newly entered site. Known sites are cleared only when they
+  // definitely belong to another region.
+  if (!knownDatacenters.length && !knownRecords.length) return
+  const belongsToRegion = knownDatacenters.some((item) => datacenterMatchesRegion(item, remoteEditor.form.region))
+    || knownRecords.some((item) => valuesMatch(item.region, remoteEditor.form.region))
+  if (!belongsToRegion) remoteEditor.form.site = ''
 }
 
 function updateWorkMinutes() {
@@ -535,6 +681,7 @@ function minutesBetween(start, end) {
 async function saveRemoteHands() {
   const form = remoteEditor.form
   if (!form.customer.trim()) return message.warning('请输入客户名称')
+  if (!fieldText(form.region)) return message.warning('请选择或输入地区')
   if (!form.site) return message.warning('请选择机房')
   if (!form.engineer_id) return message.warning('请选择工程师')
   remoteEditor.saving = true
@@ -573,6 +720,18 @@ async function saveEngineer() {
   } finally {
     engineerEditor.saving = false
   }
+}
+
+async function deleteRemoteHands(row) {
+  await api.remoteAssistanceApi.deleteRemoteHands(row.id)
+  message.success('运维记录已删除')
+  await fetchOverview()
+}
+
+async function deleteEngineer(row) {
+  await api.remoteAssistanceApi.deleteEngineer(row.id)
+  message.success('工程师已删除')
+  await fetchOverview()
 }
 
 async function updateRemoteStatus(row, nextStatus) {
@@ -628,7 +787,7 @@ function formatDuration(value) {
   if (minutes < 60) return `${minutes} 分钟`
   const hours = Math.floor(minutes / 60)
   const rest = minutes % 60
-  return rest ? `${hours}小时${rest}分` : `${hours} 小时`
+  return rest ? `${hours}小时${rest}分钟` : `${hours} 小时`
 }
 
 function statusLabel(status) {
@@ -637,6 +796,17 @@ function statusLabel(status) {
 
 function statusTagType(status) {
   return { scheduled: 'warning', arrived: 'info', done: 'success', cancelled: 'default' }[status] || 'default'
+}
+
+function renderDeleteConfirm({ title, actionText, onConfirm }) {
+  return h(NPopconfirm, {
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: onConfirm,
+  }, {
+    trigger: () => h(NButton, { size: 'small', type: 'error', secondary: true }, { default: () => actionText }),
+    default: () => title,
+  })
 }
 
 function renderNoteCell(note) {
@@ -658,9 +828,12 @@ onMounted(fetchOverview)
 <style scoped>
 .collaboration-page {
   display: flex;
+  height: calc(100vh - 132px);
   min-width: 0;
+  min-height: 0;
   flex-direction: column;
   gap: 16px;
+  overflow: hidden;
 }
 
 .summary-grid {
@@ -712,7 +885,38 @@ onMounted(fetchOverview)
 .summary-icon.green { background: #e8f7ef; color: #15945c; }
 .summary-icon.gray { background: #f0f2f5; color: #5c6878; }
 
-.workspace-panel { padding: 20px; }
+.workspace-panel {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 20px;
+}
+
+.workspace-panel :deep(.n-tabs),
+.workspace-panel :deep(.n-tabs-pane-wrapper),
+.workspace-panel :deep(.n-tab-pane) {
+  min-height: 0;
+  flex: 1;
+}
+
+.workspace-panel :deep(.n-tabs-pane-wrapper) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.workspace-panel :deep(.n-tab-pane) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.workspace-panel :deep(.n-data-table) {
+  flex: 1;
+  min-height: 0;
+}
 
 .table-toolbar,
 .modal-actions {

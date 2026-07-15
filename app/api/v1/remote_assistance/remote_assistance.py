@@ -200,6 +200,11 @@ async def update_remote_hands(item_id: int, payload: RemoteHandsPayload):
     return await _success("PUT", f"remote-hands/{item_id}", payload.model_dump())
 
 
+@router.delete("/remote-hands/{item_id}", summary="删除运维记录")
+async def delete_remote_hands(item_id: int):
+    return await _success("DELETE", f"remote-hands/{item_id}")
+
+
 @router.post("/engineers", summary="新增工程师")
 async def create_engineer(payload: EngineerPayload):
     return await _success("POST", "engineers", payload.model_dump())
@@ -208,3 +213,8 @@ async def create_engineer(payload: EngineerPayload):
 @router.put("/engineers/{engineer_id}", summary="更新工程师")
 async def update_engineer(engineer_id: int, payload: EngineerPayload):
     return await _success("PUT", f"engineers/{engineer_id}", payload.model_dump())
+
+
+@router.delete("/engineers/{engineer_id}", summary="删除工程师")
+async def delete_engineer(engineer_id: int):
+    return await _success("DELETE", f"engineers/{engineer_id}")

@@ -249,7 +249,9 @@ export default {
     overview: () => request.get('/remote-assistance/overview'),
     createRemoteHands: (data = {}) => request.post('/remote-assistance/remote-hands', data),
     updateRemoteHands: (id, data = {}) => request.put(`/remote-assistance/remote-hands/${id}`, data),
+    deleteRemoteHands: (id) => request.delete(`/remote-assistance/remote-hands/${id}`),
     createEngineer: (data = {}) => request.post('/remote-assistance/engineers', data),
     updateEngineer: (id, data = {}) => request.put(`/remote-assistance/engineers/${id}`, data),
+    deleteEngineer: (id) => request.delete(`/remote-assistance/engineers/${id}`),
   },
 }
