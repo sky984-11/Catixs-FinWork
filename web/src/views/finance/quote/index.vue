@@ -106,7 +106,7 @@ const activeTypeLabel = computed(() => {
   if (!query.quote_type) return '全部报价'
   return quoteTypeOptions.find((item) => item.value === query.quote_type)?.label || '报价'
 })
-const regionFilterPlaceholder = computed(() => (['ipt', 'dia'].includes(query.quote_type) ? '站点A' : '地区'))
+const regionFilterPlaceholder = computed(() => (['ipt', 'dia'].includes(query.quote_type) ? '机房' : '地区'))
 const mergedSiteOptions = computed(() => {
   const values = new Set(siteOptions.value.map((item) => item.value).filter(Boolean))
   ;[query.region, quoteModal.form.site_a].forEach((value) => {
@@ -258,12 +258,12 @@ const fieldMeta = {
   },
   site_a: {
     label: {
-      ipt: '站点A',
-      dia: '站点A',
+      ipt: '机房',
+      dia: '机房',
     },
     placeholder: {
-      ipt: 'Equinix HK1 / SG1 / LD8',
-      dia: 'Equinix HK2',
+      ipt: '选择POP点机房',
+      dia: '选择POP点机房',
     },
   },
   protection: {
@@ -437,7 +437,7 @@ const columnDefinitions = [
   { title: '硬盘', key: 'disk', minWidth: 160, ellipsis: { tooltip: true }, show: () => !query.quote_type || query.quote_type === 'server', ...sortableColumn('disk') },
   { title: () => typeFieldLabel('bandwidth', query.quote_type || 'server'), key: 'bandwidth', width: 112, ellipsis: { tooltip: true }, ...sortableColumn('bandwidth') },
   { title: '突发带宽', key: 'burst', width: 110, ellipsis: { tooltip: true }, show: () => isNetworkTable.value, ...sortableColumn('burst') },
-  { title: '站点A', key: 'site_a', minWidth: 150, ellipsis: { tooltip: true }, show: () => isNetworkTable.value, ...sortableColumn('site_a') },
+  { title: '机房', key: 'site_a', minWidth: 150, ellipsis: { tooltip: true }, show: () => isNetworkTable.value, ...sortableColumn('site_a') },
   { title: '币种', key: 'currency', width: 78, ellipsis: { tooltip: true }, show: () => isNetworkTable.value, ...sortableColumn('currency') },
   { title: '一次性费用', key: 'nrc', width: 116, align: 'right', render: (row) => renderPriceCell(formatNumber(row.nrc)), show: () => isNetworkTable.value, ...sortableColumn('nrc') },
   { title: '月费', key: 'mrc', width: 106, align: 'right', render: (row) => renderPriceCell(formatNumber(row.mrc), true), show: () => isNetworkTable.value, ...sortableColumn('mrc') },
@@ -571,10 +571,26 @@ function syncCheckedRows() {
 }
 
 async function loadSiteOptions(type = query.quote_type) {
-  const res = await api.financeQuoteApi.siteOptions({
-    quote_type: ['ipt', 'dia'].includes(type) ? type : undefined,
-  })
-  siteOptions.value = res.data || []
+  if (!['ipt', 'dia'].includes(type)) {
+    siteOptions.value = []
+    return
+  }
+  const [regionRes, locationRes] = await Promise.all([
+    api.assetApi.regions({ page_size: 1000 }),
+    api.assetApi.locations({ page_size: 1000, type: 1 }),
+  ])
+  const regionMap = new Map((regionRes.data || []).map((region) => [region.id, region]))
+  siteOptions.value = (locationRes.data || [])
+    .filter((location) => Number(location.type) === 1)
+    .map((location) => {
+      const region = regionMap.get(location.region_id)
+      const place = [region?.country, region?.city].filter(Boolean).join(' / ') || region?.name || ''
+      const label = [place, location.name].filter(Boolean).join(' / ')
+      return {
+        label: label || location.name,
+        value: label || location.name,
+      }
+    })
 }
 
 async function loadFieldOptions(type = query.quote_type) {
@@ -738,7 +754,7 @@ function quoteExportColumns() {
       ['provider', '供应商'],
       ['bandwidth', '带宽'],
       ['burst', '突发带宽'],
-      ['site_a', '站点A'],
+      ['site_a', '机房'],
       ['currency', '币种'],
       ['nrc', '一次性费用'],
       ['mrc', '月费'],

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <AppPage :show-footer="false">
     <div class="cabinet-world-page" :class="{ 'is-map-home': viewMode === 'map' }">
       <section v-if="viewMode === 'map'" class="map-panel map-only">
@@ -11,7 +11,7 @@
             <n-tag round type="info">{{ regionNodes.length }} 个地区</n-tag>
             <n-tag round type="success">{{ cabinets.length }} 个机柜</n-tag>
             <n-tag round type="warning">{{ devices.length }} 台设备</n-tag>
-            <n-button type="primary" round @click="openRegionModal">新增地区</n-button>
+            <n-button secondary round @click="openPlatformModal">平台/型号管理</n-button>
             <n-button secondary round :loading="loading" @click="loadData">刷新</n-button>
           </n-space>
         </div>
@@ -42,8 +42,8 @@
                 placeholder="选择机柜"
                 @update:value="loadCabinetDevices"
               />
-              <n-button secondary round :disabled="!selectedRegionId" @click="openLocationModal">新增机房</n-button>
               <n-button type="primary" round @click="openCabinetModal">新增机柜</n-button>
+              <n-button secondary round @click="openPlatformModal">平台/型号管理</n-button>
               <n-button secondary round @click="backToMap">返回地图</n-button>
             </n-space>
           </div>
@@ -76,7 +76,7 @@
                   </div>
                   <n-space align="center">
                     <n-tag round :type="rackConflictCount ? 'error' : 'success'">
-                      {{ rackConflictCount ? `${rackConflictCount} 个冲突U位` : 'U位正常' }}
+                      {{ rackConflictCount ? `${rackConflictCount} 个U位冲突` : 'U位正常' }}
                     </n-tag>
                     <n-button type="primary" round @click="openDeviceModal()">新增设备</n-button>
                   </n-space>
@@ -161,7 +161,7 @@
                 {{ deviceDrawer.row.cabinet_name || selectedCabinet?.name || '-' }}
               </n-descriptions-item>
               <n-descriptions-item label="U位">{{ formatDeviceUPosition(deviceDrawer.row) }}</n-descriptions-item>
-              <n-descriptions-item label="品牌型号">
+              <n-descriptions-item label="平台型号">
                 {{ [deviceDrawer.row.brand, deviceDrawer.row.model].filter(Boolean).join(' / ') || '-' }}
               </n-descriptions-item>
               <n-descriptions-item label="序列号">{{ deviceDrawer.row.serial_no || '-' }}</n-descriptions-item>
@@ -183,11 +183,11 @@
             </div>
 
             <div v-if="fourNodeDetailNodes.length" class="detail-section">
-              <h3>四合一节点</h3>
+              <h3>四节点服务器</h3>
               <div class="node-detail-grid">
                 <article v-for="node in fourNodeDetailNodes" :key="node.name" class="node-detail-card">
                   <strong>{{ node.device_name || node.name }}</strong>
-                  <span>序号: {{ node.serial_no || '-' }}</span>
+                  <span>序列号: {{ node.serial_no || '-' }}</span>
                   <span>CPU: {{ formatFourNodeCpu(node) }}</span>
                   <span>内存: {{ node.memory || '-' }}</span>
                   <span>磁盘: {{ node.disk || '-' }}</span>
@@ -201,51 +201,6 @@
           </template>
         </n-drawer-content>
       </n-drawer>
-
-      <n-modal v-model:show="regionModal.show" preset="dialog" title="新增地区">
-        <n-form label-placement="top">
-          <n-grid :cols="2" :x-gap="12">
-            <n-form-item-gi label="地区名称" required>
-              <n-input v-model:value="regionModal.form.name" placeholder="例如 Hong Kong" />
-            </n-form-item-gi>
-            <n-form-item-gi label="地区代码" required>
-              <n-input v-model:value="regionModal.form.code" placeholder="例如 HK" />
-            </n-form-item-gi>
-          </n-grid>
-          <n-form-item label="备注">
-            <n-input v-model:value="regionModal.form.remark" type="textarea" placeholder="可填写地区说明" />
-          </n-form-item>
-        </n-form>
-        <template #action>
-          <n-button @click="regionModal.show = false">取消</n-button>
-          <n-button type="primary" :loading="regionModal.submitting" @click="submitRegion">保存</n-button>
-        </template>
-      </n-modal>
-
-      <n-modal v-model:show="locationModal.show" preset="dialog" title="新增机房">
-        <n-form label-placement="top">
-          <n-form-item label="所属地区" required>
-            <n-select
-              v-model:value="locationModal.form.region_id"
-              :options="regionOptions"
-              placeholder="选择地区"
-            />
-          </n-form-item>
-          <n-form-item label="机房名称" required>
-            <n-input v-model:value="locationModal.form.name" placeholder="例如 HK IDC" />
-          </n-form-item>
-          <n-form-item label="机房地址">
-            <n-input v-model:value="locationModal.form.address" placeholder="可填写机房地址" />
-          </n-form-item>
-          <n-form-item label="备注">
-            <n-input v-model:value="locationModal.form.remark" type="textarea" placeholder="可填写机房说明" />
-          </n-form-item>
-        </n-form>
-        <template #action>
-          <n-button @click="locationModal.show = false">取消</n-button>
-          <n-button type="primary" :loading="locationModal.submitting" @click="submitLocation">保存</n-button>
-        </template>
-      </n-modal>
 
       <n-modal v-model:show="cabinetModal.show" preset="dialog" title="新增机柜">
         <n-form label-placement="top">
@@ -266,7 +221,7 @@
             <n-form-item-gi label="容量 U">
               <n-input-number v-model:value="cabinetModal.form.capacity_u" :min="1" :max="60" />
             </n-form-item-gi>
-            <n-form-item-gi label="行/列">
+            <n-form-item-gi label="行 / 列">
               <n-input-group>
                 <n-input v-model:value="cabinetModal.form.row" placeholder="行" />
                 <n-input v-model:value="cabinetModal.form.column" placeholder="列" />
@@ -308,11 +263,26 @@
             <n-form-item-gi label="状态">
               <n-select v-model:value="deviceModal.form.status" :options="deviceStatusOptions" />
             </n-form-item-gi>
-            <n-form-item-gi label="品牌">
-              <n-input v-model:value="deviceModal.form.brand" />
+            <n-form-item-gi label="平台">
+              <n-select
+                v-model:value="deviceModal.form.brand"
+                clearable
+                filterable
+                tag
+                :options="platformOptions"
+                placeholder="选择平台"
+                @update:value="handlePlatformChange"
+              />
             </n-form-item-gi>
             <n-form-item-gi label="型号">
-              <n-input v-model:value="deviceModal.form.model" />
+              <n-select
+                v-model:value="deviceModal.form.model"
+                clearable
+                filterable
+                tag
+                :options="modelOptions"
+                placeholder="选择型号"
+              />
             </n-form-item-gi>
             <n-form-item-gi label="序列号">
               <n-input v-model:value="deviceModal.form.serial_no" />
@@ -342,7 +312,7 @@
             <n-empty v-if="!deviceModal.form.attributeList.length" description="暂无配置" />
             <div v-else class="attribute-editor-list">
               <div v-for="(attr, index) in deviceModal.form.attributeList" :key="index" class="attribute-editor-row">
-                <n-input v-model:value="attr.key" size="small" placeholder="配置项，如 IPMI密码" />
+                <n-input v-model:value="attr.key" size="small" placeholder="配置项，例如 IPMI密码" />
                 <n-input
                   v-model:value="attr.value"
                   size="small"
@@ -359,7 +329,7 @@
             <div class="four-node-head">
               <div>
                 <span class="eyebrow">Four Node Server</span>
-                <h3>四合一节点配置</h3>
+                <h3>四节点配置</h3>
               </div>
               <n-tag round type="info">2U / N1-N4</n-tag>
             </div>
@@ -388,6 +358,44 @@
           <n-button type="primary" :loading="deviceModal.submitting" @click="submitDevice">保存</n-button>
         </template>
       </n-modal>
+
+      <n-modal v-model:show="platformModal.show" preset="dialog" title="平台/型号管理" style="width: 760px">
+        <div class="platform-manager">
+          <div class="platform-add-row">
+            <n-input v-model:value="platformModal.platformName" placeholder="新增平台，例如 Dell / H3C / Cisco" @keyup.enter="addPlatform" />
+            <n-button type="primary" :loading="platformModal.submitting" @click="addPlatform">新增平台</n-button>
+          </div>
+          <n-empty v-if="!devicePlatformTree.length" description="暂无平台" />
+          <div v-else class="platform-list">
+            <article v-for="platform in devicePlatformTree" :key="platform.value" class="platform-card">
+              <div class="platform-card-head">
+                <strong>{{ platform.label }}</strong>
+                <n-popconfirm @positive-click="deletePlatform(platform)">
+                  <template #trigger>
+                    <n-button size="small" secondary type="error">删除平台</n-button>
+                  </template>
+                  删除平台会同时删除下面的型号，确认继续？
+                </n-popconfirm>
+              </div>
+              <div class="model-add-row">
+                <n-input
+                  v-model:value="platformModal.modelDrafts[platform.value]"
+                  size="small"
+                  placeholder="新增型号，例如 R750"
+                  @keyup.enter="addModel(platform)"
+                />
+                <n-button size="small" secondary @click="addModel(platform)">新增型号</n-button>
+              </div>
+              <div class="model-tags">
+                <n-tag v-for="model in platform.models" :key="model.value" closable @close="deleteModel(model)">
+                  {{ model.label }}
+                </n-tag>
+                <span v-if="!platform.models.length" class="muted-text">暂无型号</span>
+              </div>
+            </article>
+          </div>
+        </div>
+      </n-modal>
     </div>
   </AppPage>
 </template>
@@ -407,21 +415,12 @@ const locations = ref([])
 const cabinets = ref([])
 const devices = ref([])
 const rackDevices = ref([])
+const devicePlatformTree = ref([])
 const viewMode = ref('map')
 const selectedRegionId = ref(null)
 const selectedCabinetId = ref(null)
 const mapEl = ref(null)
 const deviceDrawer = reactive({ show: false, row: null })
-const regionModal = reactive({
-  show: false,
-  submitting: false,
-  form: createRegionForm(),
-})
-const locationModal = reactive({
-  show: false,
-  submitting: false,
-  form: createLocationForm(),
-})
 const cabinetModal = reactive({
   show: false,
   submitting: false,
@@ -431,6 +430,12 @@ const deviceModal = reactive({
   show: false,
   submitting: false,
   form: createDeviceForm(),
+})
+const platformModal = reactive({
+  show: false,
+  submitting: false,
+  platformName: '',
+  modelDrafts: {},
 })
 const rackContextMenu = reactive({
   show: false,
@@ -467,7 +472,7 @@ const legacyDeviceStatusLabels = {
 
 const deviceFormFactorOptions = [
   { label: '标准设备', value: 'standard' },
-  { label: '四合一服务器', value: 'four_node' },
+  { label: '四节点服务器', value: 'four_node' },
 ]
 
 const knownRegionPoints = [
@@ -514,18 +519,25 @@ const selectedCabinetOptions = computed(() =>
     value: cabinet.id,
   }))
 )
-const regionOptions = computed(() =>
-  regions.value.map((region) => ({
-    label: `${region.name}${region.code ? ` / ${region.code}` : ''}`,
-    value: region.id,
-  }))
-)
 const selectedRegionLocationOptions = computed(() =>
   (selectedRegionNode.value?.locations || []).map((location) => ({
     label: location.name,
     value: location.id,
   }))
 )
+const platformOptions = computed(() =>
+  devicePlatformTree.value.map((platform) => ({
+    label: platform.label,
+    value: platform.value,
+  }))
+)
+const modelOptions = computed(() => {
+  const platform = devicePlatformTree.value.find((item) => item.value === deviceModal.form.brand)
+  return (platform?.models || []).map((model) => ({
+    label: model.label,
+    value: model.value,
+  }))
+})
 
 const rackCapacity = computed(() => Math.max(Number(selectedCabinet.value?.capacity_u) || 42, 1))
 const rackPlacedDevices = computed(() =>
@@ -588,27 +600,7 @@ const fourNodeDetailNodes = computed(() =>
 )
 
 function isFourNodeAttributes(attributes) {
-  return attributes?.form_factor === 'four_node' || attributes?.设备形态 === '四合一服务器'
-}
-
-function createRegionForm() {
-  return {
-    name: '',
-    code: '',
-    remark: '',
-    status: true,
-  }
-}
-
-function createLocationForm() {
-  return {
-    region_id: null,
-    name: '',
-    type: 1,
-    address: '',
-    remark: '',
-    status: true,
-  }
+  return attributes?.form_factor === 'four_node' || attributes?.设备形态 === '四节点服务器'
 }
 
 function createCabinetForm() {
@@ -726,6 +718,28 @@ function createAttributeList(attributes) {
     }))
 }
 
+function normalizeDevicePlatformTree(value) {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => {
+      const label = String(item?.label || item?.name || item?.value || '').trim()
+      const itemValue = String(item?.value || item?.name || label).trim()
+      if (!label || !itemValue) return null
+      const models = Array.isArray(item.models)
+        ? item.models
+            .map((model) => {
+              const modelLabel = String(model?.label || model?.name || model?.value || '').trim()
+              const modelValue = String(model?.value || model?.name || modelLabel).trim()
+              if (!modelLabel || !modelValue) return null
+              return { ...model, label: modelLabel, value: modelValue }
+            })
+            .filter(Boolean)
+        : []
+      return { ...item, label, value: itemValue, models }
+    })
+    .filter(Boolean)
+}
+
 function buildAttributesFromList(list) {
   return (Array.isArray(list) ? list : []).reduce((result, item) => {
     const key = String(item?.key || '').trim()
@@ -744,7 +758,8 @@ function removeDeviceAttribute(index) {
 }
 
 function isSecretAttributeKey(key) {
-  return /password|密码|secret|token|团体名/i.test(String(key || ''))
+  const normalizedKey = String(key || '').toLowerCase()
+  return ['password', '密码', 'secret', 'token', 'ipmi'].some((item) => normalizedKey.includes(item.toLowerCase()))
 }
 
 function regionPoint(region, index) {
@@ -818,20 +833,88 @@ function mapMarkerHtml(node) {
 async function loadData() {
   loading.value = true
   try {
-    const [regionRes, locationRes, cabinetRes, deviceRes] = await Promise.all([
+    const [regionRes, locationRes, cabinetRes, deviceRes, platformRes] = await Promise.all([
       api.assetApi.regions({ page_size: 1000 }),
       api.assetApi.locations({ page_size: 1000 }),
       api.assetApi.cabinets({ page_size: 1000 }),
       api.assetApi.devices({ page: 1, page_size: 1000 }),
+      api.assetApi.deviceBrands(),
     ])
     regions.value = regionRes.data || []
     locations.value = locationRes.data || []
     cabinets.value = cabinetRes.data || []
     devices.value = deviceRes.data || []
+    devicePlatformTree.value = normalizeDevicePlatformTree(platformRes.data || [])
     syncDefaultSelection()
   } finally {
     loading.value = false
   }
+}
+
+function openPlatformModal() {
+  platformModal.show = true
+  if (!devicePlatformTree.value.length) loadDevicePlatforms()
+}
+
+async function loadDevicePlatforms() {
+  const res = await api.assetApi.deviceBrands()
+  devicePlatformTree.value = normalizeDevicePlatformTree(res.data || [])
+}
+
+function handlePlatformChange(value) {
+  const platform = devicePlatformTree.value.find((item) => item.value === value)
+  if (!platform?.models?.some((model) => model.value === deviceModal.form.model)) {
+    deviceModal.form.model = ''
+  }
+}
+
+async function addPlatform() {
+  const name = String(platformModal.platformName || '').trim()
+  if (!name) return
+  if (devicePlatformTree.value.some((item) => item.value === name)) {
+    window.$message?.warning('平台已存在')
+    return
+  }
+  platformModal.submitting = true
+  try {
+    const res = await api.assetApi.createDeviceBrand({ name })
+    devicePlatformTree.value = normalizeDevicePlatformTree(res.data || [])
+    platformModal.platformName = ''
+    window.$message?.success('平台已新增')
+  } finally {
+    platformModal.submitting = false
+  }
+}
+
+async function deletePlatform(platform) {
+  const res = await api.assetApi.deleteDeviceBrand({ brand_id: platform.id })
+  devicePlatformTree.value = normalizeDevicePlatformTree(res.data || [])
+  if (deviceModal.form.brand === platform.value) {
+    deviceModal.form.brand = ''
+    deviceModal.form.model = ''
+  }
+  delete platformModal.modelDrafts[platform.value]
+  window.$message?.success('平台已删除')
+}
+
+async function addModel(platform) {
+  const name = String(platformModal.modelDrafts[platform.value] || '').trim()
+  if (!name) return
+  if (platform.models.some((model) => model.value === name)) {
+    window.$message?.warning('型号已存在')
+    return
+  }
+  const res = await api.assetApi.createDeviceModel({ brand_id: platform.id, name })
+  devicePlatformTree.value = normalizeDevicePlatformTree(res.data || [])
+  platformModal.modelDrafts[platform.value] = ''
+  window.$message?.success('型号已新增')
+}
+
+async function deleteModel(model) {
+  const res = await api.assetApi.deleteDeviceModel({ model_id: model.id })
+  devicePlatformTree.value = normalizeDevicePlatformTree(res.data || [])
+  if (deviceModal.form.model === model.value) deviceModal.form.model = ''
+  window.$message?.success('型号已删除')
 }
 
 function syncDefaultSelection() {
@@ -882,86 +965,13 @@ async function loadCabinetDevices() {
   }
 }
 
-function openRegionModal() {
-  regionModal.form = createRegionForm()
-  regionModal.show = true
-}
-
-async function submitRegion() {
-  const name = String(regionModal.form.name || '').trim()
-  const code = String(regionModal.form.code || '').trim()
-  if (!name || !code) {
-    window.$message?.warning('请填写地区名称和地区代码')
-    return
-  }
-  regionModal.submitting = true
-  try {
-    const regionRes = await api.assetApi.createRegion({
-      name,
-      code,
-      remark: regionModal.form.remark || '',
-      status: true,
-    })
-    const region = regionRes.data
-    if (region?.id) {
-      selectedRegionId.value = region.id
-    }
-    regionModal.show = false
-    await loadData()
-    if (region?.id) {
-      selectedRegionId.value = region.id
-      selectedCabinetId.value = null
-      rackDevices.value = []
-      viewMode.value = 'region'
-    }
-    window.$message?.success('地区已新增')
-  } finally {
-    regionModal.submitting = false
-  }
-}
-
-function openLocationModal() {
-  locationModal.form = createLocationForm()
-  locationModal.form.region_id = selectedRegionId.value || regions.value[0]?.id || null
-  locationModal.show = true
-}
-
-async function submitLocation() {
-  const name = String(locationModal.form.name || '').trim()
-  if (!locationModal.form.region_id || !name) {
-    window.$message?.warning('请选择地区并填写机房名称')
-    return
-  }
-  locationModal.submitting = true
-  try {
-    const res = await api.assetApi.createLocation({
-      ...locationModal.form,
-      name,
-      type: 1,
-      address: String(locationModal.form.address || '').trim(),
-      remark: String(locationModal.form.remark || '').trim(),
-      status: true,
-    })
-    locationModal.show = false
-    await loadData()
-    selectedRegionId.value = res.data?.region_id || locationModal.form.region_id
-    selectedCabinetId.value = null
-    rackDevices.value = []
-    viewMode.value = 'region'
-    window.$message?.success('机房已新增')
-  } finally {
-    locationModal.submitting = false
-  }
-}
-
 function openCabinetModal() {
   if (!selectedRegionId.value) {
     window.$message?.warning('请先选择地区')
     return
   }
   if (!selectedRegionLocationOptions.value.length) {
-    window.$message?.warning('当前地区暂无机房，请先新增机房')
-    openLocationModal()
+    window.$message?.warning('当前地区暂无机房，请先到 POP点管理 创建机房')
     return
   }
   cabinetModal.form = createCabinetForm()
@@ -1068,7 +1078,7 @@ async function submitDevice() {
     const attributes = {
       ...buildAttributesFromList(deviceModal.form.attributeList),
       form_factor: isFourNode ? 'four_node' : 'standard',
-      设备形态: isFourNode ? '四合一服务器' : '标准设备',
+      设备形态: isFourNode ? '四节点服务器' : '标准设备',
     }
     if (isFourNode) {
       attributes.node_count = '4'
@@ -1083,6 +1093,8 @@ async function submitDevice() {
       ...deviceModal.form,
       asset_no: String(deviceModal.form.asset_no || name).trim(),
       name,
+      brand: String(deviceModal.form.brand || '').trim(),
+      model: String(deviceModal.form.model || '').trim(),
       u_position: start,
       u_height: height,
       attributes,
@@ -2023,6 +2035,59 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+.platform-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.platform-add-row,
+.model-add-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.platform-list {
+  display: grid;
+  max-height: 56vh;
+  gap: 10px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.platform-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px;
+}
+
+.platform-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.platform-card-head strong {
+  color: #0f172a;
+  font-size: 15px;
+}
+
+.model-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.muted-text {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
 @media (max-width: 1180px) {
   .region-layout,
   .cabinet-content {
@@ -2064,3 +2129,4 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+
