@@ -33,14 +33,31 @@
                 </n-button>
               </n-space>
             </div>
-            <n-data-table
-              :loading="loading"
-              :columns="regionColumns"
-              :data="regionTableData"
-              :pagination="regionPagination"
-              :row-key="(row) => row.id"
-              striped
-            />
+            <div class="pop-table-wrap">
+              <n-data-table
+                :loading="loading"
+                :columns="regionColumns"
+                :data="pagedRegionTableData"
+                :pagination="false"
+                :row-key="(row) => row.id"
+                :scroll-x="760"
+                flex-height
+                striped
+              />
+            </div>
+            <div class="pop-list-footer">
+              <div class="status-summary">
+                <n-tag type="info" round>共 {{ regionTableData.length }} 条</n-tag>
+              </div>
+              <n-pagination
+                v-model:page="regionPagination.page"
+                v-model:page-size="regionPagination.pageSize"
+                :item-count="regionTableData.length"
+                :page-sizes="regionPagination.pageSizes"
+                show-size-picker
+                @update:page-size="handleRegionPageSizeChange"
+              />
+            </div>
           </n-tab-pane>
 
           <n-tab-pane name="location" tab="机房">
@@ -69,14 +86,31 @@
                 </n-button>
               </n-space>
             </div>
-            <n-data-table
-              :loading="loading"
-              :columns="locationColumns"
-              :data="locationTableData"
-              :pagination="locationPagination"
-              :row-key="(row) => row.id"
-              striped
-            />
+            <div class="pop-table-wrap">
+              <n-data-table
+                :loading="loading"
+                :columns="locationColumns"
+                :data="pagedLocationTableData"
+                :pagination="false"
+                :row-key="(row) => row.id"
+                :scroll-x="900"
+                flex-height
+                striped
+              />
+            </div>
+            <div class="pop-list-footer">
+              <div class="status-summary">
+                <n-tag type="info" round>共 {{ locationTableData.length }} 条</n-tag>
+              </div>
+              <n-pagination
+                v-model:page="locationPagination.page"
+                v-model:page-size="locationPagination.pageSize"
+                :item-count="locationTableData.length"
+                :page-sizes="locationPagination.pageSizes"
+                show-size-picker
+                @update:page-size="handleLocationPageSizeChange"
+              />
+            </div>
           </n-tab-pane>
         </n-tabs>
       </section>
@@ -161,7 +195,7 @@
 </template>
 
 <script setup>
-import { computed, h, onMounted, reactive, ref } from 'vue'
+import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import { NButton, NPopconfirm, NSpace, NTag, useMessage } from 'naive-ui'
 import api from '@/api'
 
@@ -176,15 +210,17 @@ const locationKeyword = ref('')
 const locationRegionFilter = ref(null)
 
 const regionPagination = reactive({
-  pageSize: 20,
+  page: 1,
+  pageSize: 10,
   showSizePicker: true,
-  pageSizes: [20, 50, 100],
+  pageSizes: [10, 20, 50, 100],
 })
 
 const locationPagination = reactive({
-  pageSize: 20,
+  page: 1,
+  pageSize: 10,
   showSizePicker: true,
-  pageSizes: [20, 50, 100],
+  pageSizes: [10, 20, 50, 100],
 })
 
 const regionEditor = reactive({
@@ -249,6 +285,16 @@ const filteredLocations = computed(() => {
 
 const regionTableData = computed(() => filteredRegions.value.slice())
 const locationTableData = computed(() => filteredLocations.value.slice())
+
+const pagedRegionTableData = computed(() => {
+  const start = (regionPagination.page - 1) * regionPagination.pageSize
+  return regionTableData.value.slice(start, start + regionPagination.pageSize)
+})
+
+const pagedLocationTableData = computed(() => {
+  const start = (locationPagination.page - 1) * locationPagination.pageSize
+  return locationTableData.value.slice(start, start + locationPagination.pageSize)
+})
 
 const regionColumns = [
   {
@@ -588,6 +634,34 @@ function renderDeleteConfirm({ title, disabled, disabledTip, onConfirm }) {
   })
 }
 
+function handleRegionPageSizeChange(pageSize) {
+  regionPagination.pageSize = pageSize
+  regionPagination.page = 1
+}
+
+function handleLocationPageSizeChange(pageSize) {
+  locationPagination.pageSize = pageSize
+  locationPagination.page = 1
+}
+
+watch(regionKeyword, () => {
+  regionPagination.page = 1
+})
+
+watch([locationKeyword, locationRegionFilter], () => {
+  locationPagination.page = 1
+})
+
+watch(regionTableData, (rows) => {
+  const maxPage = Math.max(Math.ceil(rows.length / regionPagination.pageSize), 1)
+  if (regionPagination.page > maxPage) regionPagination.page = maxPage
+})
+
+watch(locationTableData, (rows) => {
+  const maxPage = Math.max(Math.ceil(rows.length / locationPagination.pageSize), 1)
+  if (locationPagination.page > maxPage) locationPagination.page = maxPage
+})
+
 onMounted(loadData)
 </script>
 
@@ -666,8 +740,31 @@ onMounted(loadData)
 }
 
 .pop-panel :deep(.n-tabs),
+.pop-panel :deep(.n-tabs .n-tabs-pane-wrapper),
+.pop-panel :deep(.n-tabs .n-tab-pane),
 .pop-panel :deep(.n-tab-pane),
 .pop-panel :deep(.n-data-table) {
+  min-height: 0;
+}
+
+.pop-panel :deep(.n-tabs),
+.pop-panel :deep(.n-tabs .n-tabs-pane-wrapper),
+.pop-panel :deep(.n-tabs .n-tab-pane),
+.pop-panel :deep(.n-tab-pane) {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.pop-panel :deep(.n-tabs .n-tabs-pane-wrapper) {
+  overflow: hidden;
+}
+
+.pop-panel :deep(.n-data-table) {
+  flex: 1;
+}
+
+.pop-panel :deep(.n-data-table .n-data-table-base-table) {
   min-height: 0;
 }
 
@@ -687,6 +784,33 @@ onMounted(loadData)
   display: grid;
   width: min(680px, 100%);
   grid-template-columns: 260px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.pop-table-wrap {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.pop-table-wrap :deep(.n-data-table) {
+  width: 100%;
+  height: 100%;
+}
+
+.pop-list-footer {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
+}
+
+.status-summary {
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -733,6 +857,11 @@ onMounted(loadData)
 
   .table-toolbar {
     align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pop-list-footer {
+    align-items: flex-start;
     flex-direction: column;
   }
 
