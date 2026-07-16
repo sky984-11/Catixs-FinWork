@@ -88,6 +88,12 @@ class AssetDeviceUpdate(AssetDeviceBase):
     id: int
 
 
+class AssetDeviceRedfishProbe(BaseModel):
+    ipmi_host: str = Field(..., example="192.168.1.10")
+    ipmi_user: str = Field("", example="ADMIN")
+    ipmi_password: str = Field("", example="")
+
+
 class AssetDeviceBrandBase(BaseModel):
     name: str = Field(..., example="Dell", description="品牌名称")
     sort: int = Field(0, example=0)

@@ -11,7 +11,7 @@
             <n-tag round type="info">{{ regionNodes.length }} 个地区</n-tag>
             <n-tag round type="success">{{ cabinets.length }} 个机柜</n-tag>
             <n-tag round type="warning">{{ devices.length }} 台设备</n-tag>
-            <n-button secondary round @click="openPlatformModal">平台/型号管理</n-button>
+            <n-button secondary round @click="openPlatformModal">厂商/型号管理</n-button>
             <n-button secondary round :loading="loading" @click="loadData">刷新</n-button>
           </n-space>
         </div>
@@ -43,7 +43,7 @@
                 @update:value="loadCabinetDevices"
               />
               <n-button type="primary" round @click="openCabinetModal">新增机柜</n-button>
-              <n-button secondary round @click="openPlatformModal">平台/型号管理</n-button>
+              <n-button secondary round @click="openPlatformModal">厂商/型号管理</n-button>
               <n-button secondary round @click="backToMap">返回地图</n-button>
             </n-space>
           </div>
@@ -112,7 +112,7 @@
                         >
                           <div class="rack-device-main">
                             <strong>{{ row.block.device.name || '-' }}</strong>
-                            <span>{{ row.block.device.mgmt_ip || row.block.device.business_ip || formatDeviceUPosition(row.block.device) }}</span>
+                            <span>{{ formatDeviceUPosition(row.block.device) }}</span>
                           </div>
                           <i class="rack-status-dot"></i>
                         </td>
@@ -161,15 +161,30 @@
                 {{ deviceDrawer.row.cabinet_name || selectedCabinet?.name || '-' }}
               </n-descriptions-item>
               <n-descriptions-item label="U位">{{ formatDeviceUPosition(deviceDrawer.row) }}</n-descriptions-item>
-              <n-descriptions-item label="平台型号">
+              <n-descriptions-item label="厂商型号">
                 {{ [deviceDrawer.row.brand, deviceDrawer.row.model].filter(Boolean).join(' / ') || '-' }}
               </n-descriptions-item>
               <n-descriptions-item label="序列号">{{ deviceDrawer.row.serial_no || '-' }}</n-descriptions-item>
-              <n-descriptions-item label="管理IP">{{ deviceDrawer.row.mgmt_ip || '-' }}</n-descriptions-item>
-              <n-descriptions-item label="业务IP">{{ deviceDrawer.row.business_ip || '-' }}</n-descriptions-item>
-              <n-descriptions-item label="负责人">{{ deviceDrawer.row.owner || '-' }}</n-descriptions-item>
               <n-descriptions-item label="备注">{{ deviceDrawer.row.remark || '-' }}</n-descriptions-item>
             </n-descriptions>
+
+            <div v-if="deviceIpmiDetail.ipmi_host || deviceIpmiDetail.ipmi_user" class="detail-section">
+              <h3>IPMI 信息</h3>
+              <div class="attribute-grid">
+                <div v-if="deviceIpmiDetail.ipmi_host" class="attribute-item">
+                  <span>IPMI地址</span>
+                  <strong>{{ deviceIpmiDetail.ipmi_host }}</strong>
+                </div>
+                <div v-if="deviceIpmiDetail.ipmi_user" class="attribute-item">
+                  <span>IPMI用户</span>
+                  <strong>{{ deviceIpmiDetail.ipmi_user }}</strong>
+                </div>
+                <div v-if="deviceIpmiDetail.ipmi_password" class="attribute-item">
+                  <span>IPMI密码</span>
+                  <strong>{{ deviceIpmiDetail.ipmi_password }}</strong>
+                </div>
+              </div>
+            </div>
 
             <div class="detail-section">
               <h3>设备配置</h3>
@@ -191,7 +206,6 @@
                   <span>CPU: {{ formatFourNodeCpu(node) }}</span>
                   <span>内存: {{ node.memory || '-' }}</span>
                   <span>磁盘: {{ node.disk || '-' }}</span>
-                  <span>管理地址: {{ node.mgmt_ip || '-' }}</span>
                   <span>IPMI: {{ node.ipmi_user || '-' }}</span>
                   <span>IPMI密码: {{ node.ipmi_password || '-' }}</span>
                   <span>备注: {{ node.remark || '-' }}</span>
@@ -263,14 +277,14 @@
             <n-form-item-gi label="状态">
               <n-select v-model:value="deviceModal.form.status" :options="deviceStatusOptions" />
             </n-form-item-gi>
-            <n-form-item-gi label="平台">
+            <n-form-item-gi label="厂商">
               <n-select
                 v-model:value="deviceModal.form.brand"
                 clearable
                 filterable
                 tag
                 :options="platformOptions"
-                placeholder="选择平台"
+                placeholder="选择厂商"
                 @update:value="handlePlatformChange"
               />
             </n-form-item-gi>
@@ -287,19 +301,40 @@
             <n-form-item-gi label="序列号">
               <n-input v-model:value="deviceModal.form.serial_no" />
             </n-form-item-gi>
-            <n-form-item-gi label="负责人">
-              <n-input v-model:value="deviceModal.form.owner" />
-            </n-form-item-gi>
-            <n-form-item-gi label="管理 IP">
-              <n-input v-model:value="deviceModal.form.mgmt_ip" />
-            </n-form-item-gi>
-            <n-form-item-gi label="业务 IP">
-              <n-input v-model:value="deviceModal.form.business_ip" />
-            </n-form-item-gi>
           </n-grid>
           <n-form-item label="备注">
             <n-input v-model:value="deviceModal.form.remark" type="textarea" />
           </n-form-item>
+
+          <div class="device-ipmi-editor">
+            <div class="four-node-head">
+              <div>
+                <span class="eyebrow">IPMI / Redfish</span>
+                <h3>IPMI 信息</h3>
+              </div>
+              <n-button
+                size="small"
+                secondary
+                type="primary"
+                :loading="redfishLoading"
+                :disabled="!deviceModal.form.ipmi_host"
+                @click="probeDeviceRedfish"
+              >
+                Redfish 获取配置
+              </n-button>
+            </div>
+            <n-grid :cols="3" :x-gap="8">
+              <n-form-item-gi label="IPMI 地址">
+                <n-input v-model:value="deviceModal.form.ipmi_host" placeholder="例如 192.168.1.10" />
+              </n-form-item-gi>
+              <n-form-item-gi label="IPMI 用户">
+                <n-input v-model:value="deviceModal.form.ipmi_user" placeholder="ADMIN" />
+              </n-form-item-gi>
+              <n-form-item-gi label="IPMI 密码">
+                <n-input v-model:value="deviceModal.form.ipmi_password" type="password" show-password-on="click" />
+              </n-form-item-gi>
+            </n-grid>
+          </div>
 
           <div class="device-attribute-editor">
             <div class="four-node-head">
@@ -344,7 +379,7 @@
                   <n-input-number v-model:value="node.cpu_cores" size="small" placeholder="CPU核心数" :min="0" />
                   <n-input v-model:value="node.memory" size="small" placeholder="内存" />
                   <n-input v-model:value="node.disk" size="small" placeholder="磁盘" />
-                  <n-input v-model:value="node.mgmt_ip" size="small" placeholder="管理地址" />
+                  <n-input v-model:value="node.ipmi_host" size="small" placeholder="IPMI 地址" />
                   <n-input v-model:value="node.ipmi_user" size="small" placeholder="IPMI User" />
                   <n-input v-model:value="node.ipmi_password" size="small" placeholder="IPMI Password" type="password" show-password-on="click" />
                   <n-input v-model:value="node.remark" size="small" placeholder="备注" />
@@ -359,22 +394,22 @@
         </template>
       </n-modal>
 
-      <n-modal v-model:show="platformModal.show" preset="dialog" title="平台/型号管理" style="width: 760px">
+      <n-modal v-model:show="platformModal.show" preset="dialog" title="厂商/型号管理" style="width: 760px">
         <div class="platform-manager">
           <div class="platform-add-row">
-            <n-input v-model:value="platformModal.platformName" placeholder="新增平台，例如 Dell / H3C / Cisco" @keyup.enter="addPlatform" />
-            <n-button type="primary" :loading="platformModal.submitting" @click="addPlatform">新增平台</n-button>
+            <n-input v-model:value="platformModal.platformName" placeholder="新增厂商，例如 Dell / H3C / Cisco" @keyup.enter="addPlatform" />
+            <n-button type="primary" :loading="platformModal.submitting" @click="addPlatform">新增厂商</n-button>
           </div>
-          <n-empty v-if="!devicePlatformTree.length" description="暂无平台" />
+          <n-empty v-if="!devicePlatformTree.length" description="暂无厂商" />
           <div v-else class="platform-list">
             <article v-for="platform in devicePlatformTree" :key="platform.value" class="platform-card">
               <div class="platform-card-head">
                 <strong>{{ platform.label }}</strong>
                 <n-popconfirm @positive-click="deletePlatform(platform)">
                   <template #trigger>
-                    <n-button size="small" secondary type="error">删除平台</n-button>
+                    <n-button size="small" secondary type="error">删除厂商</n-button>
                   </template>
-                  删除平台会同时删除下面的型号，确认继续？
+                  删除厂商会同时删除下面的型号，确认继续？
                 </n-popconfirm>
               </div>
               <div class="model-add-row">
@@ -410,6 +445,7 @@ defineOptions({ name: 'AssetCabinetWorldMap' })
 
 const loading = ref(false)
 const deviceLoading = ref(false)
+const redfishLoading = ref(false)
 const regions = ref([])
 const locations = ref([])
 const cabinets = ref([])
@@ -589,10 +625,23 @@ const rackTableRows = computed(() => {
   }
   return rows
 })
-const structuredAttributeKeys = new Set(['nodes', 'form_factor', 'node_count', '节点数量', '设备形态'])
+const structuredAttributeKeys = new Set([
+  'nodes',
+  'form_factor',
+  'node_count',
+  '节点数量',
+  '设备形态',
+  'ipmi_host',
+  'ipmi_user',
+  'ipmi_password',
+  'IPMI地址',
+  'IPMI用户',
+  'IPMI密码',
+])
 const attributeRows = computed(() =>
   attributesToList(deviceDrawer.row?.attributes).filter((item) => !structuredAttributeKeys.has(item.key))
 )
+const deviceIpmiDetail = computed(() => extractIpmiInfo(deviceDrawer.row?.attributes || {}))
 const deviceModalTitle = computed(() => (deviceModal.form.id ? '编辑设备' : '新增设备'))
 const isFourNodeDrawerDevice = computed(() => isFourNodeAttributes(deviceDrawer.row?.attributes))
 const fourNodeDetailNodes = computed(() =>
@@ -628,9 +677,9 @@ function createDeviceForm() {
     u_position: null,
     u_height: 1,
     status: 0,
-    mgmt_ip: '',
-    business_ip: '',
-    owner: '',
+    ipmi_host: '',
+    ipmi_user: '',
+    ipmi_password: '',
     purchase_date: null,
     warranty_expire: null,
     attributes: {},
@@ -651,7 +700,7 @@ function createFourNodeList() {
     cpu_cores: null,
     memory: '',
     disk: '',
-    mgmt_ip: '',
+    ipmi_host: '',
     ipmi_user: '',
     ipmi_password: '',
     remark: '',
@@ -674,7 +723,7 @@ function normalizeFourNodeList(nodes) {
       cpu_cores: matched.cpu_cores ?? matched.cpuCores ?? null,
       memory: String(matched.memory || ''),
       disk: String(matched.disk || ''),
-      mgmt_ip: String(matched.mgmt_ip || matched.mgmtIp || matched.ip || ''),
+      ipmi_host: String(matched.ipmi_host || matched.ipmiHost || ''),
       ipmi_user: String(matched.ipmi_user || matched.ipmiUser || ''),
       ipmi_password: String(matched.ipmi_password || matched.ipmiPassword || ''),
       remark: String(matched.remark || ''),
@@ -701,7 +750,7 @@ function serializeFourNodeList(nodes) {
     cpu_cores: node.cpu_cores === null || node.cpu_cores === '' ? null : Number(node.cpu_cores),
     memory: String(node.memory || '').trim(),
     disk: String(node.disk || '').trim(),
-    mgmt_ip: String(node.mgmt_ip || '').trim(),
+    ipmi_host: String(node.ipmi_host || '').trim(),
     ipmi_user: String(node.ipmi_user || '').trim(),
     ipmi_password: String(node.ipmi_password || '').trim(),
     remark: String(node.remark || '').trim(),
@@ -749,6 +798,64 @@ function buildAttributesFromList(list) {
   }, {})
 }
 
+function extractIpmiInfo(attributes = {}) {
+  return {
+    ipmi_host: String(attributes.ipmi_host || attributes.IPMI地址 || '').trim(),
+    ipmi_user: String(attributes.ipmi_user || attributes.IPMI用户 || '').trim(),
+    ipmi_password: String(attributes.ipmi_password || attributes.IPMI密码 || '').trim(),
+  }
+}
+
+function applyIpmiInfoToAttributes(attributes = {}) {
+  const result = { ...attributes }
+  result.ipmi_host = String(deviceModal.form.ipmi_host || '').trim()
+  result.ipmi_user = String(deviceModal.form.ipmi_user || '').trim()
+  if (deviceModal.form.ipmi_password) {
+    result.ipmi_password = String(deviceModal.form.ipmi_password || '').trim()
+  }
+  return result
+}
+
+function mergeAttributeRows(values = {}) {
+  const current = new Map((deviceModal.form.attributeList || []).map((item) => [String(item.key || '').trim(), item]))
+  Object.entries(values || {}).forEach(([key, value]) => {
+    const attrKey = String(key || '').trim()
+    if (!attrKey || structuredAttributeKeys.has(attrKey) || value === null || value === undefined || value === '') return
+    if (current.has(attrKey)) {
+      current.get(attrKey).value = String(value)
+    } else {
+      const item = { key: attrKey, value: String(value) }
+      deviceModal.form.attributeList.push(item)
+      current.set(attrKey, item)
+    }
+  })
+}
+
+function applyRedfishResult(data = {}) {
+  mergeAttributeRows(data.attributes || {})
+}
+
+async function probeDeviceRedfish() {
+  if (!deviceModal.form.ipmi_host) {
+    window.$message?.warning('请先填写 IPMI 地址')
+    return
+  }
+  redfishLoading.value = true
+  try {
+    const res = await api.assetApi.redfishProbeDevice({
+      ipmi_host: deviceModal.form.ipmi_host,
+      ipmi_user: deviceModal.form.ipmi_user,
+      ipmi_password: deviceModal.form.ipmi_password,
+    })
+    applyRedfishResult(res.data || {})
+    window.$message?.success('Redfish 信息已回填')
+  } catch (error) {
+    window.$message?.error(error.message || 'Redfish 获取失败')
+  } finally {
+    redfishLoading.value = false
+  }
+}
+
 function addDeviceAttribute() {
   deviceModal.form.attributeList.push({ key: '', value: '' })
 }
@@ -791,17 +898,51 @@ async function ensureMap() {
       minZoom: 2,
     }).addTo(mapInstance)
     mapMarkerLayer = L.layerGroup().addTo(mapInstance)
+    mapInstance.on('zoomend', () => renderMapMarkers())
   }
   mapInstance.invalidateSize()
-  renderMapMarkers()
+  renderMapMarkers(true)
 }
 
-function renderMapMarkers() {
+function layoutMapMarkerNodes(nodes) {
+  if (!mapInstance) return []
+  const zoom = mapInstance.getZoom()
+  const placed = []
+  const minGap = 52
+  return nodes.map((node) => {
+    const basePoint = mapInstance.project([node.point.lat, node.point.lng], zoom)
+    let markerPoint = basePoint
+    for (let attempt = 0; attempt < 18; attempt += 1) {
+      const distanceOk = placed.every((point) => markerPoint.distanceTo(point) >= minGap)
+      if (distanceOk) break
+      const angle = (Math.PI * 2 * attempt) / 8
+      const radius = 32 + Math.floor(attempt / 8) * 24
+      markerPoint = L.point(basePoint.x + Math.cos(angle) * radius, basePoint.y + Math.sin(angle) * radius)
+    }
+    placed.push(markerPoint)
+    const visualPoint = mapInstance.unproject(markerPoint, zoom)
+    return {
+      ...node,
+      visualPoint: {
+        lat: visualPoint.lat,
+        lng: visualPoint.lng,
+      },
+    }
+  })
+}
+
+function renderMapMarkers(fitBounds = false) {
   if (!mapInstance || !mapMarkerLayer) return
   mapMarkerLayer.clearLayers()
   const bounds = []
   regionNodes.value.forEach((node) => {
-    const marker = L.marker([node.point.lat, node.point.lng], {
+    bounds.push([node.point.lat, node.point.lng])
+  })
+  if (fitBounds && bounds.length) {
+    mapInstance.fitBounds(bounds, { maxZoom: 4, padding: [80, 80] })
+  }
+  layoutMapMarkerNodes(regionNodes.value).forEach((node) => {
+    const marker = L.marker([node.visualPoint.lat, node.visualPoint.lng], {
       icon: L.divIcon({
         className: 'cabinet-map-marker',
         html: mapMarkerHtml(node),
@@ -812,11 +953,7 @@ function renderMapMarkers() {
     })
     marker.on('click', () => selectRegion(node.region.id))
     marker.addTo(mapMarkerLayer)
-    bounds.push([node.point.lat, node.point.lng])
   })
-  if (bounds.length) {
-    mapInstance.fitBounds(bounds, { maxZoom: 4, padding: [80, 80] })
-  }
 }
 
 function mapMarkerHtml(node) {
@@ -872,7 +1009,7 @@ async function addPlatform() {
   const name = String(platformModal.platformName || '').trim()
   if (!name) return
   if (devicePlatformTree.value.some((item) => item.value === name)) {
-    window.$message?.warning('平台已存在')
+    window.$message?.warning('厂商已存在')
     return
   }
   platformModal.submitting = true
@@ -880,7 +1017,7 @@ async function addPlatform() {
     const res = await api.assetApi.createDeviceBrand({ name })
     devicePlatformTree.value = normalizeDevicePlatformTree(res.data || [])
     platformModal.platformName = ''
-    window.$message?.success('平台已新增')
+    window.$message?.success('厂商已新增')
   } finally {
     platformModal.submitting = false
   }
@@ -894,7 +1031,7 @@ async function deletePlatform(platform) {
     deviceModal.form.model = ''
   }
   delete platformModal.modelDrafts[platform.value]
-  window.$message?.success('平台已删除')
+  window.$message?.success('厂商已删除')
 }
 
 async function addModel(platform) {
@@ -1014,10 +1151,12 @@ function openDeviceModal(device = null, uPosition = null) {
     return
   }
   const isFourNodeDevice = isFourNodeAttributes(device?.attributes)
+  const ipmiInfo = extractIpmiInfo(device?.attributes || {})
   deviceModal.form = device
     ? {
         ...createDeviceForm(),
         ...device,
+        ...ipmiInfo,
         form_factor: isFourNodeDevice ? 'four_node' : 'standard',
         attributeList: createAttributeList(device.attributes),
         nodeList: isFourNodeDevice ? normalizeFourNodeList(device.attributes?.nodes || []) : createFourNodeList(),
@@ -1080,6 +1219,7 @@ async function submitDevice() {
       form_factor: isFourNode ? 'four_node' : 'standard',
       设备形态: isFourNode ? '四节点服务器' : '标准设备',
     }
+    Object.assign(attributes, applyIpmiInfoToAttributes(attributes))
     if (isFourNode) {
       attributes.node_count = '4'
       attributes.节点数量 = '4'
@@ -1099,6 +1239,12 @@ async function submitDevice() {
       u_height: height,
       attributes,
     }
+    delete payload.owner
+    delete payload.mgmt_ip
+    delete payload.business_ip
+    delete payload.ipmi_host
+    delete payload.ipmi_user
+    delete payload.ipmi_password
     delete payload.form_factor
     delete payload.nodeList
     delete payload.attributeList
@@ -1115,11 +1261,13 @@ async function submitDevice() {
 }
 
 function openRackContextMenu(event, u, device = null) {
-  const shell = event.currentTarget?.closest?.('.rack-table-shell')
-  const rect = shell?.getBoundingClientRect()
+  const menuWidth = 132
+  const menuHeight = device ? 112 : 48
+  const maxX = Math.max(8, window.innerWidth - menuWidth - 8)
+  const maxY = Math.max(8, window.innerHeight - menuHeight - 8)
   rackContextMenu.show = true
-  rackContextMenu.x = rect ? event.clientX - rect.left : event.offsetX
-  rackContextMenu.y = rect ? event.clientY - rect.top : event.offsetY
+  rackContextMenu.x = Math.min(Math.max(event.clientX, 8), maxX)
+  rackContextMenu.y = Math.min(Math.max(event.clientY, 8), maxY)
   rackContextMenu.u = u
   rackContextMenu.device = device
 }
@@ -1193,7 +1341,7 @@ function openDeviceDetail(device) {
   deviceDrawer.show = true
 }
 
-watch(regionNodes, renderMapMarkers)
+watch(regionNodes, () => renderMapMarkers(true))
 watch(viewMode, (mode) => {
   if (mode === 'map') ensureMap()
 })
@@ -1714,8 +1862,8 @@ onBeforeUnmount(() => {
 }
 
 .rack-context-menu {
-  position: absolute;
-  z-index: 20;
+  position: fixed;
+  z-index: 3000;
   min-width: 118px;
   overflow: hidden;
   border: 1px solid rgba(148, 163, 184, 0.32);
@@ -1969,6 +2117,7 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+.device-ipmi-editor,
 .device-attribute-editor,
 .four-node-editor {
   border: 1px solid rgba(148, 163, 184, 0.22);
@@ -1977,6 +2126,7 @@ onBeforeUnmount(() => {
   padding: 12px;
 }
 
+.device-ipmi-editor,
 .device-attribute-editor {
   margin-bottom: 12px;
 }

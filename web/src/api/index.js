@@ -169,6 +169,7 @@ export default {
     getDevice: (params = {}) => request.get('/asset/device/get', { params }),
     createDevice: (data = {}) => request.post('/asset/device/create', data),
     updateDevice: (data = {}) => request.post('/asset/device/update', data),
+    redfishProbeDevice: (data = {}) => request.post('/asset/device/redfish-probe', data),
     deleteDevice: (params = {}) => request.delete('/asset/device/delete', { params }),
     inventory: (params = {}) => request.get('/asset/inventory/list', { params }),
     getInventory: (params = {}) => request.get('/asset/inventory/get', { params }),
