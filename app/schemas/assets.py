@@ -7,6 +7,8 @@ from pydantic import BaseModel, Field
 class AssetRegionBase(BaseModel):
     name: str = Field(..., example="HK")
     code: str = Field(..., example="HK")
+    country: str = Field("", example="Hong Kong")
+    city: str = Field("", example="Hong Kong")
     remark: str = Field("", example="")
     status: bool = Field(True, example=True)
 

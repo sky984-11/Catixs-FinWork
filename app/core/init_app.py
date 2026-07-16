@@ -258,6 +258,7 @@ async def init_menus():
     await ensure_service_module_menus()
     await ensure_ticket_route_menus()
     await ensure_asset_menu()
+    await ensure_pop_menu()
     await ensure_syslog_menu()
     await ensure_akvorado_menu()
     await ensure_ipam_menu()
@@ -471,14 +472,14 @@ async def ensure_asset_menu():
         {
             "name": "机柜管理",
             "path": "/asset/cabinet",
-            "order": 2,
+            "order": 3,
             "icon": "mdi:server-network",
             "component": "/asset/cabinet",
         },
         {
             "name": "库存管理",
             "path": "/asset/inventory",
-            "order": 3,
+            "order": 4,
             "icon": "mdi:package-variant-closed",
             "component": "/asset/inventory",
         },
@@ -507,6 +508,36 @@ async def ensure_asset_menu():
                 await menu.save()
         else:
             await Menu.create(**values)
+
+
+async def ensure_pop_menu():
+    ops_menu = await get_service_module_menu("/ops")
+    menu = await Menu.filter(path="/ops/pop").first()
+    values = {
+        "name": "POP点管理",
+        "path": "/ops/pop",
+        "order": 2,
+        "parent_id": ops_menu.id,
+        "icon": "mdi:map-marker-radius-outline",
+        "is_hidden": False,
+        "component": "/ops/pop",
+        "keepalive": False,
+        "redirect": "",
+    }
+    if menu:
+        changed = False
+        for field, value in values.items():
+            if getattr(menu, field) != value:
+                setattr(menu, field, value)
+                changed = True
+        if menu.menu_type != MenuType.MENU:
+            menu.menu_type = MenuType.MENU
+            changed = True
+        if changed:
+            await menu.save()
+        return
+
+    await Menu.create(menu_type=MenuType.MENU, **values)
 
 
 async def ensure_syslog_menu():
@@ -951,6 +982,8 @@ async def ensure_asset_columns():
     if settings.DB_TYPE == "sqlite":
         conn = Tortoise.get_connection("sqlite")
         columns = [
+            ('asset_region', 'country', "VARCHAR(100)"),
+            ('asset_region', 'city', "VARCHAR(100)"),
             ('asset_inventory', 'cost_price_currency', "VARCHAR(10) NOT NULL DEFAULT 'USD'"),
             ('asset_inventory', 'sale_price_currency', "VARCHAR(10) NOT NULL DEFAULT 'USD'"),
             ('asset_inventory_sale_item', 'cost_price_currency', "VARCHAR(10) NOT NULL DEFAULT 'USD'"),
@@ -971,6 +1004,10 @@ async def ensure_asset_columns():
     conn = Tortoise.get_connection("postgres")
     await conn.execute_script(
         """
+        ALTER TABLE IF EXISTS "asset_region"
+            ADD COLUMN IF NOT EXISTS "country" VARCHAR(100),
+            ADD COLUMN IF NOT EXISTS "city" VARCHAR(100);
+
         ALTER TABLE IF EXISTS "asset_inventory"
             ADD COLUMN IF NOT EXISTS "subtype" VARCHAR(100),
             ADD COLUMN IF NOT EXISTS "attributes" JSONB NOT NULL DEFAULT '{}',

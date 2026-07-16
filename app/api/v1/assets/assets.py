@@ -579,6 +579,8 @@ async def list_region(
     page_size: int = Query(100),
     name: str = Query(""),
     code: str = Query(""),
+    country: str = Query(""),
+    city: str = Query(""),
     status: bool | None = Query(None),
 ):
     q = Q()
@@ -586,6 +588,10 @@ async def list_region(
         q &= Q(name__contains=name)
     if code:
         q &= Q(code__contains=code)
+    if country:
+        q &= Q(country__contains=country)
+    if city:
+        q &= Q(city__contains=city)
     if status is not None:
         q &= Q(status=status)
     total, objs = await asset_region_controller.list_regions(page=page, page_size=page_size, search=q)

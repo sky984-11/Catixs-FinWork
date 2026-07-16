@@ -42,6 +42,7 @@
                 placeholder="选择机柜"
                 @update:value="loadCabinetDevices"
               />
+              <n-button secondary round :disabled="!selectedRegionId" @click="openLocationModal">新增机房</n-button>
               <n-button type="primary" round @click="openCabinetModal">新增机柜</n-button>
               <n-button secondary round @click="backToMap">返回地图</n-button>
             </n-space>
@@ -192,6 +193,7 @@
                   <span>磁盘: {{ node.disk || '-' }}</span>
                   <span>管理地址: {{ node.mgmt_ip || '-' }}</span>
                   <span>IPMI: {{ node.ipmi_user || '-' }}</span>
+                  <span>IPMI密码: {{ node.ipmi_password || '-' }}</span>
                   <span>备注: {{ node.remark || '-' }}</span>
                 </article>
               </div>
@@ -210,9 +212,6 @@
               <n-input v-model:value="regionModal.form.code" placeholder="例如 HK" />
             </n-form-item-gi>
           </n-grid>
-          <n-form-item label="默认机房名称" required>
-            <n-input v-model:value="regionModal.form.location_name" placeholder="例如 HK IDC" />
-          </n-form-item>
           <n-form-item label="备注">
             <n-input v-model:value="regionModal.form.remark" type="textarea" placeholder="可填写地区说明" />
           </n-form-item>
@@ -220,6 +219,31 @@
         <template #action>
           <n-button @click="regionModal.show = false">取消</n-button>
           <n-button type="primary" :loading="regionModal.submitting" @click="submitRegion">保存</n-button>
+        </template>
+      </n-modal>
+
+      <n-modal v-model:show="locationModal.show" preset="dialog" title="新增机房">
+        <n-form label-placement="top">
+          <n-form-item label="所属地区" required>
+            <n-select
+              v-model:value="locationModal.form.region_id"
+              :options="regionOptions"
+              placeholder="选择地区"
+            />
+          </n-form-item>
+          <n-form-item label="机房名称" required>
+            <n-input v-model:value="locationModal.form.name" placeholder="例如 HK IDC" />
+          </n-form-item>
+          <n-form-item label="机房地址">
+            <n-input v-model:value="locationModal.form.address" placeholder="可填写机房地址" />
+          </n-form-item>
+          <n-form-item label="备注">
+            <n-input v-model:value="locationModal.form.remark" type="textarea" placeholder="可填写机房说明" />
+          </n-form-item>
+        </n-form>
+        <template #action>
+          <n-button @click="locationModal.show = false">取消</n-button>
+          <n-button type="primary" :loading="locationModal.submitting" @click="submitLocation">保存</n-button>
         </template>
       </n-modal>
 
@@ -307,6 +331,30 @@
             <n-input v-model:value="deviceModal.form.remark" type="textarea" />
           </n-form-item>
 
+          <div class="device-attribute-editor">
+            <div class="four-node-head">
+              <div>
+                <span class="eyebrow">Device Config</span>
+                <h3>设备配置</h3>
+              </div>
+              <n-button size="small" secondary @click="addDeviceAttribute">添加配置</n-button>
+            </div>
+            <n-empty v-if="!deviceModal.form.attributeList.length" description="暂无配置" />
+            <div v-else class="attribute-editor-list">
+              <div v-for="(attr, index) in deviceModal.form.attributeList" :key="index" class="attribute-editor-row">
+                <n-input v-model:value="attr.key" size="small" placeholder="配置项，如 IPMI密码" />
+                <n-input
+                  v-model:value="attr.value"
+                  size="small"
+                  :type="isSecretAttributeKey(attr.key) ? 'password' : 'text'"
+                  placeholder="配置值"
+                  show-password-on="click"
+                />
+                <n-button size="small" quaternary type="error" @click="removeDeviceAttribute(index)">删除</n-button>
+              </div>
+            </div>
+          </div>
+
           <div v-if="deviceModal.form.form_factor === 'four_node'" class="four-node-editor">
             <div class="four-node-head">
               <div>
@@ -368,6 +416,11 @@ const regionModal = reactive({
   show: false,
   submitting: false,
   form: createRegionForm(),
+})
+const locationModal = reactive({
+  show: false,
+  submitting: false,
+  form: createLocationForm(),
 })
 const cabinetModal = reactive({
   show: false,
@@ -447,7 +500,6 @@ const regionNodes = computed(() =>
         point: regionPoint(region, index),
       }
     })
-    .filter((node) => node.locations.length || node.cabinetCount || node.deviceCount)
 )
 
 const selectedRegion = computed(() => regions.value.find((item) => item.id === selectedRegionId.value) || null)
@@ -460,6 +512,12 @@ const selectedCabinetOptions = computed(() =>
   selectedCabinets.value.map((cabinet) => ({
     label: `${cabinet.name} / ${cabinetLocationName(cabinet)}`,
     value: cabinet.id,
+  }))
+)
+const regionOptions = computed(() =>
+  regions.value.map((region) => ({
+    label: `${region.name}${region.code ? ` / ${region.code}` : ''}`,
+    value: region.id,
   }))
 )
 const selectedRegionLocationOptions = computed(() =>
@@ -537,7 +595,17 @@ function createRegionForm() {
   return {
     name: '',
     code: '',
-    location_name: '',
+    remark: '',
+    status: true,
+  }
+}
+
+function createLocationForm() {
+  return {
+    region_id: null,
+    name: '',
+    type: 1,
+    address: '',
     remark: '',
     status: true,
   }
@@ -574,6 +642,7 @@ function createDeviceForm() {
     purchase_date: null,
     warranty_expire: null,
     attributes: {},
+    attributeList: [],
     remark: '',
     form_factor: 'standard',
     nodeList: createFourNodeList(),
@@ -645,6 +714,37 @@ function serializeFourNodeList(nodes) {
     ipmi_password: String(node.ipmi_password || '').trim(),
     remark: String(node.remark || '').trim(),
   }))
+}
+
+function createAttributeList(attributes) {
+  if (!attributes || typeof attributes !== 'object') return []
+  return Object.entries(attributes)
+    .filter(([key]) => !structuredAttributeKeys.has(key))
+    .map(([key, value]) => ({
+      key,
+      value: value === null || value === undefined ? '' : String(value),
+    }))
+}
+
+function buildAttributesFromList(list) {
+  return (Array.isArray(list) ? list : []).reduce((result, item) => {
+    const key = String(item?.key || '').trim()
+    if (!key || structuredAttributeKeys.has(key)) return result
+    result[key] = item?.value === null || item?.value === undefined ? '' : String(item.value).trim()
+    return result
+  }, {})
+}
+
+function addDeviceAttribute() {
+  deviceModal.form.attributeList.push({ key: '', value: '' })
+}
+
+function removeDeviceAttribute(index) {
+  deviceModal.form.attributeList.splice(index, 1)
+}
+
+function isSecretAttributeKey(key) {
+  return /password|密码|secret|token|团体名/i.test(String(key || ''))
 }
 
 function regionPoint(region, index) {
@@ -790,9 +890,8 @@ function openRegionModal() {
 async function submitRegion() {
   const name = String(regionModal.form.name || '').trim()
   const code = String(regionModal.form.code || '').trim()
-  const locationName = String(regionModal.form.location_name || '').trim()
-  if (!name || !code || !locationName) {
-    window.$message?.warning('请填写地区名称、地区代码和默认机房名称')
+  if (!name || !code) {
+    window.$message?.warning('请填写地区名称和地区代码')
     return
   }
   regionModal.submitting = true
@@ -805,14 +904,6 @@ async function submitRegion() {
     })
     const region = regionRes.data
     if (region?.id) {
-      await api.assetApi.createLocation({
-        region_id: region.id,
-        name: locationName,
-        type: 1,
-        address: '',
-        remark: '',
-        status: true,
-      })
       selectedRegionId.value = region.id
     }
     regionModal.show = false
@@ -829,7 +920,50 @@ async function submitRegion() {
   }
 }
 
+function openLocationModal() {
+  locationModal.form = createLocationForm()
+  locationModal.form.region_id = selectedRegionId.value || regions.value[0]?.id || null
+  locationModal.show = true
+}
+
+async function submitLocation() {
+  const name = String(locationModal.form.name || '').trim()
+  if (!locationModal.form.region_id || !name) {
+    window.$message?.warning('请选择地区并填写机房名称')
+    return
+  }
+  locationModal.submitting = true
+  try {
+    const res = await api.assetApi.createLocation({
+      ...locationModal.form,
+      name,
+      type: 1,
+      address: String(locationModal.form.address || '').trim(),
+      remark: String(locationModal.form.remark || '').trim(),
+      status: true,
+    })
+    locationModal.show = false
+    await loadData()
+    selectedRegionId.value = res.data?.region_id || locationModal.form.region_id
+    selectedCabinetId.value = null
+    rackDevices.value = []
+    viewMode.value = 'region'
+    window.$message?.success('机房已新增')
+  } finally {
+    locationModal.submitting = false
+  }
+}
+
 function openCabinetModal() {
+  if (!selectedRegionId.value) {
+    window.$message?.warning('请先选择地区')
+    return
+  }
+  if (!selectedRegionLocationOptions.value.length) {
+    window.$message?.warning('当前地区暂无机房，请先新增机房')
+    openLocationModal()
+    return
+  }
   cabinetModal.form = createCabinetForm()
   cabinetModal.form.location_id = selectedRegionLocationOptions.value[0]?.value || null
   cabinetModal.show = true
@@ -875,6 +1009,7 @@ function openDeviceModal(device = null, uPosition = null) {
         ...createDeviceForm(),
         ...device,
         form_factor: isFourNodeDevice ? 'four_node' : 'standard',
+        attributeList: createAttributeList(device.attributes),
         nodeList: isFourNodeDevice ? normalizeFourNodeList(device.attributes?.nodes || []) : createFourNodeList(),
       }
     : createDeviceForm()
@@ -931,7 +1066,7 @@ async function submitDevice() {
   deviceModal.submitting = true
   try {
     const attributes = {
-      ...(deviceModal.form.attributes || {}),
+      ...buildAttributesFromList(deviceModal.form.attributeList),
       form_factor: isFourNode ? 'four_node' : 'standard',
       设备形态: isFourNode ? '四合一服务器' : '标准设备',
     }
@@ -954,6 +1089,7 @@ async function submitDevice() {
     }
     delete payload.form_factor
     delete payload.nodeList
+    delete payload.attributeList
     const submit = payload.id ? api.assetApi.updateDevice : api.assetApi.createDevice
     await submit(payload)
     deviceModal.show = false
@@ -1821,11 +1957,16 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+.device-attribute-editor,
 .four-node-editor {
   border: 1px solid rgba(148, 163, 184, 0.22);
   border-radius: 8px;
   background: #f8fafc;
   padding: 12px;
+}
+
+.device-attribute-editor {
+  margin-bottom: 12px;
 }
 
 .four-node-head {
@@ -1840,6 +1981,18 @@ onBeforeUnmount(() => {
   margin: 2px 0 0;
   color: #0f172a;
   font-size: 15px;
+}
+
+.attribute-editor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.attribute-editor-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.8fr) minmax(180px, 1.2fr) auto;
+  gap: 8px;
 }
 
 .attribute-grid {
