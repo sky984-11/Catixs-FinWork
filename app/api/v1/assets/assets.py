@@ -842,20 +842,69 @@ async def get_cabinet(cabinet_id: int = Query(...)):
     return Success(data=data)
 
 
+def normalize_cabinet_payload(cabinet_in: AssetCabinetCreate | AssetCabinetUpdate) -> dict:
+    data = cabinet_in.model_dump(exclude={"id"})
+    start_u = int(data.get("rental_start_u") or 1)
+    end_u = int(data.get("rental_end_u") or start_u)
+    if start_u < 1 or end_u < start_u:
+        raise ValueError("请填写有效的租用U位范围，例如 20-25U")
+    data["name"] = str(data.get("name") or "").strip()
+    data["code"] = str(data.get("code") or data["name"]).strip()
+    data["row"] = ""
+    data["column"] = ""
+    data["capacity_u"] = end_u - start_u + 1
+    data["rental_start_u"] = start_u
+    data["rental_end_u"] = end_u
+    data["width_mm"] = max(int(data.get("width_mm") or 0), 0)
+    data["depth_mm"] = max(int(data.get("depth_mm") or 0), 0)
+    data["power_allocation_kw"] = max(float(data.get("power_allocation_kw") or 0), 0)
+    for field in ("power_overage_rate", "pdu_spec", "power_socket_spec", "rack_tray", "pdu_socket_types", "remark"):
+        data[field] = str(data.get(field) or "").strip()
+    return data
+
+
+async def validate_device_u_range(device_in: AssetDeviceCreate | AssetDeviceUpdate) -> str:
+    cabinet = await AssetCabinet.get(id=device_in.cabinet_id)
+    rental_start = max(int(cabinet.rental_start_u or 1), 1)
+    rental_end = max(int(cabinet.rental_end_u or rental_start), rental_start)
+    start = int(device_in.u_position or 0)
+    height = max(int(device_in.u_height or 1), 1)
+    end = start + height - 1
+    if not start or start < rental_start or end > rental_end:
+        return f"设备U位必须在当前机柜可用范围内: {rental_start}-{rental_end}U"
+    return ""
+
+
 @router.post("/cabinet/create", summary="创建机柜")
 async def create_cabinet(cabinet_in: AssetCabinetCreate):
-    obj = await asset_cabinet_controller.create(cabinet_in)
+    try:
+        data = normalize_cabinet_payload(cabinet_in)
+    except ValueError as exc:
+        return Success(msg=str(exc), code=400)
+    obj = await asset_cabinet_controller.create(data)
     return Success(msg="Created Successfully", data=await obj.to_dict())
 
 
 @router.post("/cabinet/update", summary="更新机柜")
 async def update_cabinet(cabinet_in: AssetCabinetUpdate):
-    obj = await asset_cabinet_controller.update(id=cabinet_in.id, obj_in=cabinet_in)
+    try:
+        data = normalize_cabinet_payload(cabinet_in)
+    except ValueError as exc:
+        return Success(msg=str(exc), code=400)
+    used = await AssetDevice.filter(cabinet_id=cabinet_in.id)
+    for device in used:
+        start = int(device.u_position or 0)
+        end = start + max(int(device.u_height or 1), 1) - 1
+        if start and (start < data["rental_start_u"] or end > data["rental_end_u"]):
+            return Success(msg="已有设备超出租用U位范围，请先调整设备U位", code=400)
+    obj = await asset_cabinet_controller.update(id=cabinet_in.id, obj_in=data)
     return Success(msg="Updated Successfully", data=await obj.to_dict())
 
 
 @router.delete("/cabinet/delete", summary="删除机柜")
 async def delete_cabinet(cabinet_id: int = Query(...)):
+    if await AssetDevice.filter(cabinet_id=cabinet_id).exists():
+        return Success(msg="机柜下存在设备，不能删除", code=400)
     await asset_cabinet_controller.remove(id=cabinet_id)
     return Success(msg="Deleted Successfully")
 
@@ -970,6 +1019,9 @@ async def redfish_probe_device(probe_in: AssetDeviceRedfishProbe):
 
 @router.post("/device/create", summary="创建设备")
 async def create_device(device_in: AssetDeviceCreate):
+    error = await validate_device_u_range(device_in)
+    if error:
+        return Success(msg=error, code=400)
     await prepare_device_attributes_for_save(device_in)
     obj = await asset_device_controller.create_device(device_in)
     return Success(data=await device_to_dict(obj, can_view_secrets=await can_view_device_secrets()), msg="Created Successfully")
@@ -977,6 +1029,9 @@ async def create_device(device_in: AssetDeviceCreate):
 
 @router.post("/device/update", summary="更新设备")
 async def update_device(device_in: AssetDeviceUpdate):
+    error = await validate_device_u_range(device_in)
+    if error:
+        return Success(msg=error, code=400)
     await prepare_device_attributes_for_save(device_in)
     obj = await asset_device_controller.update_device(id=device_in.id, obj_in=device_in)
     return Success(data=await device_to_dict(obj, can_view_secrets=await can_view_device_secrets()), msg="Updated Successfully")

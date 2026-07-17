@@ -31,7 +31,7 @@
                 <span>{{ selectedRegionNode?.locations.length || 0 }} 机房</span>
                 <span>{{ selectedRegionNode?.cabinetCount || 0 }} 机柜</span>
                 <span>{{ selectedRegionNode?.deviceCount || 0 }} 设备</span>
-                <span>{{ rackUsedUnits }}/{{ rackCapacity }}U</span>
+                <span>{{ rackUsedUnits }}/{{ rackVisibleUnitCount }}U</span>
               </div>
             </div>
             <n-space align="center">
@@ -42,7 +42,7 @@
                 placeholder="选择机柜"
                 @update:value="loadCabinetDevices"
               />
-              <n-button type="primary" round @click="openCabinetModal">新增机柜</n-button>
+              <n-button type="primary" round @click="openCabinetModal()">新增机柜</n-button>
               <n-button secondary round @click="openPlatformModal">厂商/型号管理</n-button>
               <n-button secondary round @click="backToMap">返回地图</n-button>
             </n-space>
@@ -54,17 +54,24 @@
                 <span>Cabinets</span>
                 <strong>{{ selectedCabinets.length }}</strong>
               </div>
-              <button
+              <article
                 v-for="cabinet in selectedCabinets"
                 :key="cabinet.id"
                 class="cabinet-card"
                 :class="{ active: selectedCabinetId === cabinet.id }"
                 @click="selectCabinet(cabinet.id)"
               >
-                <strong>{{ cabinet.name }}</strong>
+                <div class="cabinet-card-head">
+                  <strong>{{ cabinet.name }}</strong>
+                  <span class="cabinet-card-actions">
+                    <button title="编辑机柜" @click.stop="openCabinetModal(cabinet)">编辑</button>
+                    <button title="删除机柜" @click.stop="deleteCabinet(cabinet)">删除</button>
+                  </span>
+                </div>
                 <span>{{ cabinetLocationName(cabinet) }}</span>
-                <em>{{ cabinetDeviceCount(cabinet.id) }} 台设备 / {{ cabinet.capacity_u || 42 }}U</em>
-              </button>
+                <em>{{ cabinetDeviceCount(cabinet.id) }} 台设备 / {{ formatCabinetURange(cabinet) }}</em>
+                <em>{{ formatCabinetSize(cabinet) }} / {{ formatCabinetPower(cabinet) }}</em>
+              </article>
             </div>
 
             <n-spin :show="deviceLoading" class="rack-spin">
@@ -84,7 +91,7 @@
 
                 <div
                   class="rack-table-shell"
-                  :style="{ '--rack-units': rackCapacity }"
+                  :style="{ '--rack-units': rackVisibleUnitCount }"
                   @click="closeRackContextMenu"
                 >
                   <table class="rack-table">
@@ -216,7 +223,7 @@
         </n-drawer-content>
       </n-drawer>
 
-      <n-modal v-model:show="cabinetModal.show" preset="dialog" title="新增机柜">
+      <n-modal v-model:show="cabinetModal.show" preset="dialog" :title="cabinetModalTitle" style="width: 760px">
         <n-form label-placement="top">
           <n-form-item label="机房位置" required>
             <n-select
@@ -229,19 +236,48 @@
             <n-form-item-gi label="机柜名称" required>
               <n-input v-model:value="cabinetModal.form.name" placeholder="例如 A01" />
             </n-form-item-gi>
-            <n-form-item-gi label="机柜代码">
-              <n-input v-model:value="cabinetModal.form.code" placeholder="例如 A01" />
+            <n-form-item-gi label="租用起始 U">
+              <n-input-number v-model:value="cabinetModal.form.rental_start_u" :min="1" />
             </n-form-item-gi>
-            <n-form-item-gi label="容量 U">
-              <n-input-number v-model:value="cabinetModal.form.capacity_u" :min="1" :max="60" />
+            <n-form-item-gi label="租用结束 U">
+              <n-input-number v-model:value="cabinetModal.form.rental_end_u" :min="cabinetModal.form.rental_start_u || 1" />
             </n-form-item-gi>
-            <n-form-item-gi label="行 / 列">
-              <n-input-group>
-                <n-input v-model:value="cabinetModal.form.row" placeholder="行" />
-                <n-input v-model:value="cabinetModal.form.column" placeholder="列" />
-              </n-input-group>
+            <n-form-item-gi label="租用容量">
+              <n-input :value="`${cabinetRentalUnitCount}U`" readonly />
+            </n-form-item-gi>
+            <n-form-item-gi label="宽度 mm">
+              <n-input-number v-model:value="cabinetModal.form.width_mm" :min="0" />
+            </n-form-item-gi>
+            <n-form-item-gi label="深度 mm">
+              <n-input-number v-model:value="cabinetModal.form.depth_mm" :min="0" />
+            </n-form-item-gi>
+            <n-form-item-gi label="电力分配 kW">
+              <n-input-number v-model:value="cabinetModal.form.power_allocation_kw" :min="0" :precision="1" />
+            </n-form-item-gi>
+            <n-form-item-gi label="超额电力计费">
+              <n-input v-model:value="cabinetModal.form.power_overage_rate" placeholder="例如 RM180/0.1kW" />
+            </n-form-item-gi>
+            <n-form-item-gi label="PDU插槽类型">
+              <n-input v-model:value="cabinetModal.form.pdu_socket_types" placeholder="例如 C13, C19" />
+            </n-form-item-gi>
+            <n-form-item-gi label="托盘">
+              <n-input v-model:value="cabinetModal.form.rack_tray" placeholder="例如 2x rack tray" />
             </n-form-item-gi>
           </n-grid>
+          <n-form-item label="rPDU配置">
+            <n-input
+              v-model:value="cabinetModal.form.pdu_spec"
+              type="textarea"
+              placeholder="例如 2x 24 ways SPN rPDU c/w 20 C13 & 4 C19 Power Socket"
+            />
+          </n-form-item>
+          <n-form-item label="电源插座">
+            <n-input
+              v-model:value="cabinetModal.form.power_socket_spec"
+              type="textarea"
+              placeholder="例如 2x 32A single phase 220V-240V IEC 60309 commando socket"
+            />
+          </n-form-item>
           <n-form-item label="备注">
             <n-input v-model:value="cabinetModal.form.remark" type="textarea" />
           </n-form-item>
@@ -269,10 +305,10 @@
               />
             </n-form-item-gi>
             <n-form-item-gi label="占用 U 数">
-              <n-input-number v-model:value="deviceModal.form.u_height" :min="1" :max="rackCapacity" />
+              <n-input-number v-model:value="deviceModal.form.u_height" :min="1" :max="rackVisibleUnitCount" />
             </n-form-item-gi>
             <n-form-item-gi label="起始 U 位">
-              <n-input-number v-model:value="deviceModal.form.u_position" :min="1" :max="rackCapacity" />
+              <n-input-number v-model:value="deviceModal.form.u_position" :min="rackStartU" :max="rackEndU" />
             </n-form-item-gi>
             <n-form-item-gi label="状态">
               <n-select v-model:value="deviceModal.form.status" :options="deviceStatusOptions" />
@@ -575,17 +611,26 @@ const modelOptions = computed(() => {
   }))
 })
 
-const rackCapacity = computed(() => Math.max(Number(selectedCabinet.value?.capacity_u) || 42, 1))
+const cabinetStoredCapacity = computed(() => Math.max(Number(selectedCabinet.value?.capacity_u) || 42, 1))
+const rackStartU = computed(() => Math.max(Number(selectedCabinet.value?.rental_start_u) || 1, 1))
+const rackEndU = computed(() => {
+  const fallbackEnd = rackStartU.value + cabinetStoredCapacity.value - 1
+  const end = Number(selectedCabinet.value?.rental_end_u) || fallbackEnd
+  return Math.max(end, rackStartU.value)
+})
+const rackVisibleUnitCount = computed(() => Math.max(rackEndU.value - rackStartU.value + 1, 1))
+const rackCapacity = computed(() => rackVisibleUnitCount.value)
 const rackPlacedDevices = computed(() =>
   rackDevices.value
     .map((device) => {
       const start = Number(device.u_position || 0)
       const height = Math.max(Number(device.u_height || 1), 1)
-      if (!start || start < 1 || start > rackCapacity.value) return null
+      const end = start + height - 1
+      if (!start || start < rackStartU.value || end > rackEndU.value) return null
       return {
         ...device,
         start,
-        end: Math.min(start + height - 1, rackCapacity.value),
+        end,
         height,
       }
     })
@@ -593,7 +638,7 @@ const rackPlacedDevices = computed(() =>
 )
 const rackUnits = computed(() => {
   const units = []
-  for (let no = rackCapacity.value; no >= 1; no -= 1) {
+  for (let no = rackEndU.value; no >= rackStartU.value; no -= 1) {
     const occupants = rackPlacedDevices.value.filter((item) => item.start <= no && item.end >= no)
     units.push({ no, occupied: Boolean(occupants.length), conflict: occupants.length > 1 })
   }
@@ -614,7 +659,7 @@ const rackBlocks = computed(() =>
 )
 const rackTableRows = computed(() => {
   const rows = []
-  for (let u = rackCapacity.value; u >= 1; u -= 1) {
+  for (let u = rackEndU.value; u >= rackStartU.value; u -= 1) {
     const block = rackBlocks.value.find((item) => item.end === u)
     const covered = rackBlocks.value.some((item) => item.start <= u && item.end >= u)
     rows.push({
@@ -642,6 +687,12 @@ const attributeRows = computed(() =>
   attributesToList(deviceDrawer.row?.attributes).filter((item) => !structuredAttributeKeys.has(item.key))
 )
 const deviceIpmiDetail = computed(() => extractIpmiInfo(deviceDrawer.row?.attributes || {}))
+const cabinetModalTitle = computed(() => (cabinetModal.form.id ? '编辑机柜' : '新增机柜'))
+const cabinetRentalUnitCount = computed(() => {
+  const start = Number(cabinetModal.form.rental_start_u || 0)
+  const end = Number(cabinetModal.form.rental_end_u || 0)
+  return Math.max(end - start + 1, 0)
+})
 const deviceModalTitle = computed(() => (deviceModal.form.id ? '编辑设备' : '新增设备'))
 const isFourNodeDrawerDevice = computed(() => isFourNodeAttributes(deviceDrawer.row?.attributes))
 const fourNodeDetailNodes = computed(() =>
@@ -654,12 +705,23 @@ function isFourNodeAttributes(attributes) {
 
 function createCabinetForm() {
   return {
+    id: null,
     location_id: null,
     name: '',
     code: '',
     row: '',
     column: '',
     capacity_u: 42,
+    rental_start_u: 1,
+    rental_end_u: 42,
+    width_mm: 600,
+    depth_mm: 1000,
+    power_allocation_kw: 0,
+    power_overage_rate: '',
+    pdu_spec: '',
+    power_socket_spec: '',
+    rack_tray: '',
+    pdu_socket_types: '',
     remark: '',
     status: true,
   }
@@ -1102,7 +1164,7 @@ async function loadCabinetDevices() {
   }
 }
 
-function openCabinetModal() {
+function openCabinetModal(cabinet = null) {
   if (!selectedRegionId.value) {
     window.$message?.warning('请先选择地区')
     return
@@ -1111,13 +1173,32 @@ function openCabinetModal() {
     window.$message?.warning('当前地区暂无机房，请先到 POP点管理 创建机房')
     return
   }
-  cabinetModal.form = createCabinetForm()
-  cabinetModal.form.location_id = selectedRegionLocationOptions.value[0]?.value || null
+  if (cabinet) {
+    const rentalStart = Number(cabinet.rental_start_u || 1)
+    const fallbackEnd = rentalStart + Number(cabinet.capacity_u || 42) - 1
+    cabinetModal.form = {
+      ...createCabinetForm(),
+      ...cabinet,
+      code: cabinet.code || cabinet.name || '',
+      capacity_u: Number(cabinet.capacity_u || 42),
+      rental_start_u: rentalStart,
+      rental_end_u: Number(cabinet.rental_end_u || fallbackEnd),
+      width_mm: Number(cabinet.width_mm || 600),
+      depth_mm: Number(cabinet.depth_mm || 1000),
+      power_allocation_kw: Number(cabinet.power_allocation_kw || 0),
+    }
+  } else {
+    cabinetModal.form = createCabinetForm()
+  }
+  if (!cabinet) cabinetModal.form.location_id = selectedRegionLocationOptions.value[0]?.value || null
   cabinetModal.show = true
 }
 
 async function submitCabinet() {
   const name = String(cabinetModal.form.name || '').trim()
+  const rentalStart = Number(cabinetModal.form.rental_start_u || 1)
+  const rentalEnd = Number(cabinetModal.form.rental_end_u || rentalStart)
+  const capacity = rentalEnd - rentalStart + 1
   if (!selectedRegionId.value) {
     window.$message?.warning('请先选择地区')
     return
@@ -1126,23 +1207,57 @@ async function submitCabinet() {
     window.$message?.warning('请选择机房并填写机柜名称')
     return
   }
+  if (rentalStart < 1 || rentalEnd < rentalStart) {
+    window.$message?.warning('请填写有效的租用 U 位范围，例如 20-25U')
+    return
+  }
   cabinetModal.submitting = true
   try {
     const payload = {
       ...cabinetModal.form,
       name,
       code: String(cabinetModal.form.code || name).trim(),
-      capacity_u: Number(cabinetModal.form.capacity_u) || 42,
+      row: '',
+      column: '',
+      capacity_u: capacity,
+      rental_start_u: rentalStart,
+      rental_end_u: rentalEnd,
+      width_mm: Math.max(Number(cabinetModal.form.width_mm || 0), 0),
+      depth_mm: Math.max(Number(cabinetModal.form.depth_mm || 0), 0),
+      power_allocation_kw: Math.max(Number(cabinetModal.form.power_allocation_kw || 0), 0),
+      power_overage_rate: String(cabinetModal.form.power_overage_rate || '').trim(),
+      pdu_spec: String(cabinetModal.form.pdu_spec || '').trim(),
+      power_socket_spec: String(cabinetModal.form.power_socket_spec || '').trim(),
+      rack_tray: String(cabinetModal.form.rack_tray || '').trim(),
+      pdu_socket_types: String(cabinetModal.form.pdu_socket_types || '').trim(),
     }
-    const res = await api.assetApi.createCabinet(payload)
+    const submit = payload.id ? api.assetApi.updateCabinet : api.assetApi.createCabinet
+    const res = await submit(payload)
     cabinetModal.show = false
     await loadData()
     selectedCabinetId.value = res.data?.id || selectedCabinetId.value
     if (selectedCabinetId.value) await loadCabinetDevices()
-    window.$message?.success('机柜已新增')
+    window.$message?.success(payload.id ? '机柜已更新' : '机柜已新增')
   } finally {
     cabinetModal.submitting = false
   }
+}
+
+async function deleteCabinet(cabinet) {
+  if (!cabinet?.id) return
+  const count = cabinetDeviceCount(cabinet.id)
+  if (count > 0) {
+    window.$message?.warning('机柜下存在设备，不能删除')
+    return
+  }
+  if (!window.confirm(`确认删除机柜 ${cabinet.name || ''}？`)) return
+  await api.assetApi.deleteCabinet({ cabinet_id: cabinet.id })
+  if (selectedCabinetId.value === cabinet.id) {
+    selectedCabinetId.value = selectedCabinets.value.find((item) => item.id !== cabinet.id)?.id || null
+  }
+  await loadData()
+  if (selectedCabinetId.value) await loadCabinetDevices()
+  window.$message?.success('机柜已删除')
 }
 
 function openDeviceModal(device = null, uPosition = null) {
@@ -1172,7 +1287,7 @@ function openDeviceModal(device = null, uPosition = null) {
 function handleDeviceFormFactorChange(value) {
   if (value === 'four_node') {
     deviceModal.form.type = 0
-    deviceModal.form.u_height = Math.min(2, rackCapacity.value)
+    deviceModal.form.u_height = Math.min(2, rackVisibleUnitCount.value)
     deviceModal.form.nodeList = normalizeFourNodeList(deviceModal.form.nodeList)
   } else if (!deviceModal.form.u_height || deviceModal.form.u_height < 1) {
     deviceModal.form.u_height = 1
@@ -1180,7 +1295,7 @@ function handleDeviceFormFactorChange(value) {
 }
 
 function firstAvailableU() {
-  for (let no = 1; no <= rackCapacity.value; no += 1) {
+  for (let no = rackStartU.value; no <= rackEndU.value; no += 1) {
     const occupied = rackPlacedDevices.value.some((device) => device.start <= no && device.end >= no)
     if (!occupied) return no
   }
@@ -1203,8 +1318,8 @@ async function submitDevice() {
     window.$message?.warning('请选择机柜并填写设备名称')
     return
   }
-  if (!start || start < 1 || height < 1 || start + height - 1 > rackCapacity.value) {
-    window.$message?.warning('请填写有效的 U 位和占用 U 数')
+  if (!start || start < rackStartU.value || height < 1 || start + height - 1 > rackEndU.value) {
+    window.$message?.warning(`请填写有效的 U 位和占用 U 数，当前机柜可用范围为 ${rackStartU.value}-${rackEndU.value}U`)
     return
   }
   if (hasRackOverlap(start, height, deviceModal.form.id || null)) {
@@ -1306,20 +1421,45 @@ function cabinetDeviceCount(cabinetId) {
   return devices.value.filter((device) => device.cabinet_id === cabinetId).length
 }
 
+function formatCabinetURange(cabinet) {
+  const start = Math.max(Number(cabinet?.rental_start_u || 1), 1)
+  const fallbackEnd = start + Math.max(Number(cabinet?.capacity_u || 42), 1) - 1
+  const end = Math.max(Number(cabinet?.rental_end_u || fallbackEnd), start)
+  const capacity = end - start + 1
+  return start === 1 ? `${capacity}U` : `${start}-${end}U (${capacity}U)`
+}
+
+function formatCabinetSize(cabinet) {
+  const width = Number(cabinet?.width_mm || 0)
+  const depth = Number(cabinet?.depth_mm || 0)
+  if (!width && !depth) return '尺寸未录入'
+  if (!width) return `深 ${depth}mm`
+  if (!depth) return `宽 ${width}mm`
+  return `${width}W x ${depth}D mm`
+}
+
+function formatCabinetPower(cabinet) {
+  const power = Number(cabinet?.power_allocation_kw || 0)
+  const sockets = String(cabinet?.pdu_socket_types || '').trim()
+  if (power && sockets) return `${power}kW / ${sockets}`
+  if (power) return `${power}kW`
+  if (sockets) return sockets
+  return '电力未录入'
+}
+
 function formatDeviceUPosition(row) {
   if (!row?.u_position) return '-'
   return row.u_height > 1 ? `${row.u_position}-${row.u_position + row.u_height - 1}U` : `${row.u_position}U`
 }
 
 function rackBlockStyle(block) {
-  const capacity = rackCapacity.value
   return {
-    gridRow: `${capacity - block.end + 1} / span ${Math.max(block.end - block.start + 1, 1)}`,
+    gridRow: `${rackEndU.value - block.end + 1} / span ${Math.max(block.end - block.start + 1, 1)}`,
   }
 }
 
 function rackUnitGridRow(unit) {
-  return String(rackCapacity.value - unit.no + 1)
+  return String(rackEndU.value - unit.no + 1)
 }
 
 function getDeviceType(value) {
@@ -1598,6 +1738,42 @@ onBeforeUnmount(() => {
   color: #64748b;
   font-size: 12px;
   font-style: normal;
+}
+
+.cabinet-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cabinet-card-head strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cabinet-card-actions {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 4px;
+}
+
+.cabinet-card-actions button {
+  border: 0;
+  border-radius: 4px;
+  background: #eef2f7;
+  color: #475569;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 4px 6px;
+}
+
+.cabinet-card-actions button:hover {
+  background: #fee2e2;
+  color: #dc2626;
 }
 
 .cabinet-select {
