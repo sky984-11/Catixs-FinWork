@@ -141,6 +141,7 @@
                   >
                     <button v-if="!rackContextMenu.device" @click="handleRackMenuAdd">新增设备</button>
                     <button v-if="rackContextMenu.device" @click="handleRackMenuEdit">编辑设备</button>
+                    <button v-if="rackContextMenu.device" @click="handleRackMenuClone">克隆设备</button>
                     <button v-if="rackContextMenu.device" @click="handleRackMenuDelete">删除设备</button>
                   </div>
                 </div>
@@ -1312,9 +1313,14 @@ function handleDeviceFormFactorChange(value) {
 }
 
 function firstAvailableU() {
+  return firstAvailableUForHeight(1)
+}
+
+function firstAvailableUForHeight(height = 1) {
+  const normalizedHeight = Math.max(Number(height || 1), 1)
   for (let no = rackStartU.value; no <= rackEndU.value; no += 1) {
-    const occupied = rackPlacedDevices.value.some((device) => device.start <= no && device.end >= no)
-    if (!occupied) return no
+    if (no + normalizedHeight - 1 > rackEndU.value) return null
+    if (!hasRackOverlap(no, normalizedHeight)) return no
   }
   return null
 }
@@ -1394,7 +1400,7 @@ async function submitDevice() {
 
 function openRackContextMenu(event, u, device = null) {
   const menuWidth = 132
-  const menuHeight = device ? 112 : 48
+  const menuHeight = device ? 148 : 48
   const maxX = Math.max(8, window.innerWidth - menuWidth - 8)
   const maxY = Math.max(8, window.innerHeight - menuHeight - 8)
   rackContextMenu.show = true
@@ -1418,6 +1424,70 @@ function handleRackMenuEdit() {
   const device = rackContextMenu.device
   closeRackContextMenu()
   if (device) openDeviceModal(device)
+}
+
+function handleRackMenuClone() {
+  const device = rackContextMenu.device
+  closeRackContextMenu()
+  if (device) openDeviceCloneModal(device)
+}
+
+function openDeviceCloneModal(device) {
+  if (!selectedCabinetId.value || !device) return
+  const isFourNodeDevice = isFourNodeAttributes(device.attributes)
+  const ipmiInfo = extractIpmiInfo(device.attributes || {})
+  const height = isFourNodeDevice ? 2 : Math.max(Number(device.u_height || 1), 1)
+  const nextU = firstAvailableUForHeight(height)
+  if (!nextU) {
+    window.$message?.warning(`当前机柜没有可放置 ${height}U 设备的连续空位`)
+    return
+  }
+  deviceModal.form = {
+    ...createDeviceForm(),
+    ...device,
+    ...ipmiInfo,
+    id: null,
+    cabinet_id: selectedCabinetId.value,
+    asset_no: '',
+    name: buildCloneDeviceName(device.name),
+    serial_no: '',
+    u_position: nextU,
+    u_height: height,
+    ipmi_host: '',
+    ipmi_user: '',
+    ipmi_password: '',
+    form_factor: isFourNodeDevice ? 'four_node' : 'standard',
+    attributeList: createCloneAttributeList(device.attributes),
+    nodeList: isFourNodeDevice ? normalizeCloneFourNodeList(device.attributes?.nodes || []) : createFourNodeList(),
+  }
+  deviceModal.show = true
+}
+
+function buildCloneDeviceName(name) {
+  const baseName = String(name || '设备').trim()
+  return `${baseName}-副本`
+}
+
+function createCloneAttributeList(attributes) {
+  return createAttributeList(attributes).filter((item) => !isCloneUniqueAttributeKey(item.key))
+}
+
+function isCloneUniqueAttributeKey(key) {
+  const normalizedKey = String(key || '').toLowerCase()
+  return ['serial', 'sn', '序列', '资产', 'asset', 'ipmi', 'password', '密码'].some((item) =>
+    normalizedKey.includes(item.toLowerCase())
+  )
+}
+
+function normalizeCloneFourNodeList(nodes) {
+  return normalizeFourNodeList(nodes).map((node) => ({
+    ...node,
+    device_name: node.device_name ? buildCloneDeviceName(node.device_name) : '',
+    serial_no: '',
+    ipmi_host: '',
+    ipmi_user: '',
+    ipmi_password: '',
+  }))
 }
 
 async function handleRackMenuDelete() {
