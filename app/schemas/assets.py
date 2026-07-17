@@ -7,6 +7,8 @@ from pydantic import BaseModel, Field
 class AssetRegionBase(BaseModel):
     name: str = Field(..., example="HK")
     code: str = Field(..., example="HK")
+    country: str = Field("", example="Hong Kong")
+    city: str = Field("", example="Hong Kong")
     remark: str = Field("", example="")
     status: bool = Field(True, example=True)
 
@@ -84,6 +86,12 @@ class AssetDeviceCreate(AssetDeviceBase):
 
 class AssetDeviceUpdate(AssetDeviceBase):
     id: int
+
+
+class AssetDeviceRedfishProbe(BaseModel):
+    ipmi_host: str = Field(..., example="192.168.1.10")
+    ipmi_user: str = Field("", example="ADMIN")
+    ipmi_password: str = Field("", example="")
 
 
 class AssetDeviceBrandBase(BaseModel):

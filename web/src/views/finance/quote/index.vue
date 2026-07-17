@@ -106,28 +106,23 @@ const activeTypeLabel = computed(() => {
   if (!query.quote_type) return '全部报价'
   return quoteTypeOptions.find((item) => item.value === query.quote_type)?.label || '报价'
 })
-const regionFilterPlaceholder = computed(() => (['ipt', 'dia'].includes(query.quote_type) ? '站点A' : '地区'))
-const mergedSiteOptions = computed(() => {
-  const values = new Set(siteOptions.value.map((item) => item.value).filter(Boolean))
-  ;[query.region, quoteModal.form.site_a].forEach((value) => {
-    if (value) values.add(value)
-  })
-  return Array.from(values)
-    .sort()
-    .map((value) => ({ label: value, value }))
+const regionFilterPlaceholder = computed(() => (['ipt', 'dia'].includes(query.quote_type) ? '机房' : '地区'))
+const isQueryNetworkQuote = computed(() => ['ipt', 'dia'].includes(query.quote_type))
+const isFormNetworkQuote = computed(() => ['ipt', 'dia'].includes(quoteModal.form.quote_type))
+const mergedSiteOptions = computed(() => siteOptions.value.slice().sort((a, b) => a.label.localeCompare(b.label)))
+
+const queryRegionOptions = computed(() => {
+  if (isQueryNetworkQuote.value) return mergedSiteOptions.value
+  return makeTagOptions([...(fieldOptions.value.regions || []), { label: query.region, value: query.region }], [query.region])
 })
 
-const mergedRegionOptions = computed(() =>
-  makeTagOptions(
-    [
-      ...(fieldOptions.value.regions || []),
-      ...siteOptions.value,
-      { label: quoteModal.form.region, value: quoteModal.form.region },
-      { label: query.region, value: query.region },
-    ],
-    [quoteModal.form.region, query.region]
+const formRegionOptions = computed(() => {
+  if (isFormNetworkQuote.value) return mergedSiteOptions.value
+  return makeTagOptions(
+    [...(fieldOptions.value.regions || []), { label: quoteModal.form.region, value: quoteModal.form.region }],
+    [quoteModal.form.region]
   )
-)
+})
 
 const mergedResourceOptions = computed(() =>
   makeTagOptions(
@@ -258,12 +253,12 @@ const fieldMeta = {
   },
   site_a: {
     label: {
-      ipt: '站点A',
-      dia: '站点A',
+      ipt: '机房',
+      dia: '机房',
     },
     placeholder: {
-      ipt: 'Equinix HK1 / SG1 / LD8',
-      dia: 'Equinix HK2',
+      ipt: '选择POP点机房',
+      dia: '选择POP点机房',
     },
   },
   protection: {
@@ -399,6 +394,23 @@ function makeTagOptions(options = [], extras = [], normalize = (value) => String
   return Array.from(values.values()).sort((a, b) => a.label.localeCompare(b.label))
 }
 
+function isPopSiteValue(value) {
+  const current = String(value || '').trim()
+  if (!current) return false
+  return siteOptions.value.some((item) => String(item.value || '').trim() === current || String(item.label || '').trim() === current)
+}
+
+function firstPopSiteValue(values = []) {
+  return values.find((value) => isPopSiteValue(value)) || ''
+}
+
+function syncNetworkQuoteSiteSelection() {
+  if (!['ipt', 'dia'].includes(quoteModal.form.quote_type)) return
+  const selectedSite = firstPopSiteValue([quoteModal.form.site_a, quoteModal.form.region])
+  quoteModal.form.region = selectedSite || null
+  quoteModal.form.site_a = selectedSite || null
+}
+
 const columnDefinitions = [
   {
     title: () =>
@@ -437,7 +449,7 @@ const columnDefinitions = [
   { title: '硬盘', key: 'disk', minWidth: 160, ellipsis: { tooltip: true }, show: () => !query.quote_type || query.quote_type === 'server', ...sortableColumn('disk') },
   { title: () => typeFieldLabel('bandwidth', query.quote_type || 'server'), key: 'bandwidth', width: 112, ellipsis: { tooltip: true }, ...sortableColumn('bandwidth') },
   { title: '突发带宽', key: 'burst', width: 110, ellipsis: { tooltip: true }, show: () => isNetworkTable.value, ...sortableColumn('burst') },
-  { title: '站点A', key: 'site_a', minWidth: 150, ellipsis: { tooltip: true }, show: () => isNetworkTable.value, ...sortableColumn('site_a') },
+  { title: '机房', key: 'site_a', minWidth: 150, ellipsis: { tooltip: true }, show: () => isNetworkTable.value, ...sortableColumn('site_a') },
   { title: '币种', key: 'currency', width: 78, ellipsis: { tooltip: true }, show: () => isNetworkTable.value, ...sortableColumn('currency') },
   { title: '一次性费用', key: 'nrc', width: 116, align: 'right', render: (row) => renderPriceCell(formatNumber(row.nrc)), show: () => isNetworkTable.value, ...sortableColumn('nrc') },
   { title: '月费', key: 'mrc', width: 106, align: 'right', render: (row) => renderPriceCell(formatNumber(row.mrc), true), show: () => isNetworkTable.value, ...sortableColumn('mrc') },
@@ -521,6 +533,60 @@ function createQuoteForm() {
   }
 }
 
+const quoteStringFields = [
+  'quote_type',
+  'service_resource',
+  'region',
+  'service_name',
+  'cpu_model',
+  'cpu_cores',
+  'memory',
+  'disk',
+  'bandwidth',
+  'burst',
+  'traffic',
+  'site_a',
+  'protection',
+  'xc_cabling',
+  'contract_terms',
+  'delivery_time',
+  'ip_count',
+  'provider',
+  'currency',
+  'usd_per_mbps_nrc',
+  'note',
+  'remark',
+]
+
+const quoteNumberFields = ['nrc', 'mrc', 'usd_per_mbps_mrc', 'cost_price', 'target_price', 'sale_price']
+
+function normalizeQuoteForm(form = {}) {
+  const defaults = createQuoteForm()
+  const normalized = { ...defaults, ...form }
+  quoteStringFields.forEach((field) => {
+    normalized[field] = normalized[field] == null ? defaults[field] || '' : String(normalized[field])
+  })
+  quoteNumberFields.forEach((field) => {
+    normalized[field] = Number(normalized[field] ?? defaults[field] ?? 0) || 0
+  })
+  normalized.id = form.id ?? defaults.id
+  normalized.status = Number(normalized.status ?? defaults.status)
+  normalized.sort = Number(normalized.sort ?? defaults.sort) || 0
+  normalized.region = normalized.region || null
+  normalized.site_a = normalized.site_a || null
+  return normalized
+}
+
+function buildQuotePayload(form = {}) {
+  const payload = normalizeQuoteForm(form)
+  payload.region = payload.region || ''
+  payload.site_a = payload.site_a || ''
+  payload.currency = payload.currency ? String(payload.currency).trim().toUpperCase() : 'USD'
+  payload.usd_per_mbps_mrc = parseRateNumber(payload.usd_per_mbps_mrc)
+  payload.status = Number(payload.status)
+  return payload
+}
+
 function renderIconButton(label, icon, props = {}) {
   const { type, ...buttonProps } = props
   return h(
@@ -571,10 +637,26 @@ function syncCheckedRows() {
 }
 
 async function loadSiteOptions(type = query.quote_type) {
-  const res = await api.financeQuoteApi.siteOptions({
-    quote_type: ['ipt', 'dia'].includes(type) ? type : undefined,
-  })
-  siteOptions.value = res.data || []
+  if (!['ipt', 'dia'].includes(type)) {
+    siteOptions.value = []
+    return
+  }
+  const [regionRes, locationRes] = await Promise.all([
+    api.assetApi.regions({ page_size: 1000 }),
+    api.assetApi.locations({ page_size: 1000, type: 1 }),
+  ])
+  const regionMap = new Map((regionRes.data || []).map((region) => [region.id, region]))
+  siteOptions.value = (locationRes.data || [])
+    .filter((location) => Number(location.type) === 1)
+    .map((location) => {
+      const region = regionMap.get(location.region_id)
+      const place = [region?.country, region?.city].filter(Boolean).join(' / ') || region?.name || ''
+      const label = [place, location.name].filter(Boolean).join(' / ')
+      return {
+        label: label || location.name,
+        value: label || location.name,
+      }
+    })
 }
 
 async function loadFieldOptions(type = query.quote_type) {
@@ -603,9 +685,10 @@ function handleTypeChange(value) {
   loadQuotes()
 }
 
-function handleFormTypeChange(value) {
+async function handleFormTypeChange(value) {
   quoteModal.form.quote_type = value || 'server'
-  loadSiteOptions(quoteModal.form.quote_type)
+  await loadSiteOptions(quoteModal.form.quote_type)
+  syncNetworkQuoteSiteSelection()
   loadFieldOptions(quoteModal.form.quote_type)
 }
 
@@ -631,19 +714,21 @@ function typeFieldPlaceholder(field, type = activeFormType.value) {
   return fieldMeta[field]?.placeholder?.[type] || fieldMeta[field]?.placeholder?.server || ''
 }
 
-function openQuote(row = null) {
-  quoteModal.form = row
-    ? {
-        ...createQuoteForm(),
-        ...row,
-        region: row.region || null,
-        site_a: row.site_a || null,
-        usd_per_mbps_mrc: parseRateNumber(row.usd_per_mbps_mrc),
-        remark: row.remark || row.note || '',
-        status: Number(row.status ?? 1),
-      }
-    : createQuoteForm()
-  loadSiteOptions(quoteModal.form.quote_type)
+async function openQuote(row = null) {
+  quoteModal.form = normalizeQuoteForm(
+    row
+      ? {
+          ...row,
+          region: row.region || null,
+          site_a: row.site_a || null,
+          usd_per_mbps_mrc: parseRateNumber(row.usd_per_mbps_mrc),
+          remark: row.remark || row.note || '',
+          status: Number(row.status ?? 1),
+        }
+      : createQuoteForm()
+  )
+  await loadSiteOptions(quoteModal.form.quote_type)
+  syncNetworkQuoteSiteSelection()
   loadFieldOptions(quoteModal.form.quote_type)
   quoteModal.show = true
 }
@@ -653,21 +738,22 @@ async function submitQuote() {
     window.$message?.warning?.('请至少填写地区或产品信息')
     return
   }
+  const isNetworkQuote = ['ipt', 'dia'].includes(quoteModal.form.quote_type)
+  const selectedSite = isNetworkQuote ? firstPopSiteValue([quoteModal.form.site_a, quoteModal.form.region]) : ''
+  if (isNetworkQuote && !selectedSite) {
+    window.$message?.warning?.('IPT/DIA 报价的地区或机房只能从 POP 点中选择')
+    return
+  }
   quoteModal.submitting = true
   try {
     const submit = quoteModal.form.id ? api.financeQuoteApi.update : api.financeQuoteApi.create
-    const isNetworkQuote = ['ipt', 'dia'].includes(quoteModal.form.quote_type)
-    await submit({
+    const payload = buildQuotePayload({
       ...quoteModal.form,
-      region: isNetworkQuote ? quoteModal.form.site_a || quoteModal.form.region || '' : quoteModal.form.region || '',
-      service_resource: quoteModal.form.service_resource || '',
-      service_name: quoteModal.form.service_name || '',
-      site_a: quoteModal.form.site_a || '',
-      currency: quoteModal.form.currency ? String(quoteModal.form.currency).trim().toUpperCase() : 'USD',
-      usd_per_mbps_mrc: parseRateNumber(quoteModal.form.usd_per_mbps_mrc),
+      region: isNetworkQuote ? selectedSite || '' : quoteModal.form.region || '',
+      site_a: isNetworkQuote ? selectedSite || '' : quoteModal.form.site_a || '',
       note: quoteModal.form.remark || '',
-      status: Number(quoteModal.form.status),
     })
+    await submit(payload)
     window.$message?.success?.('保存成功')
     quoteModal.show = false
     await loadFieldOptions(query.quote_type)
@@ -738,7 +824,7 @@ function quoteExportColumns() {
       ['provider', '供应商'],
       ['bandwidth', '带宽'],
       ['burst', '突发带宽'],
-      ['site_a', '站点A'],
+      ['site_a', '机房'],
       ['currency', '币种'],
       ['nrc', '一次性费用'],
       ['mrc', '月费'],
@@ -905,8 +991,8 @@ onMounted(() => {
             v-model:value="query.region"
             clearable
             filterable
-            tag
-            :options="mergedRegionOptions"
+            :tag="!isQueryNetworkQuote"
+            :options="queryRegionOptions"
             :placeholder="regionFilterPlaceholder"
             @update:value="handleSearch"
           />
@@ -993,8 +1079,8 @@ onMounted(() => {
                 v-model:value="quoteModal.form.region"
                 clearable
                 filterable
-                tag
-                :options="mergedRegionOptions"
+                :tag="!isFormNetworkQuote"
+                :options="formRegionOptions"
                 placeholder="硅谷 / 洛杉矶 / 凤凰城"
               />
             </NFormItem>
@@ -1079,7 +1165,6 @@ onMounted(() => {
                 v-model:value="quoteModal.form.site_a"
                 clearable
                 filterable
-                tag
                 :options="mergedSiteOptions"
                 :placeholder="typeFieldPlaceholder('site_a')"
               />

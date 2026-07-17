@@ -16,7 +16,7 @@ class FinanceQuoteBase(BaseModel):
     bandwidth: str = Field("", example="2G", description="带宽")
     burst: str = Field("", example="100G", description="突发带宽")
     traffic: str = Field("", example="不限", description="流量")
-    site_a: str = Field("", example="Equinix HK1", description="站点A")
+    site_a: str = Field("", example="中国 / 香港 / HK01", description="机房")
     protection: str = Field("", example="NA", description="保护方式")
     xc_cabling: str = Field("", example="No", description="交叉/布线")
     contract_terms: str = Field("", example="12 Months", description="合同周期")

@@ -1,5 +1,6 @@
 import csv
 import asyncio
+import ipaddress
 import io
 import json
 import os
@@ -8,7 +9,8 @@ import urllib.request
 from copy import deepcopy
 from datetime import date, datetime
 
-from fastapi import APIRouter, File, Query, UploadFile
+import httpx
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from tortoise.expressions import Q
 from tortoise.transactions import in_transaction
@@ -44,6 +46,7 @@ from app.schemas.assets import (
     AssetDeviceBrandCreate,
     AssetDeviceCreate,
     AssetDeviceModelCreate,
+    AssetDeviceRedfishProbe,
     AssetDeviceUpdate,
     AssetInventoryCategoryCreate,
     AssetInventoryCategoryUpdate,
@@ -65,9 +68,153 @@ INVENTORY_FEISHU_WEBHOOK = os.getenv(
     "https://open.feishu.cn/open-apis/bot/v2/hook/4c3e89a6-35dd-4de3-b763-e1049449e5d4",
 )
 
-SENSITIVE_DEVICE_ATTRIBUTE_KEYS = {"IPMI密码", "snmp团体名"}
+SENSITIVE_DEVICE_ATTRIBUTE_KEYS = {"IPMI密码", "ipmi_password", "snmp团体名"}
 MASKED_DEVICE_SECRET = "******"
 DEVICE_SECRET_VIEW_ROLE_NAMES = {"admin", "noc"}
+
+
+def normalize_redfish_host(value: str) -> str:
+    host = str(value or "").strip().replace("https://", "").replace("http://", "").split("/", 1)[0]
+    if ":" in host and not host.count(":") > 1:
+        host = host.split(":", 1)[0]
+    try:
+        ipaddress.ip_address(host)
+    except ValueError as exc:
+        raise ValueError("IPMI地址必须是有效的IP地址") from exc
+    return host
+
+
+def redfish_path(value: str | None) -> str:
+    path = str(value or "").strip()
+    if not path:
+        return ""
+    if path.startswith("http://") or path.startswith("https://"):
+        marker = "/redfish/"
+        index = path.find(marker)
+        return path[index:] if index >= 0 else ""
+    return path
+
+
+async def redfish_get(client: httpx.AsyncClient, path: str) -> dict:
+    if not path:
+        return {}
+    response = await client.get(path)
+    response.raise_for_status()
+    data = response.json()
+    return data if isinstance(data, dict) else {}
+
+
+def redfish_link(data: dict, key: str) -> str:
+    value = data.get(key)
+    if isinstance(value, dict):
+        return redfish_path(value.get("@odata.id") or value.get("href"))
+    return ""
+
+
+def redfish_members(data: dict) -> list[str]:
+    members = data.get("Members") if isinstance(data, dict) else []
+    if not isinstance(members, list):
+        return []
+    return [redfish_path(item.get("@odata.id")) for item in members if isinstance(item, dict) and item.get("@odata.id")]
+
+
+def format_memory_mib(value) -> str:
+    try:
+        mib = float(value or 0)
+    except (TypeError, ValueError):
+        return ""
+    if mib <= 0:
+        return ""
+    gib = mib / 1024
+    return f"{gib:g} GiB" if gib < 1024 else f"{gib / 1024:g} TiB"
+
+
+def redfish_cpu_summary(processors: list[dict]) -> tuple[str, str, str]:
+    models = []
+    cores = 0
+    enabled = 0
+    for item in processors:
+        model = str(item.get("Model") or item.get("ProcessorId", {}).get("EffectiveFamily") or "").strip()
+        if model and model not in models:
+            models.append(model)
+        try:
+            cores += int(item.get("TotalCores") or 0)
+        except (TypeError, ValueError):
+            pass
+        status = item.get("Status") if isinstance(item.get("Status"), dict) else {}
+        state = str(status.get("State") or status.get("Health") or "").lower()
+        if state not in {"absent", "disabled"}:
+            enabled += 1
+    return str(enabled or len(processors) or ""), " / ".join(models), str(cores or "")
+
+
+def redfish_memory_summary(memory_modules: list[dict], system: dict) -> tuple[str, str]:
+    total_gib = system.get("MemorySummary", {}).get("TotalSystemMemoryGiB")
+    try:
+        total_gib_number = float(total_gib or 0)
+    except (TypeError, ValueError):
+        total_gib_number = 0
+    if total_gib_number:
+        return f"{total_gib_number:g} GiB", str(len(memory_modules) or "")
+    capacity_mib = 0
+    count = 0
+    for item in memory_modules:
+        try:
+            capacity = float(item.get("CapacityMiB") or 0)
+        except (TypeError, ValueError):
+            capacity = 0
+        if capacity > 0:
+            capacity_mib += capacity
+            count += 1
+    return format_memory_mib(capacity_mib), str(count or len(memory_modules) or "")
+
+
+def redfish_attribute_rows(system: dict, processors: list[dict], memory_modules: list[dict], nics: list[dict]) -> dict:
+    cpu_count, cpu_model, cpu_cores = redfish_cpu_summary(processors)
+    memory_total, memory_count = redfish_memory_summary(memory_modules, system)
+    macs = [str(item.get("MACAddress") or "").strip() for item in nics if item.get("MACAddress")]
+    rows = {
+        "CPU型号": cpu_model,
+        "CPU数量": cpu_count,
+        "网卡MAC": " / ".join(macs[:8]),
+        "BIOS版本": system.get("BiosVersion") or "",
+        "CPU核心数": cpu_cores,
+        "内存容量": memory_total,
+        "电源状态": system.get("PowerState") or "",
+        "内存条数量": memory_count,
+        "Redfish更新时间": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    return {key: str(value) for key, value in rows.items() if value not in (None, "")}
+
+
+async def collect_redfish_inventory(payload: AssetDeviceRedfishProbe) -> dict:
+    host = normalize_redfish_host(payload.ipmi_host)
+    auth = (payload.ipmi_user, payload.ipmi_password) if payload.ipmi_user else None
+    base_url = f"https://{host}"
+    timeout = httpx.Timeout(8.0, connect=4.0)
+    async with httpx.AsyncClient(base_url=base_url, timeout=timeout, verify=False, trust_env=False, auth=auth) as client:
+        service = await redfish_get(client, "/redfish/v1/")
+        systems_path = redfish_link(service, "Systems") or "/redfish/v1/Systems"
+        systems = await redfish_get(client, systems_path)
+        system_paths = redfish_members(systems)
+        if not system_paths:
+            raise ValueError("未发现Redfish Systems资源")
+        system = await redfish_get(client, system_paths[0])
+
+        processor_paths = redfish_members(await redfish_get(client, redfish_link(system, "Processors")))
+        memory_paths = redfish_members(await redfish_get(client, redfish_link(system, "Memory")))
+        nic_paths = redfish_members(await redfish_get(client, redfish_link(system, "EthernetInterfaces")))
+        processors, memory_modules, nics = await asyncio.gather(
+            asyncio.gather(*(redfish_get(client, path) for path in processor_paths)) if processor_paths else asyncio.sleep(0, result=[]),
+            asyncio.gather(*(redfish_get(client, path) for path in memory_paths)) if memory_paths else asyncio.sleep(0, result=[]),
+            asyncio.gather(*(redfish_get(client, path) for path in nic_paths)) if nic_paths else asyncio.sleep(0, result=[]),
+        )
+
+    attributes = redfish_attribute_rows(system, list(processors), list(memory_modules), list(nics))
+    return {
+        "host": host,
+        "attributes": attributes,
+    }
 DEVICE_SECRET_VIEW_ACCOUNT_NAMES = {"admin", "noc"}
 INVENTORY_IMPORT_BASE_COLUMNS = {
     "区域",
@@ -579,6 +726,8 @@ async def list_region(
     page_size: int = Query(100),
     name: str = Query(""),
     code: str = Query(""),
+    country: str = Query(""),
+    city: str = Query(""),
     status: bool | None = Query(None),
 ):
     q = Q()
@@ -586,6 +735,10 @@ async def list_region(
         q &= Q(name__contains=name)
     if code:
         q &= Q(code__contains=code)
+    if country:
+        q &= Q(country__contains=country)
+    if city:
+        q &= Q(city__contains=city)
     if status is not None:
         q &= Q(status=status)
     total, objs = await asset_region_controller.list_regions(page=page, page_size=page_size, search=q)
@@ -797,6 +950,22 @@ async def list_device(
 async def get_device(device_id: int = Query(...)):
     obj = await asset_device_controller.get(id=device_id)
     return Success(data=await device_to_dict(obj, can_view_secrets=await can_view_device_secrets()))
+
+
+@router.post("/device/redfish-probe", summary="根据IPMI地址采集Redfish设备信息")
+async def redfish_probe_device(probe_in: AssetDeviceRedfishProbe):
+    try:
+        data = await collect_redfish_inventory(probe_in)
+    except httpx.HTTPStatusError as exc:
+        status_code = exc.response.status_code
+        if status_code in {401, 403}:
+            raise HTTPException(status_code=400, detail="Redfish认证失败，请检查IPMI账号密码") from exc
+        raise HTTPException(status_code=400, detail=f"Redfish请求失败: HTTP {status_code}") from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=400, detail=f"无法连接Redfish服务: {exc}") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Success(data=data)
 
 
 @router.post("/device/create", summary="创建设备")

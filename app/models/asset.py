@@ -6,6 +6,8 @@ from .base import BaseModel, TimestampMixin
 class AssetRegion(BaseModel, TimestampMixin):
     name = fields.CharField(max_length=100, description="区域名称", index=True)
     code = fields.CharField(max_length=50, description="区域编码", unique=True, index=True)
+    country = fields.CharField(max_length=100, null=True, description="国家", index=True)
+    city = fields.CharField(max_length=100, null=True, description="城市", index=True)
     remark = fields.CharField(max_length=500, null=True, description="备注")
     status = fields.BooleanField(default=True, description="启用状态", index=True)
 
