@@ -52,7 +52,7 @@
               :pagination="remotePagination"
               :row-key="(row) => row.id"
               flex-height
-              :scroll-x="1500"
+              :scroll-x="1740"
               striped
             >
               <template #empty><n-empty description="暂无运维记录" /></template>
@@ -149,6 +149,18 @@
             </n-form-item>
             <n-form-item label="任务状态">
               <n-select v-model:value="remoteEditor.form.status" :options="statusOptions" />
+            </n-form-item>
+            <n-form-item label="运维结算">
+              <n-select
+                v-model:value="remoteEditor.form.ops_settlement_status"
+                :options="settlementOptions"
+              />
+            </n-form-item>
+            <n-form-item label="客户结算">
+              <n-select
+                v-model:value="remoteEditor.form.customer_settlement_status"
+                :options="settlementOptions"
+              />
             </n-form-item>
             <n-form-item label="到场时间">
               <n-date-picker
@@ -304,6 +316,12 @@ const statusOptions = [
   { label: '已取消', value: 'cancelled' },
 ]
 
+const settlementOptions = [
+  { label: '未计费', value: 'unbilled' },
+  { label: '已计费', value: 'billed' },
+  { label: '已结算', value: 'settled' },
+]
+
 const engineerStatusOptions = [
   { label: '启用', value: 1 },
   { label: '停用', value: 0 },
@@ -419,6 +437,14 @@ const remoteColumns = [
       { default: () => statusLabel(row.status) }),
   },
   {
+    title: '运维结算', key: 'ops_settlement_status', width: 110,
+    render: (row) => renderSettlementTag(readSettlementStatus(row, 'ops')),
+  },
+  {
+    title: '客户结算', key: 'customer_settlement_status', width: 110,
+    render: (row) => renderSettlementTag(readSettlementStatus(row, 'customer')),
+  },
+  {
     title: '备注', key: 'note', width: 360,
     render: (row) => renderNoteCell(row.note),
   },
@@ -495,6 +521,8 @@ function createRemoteForm(source = {}) {
     left_at: normalizeDateTime(source.left_at),
     work_minutes: Number(source.work_minutes || 0),
     status: source.status || 'scheduled',
+    ops_settlement_status: readSettlementStatus(source, 'ops'),
+    customer_settlement_status: readSettlementStatus(source, 'customer'),
     note: source.note || '',
   }
 }
@@ -796,6 +824,38 @@ function statusLabel(status) {
 
 function statusTagType(status) {
   return { scheduled: 'warning', arrived: 'info', done: 'success', cancelled: 'default' }[status] || 'default'
+}
+
+function normalizeSettlementStatus(value) {
+  const aliases = {
+    unbilled: 'unbilled',
+    unpaid: 'unbilled',
+    pending: 'unbilled',
+    '未计费': 'unbilled',
+    billed: 'billed',
+    invoiced: 'billed',
+    '已计费': 'billed',
+    settled: 'settled',
+    paid: 'settled',
+    completed: 'settled',
+    '已结算': 'settled',
+  }
+  return aliases[String(value || '').trim().toLowerCase()] || 'unbilled'
+}
+
+function readSettlementStatus(source, type) {
+  if (!source) return 'unbilled'
+  const value = type === 'ops'
+    ? source.ops_settlement_status ?? source.operation_settlement_status ?? source.ops_billing_status
+    : source.customer_settlement_status ?? source.customer_billing_status
+  return normalizeSettlementStatus(value)
+}
+
+function renderSettlementTag(value) {
+  const normalized = normalizeSettlementStatus(value)
+  const type = { unbilled: 'warning', billed: 'info', settled: 'success' }[normalized]
+  const label = settlementOptions.find((item) => item.value === normalized)?.label || '未计费'
+  return h(NTag, { type, bordered: false, size: 'small' }, { default: () => label })
 }
 
 function renderDeleteConfirm({ title, actionText, onConfirm }) {
