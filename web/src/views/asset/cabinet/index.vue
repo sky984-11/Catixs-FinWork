@@ -941,7 +941,11 @@ function regionPoint(region, index) {
 async function ensureMap() {
   if (viewMode.value !== 'map') return
   await nextTick()
+  await new Promise((resolve) => requestAnimationFrame(resolve))
   if (!mapEl.value) return
+  if (mapInstance && mapInstance.getContainer() !== mapEl.value) {
+    destroyMap()
+  }
   if (!mapInstance) {
     mapInstance = L.map(mapEl.value, {
       attributionControl: true,
@@ -964,6 +968,19 @@ async function ensureMap() {
   }
   mapInstance.invalidateSize()
   renderMapMarkers(true)
+  setTimeout(() => {
+    mapInstance?.invalidateSize()
+    renderMapMarkers()
+  }, 120)
+}
+
+function destroyMap() {
+  mapMarkerLayer?.clearLayers()
+  mapTileLayer?.remove()
+  mapInstance?.remove()
+  mapMarkerLayer = null
+  mapTileLayer = null
+  mapInstance = null
 }
 
 function layoutMapMarkerNodes(nodes) {
@@ -1492,12 +1509,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  mapMarkerLayer?.clearLayers()
-  mapTileLayer?.remove()
-  mapInstance?.remove()
-  mapMarkerLayer = null
-  mapTileLayer = null
-  mapInstance = null
+  destroyMap()
 })
 </script>
 
