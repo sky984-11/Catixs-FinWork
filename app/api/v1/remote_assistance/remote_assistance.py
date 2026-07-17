@@ -33,6 +33,8 @@ class RemoteHandsPayload(BaseModel):
     left_at: str = ""
     work_minutes: int = 0
     status: Literal["scheduled", "arrived", "done", "cancelled"] = "scheduled"
+    ops_settlement_status: Literal["unbilled", "billed", "settled"] = "unbilled"
+    customer_settlement_status: Literal["unbilled", "billed", "settled"] = "unbilled"
     note: str = ""
 
 
