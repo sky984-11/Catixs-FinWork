@@ -8,7 +8,7 @@
             <h2>机柜节点分布</h2>
           </div>
           <n-space>
-            <n-tag round type="info">{{ regionNodes.length }} 个地区</n-tag>
+            <n-tag round type="info">{{ mapRegionNodes.length }} 个地区</n-tag>
             <n-tag round type="success">{{ cabinets.length }} 个机柜</n-tag>
             <n-tag round type="warning">{{ devices.length }} 台设备</n-tag>
             <n-button secondary round @click="openPlatformModal">厂商/型号管理</n-button>
@@ -26,7 +26,7 @@
           <div class="stage-head">
             <div>
               <span class="eyebrow">{{ selectedRegion?.code || '-' }}</span>
-              <h2>{{ selectedRegion?.name || '请选择地区' }}</h2>
+              <h2>{{ selectedRegionLabel || '请选择地区' }}</h2>
               <div class="region-meta">
                 <span>{{ selectedRegionNode?.locations.length || 0 }} 机房</span>
                 <span>{{ selectedRegionNode?.cabinetCount || 0 }} 机柜</span>
@@ -477,6 +477,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import api from '@/api'
+import { translateRegion } from '@/utils/location-i18n'
 
 defineOptions({ name: 'AssetCabinetWorldMap' })
 
@@ -579,8 +580,10 @@ const regionNodes = computed(() =>
       }
     })
 )
+const mapRegionNodes = computed(() => regionNodes.value.filter((node) => node.cabinetCount > 0))
 
 const selectedRegion = computed(() => regions.value.find((item) => item.id === selectedRegionId.value) || null)
+const selectedRegionLabel = computed(() => translateRegion(selectedRegion.value) || selectedRegion.value?.name || '')
 const selectedRegionNode = computed(
   () => regionNodes.value.find((node) => node.region.id === selectedRegionId.value) || null
 )
@@ -1015,13 +1018,13 @@ function renderMapMarkers(fitBounds = false) {
   if (!mapInstance || !mapMarkerLayer) return
   mapMarkerLayer.clearLayers()
   const bounds = []
-  regionNodes.value.forEach((node) => {
+  mapRegionNodes.value.forEach((node) => {
     bounds.push([node.point.lat, node.point.lng])
   })
   if (fitBounds && bounds.length) {
     mapInstance.fitBounds(bounds, { maxZoom: 4, padding: [80, 80] })
   }
-  layoutMapMarkerNodes(regionNodes.value).forEach((node) => {
+  layoutMapMarkerNodes(mapRegionNodes.value).forEach((node) => {
     const marker = L.marker([node.visualPoint.lat, node.visualPoint.lng], {
       icon: L.divIcon({
         className: 'cabinet-map-marker',
@@ -1037,7 +1040,7 @@ function renderMapMarkers(fitBounds = false) {
 }
 
 function mapMarkerHtml(node) {
-  const label = node.region.code || node.region.name || ''
+  const label = node.region.code || translateRegion(node.region) || node.region.name || ''
   const count = node.cabinetCount || 0
   return `
     <div class="cabinet-marker-wrap">
@@ -1568,7 +1571,7 @@ function openDeviceDetail(device) {
   deviceDrawer.show = true
 }
 
-watch(regionNodes, () => renderMapMarkers(true))
+watch(mapRegionNodes, () => renderMapMarkers(true))
 watch(viewMode, (mode) => {
   if (mode === 'map') ensureMap()
 })

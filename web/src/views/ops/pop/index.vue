@@ -190,6 +190,83 @@
           </n-space>
         </template>
       </n-modal>
+
+      <n-modal
+        v-model:show="cabinetEditor.show"
+        preset="card"
+        title="新增机柜"
+        class="editor-modal"
+        :bordered="false"
+      >
+        <n-form label-placement="top" :model="cabinetEditor.form">
+          <n-form-item label="所属机房" required>
+            <n-select
+              v-model:value="cabinetEditor.form.location_id"
+              :options="roomLocationOptions"
+              disabled
+              placeholder="选择机房"
+            />
+          </n-form-item>
+          <div class="form-grid">
+            <n-form-item label="机柜名称" required>
+              <n-input v-model:value="cabinetEditor.form.name" placeholder="例如 AIMS KL1 20-25U" />
+            </n-form-item>
+            <n-form-item label="状态">
+              <n-checkbox v-model:checked="cabinetEditor.form.status">启用</n-checkbox>
+            </n-form-item>
+            <n-form-item label="租用起始 U">
+              <n-input-number v-model:value="cabinetEditor.form.rental_start_u" :min="1" />
+            </n-form-item>
+            <n-form-item label="租用结束 U">
+              <n-input-number v-model:value="cabinetEditor.form.rental_end_u" :min="cabinetEditor.form.rental_start_u || 1" />
+            </n-form-item>
+            <n-form-item label="租用容量">
+              <n-input :value="`${cabinetRentalUnitCount}U`" readonly />
+            </n-form-item>
+            <n-form-item label="宽度 mm">
+              <n-input-number v-model:value="cabinetEditor.form.width_mm" :min="0" />
+            </n-form-item>
+            <n-form-item label="深度 mm">
+              <n-input-number v-model:value="cabinetEditor.form.depth_mm" :min="0" />
+            </n-form-item>
+            <n-form-item label="电力分配 kW">
+              <n-input-number v-model:value="cabinetEditor.form.power_allocation_kw" :min="0" :precision="1" />
+            </n-form-item>
+            <n-form-item label="超额电力计费">
+              <n-input v-model:value="cabinetEditor.form.power_overage_rate" placeholder="例如 RM180/0.1kW" />
+            </n-form-item>
+            <n-form-item label="PDU插槽类型">
+              <n-input v-model:value="cabinetEditor.form.pdu_socket_types" placeholder="例如 C13, C19" />
+            </n-form-item>
+          </div>
+          <n-form-item label="rPDU配置">
+            <n-input
+              v-model:value="cabinetEditor.form.pdu_spec"
+              type="textarea"
+              placeholder="例如 2x 24 ways SPN rPDU c/w 20 C13 & 4 C19 Power Socket"
+            />
+          </n-form-item>
+          <n-form-item label="电源插座">
+            <n-input
+              v-model:value="cabinetEditor.form.power_socket_spec"
+              type="textarea"
+              placeholder="例如 2x 32A single phase 220V-240V IEC 60309 commando socket"
+            />
+          </n-form-item>
+          <n-form-item label="托盘">
+            <n-input v-model:value="cabinetEditor.form.rack_tray" placeholder="例如 2x rack tray" />
+          </n-form-item>
+          <n-form-item label="备注">
+            <n-input v-model:value="cabinetEditor.form.remark" type="textarea" />
+          </n-form-item>
+        </n-form>
+        <template #footer>
+          <n-space justify="end">
+            <n-button @click="cabinetEditor.show = false">取消</n-button>
+            <n-button type="primary" :loading="cabinetEditor.submitting" @click="submitCabinet">保存</n-button>
+          </n-space>
+        </template>
+      </n-modal>
     </div>
   </AppPage>
 </template>
@@ -198,6 +275,7 @@
 import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import { NButton, NPopconfirm, NSpace, NTag, useMessage } from 'naive-ui'
 import api from '@/api'
+import { translateCity, translateCountry, translateRegion } from '@/utils/location-i18n'
 
 const message = useMessage()
 const loading = ref(false)
@@ -235,7 +313,25 @@ const locationEditor = reactive({
   form: createLocationForm(),
 })
 
+const cabinetEditor = reactive({
+  show: false,
+  submitting: false,
+  form: createCabinetForm(),
+})
+
 const roomLocations = computed(() => locations.value.filter((item) => Number(item.type) === 1))
+const roomLocationOptions = computed(() =>
+  roomLocations.value.map((location) => ({
+    label: `${regionLabel(regionById(location.region_id))} / ${location.name || '-'}`,
+    value: location.id,
+  }))
+)
+
+const cabinetRentalUnitCount = computed(() => {
+  const start = Number(cabinetEditor.form.rental_start_u || 0)
+  const end = Number(cabinetEditor.form.rental_end_u || 0)
+  return Math.max(end - start + 1, 0)
+})
 
 const regionCascaderOptions = computed(() => {
   const countryMap = new Map()
@@ -243,7 +339,7 @@ const regionCascaderOptions = computed(() => {
     const country = String(region.country || '未分组').trim() || '未分组'
     if (!countryMap.has(country)) {
       countryMap.set(country, {
-        label: country,
+        label: translateCountry(country),
         value: `country:${country}`,
         children: [],
       })
@@ -266,7 +362,16 @@ const filteredRegions = computed(() => {
   const keyword = normalize(regionKeyword.value)
   if (!keyword) return regions.value
   return regions.value.filter((item) =>
-    [item.country, item.city, item.name, item.code, item.remark].some((value) => normalize(value).includes(keyword))
+    [
+      item.country,
+      item.city,
+      item.name,
+      item.code,
+      item.remark,
+      translateCountry(item.country),
+      translateCity(item.city),
+      translateRegion(item),
+    ].some((value) => normalize(value).includes(keyword))
   )
 })
 
@@ -276,9 +381,13 @@ const filteredLocations = computed(() => {
     const regionMatched = isLocationRegionMatched(item, locationRegionFilter.value)
     const keywordMatched =
       !keyword ||
-      [item.name, item.address, item.remark, regionLabel(regionById(item.region_id))].some((value) =>
-        normalize(value).includes(keyword)
-      )
+      [
+        item.name,
+        item.address,
+        item.remark,
+        regionLabel(regionById(item.region_id)),
+        translateRegion(regionById(item.region_id)),
+      ].some((value) => normalize(value).includes(keyword))
     return regionMatched && keywordMatched
   })
 })
@@ -303,7 +412,7 @@ const regionColumns = [
     minWidth: 220,
     render: (row) =>
         h('div', { class: 'primary-cell' }, [
-          h('strong', [row.country, row.city].filter(Boolean).join(' / ') || row.name || '-'),
+          h('strong', regionLabel(row)),
           h('small', row.code || '-'),
         ]),
   },
@@ -365,12 +474,13 @@ const locationColumns = [
   {
     title: '操作',
     key: 'actions',
-    width: 150,
+    width: 220,
     fixed: 'right',
     render: (row) =>
       h(NSpace, { size: 6, wrap: false }, {
         default: () => [
           h(NButton, { size: 'small', type: 'primary', secondary: true, onClick: () => openLocationEditor(row) }, { default: () => '编辑' }),
+          h(NButton, { size: 'small', secondary: true, onClick: () => openCabinetEditor(row) }, { default: () => '加机柜' }),
           renderDeleteConfirm({
             title: `确认删除机房 ${row.name || ''}？`,
             disabled: cabinetCountByLocation(row.id) > 0,
@@ -415,6 +525,30 @@ function createLocationForm(row = {}) {
     address: row.address || '',
     remark: row.remark || '',
     status: row.status ?? true,
+  }
+}
+
+function createCabinetForm(row = {}) {
+  return {
+    id: null,
+    location_id: row.location_id || row.id || null,
+    name: '',
+    code: '',
+    row: '',
+    column: '',
+    capacity_u: 42,
+    rental_start_u: 1,
+    rental_end_u: 42,
+    width_mm: 600,
+    depth_mm: 1000,
+    power_allocation_kw: 0,
+    power_overage_rate: '',
+    pdu_spec: '',
+    power_socket_spec: '',
+    rack_tray: '',
+    pdu_socket_types: '',
+    remark: '',
+    status: true,
   }
 }
 
@@ -516,6 +650,59 @@ async function submitLocation() {
   }
 }
 
+function openCabinetEditor(location) {
+  cabinetEditor.form = createCabinetForm(location || {})
+  cabinetEditor.show = true
+}
+
+async function submitCabinet() {
+  const form = cabinetEditor.form
+  const name = String(form.name || '').trim()
+  const locationId = Number(form.location_id)
+  const rentalStart = Number(form.rental_start_u || 1)
+  const rentalEnd = Number(form.rental_end_u || rentalStart)
+  const capacity = rentalEnd - rentalStart + 1
+
+  if (!roomLocations.value.some((location) => location.id === locationId) || !name) {
+    message.warning('请选择机房并填写机柜名称')
+    return
+  }
+  if (capacity < 1) {
+    message.warning('租用结束 U 不能小于起始 U')
+    return
+  }
+
+  cabinetEditor.submitting = true
+  try {
+    await api.assetApi.createCabinet({
+      ...form,
+      location_id: locationId,
+      name,
+      code: String(form.code || name).trim(),
+      row: '',
+      column: '',
+      capacity_u: capacity,
+      rental_start_u: rentalStart,
+      rental_end_u: rentalEnd,
+      width_mm: Math.max(Number(form.width_mm || 0), 0),
+      depth_mm: Math.max(Number(form.depth_mm || 0), 0),
+      power_allocation_kw: Math.max(Number(form.power_allocation_kw || 0), 0),
+      power_overage_rate: String(form.power_overage_rate || '').trim(),
+      pdu_spec: String(form.pdu_spec || '').trim(),
+      power_socket_spec: String(form.power_socket_spec || '').trim(),
+      rack_tray: String(form.rack_tray || '').trim(),
+      pdu_socket_types: String(form.pdu_socket_types || '').trim(),
+      remark: String(form.remark || '').trim(),
+      status: Boolean(form.status),
+    })
+    cabinetEditor.show = false
+    await loadData()
+    message.success('机柜已新增')
+  } finally {
+    cabinetEditor.submitting = false
+  }
+}
+
 async function deleteRegion(row) {
   await api.assetApi.deleteRegion({ region_id: row.id })
   await loadData()
@@ -550,12 +737,12 @@ function upsertRegion(region) {
 
 function regionLabel(region) {
   if (!region) return '-'
-  const place = [region.country, region.city].filter(Boolean).join(' / ')
+  const place = translateRegion(region)
   return place || region.name || '-'
 }
 
 function cityOptionLabel(region) {
-  const city = region.city || region.name || '-'
+  const city = translateCity(region.city) || translateRegion(region) || region.name || '-'
   return region.code ? `${city} (${region.code})` : city
 }
 

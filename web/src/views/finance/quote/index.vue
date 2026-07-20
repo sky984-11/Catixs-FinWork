@@ -24,6 +24,7 @@ import CommonPage from '@/components/page/CommonPage.vue'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import api from '@/api'
 import { renderIcon } from '@/utils'
+import { translateRegion } from '@/utils/location-i18n'
 
 const loading = ref(false)
 const rows = ref([])
@@ -650,11 +651,13 @@ async function loadSiteOptions(type = query.quote_type) {
     .filter((location) => Number(location.type) === 1)
     .map((location) => {
       const region = regionMap.get(location.region_id)
-      const place = [region?.country, region?.city].filter(Boolean).join(' / ') || region?.name || ''
+      const place = translateRegion(region)
+      const rawPlace = [region?.country, region?.city].filter(Boolean).join(' / ') || region?.name || ''
       const label = [place, location.name].filter(Boolean).join(' / ')
+      const value = [rawPlace, location.name].filter(Boolean).join(' / ')
       return {
         label: label || location.name,
-        value: label || location.name,
+        value: value || location.name,
       }
     })
 }
