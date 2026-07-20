@@ -32,20 +32,26 @@ TICKET_STATUS_MAP = {
 }
 
 
-async def send_feishu_message(content: dict) -> bool:
+async def send_feishu_message(content: dict, webhook_url: str | None = None) -> bool:
     """
     发送飞书机器人消息
     
     Args:
         content: 消息内容字典
+        webhook_url: 飞书机器人 Webhook，不传则使用默认工单机器人
         
     Returns:
         bool: 是否发送成功
     """
     try:
+        target_webhook_url = webhook_url or FEISHU_WEBHOOK_URL
+        if not target_webhook_url:
+            logger.warning("飞书消息未发送：Webhook 地址为空")
+            return False
+
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                FEISHU_WEBHOOK_URL,
+                target_webhook_url,
                 json=content,
                 timeout=10.0
             )
@@ -65,6 +71,57 @@ async def send_feishu_message(content: dict) -> bool:
     except Exception as e:
         logger.error(f"飞书消息发送异常: {e}")
         return False
+
+
+async def send_project_task_due_notification(
+    *,
+    webhook_url: str,
+    stage: str,
+    project_name: str,
+    task_title: str,
+    due_date: str,
+    assignee: str | None = None,
+    customer_name: str | None = None,
+    project_code: str | None = None,
+    remark: str | None = None,
+) -> bool:
+    stage_label = "即将到期" if stage == "due_soon" else "已到期"
+    template = "orange" if stage == "due_soon" else "red"
+    fields = [
+        ("项目", project_name),
+        ("子任务", task_title),
+        ("ETA", due_date),
+        ("负责人", assignee or "未设置"),
+    ]
+    if customer_name:
+        fields.append(("客户", customer_name))
+    if project_code:
+        fields.append(("项目编号", project_code))
+    if remark:
+        fields.append(("备注", remark))
+
+    card_content = {
+        "msg_type": "interactive",
+        "card": {
+            "header": {
+                "title": {
+                    "tag": "plain_text",
+                    "content": f"项目子任务{stage_label}提醒",
+                },
+                "template": template,
+            },
+            "elements": [
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "lark_md",
+                        "content": "\n".join(f"**{label}：** {value}" for label, value in fields),
+                    },
+                },
+            ],
+        },
+    }
+    return await send_feishu_message(card_content, webhook_url=webhook_url)
 
 
 async def send_ticket_created_notification(

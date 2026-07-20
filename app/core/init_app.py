@@ -1057,6 +1057,8 @@ async def ensure_project_columns():
             ('customer_project_discussion', 'task_id', "BIGINT"),
             ('customer_project_discussion', 'attachment_id', "BIGINT"),
             ('customer_project_attachment', 'task_id', "BIGINT"),
+            ('customer_project_task', 'due_soon_notified_at', "TIMESTAMP"),
+            ('customer_project_task', 'due_notified_at', "TIMESTAMP"),
         ]
         for table, column, column_type in columns:
             try:
@@ -1079,6 +1081,10 @@ async def ensure_project_columns():
 
         ALTER TABLE IF EXISTS "customer_project_attachment"
             ADD COLUMN IF NOT EXISTS "task_id" BIGINT;
+
+        ALTER TABLE IF EXISTS "customer_project_task"
+            ADD COLUMN IF NOT EXISTS "due_soon_notified_at" TIMESTAMP,
+            ADD COLUMN IF NOT EXISTS "due_notified_at" TIMESTAMP;
         """
     )
 

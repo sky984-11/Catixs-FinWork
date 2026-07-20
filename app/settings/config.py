@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     DATACENTER_PARTS_API_USERNAME: str = "admin"
     DATACENTER_PARTS_API_PASSWORD: str = "Catixs@3202"
     DATACENTER_PARTS_API_TIMEOUT: float = 20
+    PROJECT_TASK_FEISHU_WEBHOOK_URL: str = (
+        "https://open.feishu.cn/open-apis/bot/v2/hook/dcdbb605-0018-44bf-8953-df3b7756a777"
+    )
 
     TORTOISE_ORM: dict[str, Any] = {}
     DATETIME_FORMAT: str = "%Y-%m-%d %H:%M:%S"

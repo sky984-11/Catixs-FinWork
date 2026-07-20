@@ -15,6 +15,7 @@ import {
   NImageGroup,
   NInput,
   NInputNumber,
+  NModal,
   NPopconfirm,
   NProgress,
   NSelect,
@@ -56,6 +57,8 @@ const activeTaskId = ref(null)
 const collapsedTaskIds = ref(new Set())
 const taskReplyText = reactive({})
 const taskReplyAttachmentId = reactive({})
+const taskEditVisible = ref(false)
+const taskEditLoading = ref(false)
 const taskContextMenu = reactive({
   show: false,
   x: 0,
@@ -96,6 +99,7 @@ const currencyOptions = ['USD', 'CNY', 'HKD', 'EUR', 'GBP', 'SGD', 'JPY'].map((i
 
 const modalForm = reactive(createEmptyForm())
 const taskForm = reactive(createEmptyTaskForm())
+const taskEditForm = reactive(createEmptyTaskEditForm())
 
 const modalTitle = computed(() => (modalAction.value === 'add' ? '新增项目' : '编辑项目'))
 const customerOptions = computed(() =>
@@ -168,6 +172,7 @@ const discussionAttachmentOptions = computed(() =>
   }))
 )
 const taskContextOptions = [
+  { label: '编辑任务', key: 'edit', icon: () => renderContextIcon('mdi:pencil-outline') },
   { label: '回复任务', key: 'reply', icon: () => renderContextIcon('mdi:reply-outline') },
 ]
 
@@ -202,6 +207,18 @@ function createEmptyTaskForm() {
     assignee: '',
     due_date: null,
     remark: '',
+  }
+}
+
+function createEmptyTaskEditForm() {
+  return {
+    id: null,
+    title: '',
+    assignee: '',
+    due_date: null,
+    remark: '',
+    is_done: false,
+    sort_order: 0,
   }
 }
 
@@ -351,6 +368,43 @@ async function updateTask(task, patch = {}) {
     ...patch,
   })
   await loadProjectDetail(detailProject.value.id)
+}
+
+function openEditTask(task) {
+  Object.assign(taskEditForm, createEmptyTaskEditForm(), {
+    id: task.id,
+    title: task.title || '',
+    assignee: task.assignee || '',
+    due_date: task.due_date || null,
+    remark: task.remark || '',
+    is_done: Boolean(task.is_done),
+    sort_order: Number(task.sort_order || 0),
+  })
+  taskEditVisible.value = true
+}
+
+async function submitTaskEdit() {
+  if (!detailProject.value || !taskEditForm.id) return
+  const title = taskEditForm.title.trim()
+  if (!title) {
+    window.$message?.warning?.('请输入任务标题')
+    return
+  }
+  taskEditLoading.value = true
+  try {
+    await api.projectApi.updateTask({
+      project_id: detailProject.value.id,
+      ...taskEditForm,
+      title,
+      assignee: taskEditForm.assignee || '',
+      due_date: taskEditForm.due_date || null,
+      remark: taskEditForm.remark || '',
+    })
+    taskEditVisible.value = false
+    await loadProjectDetail(detailProject.value.id)
+  } finally {
+    taskEditLoading.value = false
+  }
 }
 
 async function deleteTask(task) {
@@ -623,6 +677,10 @@ function handleTaskContextSelect(key) {
   const task = taskContextMenu.task
   taskContextMenu.show = false
   if (!task) return
+  if (key === 'edit') {
+    openEditTask(task)
+    return
+  }
   if (key === 'reply') {
     expandTask(task.id)
     activeTaskId.value = task.id
@@ -956,6 +1014,7 @@ onMounted(async () => {
                       <span>{{ task.assignee || '-' }} · {{ task.due_date || '无截止日期' }}</span>
                     </div>
                     <NSpace size="small" :wrap="false">
+                      <NButton text size="small" @click="openEditTask(task)">编辑</NButton>
                       <NButton text size="small" @click="toggleTaskCollapse(task)">
                         <template #icon>
                           <TheIcon
@@ -1115,6 +1174,56 @@ onMounted(async () => {
       @select="handleTaskContextSelect"
     />
 
+    <NModal
+      v-model:show="taskEditVisible"
+      preset="card"
+      title="编辑任务"
+      class="task-edit-modal"
+      :bordered="false"
+    >
+      <NForm label-placement="top" :model="taskEditForm">
+        <NGrid :cols="2" :x-gap="14">
+          <NFormItemGi :span="2" label="任务标题" required>
+            <NInput v-model:value="taskEditForm.title" placeholder="任务标题" clearable />
+          </NFormItemGi>
+          <NFormItemGi label="负责人">
+            <NSelect
+              v-model:value="taskEditForm.assignee"
+              filterable
+              clearable
+              :options="userOptions"
+              placeholder="负责人"
+            />
+          </NFormItemGi>
+          <NFormItemGi label="ETA">
+            <NDatePicker
+              v-model:formatted-value="taskEditForm.due_date"
+              type="date"
+              value-format="yyyy-MM-dd"
+              clearable
+            />
+          </NFormItemGi>
+          <NFormItemGi label="完成状态">
+            <NCheckbox v-model:checked="taskEditForm.is_done">已完成</NCheckbox>
+          </NFormItemGi>
+          <NFormItemGi :span="2" label="备注">
+            <NInput
+              v-model:value="taskEditForm.remark"
+              type="textarea"
+              :autosize="{ minRows: 3, maxRows: 6 }"
+              placeholder="任务备注"
+            />
+          </NFormItemGi>
+        </NGrid>
+      </NForm>
+      <template #footer>
+        <NSpace justify="end">
+          <NButton @click="taskEditVisible = false">取消</NButton>
+          <NButton type="primary" :loading="taskEditLoading" @click="submitTaskEdit">保存</NButton>
+        </NSpace>
+      </template>
+    </NModal>
+
     <CrudModal
       v-model:visible="modalVisible"
       width="860px"
@@ -1213,6 +1322,10 @@ onMounted(async () => {
   grid-template-columns: minmax(220px, 1.8fr) minmax(180px, 1fr) 130px 130px 42px;
   gap: 10px;
   margin-bottom: 12px;
+}
+
+.task-edit-modal {
+  width: min(640px, calc(100vw - 32px));
 }
 
 .summary-strip {

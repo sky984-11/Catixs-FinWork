@@ -234,6 +234,9 @@ async def create_project_task(task_in: ProjectTaskCreate):
 async def update_project_task(task_in: ProjectTaskUpdate):
     task = await CustomerProjectTask.get(id=task_in.id)
     payload = task_in.model_dump(exclude={"id", "project_id"}, exclude_unset=True)
+    if "due_date" in payload and payload["due_date"] != task.due_date:
+        payload["due_soon_notified_at"] = None
+        payload["due_notified_at"] = None
     task.update_from_dict(payload)
     await task.save()
     return Success(msg="Updated Successfully", data=await serialize_task(task))

@@ -11,10 +11,12 @@ from tortoise.expressions import Q
 from app.controllers.task import scheduled_task_controller
 from app.log import logger
 from app.models.admin import ScheduledTask, ScheduledTaskLog
+from app.services.project_task_notifier import notify_due_project_tasks
 from app.settings.config import settings
 
 _scheduler_task: asyncio.Task | None = None
 _running_task_ids: set[int] = set()
+_project_task_notification_running = False
 
 
 def _resolve_script_path(script_path: str | None) -> str:
@@ -103,9 +105,14 @@ async def execute_scheduled_task(task: ScheduledTask) -> None:
 
 
 async def scheduler_loop() -> None:
+    global _project_task_notification_running
     while True:
         try:
             now = datetime.now()
+            if not _project_task_notification_running:
+                _project_task_notification_running = True
+                asyncio.create_task(run_project_task_notifications(now))
+
             due_tasks = await ScheduledTask.filter(
                 Q(is_enabled=True) & (Q(next_run_at__lte=now) | Q(next_run_at=None))
             ).limit(10)
@@ -119,6 +126,18 @@ async def scheduler_loop() -> None:
         except Exception:
             logger.exception("scheduled task loop error")
         await asyncio.sleep(60)
+
+
+async def run_project_task_notifications(now: datetime) -> None:
+    global _project_task_notification_running
+    try:
+        sent_count = await notify_due_project_tasks(now)
+        if sent_count:
+            logger.info("project task feishu notifications sent: %s", sent_count)
+    except Exception:
+        logger.exception("project task notification loop error")
+    finally:
+        _project_task_notification_running = False
 
 
 def start_scheduler() -> None:

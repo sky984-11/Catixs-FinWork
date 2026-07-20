@@ -72,6 +72,8 @@ class CustomerProjectTask(BaseModel, TimestampMixin):
     is_done = fields.BooleanField(default=False, description="是否完成", index=True)
     sort_order = fields.IntField(default=0, description="排序")
     remark = fields.CharField(max_length=500, null=True, description="备注")
+    due_soon_notified_at = fields.DatetimeField(null=True, description="提前一天通知时间")
+    due_notified_at = fields.DatetimeField(null=True, description="到期通知时间")
 
     class Meta:
         table = "customer_project_task"
