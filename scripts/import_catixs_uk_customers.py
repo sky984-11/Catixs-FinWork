@@ -14,13 +14,26 @@ from app.models.company import Company
 from app.settings.config import settings
 
 
-DEFAULT_CSV_PATH = Path(r"C:\Users\LiuPeng\Downloads\77Tel(Catixs HK).csv")
-ISSUER_NAME = "77 Telecom Ltd"
+DEFAULT_CSV_PATH = Path(r"C:\Users\LiuPeng\Downloads\Catixs UK.csv")
+ISSUER_NAME = "Catixs Ltd"
 EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
 
 
 def clean(value: str | None) -> str:
     return (value or "").replace("\ufeff", "").strip()
+
+
+def normalized_key(value: str) -> str:
+    return re.sub(r"\s+", " ", clean(value)).lower()
+
+
+def get(row: dict[str, str], *names: str) -> str:
+    lookup = {normalized_key(key): value for key, value in row.items()}
+    for name in names:
+        value = lookup.get(normalized_key(name))
+        if value is not None:
+            return clean(value)
+    return ""
 
 
 def limit(value: str, max_length: int) -> str:
@@ -40,34 +53,34 @@ def note_line(label: str, value: str) -> str:
 
 def build_remark(row: dict[str, str]) -> str:
     parts = [
-        note_line("账期", row.get("Payment Terms", "")),
-        note_line("销售联系人", row.get("Sales Contact (Name, Email, Tel)", "")),
-        note_line("财务联系人", row.get("Billing Contact (Name; Email, Tel)", "")),
-        note_line("技术联系人", row.get("Tech Contact (Name; Email, Tel)", "")),
-        note_line("NOC联系人", row.get("NOC Contact", "")),
-        note_line("客户资料链接", row.get("Customer Info Folder", "")),
-        note_line("备注", row.get("Note", "")),
+        note_line("账期", get(row, "Billing/Payment Terms", "Payment Terms")),
+        note_line("销售联系人", get(row, "Sales Contact (Name, Email, Tel)")),
+        note_line("财务联系人", get(row, "Billing Contact (Name; Email, Tel)")),
+        note_line("技术联系人", get(row, "Tech Contact (Name; Email, Tel)")),
+        note_line("NOC联系人", get(row, "NOC Contact")),
+        note_line("客户资料链接", get(row, "Info Folder", "Customer Info Folder")),
+        note_line("备注", get(row, "Note")),
     ]
     return "\n".join(part for part in parts if part)
 
 
 def normalize_row(row: dict[str, str]) -> dict[str, str] | None:
-    code = clean(row.get("Customer Account# (CAN)", ""))
-    legal_name = clean(row.get("Customer Name", ""))
-    name = clean(row.get("Nickname", "")) or legal_name
+    code = get(row, "Customer Account# (CAN)")
+    legal_name = get(row, "Name", "Customer Name")
+    name = get(row, "Nickname") or legal_name
     if not code or not legal_name:
         return None
 
-    billing_contact = clean(row.get("Billing Contact (Name; Email, Tel)", ""))
-    tech_contact = clean(row.get("Tech Contact (Name; Email, Tel)", ""))
-    noc_contact = clean(row.get("NOC Contact", ""))
+    billing_contact = get(row, "Billing Contact (Name; Email, Tel)")
+    tech_contact = get(row, "Tech Contact (Name; Email, Tel)")
+    noc_contact = get(row, "NOC Contact")
 
     return {
         "role": 1,
         "code": limit(code, 50),
         "name": limit(name, 100),
         "legal_name": limit(legal_name, 200),
-        "address": limit(row.get("Customer Address ", ""), 255),
+        "address": limit(get(row, "Address ", "Address", "Customer Address "), 255),
         "company_email": limit(first_email(tech_contact), 100),
         "company_phone": "",
         "bill_email": limit(first_email(billing_contact), 100),

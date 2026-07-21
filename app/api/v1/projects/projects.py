@@ -5,7 +5,7 @@ import os
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from tortoise.expressions import Q
 
 from app.controllers.project import customer_project_controller
@@ -116,6 +116,41 @@ def get_user_display_name(user: User | None) -> str:
     return user.alias or user.username or "未知用户"
 
 
+def get_project_owner_names(user: User | None) -> list[str]:
+    if not user:
+        return []
+    names = [user.alias, user.username, user.email]
+    seen = set()
+    result = []
+    for name in names:
+        value = str(name or "").strip()
+        if value and value not in seen:
+            seen.add(value)
+            result.append(value)
+    return result
+
+
+async def get_current_project_user() -> User | None:
+    user_id = get_current_user_id()
+    return await User.get_or_none(id=user_id) if user_id else None
+
+
+async def can_view_all_projects(user: User | None) -> bool:
+    if not user:
+        return False
+    return bool(user.is_superuser or str(user.username or "").strip().lower() == "admin")
+
+
+async def ensure_project_access(project: CustomerProject) -> None:
+    current_user = await get_current_project_user()
+    if await can_view_all_projects(current_user):
+        return
+    owner_names = get_project_owner_names(current_user)
+    if str(project.owner or "").strip() in owner_names:
+        return
+    raise HTTPException(status_code=403, detail="Permission denied for this project")
+
+
 def normalize_project_payload(payload: dict) -> dict:
     if not str(payload.get("code") or "").strip():
         payload["code"] = None
@@ -146,6 +181,10 @@ async def list_project(
     owner: str = Query("", description="负责人"),
 ):
     q = Q()
+    current_user = await get_current_project_user()
+    if not await can_view_all_projects(current_user):
+        owner_names = get_project_owner_names(current_user)
+        q &= Q(owner__in=owner_names) if owner_names else Q(id=0)
     if keyword:
         q &= (
             Q(name__contains=keyword)
@@ -178,6 +217,7 @@ async def list_project(
 @router.get("/get", summary="查看客户项目")
 async def get_project(project_id: int = Query(..., description="项目ID")):
     project_obj = await customer_project_controller.get(id=project_id)
+    await ensure_project_access(project_obj)
     return Success(data=await serialize_project_detail(project_obj))
 
 

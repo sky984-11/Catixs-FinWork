@@ -36,9 +36,10 @@ async def serialize_company(company_obj) -> dict:
 async def list_company(
     page: int = Query(1, description="页码"),
     page_size: int = Query(10, description="每页数量"),
-    name: str = Query("", description="公司简称/全称，用于搜索"),
+    name: str = Query("", description="公司简称/全称"),
     code: str = Query("", description="公司编号"),
-    role: int | None = Query(None, description="角色：0=签约主体, 1=客户, 2=供应商, 3=客户+供应商"),
+    role: int | None = Query(None, description="类型：0=签约主体, 1=客户, 2=供应商, 3=客户+供应商"),
+    contract_company_id: int | None = Query(None, description="签约主体公司ID"),
     status: bool | None = Query(None, description="启用状态"),
     business_only: bool = Query(False, description="仅查询客户和供应商"),
 ):
@@ -55,6 +56,8 @@ async def list_company(
         q &= Q(role=role)
     elif business_only:
         q &= Q(role__in=[1, 2, 3])
+    if contract_company_id:
+        q &= Q(contract_company_id=contract_company_id)
     if status is not None:
         q &= Q(status=status)
 

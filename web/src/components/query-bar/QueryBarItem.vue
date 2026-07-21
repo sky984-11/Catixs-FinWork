@@ -8,7 +8,7 @@
     >
       {{ label }}
     </label>
-    <div>
+    <div :style="{ width: contentWidth + 'px' }">
       <slot />
     </div>
   </div>

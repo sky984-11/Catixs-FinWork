@@ -34,6 +34,7 @@ const contractCompanyOptions = ref([])
 const queryItems = ref({
   business_only: true,
   role: null,
+  contract_company_id: null,
   name: '',
   status: null,
 })
@@ -348,10 +349,26 @@ onMounted(async () => {
       :scroll-x="1180"
     >
       <template #queryBar>
-        <QueryBarItem label="类型" :label-width="50">
-          <NSelect v-model:value="queryItems.role" clearable :options="roleOptions" placeholder="全部" />
+        <QueryBarItem label="类型" :label-width="50" :content-width="140">
+          <NSelect
+            v-model:value="queryItems.role"
+            clearable
+            :options="roleOptions"
+            placeholder="全部"
+            @update:value="$table?.handleSearch()"
+          />
         </QueryBarItem>
-        <QueryBarItem label="名称" :label-width="50">
+        <QueryBarItem label="签约主体" :label-width="70" :content-width="220">
+          <NSelect
+            v-model:value="queryItems.contract_company_id"
+            clearable
+            filterable
+            :options="contractCompanyOptions"
+            placeholder="全部主体"
+            @update:value="$table?.handleSearch()"
+          />
+        </QueryBarItem>
+        <QueryBarItem label="名称" :label-width="50" :content-width="220">
           <NInput
             v-model:value="queryItems.name"
             clearable
@@ -359,12 +376,13 @@ onMounted(async () => {
             @keypress.enter="$table?.handleSearch()"
           />
         </QueryBarItem>
-        <QueryBarItem label="状态" :label-width="50">
+        <QueryBarItem label="状态" :label-width="50" :content-width="120">
           <NSelect
             v-model:value="queryItems.status"
             clearable
             :options="statusOptions"
             placeholder="全部"
+            @update:value="$table?.handleSearch()"
           />
         </QueryBarItem>
       </template>
