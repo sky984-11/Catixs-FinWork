@@ -32,6 +32,7 @@ import CrudModal from '@/components/table/CrudModal.vue'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import api from '@/api'
 import { useRoute, useRouter } from 'vue-router'
+import { buildPinyinSearchText, pinyinOptionFilter } from '@/utils/pinyin-search'
 
 defineOptions({ name: '项目看板' })
 
@@ -118,6 +119,14 @@ const customerOptions = computed(() =>
       value: item.id,
       mainLabel,
       subjectLabel,
+      searchText: buildPinyinSearchText([
+        mainLabel,
+        item.legal_name,
+        item.name,
+        item.code,
+        item.contract_company_name,
+        subjectLabel,
+      ]),
     }
   })
 )
@@ -872,6 +881,7 @@ onMounted(async () => {
         clearable
         filterable
         :options="customerOptions"
+        :filter="pinyinOptionFilter"
         :render-label="renderCustomerOptionLabel"
         placeholder="客户"
       />
@@ -1429,6 +1439,7 @@ onMounted(async () => {
               filterable
               clearable
               :options="customerOptions"
+              :filter="pinyinOptionFilter"
               :render-label="renderCustomerOptionLabel"
             />
           </NFormItemGi>

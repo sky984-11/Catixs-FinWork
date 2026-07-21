@@ -67,7 +67,7 @@ def build_remark(row: dict[str, str]) -> str:
 def normalize_row(row: dict[str, str]) -> dict[str, str] | None:
     code = get(row, "Customer Account# (CAN)")
     legal_name = get(row, "Name", "Customer Name")
-    name = get(row, "Nickname") or legal_name
+    name = legal_name
     if not code or not legal_name:
         return None
 

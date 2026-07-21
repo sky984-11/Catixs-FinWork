@@ -80,8 +80,7 @@ def parse_rows(path: Path) -> list[dict[str, str]]:
 
 
 def build_payload(row: dict[str, str]) -> dict:
-    full_name = clean(row.get("Name"))
-    nickname = clean(row.get("Nickname"))
+    full_name = get_value(row, "Name", "Customer Name")
     sales_contact = get_value(row, "Sales Contact (Name, Email, Tel)")
     billing_contact = get_value(
         row,
@@ -111,7 +110,7 @@ def build_payload(row: dict[str, str]) -> dict:
     return {
         "role": 1,
         "code": limit(row.get("Customer Account# (CAN)", ""), 50),
-        "name": limit(nickname or full_name, 100),
+        "name": limit(full_name, 100),
         "legal_name": limit(full_name, 200),
         "address": limit(row.get("Address", ""), 255),
         "company_email": limit(first_email(sales_contact) or first_email(tech_contact) or first_email(noc_contact), 100),
