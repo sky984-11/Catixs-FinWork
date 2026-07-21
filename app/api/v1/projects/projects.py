@@ -41,6 +41,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 async def serialize_project(project: CustomerProject) -> dict:
     data = await project.to_dict()
     data.pop("next_action", None)
+    data["shared_users"] = normalize_shared_users(data.get("shared_users"))
     if data.get("status") == "blocked":
         data["status"] = "active"
     customer = await project.customer if data.get("customer_id") else None
@@ -148,6 +149,9 @@ async def ensure_project_access(project: CustomerProject) -> None:
     owner_names = get_project_owner_names(current_user)
     if str(project.owner or "").strip() in owner_names:
         return
+    shared_users = normalize_shared_users(getattr(project, "shared_users", []))
+    if set(owner_names) & set(shared_users):
+        return
     raise HTTPException(status_code=403, detail="Permission denied for this project")
 
 
@@ -158,11 +162,30 @@ def normalize_project_payload(payload: dict) -> dict:
         payload["status"] = "active"
     if "owner" in payload:
         payload["owner"] = str(payload.get("owner") or "").strip()
+    if "shared_users" in payload:
+        payload["shared_users"] = normalize_shared_users(payload.get("shared_users"))
     for key in ["contract_no", "description"]:
         if payload.get(key) is None:
             payload[key] = ""
     payload["progress"] = max(0, min(100, int(payload.get("progress") or 0)))
     return payload
+
+
+def normalize_shared_users(value) -> list[str]:
+    if not value:
+        return []
+    if isinstance(value, str):
+        values = [item.strip() for item in value.split(",")]
+    else:
+        values = value
+    seen = set()
+    result = []
+    for item in values:
+        text = str(item or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            result.append(text)
+    return result
 
 
 def format_task_due_time(value: datetime | None) -> str:
@@ -184,7 +207,13 @@ async def list_project(
     current_user = await get_current_project_user()
     if not await can_view_all_projects(current_user):
         owner_names = get_project_owner_names(current_user)
-        q &= Q(owner__in=owner_names) if owner_names else Q(id=0)
+        if owner_names:
+            shared_q = Q()
+            for name in owner_names:
+                shared_q |= Q(shared_users__contains=[name])
+            q &= Q(owner__in=owner_names) | shared_q
+        else:
+            q &= Q(id=0)
     if keyword:
         q &= (
             Q(name__contains=keyword)

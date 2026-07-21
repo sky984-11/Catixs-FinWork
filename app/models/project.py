@@ -17,6 +17,7 @@ class CustomerProject(BaseModel, TimestampMixin):
     priority = fields.CharField(max_length=20, default="medium", description="优先级", index=True)
     health = fields.CharField(max_length=20, default="green", description="健康度", index=True)
     owner = fields.CharField(max_length=100, null=True, description="负责人", index=True)
+    shared_users = fields.JSONField(default=list, description="共享用户")
     contract_no = fields.CharField(max_length=100, null=True, description="合同编号", index=True)
     start_date = fields.DateField(null=True, description="开始日期")
     due_date = fields.DateField(null=True, description="截止日期", index=True)

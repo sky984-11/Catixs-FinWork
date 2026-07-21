@@ -18,6 +18,7 @@ class BaseCustomerProject(BaseModel):
     priority: str = "medium"
     health: str = "green"
     owner: Optional[str] = None
+    shared_users: list[str] = Field(default_factory=list)
     contract_no: Optional[str] = None
     start_date: Optional[date] = None
     due_date: Optional[date] = None
@@ -38,6 +39,7 @@ class CustomerProjectCreate(BaseModel):
     priority: str = "medium"
     health: str = "green"
     owner: str = Field(..., min_length=1, max_length=100)
+    shared_users: list[str] = Field(default_factory=list)
     contract_no: Optional[str] = Field("", max_length=100)
     start_date: Optional[date] = None
     due_date: Optional[date] = None

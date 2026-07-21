@@ -67,6 +67,10 @@ const taskAttachmentLinkLoading = reactive({})
 const taskEditVisible = ref(false)
 const taskEditLoading = ref(false)
 const progressSaving = ref(false)
+const shareVisible = ref(false)
+const shareLoading = ref(false)
+const shareProject = ref(null)
+const shareUsers = ref([])
 const taskContextMenu = reactive({
   show: false,
   x: 0,
@@ -212,6 +216,7 @@ function createEmptyForm() {
     priority: 'medium',
     health: 'green',
     owner: '',
+    shared_users: [],
     contract_no: '',
     start_date: null,
     due_date: null,
@@ -380,9 +385,11 @@ function buildProjectUpdatePayload(project, progress) {
     health: project.health || 'green',
     owner: project.owner || '',
     contract_no: project.contract_no || '',
+    shared_users: project.shared_users || [],
     start_date: project.start_date || null,
     due_date: project.due_date || null,
     progress,
+    shared_users: project.shared_users || [],
     budget_amount: project.budget_amount,
     budget_currency: project.budget_currency || 'USD',
     description: project.description || '',
@@ -390,6 +397,31 @@ function buildProjectUpdatePayload(project, progress) {
   }
   if (payload.budget_amount === null || payload.budget_amount === undefined) delete payload.budget_amount
   return payload
+}
+
+function openShare(project) {
+  shareProject.value = project
+  shareUsers.value = [...(project.shared_users || [])]
+  shareVisible.value = true
+}
+
+async function submitShare() {
+  if (!shareProject.value) return
+  shareLoading.value = true
+  try {
+    const sharedUsers = [...new Set((shareUsers.value || []).filter(Boolean))]
+    const payload = buildProjectUpdatePayload(shareProject.value, normalizeProgressValue(shareProject.value.progress))
+    payload.shared_users = sharedUsers
+    await api.projectApi.update(payload)
+    shareProject.value.shared_users = sharedUsers
+    if (detailProject.value?.id === shareProject.value.id) detailProject.value.shared_users = sharedUsers
+    const project = projects.value.find((item) => item.id === shareProject.value.id)
+    if (project) project.shared_users = sharedUsers
+    shareVisible.value = false
+    window.$message?.success?.('共享设置已保存')
+  } finally {
+    shareLoading.value = false
+  }
 }
 
 function handleDetailProgressUpdate(value) {
@@ -1026,6 +1058,14 @@ onMounted(async () => {
                   </template>
                   编辑
                 </NTooltip>
+                <NTooltip trigger="hover" placement="top">
+                  <template #trigger>
+                    <NButton size="tiny" type="info" secondary circle round @click="openShare(project)">
+                      <template #icon><TheIcon icon="mdi:share-variant-outline" :size="15" /></template>
+                    </NButton>
+                  </template>
+                  共享
+                </NTooltip>
                 <NPopconfirm @positive-click="handleDelete(project)">
                   <template #trigger>
                     <NTooltip trigger="hover" placement="top">
@@ -1484,6 +1524,33 @@ onMounted(async () => {
         <NSpace justify="end">
           <NButton @click="taskEditVisible = false">取消</NButton>
           <NButton type="primary" :loading="taskEditLoading" @click="submitTaskEdit">保存</NButton>
+        </NSpace>
+      </template>
+    </NModal>
+
+    <NModal
+      v-model:show="shareVisible"
+      preset="card"
+      title="共享项目"
+      class="share-modal"
+      :bordered="false"
+    >
+      <div class="share-project-title">
+        <strong>{{ shareProject?.name || '-' }}</strong>
+        <span>共享后，对应用户可以在项目看板中看到该项目。</span>
+      </div>
+      <NSelect
+        v-model:value="shareUsers"
+        multiple
+        filterable
+        clearable
+        :options="userOptions"
+        placeholder="选择共享用户"
+      />
+      <template #footer>
+        <NSpace justify="end">
+          <NButton @click="shareVisible = false">取消</NButton>
+          <NButton type="primary" :loading="shareLoading" @click="submitShare">保存</NButton>
         </NSpace>
       </template>
     </NModal>
@@ -2125,6 +2192,26 @@ onMounted(async () => {
 .progress-saving {
   color: #64748b;
   font-size: 12px;
+}
+
+.share-modal {
+  width: min(520px, calc(100vw - 32px));
+}
+
+.share-project-title {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.share-project-title strong {
+  color: #0f172a;
+  font-size: 16px;
+}
+
+.share-project-title span {
+  color: #64748b;
+  font-size: 13px;
 }
 
 .description-text {
