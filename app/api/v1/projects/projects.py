@@ -46,6 +46,17 @@ async def serialize_project(project: CustomerProject) -> dict:
     customer = await project.customer if data.get("customer_id") else None
     data["customer_name"] = customer.name if customer else ""
     data["customer_legal_name"] = customer.legal_name if customer else ""
+    tasks = await CustomerProjectTask.filter(project_id=project.id, is_done=False).order_by("due_date", "sort_order")
+    data["open_tasks"] = [
+        {
+            "id": task.id,
+            "title": task.title,
+            "assignee": task.assignee or "",
+            "due_date": task.due_date.isoformat() if task.due_date else "",
+            "remark": task.remark or "",
+        }
+        for task in tasks
+    ]
     return data
 
 

@@ -687,6 +687,26 @@ function formatTime(value) {
   return value ? String(value).slice(0, 16) : '-'
 }
 
+function getOpenTasks(project) {
+  return (project?.open_tasks || []).filter((task) => !task.is_done)
+}
+
+function getVisibleOpenTasks(project) {
+  return getOpenTasks(project).slice(0, 6)
+}
+
+function getHiddenOpenTaskCount(project) {
+  return Math.max(getOpenTasks(project).length - getVisibleOpenTasks(project).length, 0)
+}
+
+function getTaskDueClass(task) {
+  if (!task?.due_date) return 'muted'
+  const today = new Date().toISOString().slice(0, 10)
+  if (task.due_date < today) return 'danger'
+  if (task.due_date === today) return 'warning'
+  return 'normal'
+}
+
 function isOverdue(project) {
   if (!project.due_date || ['completed', 'archived'].includes(project.status)) return false
   return project.due_date < new Date().toISOString().slice(0, 10)
@@ -930,6 +950,24 @@ onMounted(async () => {
               <strong>{{ formatBudget(project) }}</strong>
             </div>
 
+            <div v-if="getOpenTasks(project).length" class="project-task-tip">
+              <div class="task-tip-head">
+                <span>未完成子任务</span>
+                <strong>{{ getOpenTasks(project).length }}</strong>
+              </div>
+              <div class="task-tip-list">
+                <div v-for="task in getVisibleOpenTasks(project)" :key="task.id" class="task-tip-item">
+                  <div>
+                    <strong>{{ task.title }}</strong>
+                    <span>{{ task.assignee || '未设置负责人' }}</span>
+                  </div>
+                  <em :class="getTaskDueClass(task)">{{ task.due_date || '无 ETA' }}</em>
+                </div>
+              </div>
+              <div v-if="getHiddenOpenTaskCount(project)" class="task-tip-more">
+                还有 {{ getHiddenOpenTaskCount(project) }} 个未完成子任务
+              </div>
+            </div>
           </article>
 
           <button class="add-card" type="button" @click="openAdd(column.key)">
@@ -1513,6 +1551,7 @@ onMounted(async () => {
 }
 
 .project-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -1526,6 +1565,140 @@ onMounted(async () => {
 
 .project-card:active {
   cursor: grabbing;
+}
+
+.project-task-tip {
+  position: absolute;
+  z-index: 30;
+  right: 10px;
+  bottom: calc(100% + 10px);
+  left: 10px;
+  visibility: hidden;
+  transform: translateY(6px);
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 98%);
+  box-shadow: 0 18px 38px rgb(15 23 42 / 16%);
+  opacity: 0;
+  padding: 10px;
+  pointer-events: none;
+  transition: opacity 0.16s ease, transform 0.16s ease, visibility 0.16s ease;
+}
+
+.project-card:hover .project-task-tip {
+  visibility: visible;
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.project-task-tip::after {
+  position: absolute;
+  right: 24px;
+  bottom: -7px;
+  width: 12px;
+  height: 12px;
+  transform: rotate(45deg);
+  border-right: 1px solid #dbe3ef;
+  border-bottom: 1px solid #dbe3ef;
+  background: #fff;
+  content: '';
+}
+
+.task-tip-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.task-tip-head span {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.task-tip-head strong {
+  display: inline-flex;
+  min-width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #fff1ed;
+  color: #f4511e;
+  font-size: 12px;
+}
+
+.task-tip-list {
+  display: grid;
+  gap: 6px;
+}
+
+.task-tip-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border-radius: 6px;
+  background: #f8fafc;
+  padding: 8px;
+}
+
+.task-tip-item > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.task-tip-item strong {
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-tip-item span {
+  overflow: hidden;
+  color: #64748b;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-tip-item em {
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #475569;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 20px;
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+.task-tip-item em.danger {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.task-tip-item em.warning {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.task-tip-item em.muted {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.task-tip-more {
+  margin-top: 8px;
+  color: #64748b;
+  font-size: 12px;
+  text-align: center;
 }
 
 .card-head,
