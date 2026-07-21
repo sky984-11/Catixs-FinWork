@@ -641,7 +641,7 @@ function getUserDisplayName(user) {
 }
 
 function getCustomerMainLabel(customer) {
-  return customer.name || customer.legal_name || '-'
+  return customer.legal_name || customer.name || '-'
 }
 
 function renderCustomerOptionLabel(option) {
