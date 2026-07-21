@@ -47,9 +47,12 @@ async def notify_project_task(
     if getattr(project, "status", "") in {"completed", "archived"}:
         return False
 
+    if not await claim_project_task_notification(task, stage, now):
+        return False
+
     customer = await project.customer if getattr(project, "customer_id", None) else None
     try:
-        sent = await send_project_task_due_notification(
+        return await send_project_task_due_notification(
             webhook_url=webhook_url,
             stage=stage,
             project_name=project.name,
@@ -64,16 +67,20 @@ async def notify_project_task(
         logger.exception("project task feishu notification failed: task_id=%s stage=%s", task.id, stage)
         return False
 
-    if not sent:
-        return False
-
-    if stage == "due_soon":
-        task.due_soon_notified_at = now
-    else:
-        task.due_notified_at = now
-    await task.save(update_fields=["due_soon_notified_at", "due_notified_at", "updated_at"])
-    return True
-
 
 def format_due_date(value: date | None) -> str:
     return value.isoformat() if value else "未设置"
+
+
+async def claim_project_task_notification(task: CustomerProjectTask, stage: str, now: datetime) -> bool:
+    filters = {"id": task.id}
+    values = {}
+    if stage == "due_soon":
+        filters["due_soon_notified_at"] = None
+        values["due_soon_notified_at"] = now
+    else:
+        filters["due_notified_at"] = None
+        values["due_notified_at"] = now
+
+    updated = await CustomerProjectTask.filter(**filters).update(**values)
+    return updated > 0

@@ -43,6 +43,7 @@
                 :scroll-x="760"
                 flex-height
                 striped
+                @update:sorter="handleRegionSorterChange"
               />
             </div>
             <div class="pop-list-footer">
@@ -96,6 +97,7 @@
                 :scroll-x="900"
                 flex-height
                 striped
+                @update:sorter="handleLocationSorterChange"
               />
             </div>
             <div class="pop-list-footer">
@@ -300,6 +302,14 @@ const locationPagination = reactive({
   showSizePicker: true,
   pageSizes: [10, 20, 50, 100],
 })
+const regionSortState = reactive({
+  columnKey: null,
+  order: false,
+})
+const locationSortState = reactive({
+  columnKey: null,
+  order: false,
+})
 
 const regionEditor = reactive({
   show: false,
@@ -392,8 +402,8 @@ const filteredLocations = computed(() => {
   })
 })
 
-const regionTableData = computed(() => filteredRegions.value.slice())
-const locationTableData = computed(() => filteredLocations.value.slice())
+const regionTableData = computed(() => sortRegionRows(filteredRegions.value.slice()))
+const locationTableData = computed(() => sortLocationRows(filteredLocations.value.slice()))
 
 const pagedRegionTableData = computed(() => {
   const start = (regionPagination.page - 1) * regionPagination.pageSize
@@ -405,7 +415,7 @@ const pagedLocationTableData = computed(() => {
   return locationTableData.value.slice(start, start + locationPagination.pageSize)
 })
 
-const regionColumns = [
+const regionColumns = computed(() => [
   {
     title: '国家 / 城市',
     key: 'country',
@@ -416,8 +426,22 @@ const regionColumns = [
           h('small', row.code || '-'),
         ]),
   },
-  { title: '机房数', key: 'room_count', width: 100, render: (row) => locationCount(row.id) },
-  { title: '机柜数', key: 'cabinet_count', width: 100, render: (row) => cabinetCountByRegion(row.id) },
+  {
+    title: '机房数',
+    key: 'room_count',
+    width: 100,
+    sorter: true,
+    sortOrder: regionSortState.columnKey === 'room_count' ? regionSortState.order : false,
+    render: (row) => locationCount(row.id),
+  },
+  {
+    title: '机柜数',
+    key: 'cabinet_count',
+    width: 100,
+    sorter: true,
+    sortOrder: regionSortState.columnKey === 'cabinet_count' ? regionSortState.order : false,
+    render: (row) => cabinetCountByRegion(row.id),
+  },
   {
     title: '状态',
     key: 'status',
@@ -446,9 +470,9 @@ const regionColumns = [
         ],
       }),
   },
-]
+])
 
-const locationColumns = [
+const locationColumns = computed(() => [
   {
     title: '机房',
     key: 'name',
@@ -460,7 +484,14 @@ const locationColumns = [
       ]),
   },
   { title: '地址', key: 'address', minWidth: 240, ellipsis: { tooltip: true } },
-  { title: '机柜数', key: 'cabinet_count', width: 100, render: (row) => cabinetCountByLocation(row.id) },
+  {
+    title: '机柜数',
+    key: 'cabinet_count',
+    width: 100,
+    sorter: true,
+    sortOrder: locationSortState.columnKey === 'cabinet_count' ? locationSortState.order : false,
+    render: (row) => cabinetCountByLocation(row.id),
+  },
   {
     title: '状态',
     key: 'status',
@@ -490,7 +521,7 @@ const locationColumns = [
         ],
       }),
   },
-]
+])
 
 function createRegionForm(row = {}) {
   return {
@@ -757,6 +788,40 @@ function cabinetCountByRegion(regionId) {
 
 function cabinetCountByLocation(locationId) {
   return cabinets.value.filter((item) => item.location_id === locationId).length
+}
+
+function sortRegionRows(rows) {
+  const { columnKey, order } = regionSortState
+  if (!order || !['room_count', 'cabinet_count'].includes(columnKey)) return rows
+  const direction = order === 'ascend' ? 1 : -1
+  return rows.sort((a, b) => {
+    const left = columnKey === 'room_count' ? locationCount(a.id) : cabinetCountByRegion(a.id)
+    const right = columnKey === 'room_count' ? locationCount(b.id) : cabinetCountByRegion(b.id)
+    return (left - right) * direction
+  })
+}
+
+function sortLocationRows(rows) {
+  const { columnKey, order } = locationSortState
+  if (!order || columnKey !== 'cabinet_count') return rows
+  const direction = order === 'ascend' ? 1 : -1
+  return rows.sort((a, b) => (cabinetCountByLocation(a.id) - cabinetCountByLocation(b.id)) * direction)
+}
+
+function handleRegionSorterChange(sorter) {
+  regionSortState.columnKey = sorter?.columnKey || null
+  regionSortState.order = normalizeSortOrder(sorter?.order)
+  regionPagination.page = 1
+}
+
+function handleLocationSorterChange(sorter) {
+  locationSortState.columnKey = sorter?.columnKey || null
+  locationSortState.order = normalizeSortOrder(sorter?.order)
+  locationPagination.page = 1
+}
+
+function normalizeSortOrder(order) {
+  return order === 'ascend' || order === 'descend' ? order : false
 }
 
 function normalize(value) {
