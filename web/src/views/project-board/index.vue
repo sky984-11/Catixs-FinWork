@@ -1,5 +1,5 @@
 <script setup>
-import { computed, h, onMounted, reactive, ref } from 'vue'
+import { computed, h, nextTick, onMounted, reactive, ref } from 'vue'
 import {
   NButton,
   NCheckbox,
@@ -31,6 +31,7 @@ import CommonPage from '@/components/page/CommonPage.vue'
 import CrudModal from '@/components/table/CrudModal.vue'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import api from '@/api'
+import { useRoute, useRouter } from 'vue-router'
 
 defineOptions({ name: '项目看板' })
 
@@ -104,6 +105,8 @@ const currencyOptions = ['USD', 'CNY', 'HKD', 'EUR', 'GBP', 'SGD', 'JPY'].map((i
 const modalForm = reactive(createEmptyForm())
 const taskForm = reactive(createEmptyTaskForm())
 const taskEditForm = reactive(createEmptyTaskEditForm())
+const route = useRoute()
+const router = useRouter()
 
 const modalTitle = computed(() => (modalAction.value === 'add' ? '新增项目' : '编辑项目'))
 const customerOptions = computed(() =>
@@ -257,9 +260,37 @@ async function loadProjectDetail(projectId) {
 }
 
 async function openDetail(project) {
+  const projectId = Number(project?.id || project)
   detailVisible.value = true
   activeDetailTab.value = 'overview'
-  await loadProjectDetail(project.id)
+  await loadProjectDetail(projectId)
+  syncDetailRoute(projectId)
+}
+
+async function openDetailFromRoute() {
+  const projectId = Number(route.query.project_id || 0)
+  if (!projectId) return
+  const taskId = Number(route.query.task_id || 0)
+  detailVisible.value = true
+  activeDetailTab.value = taskId ? 'tasks' : 'overview'
+  await loadProjectDetail(projectId)
+  if (taskId) {
+    activeTaskId.value = taskId
+    expandTask(taskId)
+    await nextTick()
+    document.getElementById(`project-task-${taskId}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }
+}
+
+function syncDetailRoute(projectId, taskId = null) {
+  router.replace({
+    path: route.path,
+    query: {
+      ...route.query,
+      project_id: projectId,
+      task_id: taskId || undefined,
+    },
+  })
 }
 
 function resetForm() {
@@ -379,7 +410,7 @@ function openEditTask(task) {
     id: task.id,
     title: task.title || '',
     assignee: task.assignee || '',
-    due_date: task.due_date || null,
+    due_date: normalizeTaskDueDateTime(task.due_date),
     remark: task.remark || '',
     is_done: Boolean(task.is_done),
     sort_order: Number(task.sort_order || 0),
@@ -701,10 +732,24 @@ function getHiddenOpenTaskCount(project) {
 
 function getTaskDueClass(task) {
   if (!task?.due_date) return 'muted'
-  const today = new Date().toISOString().slice(0, 10)
-  if (task.due_date < today) return 'danger'
-  if (task.due_date === today) return 'warning'
+  const dueText = normalizeTaskDueDateTime(task.due_date)
+  const nowText = formatLocalDateTime(new Date())
+  const today = nowText.slice(0, 10)
+  if (dueText < nowText) return 'danger'
+  if (dueText.slice(0, 10) === today) return 'warning'
   return 'normal'
+}
+
+function normalizeTaskDueDateTime(value) {
+  if (!value) return null
+  const text = String(value).replace('T', ' ').slice(0, 16)
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? `${text} 00:00` : text
+}
+
+function formatLocalDateTime(value) {
+  const date = value instanceof Date ? value : new Date(value)
+  const pad = (num) => String(num).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 function isOverdue(project) {
@@ -796,6 +841,7 @@ function toggleTaskCollapse(task) {
 onMounted(async () => {
   await Promise.all([loadCustomers(), loadUsers()])
   await loadProjects()
+  await openDetailFromRoute()
 })
 </script>
 
@@ -1083,8 +1129,9 @@ onMounted(async () => {
                 />
                 <NDatePicker
                   v-model:formatted-value="taskForm.due_date"
-                  type="date"
-                  value-format="yyyy-MM-dd"
+                  type="datetime"
+                  value-format="yyyy-MM-dd HH:mm"
+                  format="yyyy-MM-dd HH:mm"
                   clearable
                 />
                 <NButton type="primary" round @click="addTask">添加任务</NButton>
@@ -1099,7 +1146,8 @@ onMounted(async () => {
                 <article
                   v-for="task in detailProject.tasks"
                   :key="task.id"
-                  class="task-card"
+                  :id="`project-task-${task.id}`"
+                  :class="['task-card', { focused: activeTaskId === task.id }]"
                   @contextmenu="showTaskContextMenu($event, task)"
                 >
                   <div class="task-card-head">
@@ -1325,8 +1373,9 @@ onMounted(async () => {
           <NFormItemGi label="ETA">
             <NDatePicker
               v-model:formatted-value="taskEditForm.due_date"
-              type="date"
-              value-format="yyyy-MM-dd"
+              type="datetime"
+              value-format="yyyy-MM-dd HH:mm"
+              format="yyyy-MM-dd HH:mm"
               clearable
             />
           </NFormItemGi>
@@ -2079,6 +2128,11 @@ onMounted(async () => {
 
 .task-card {
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.task-card.focused {
+  border-color: #ff7a45;
+  box-shadow: 0 0 0 3px rgb(255 122 69 / 14%), 0 10px 24px rgb(15 23 42 / 8%);
 }
 
 .task-card:hover,

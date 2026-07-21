@@ -3,8 +3,8 @@
 用于发送工单相关通知到飞书群组
 """
 
-import logging
 import json
+import logging
 from datetime import datetime
 from typing import Optional
 
@@ -122,6 +122,189 @@ async def send_project_task_due_notification(
         },
     }
     return await send_feishu_message(card_content, webhook_url=webhook_url)
+
+
+async def send_project_daily_summary_notification(
+    *,
+    webhook_url: str,
+    summary_date: str,
+    sections: list[dict],
+    mention_text: str = "",
+) -> bool:
+    elements = []
+    if mention_text:
+        elements.append(
+            {
+                "tag": "div",
+                "text": {
+                    "tag": "lark_md",
+                    "content": f"**负责人：** {mention_text}",
+                },
+            }
+        )
+
+    total_projects = sum(int(section.get("count") or 0) for section in sections)
+    total_tasks = sum(int(section.get("open_task_count") or 0) for section in sections)
+    elements.append(
+        {
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": f"**项目数：** {total_projects}    **未完成子任务：** {total_tasks}",
+            },
+        }
+    )
+
+    for section in sections:
+        elements.append({"tag": "hr"})
+        elements.append(
+            {
+                "tag": "div",
+                "text": {
+                    "tag": "lark_md",
+                    "content": (
+                        f"**{section.get('label')}** "
+                        f"({section.get('count', 0)} 个项目 / {section.get('open_task_count', 0)} 个未完成子任务)"
+                    ),
+                },
+            }
+        )
+        projects = section.get("projects") or []
+        if not projects:
+            elements.append(
+                {
+                    "tag": "note",
+                    "elements": [{"tag": "plain_text", "content": "暂无项目"}],
+                }
+            )
+            continue
+
+        content_lines = []
+        for project in projects[:8]:
+            owners = project.get("owners") or "未设置负责人"
+            due_date = project.get("due_date") or "无截止日期"
+            progress = project.get("progress", 0)
+            task_titles = project.get("task_titles") or []
+            task_text = "；".join(task_titles[:3]) if task_titles else "暂无未完成子任务"
+            if len(task_titles) > 3:
+                task_text += f"；另有 {len(task_titles) - 3} 项"
+            content_lines.append(
+                f"- **{project.get('name')}** ｜{progress}%｜{owners}｜ETA {due_date}\n  子任务：{task_text}"
+            )
+        if len(projects) > 8:
+            content_lines.append(f"- 还有 {len(projects) - 8} 个项目未展示")
+
+        elements.append(
+            {
+                "tag": "div",
+                "text": {
+                    "tag": "lark_md",
+                    "content": "\n".join(content_lines),
+                },
+            }
+        )
+
+    card_content = {
+        "msg_type": "interactive",
+        "card": {
+            "header": {
+                "title": {
+                    "tag": "plain_text",
+                    "content": f"项目看板每日总结 - {summary_date}",
+                },
+                "template": "blue",
+            },
+            "elements": elements,
+        },
+    }
+    return await send_feishu_message(card_content, webhook_url=webhook_url)
+
+
+async def send_project_daily_summary_card(
+    *,
+    webhook_url: str,
+    summary_date: str,
+    sections: list[dict],
+    mention_text: str = "",
+) -> bool:
+    elements = []
+    if mention_text:
+        elements.append(
+            {
+                "tag": "div",
+                "text": {"tag": "lark_md", "content": f"**负责人：** {mention_text}"},
+            }
+        )
+
+    total_projects = sum(int(section.get("count") or 0) for section in sections)
+    total_tasks = sum(int(section.get("open_task_count") or 0) for section in sections)
+    elements.append(
+        {
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": f"**项目数：** {total_projects}    **未完成子任务：** {total_tasks}",
+            },
+        }
+    )
+
+    for section in sections:
+        elements.append({"tag": "hr"})
+        elements.append(
+            {
+                "tag": "div",
+                "text": {
+                    "tag": "lark_md",
+                    "content": (
+                        f"**{section.get('label')}** "
+                        f"({section.get('count', 0)} 个项目 / {section.get('open_task_count', 0)} 个未完成子任务)"
+                    ),
+                },
+            }
+        )
+        projects = section.get("projects") or []
+        if not projects:
+            elements.append({"tag": "note", "elements": [{"tag": "plain_text", "content": "暂无项目"}]})
+            continue
+
+        content_lines = []
+        for project in projects[:8]:
+            project_name = markdown_link(project.get("name"), project.get("url"))
+            owners = project.get("owners") or "未设置负责人"
+            due_date = project.get("due_date") or "无截止日期"
+            progress = project.get("progress", 0)
+            tasks = project.get("tasks") or []
+            task_parts = []
+            for task in tasks[:3]:
+                task_title = markdown_link(task.get("title"), task.get("url"))
+                task_due = task.get("due_date") or "未设置"
+                task_parts.append(f"{task_title}（ETA {task_due}）")
+            task_text = "；".join(task_parts) if task_parts else "暂无未完成子任务"
+            if len(tasks) > 3:
+                task_text += f"；另有 {len(tasks) - 3} 项"
+            content_lines.append(f"- **{project_name}** ｜{progress}%｜{owners}｜ETA {due_date}\n  子任务：{task_text}")
+        if len(projects) > 8:
+            content_lines.append(f"- 还有 {len(projects) - 8} 个项目未展示")
+
+        elements.append({"tag": "div", "text": {"tag": "lark_md", "content": "\n".join(content_lines)}})
+
+    card_content = {
+        "msg_type": "interactive",
+        "card": {
+            "header": {
+                "title": {"tag": "plain_text", "content": f"项目看板每日总结 - {summary_date}"},
+                "template": "blue",
+            },
+            "elements": elements,
+        },
+    }
+    return await send_feishu_message(card_content, webhook_url=webhook_url)
+
+
+def markdown_link(text: str | None, url: str | None) -> str:
+    label = str(text or "-").replace("[", "［").replace("]", "］")
+    link = str(url or "").strip()
+    return f"[{label}]({link})" if link else label
 
 
 async def send_ticket_created_notification(

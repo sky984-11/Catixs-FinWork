@@ -1067,6 +1067,23 @@ async def ensure_project_columns():
                 message = str(exc).lower()
                 if "duplicate column" not in message and "no such table" not in message:
                     raise
+        await conn.execute_script(
+            """
+            CREATE TABLE IF NOT EXISTS "customer_project_daily_summary" (
+                "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "updated_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "summary_date" DATE NOT NULL UNIQUE,
+                "sent_at" TIMESTAMPTZ,
+                "status" VARCHAR(20) NOT NULL DEFAULT 'pending',
+                "message" VARCHAR(500)
+            );
+            CREATE INDEX IF NOT EXISTS "idx_customer_project_daily_summary_date"
+                ON "customer_project_daily_summary" ("summary_date");
+            CREATE INDEX IF NOT EXISTS "idx_customer_project_daily_summary_status"
+                ON "customer_project_daily_summary" ("status");
+            """
+        )
         return
 
     if settings.DB_TYPE != "postgres":
@@ -1088,6 +1105,23 @@ async def ensure_project_columns():
         ALTER TABLE IF EXISTS "customer_project_task"
             ADD COLUMN IF NOT EXISTS "due_soon_notified_at" TIMESTAMP,
             ADD COLUMN IF NOT EXISTS "due_notified_at" TIMESTAMP;
+        ALTER TABLE IF EXISTS "customer_project_task"
+            ALTER COLUMN "due_date" TYPE TIMESTAMPTZ
+            USING "due_date"::timestamp AT TIME ZONE 'Asia/Shanghai';
+
+        CREATE TABLE IF NOT EXISTS "customer_project_daily_summary" (
+            "id" BIGSERIAL NOT NULL PRIMARY KEY,
+            "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "updated_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "summary_date" DATE NOT NULL UNIQUE,
+            "sent_at" TIMESTAMPTZ,
+            "status" VARCHAR(20) NOT NULL DEFAULT 'pending',
+            "message" VARCHAR(500)
+        );
+        CREATE INDEX IF NOT EXISTS "idx_customer_project_daily_summary_date"
+            ON "customer_project_daily_summary" ("summary_date");
+        CREATE INDEX IF NOT EXISTS "idx_customer_project_daily_summary_status"
+            ON "customer_project_daily_summary" ("status");
         """
     )
 

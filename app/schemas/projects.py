@@ -97,10 +97,24 @@ class ProjectTaskCreate(BaseModel):
     project_id: int
     title: str = Field(..., max_length=200)
     assignee: Optional[str] = Field("", max_length=100)
-    due_date: Optional[date] = None
+    due_date: Optional[datetime] = None
     is_done: bool = False
     sort_order: int = 0
     remark: Optional[str] = Field("", max_length=500)
+
+    @field_validator("due_date", mode="before")
+    @classmethod
+    def parse_due_datetime(cls, value):
+        if not value:
+            return None
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, date):
+            return datetime.combine(value, datetime.min.time())
+        text = str(value).strip().replace("T", " ")
+        if len(text) == 10:
+            text = f"{text} 00:00"
+        return datetime.strptime(text[:16], "%Y-%m-%d %H:%M")
 
 
 class ProjectTaskUpdate(ProjectTaskCreate):

@@ -52,7 +52,7 @@ async def serialize_project(project: CustomerProject) -> dict:
             "id": task.id,
             "title": task.title,
             "assignee": task.assignee or "",
-            "due_date": task.due_date.isoformat() if task.due_date else "",
+            "due_date": format_task_due_time(task.due_date),
             "remark": task.remark or "",
         }
         for task in tasks
@@ -71,6 +71,7 @@ async def serialize_project_detail(project: CustomerProject) -> dict:
 
 async def serialize_task(item: CustomerProjectTask) -> dict:
     data = await item.to_dict()
+    data["due_date"] = format_task_due_time(item.due_date)
     discussions = await CustomerProjectDiscussion.filter(
         project_id=item.project_id,
         task_id=item.id,
@@ -125,6 +126,10 @@ def normalize_project_payload(payload: dict) -> dict:
             payload[key] = ""
     payload["progress"] = max(0, min(100, int(payload.get("progress") or 0)))
     return payload
+
+
+def format_task_due_time(value: datetime | None) -> str:
+    return value.strftime("%Y-%m-%d %H:%M") if value else ""
 
 
 @router.get("/list", summary="查看客户项目列表")

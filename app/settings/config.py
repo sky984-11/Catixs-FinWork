@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     PROJECT_TASK_FEISHU_WEBHOOK_URL: str = (
         "https://open.feishu.cn/open-apis/bot/v2/hook/dcdbb605-0018-44bf-8953-df3b7756a777"
     )
+    PROJECT_DAILY_SUMMARY_HOUR: int = 8
+    PROJECT_DAILY_SUMMARY_MINUTE: int = 30
+    PROJECT_FEISHU_MENTION_MAP: str = ""
+    WEB_BASE_URL: str = ""
 
     TORTOISE_ORM: dict[str, Any] = {}
     DATETIME_FORMAT: str = "%Y-%m-%d %H:%M:%S"

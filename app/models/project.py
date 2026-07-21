@@ -68,7 +68,7 @@ class CustomerProjectTask(BaseModel, TimestampMixin):
     )
     title = fields.CharField(max_length=200, description="任务标题", index=True)
     assignee = fields.CharField(max_length=100, null=True, description="负责人", index=True)
-    due_date = fields.DateField(null=True, description="截止日期", index=True)
+    due_date = fields.DatetimeField(null=True, description="截止时间", index=True)
     is_done = fields.BooleanField(default=False, description="是否完成", index=True)
     sort_order = fields.IntField(default=0, description="排序")
     remark = fields.CharField(max_length=500, null=True, description="备注")
@@ -101,3 +101,13 @@ class CustomerProjectAttachment(BaseModel, TimestampMixin):
 
     class Meta:
         table = "customer_project_attachment"
+
+
+class CustomerProjectDailySummary(BaseModel, TimestampMixin):
+    summary_date = fields.DateField(unique=True, description="汇总日期", index=True)
+    sent_at = fields.DatetimeField(null=True, description="发送时间")
+    status = fields.CharField(max_length=20, default="pending", description="发送状态", index=True)
+    message = fields.CharField(max_length=500, null=True, description="发送结果")
+
+    class Meta:
+        table = "customer_project_daily_summary"
