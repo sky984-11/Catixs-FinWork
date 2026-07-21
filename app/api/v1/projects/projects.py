@@ -121,7 +121,9 @@ def normalize_project_payload(payload: dict) -> dict:
         payload["code"] = None
     if payload.get("status") == "blocked":
         payload["status"] = "active"
-    for key in ["owner", "contract_no", "description"]:
+    if "owner" in payload:
+        payload["owner"] = str(payload.get("owner") or "").strip()
+    for key in ["contract_no", "description"]:
         if payload.get(key) is None:
             payload[key] = ""
     payload["progress"] = max(0, min(100, int(payload.get("progress") or 0)))

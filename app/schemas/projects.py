@@ -37,7 +37,7 @@ class CustomerProjectCreate(BaseModel):
     status: str = "planning"
     priority: str = "medium"
     health: str = "green"
-    owner: Optional[str] = Field("", max_length=100)
+    owner: str = Field(..., min_length=1, max_length=100)
     contract_no: Optional[str] = Field("", max_length=100)
     start_date: Optional[date] = None
     due_date: Optional[date] = None
@@ -66,6 +66,14 @@ class CustomerProjectCreate(BaseModel):
     def validate_health(cls, value):
         if value not in PROJECT_HEALTH:
             raise ValueError("invalid project health")
+        return value
+
+    @field_validator("owner")
+    @classmethod
+    def validate_owner(cls, value):
+        value = str(value or "").strip()
+        if not value:
+            raise ValueError("owner is required")
         return value
 
 

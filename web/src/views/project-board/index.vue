@@ -186,6 +186,7 @@ const taskContextOptions = [
 const rules = {
   name: [{ required: true, message: '请输入项目名称', trigger: ['input', 'blur'] }],
   customer_id: [{ required: true, type: 'number', message: '请选择客户', trigger: 'change' }],
+  owner: [{ required: true, message: '请选择负责人', trigger: ['change', 'blur'] }],
 }
 
 function createEmptyForm() {
@@ -1450,7 +1451,6 @@ onMounted(async () => {
             <NSelect
               v-model:value="modalForm.owner"
               filterable
-              clearable
               :options="userOptions"
             />
           </NFormItemGi>
