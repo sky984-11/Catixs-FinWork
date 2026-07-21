@@ -19,6 +19,7 @@ import {
   NPopconfirm,
   NProgress,
   NSelect,
+  NSlider,
   NSpace,
   NTabPane,
   NTabs,
@@ -65,6 +66,7 @@ const taskAttachmentLink = reactive({})
 const taskAttachmentLinkLoading = reactive({})
 const taskEditVisible = ref(false)
 const taskEditLoading = ref(false)
+const progressSaving = ref(false)
 const taskContextMenu = reactive({
   show: false,
   x: 0,
@@ -108,6 +110,8 @@ const taskForm = reactive(createEmptyTaskForm())
 const taskEditForm = reactive(createEmptyTaskEditForm())
 const route = useRoute()
 const router = useRouter()
+let progressSaveTimer = null
+let progressSaveSeq = 0
 
 const modalTitle = computed(() => (modalAction.value === 'add' ? '新增项目' : '编辑项目'))
 const customerOptions = computed(() =>
@@ -351,6 +355,68 @@ async function handleSave() {
     if (detailProject.value?.id === payload.id) await loadProjectDetail(payload.id)
   } finally {
     modalLoading.value = false
+  }
+}
+
+function normalizeProgressValue(value) {
+  const progress = Number(value || 0)
+  return Math.min(100, Math.max(0, Math.round(progress)))
+}
+
+function syncProjectProgress(projectId, progress) {
+  if (detailProject.value?.id === projectId) detailProject.value.progress = progress
+  const project = projects.value.find((item) => item.id === projectId)
+  if (project) project.progress = progress
+}
+
+function buildProjectUpdatePayload(project, progress) {
+  const payload = {
+    id: project.id,
+    name: project.name,
+    code: project.code || '',
+    customer_id: project.customer_id,
+    status: project.status || 'planning',
+    priority: project.priority || 'medium',
+    health: project.health || 'green',
+    owner: project.owner || '',
+    contract_no: project.contract_no || '',
+    start_date: project.start_date || null,
+    due_date: project.due_date || null,
+    progress,
+    budget_amount: project.budget_amount,
+    budget_currency: project.budget_currency || 'USD',
+    description: project.description || '',
+    sort_order: project.sort_order || 0,
+  }
+  if (payload.budget_amount === null || payload.budget_amount === undefined) delete payload.budget_amount
+  return payload
+}
+
+function handleDetailProgressUpdate(value) {
+  if (!detailProject.value) return
+  const projectId = detailProject.value.id
+  const progress = normalizeProgressValue(value)
+  syncProjectProgress(projectId, progress)
+  if (progressSaveTimer) clearTimeout(progressSaveTimer)
+  progressSaveTimer = setTimeout(() => {
+    saveDetailProgress(projectId, progress).catch(() => {})
+  }, 500)
+}
+
+async function saveDetailProgress(projectId, progress) {
+  const project = detailProject.value?.id === projectId
+    ? detailProject.value
+    : projects.value.find((item) => item.id === projectId)
+  if (!project) return
+  const seq = ++progressSaveSeq
+  progressSaving.value = true
+  try {
+    await api.projectApi.update(buildProjectUpdatePayload(project, progress))
+  } catch (error) {
+    await loadProjectDetail(projectId)
+    throw error
+  } finally {
+    if (seq === progressSaveSeq) progressSaving.value = false
   }
 }
 
@@ -1120,7 +1186,18 @@ onMounted(async () => {
               </div>
               <div class="detail-section">
                 <div class="section-title">项目进度</div>
-                <NProgress type="line" :percentage="Number(detailProject.progress || 0)" :height="8" />
+                <div class="progress-editor">
+                  <NSlider
+                    class="progress-slider"
+                    :value="Number(detailProject.progress || 0)"
+                    :min="0"
+                    :max="100"
+                    :step="1"
+                    @update:value="handleDetailProgressUpdate"
+                  />
+                  <strong class="progress-value">{{ Number(detailProject.progress || 0) }}%</strong>
+                  <span v-if="progressSaving" class="progress-saving">保存中</span>
+                </div>
               </div>
               <div class="detail-section">
                 <div class="section-title">项目说明</div>
@@ -2024,6 +2101,30 @@ onMounted(async () => {
 .section-title {
   margin-bottom: 8px;
   font-weight: 700;
+}
+
+.progress-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px 48px;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+}
+
+.progress-slider {
+  min-width: 0;
+}
+
+.progress-value {
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.progress-saving {
+  color: #64748b;
+  font-size: 12px;
 }
 
 .description-text {
