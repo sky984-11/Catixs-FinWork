@@ -53,10 +53,14 @@ const referencedTaskId = ref(null)
 const referencedAttachmentId = ref(null)
 const attachmentRemark = ref('')
 const projectFileRemark = ref('')
+const projectFileLink = ref('')
+const projectFileLinkLoading = ref(false)
 const activeTaskId = ref(null)
 const collapsedTaskIds = ref(new Set())
 const taskReplyText = reactive({})
 const taskReplyAttachmentId = reactive({})
+const taskAttachmentLink = reactive({})
+const taskAttachmentLinkLoading = reactive({})
 const taskEditVisible = ref(false)
 const taskEditLoading = ref(false)
 const taskContextMenu = reactive({
@@ -444,6 +448,31 @@ async function handleProjectFileChange({ file }) {
   await loadProjectDetail(detailProject.value.id)
 }
 
+async function addProjectFileLink() {
+  const linkUrl = projectFileLink.value.trim()
+  if (!detailProject.value) return
+  if (!isValidExternalLink(linkUrl)) {
+    window.$message?.warning?.('请输入 http:// 或 https:// 开头的链接')
+    return
+  }
+  projectFileLinkLoading.value = true
+  try {
+    await api.projectApi.uploadAttachment({
+      project_id: detailProject.value.id,
+      filename: projectFileRemark.value || linkUrl,
+      content_type: 'text/uri-list',
+      link_url: linkUrl,
+      remark: projectFileRemark.value || '外部链接',
+    })
+    projectFileRemark.value = ''
+    projectFileLink.value = ''
+    await loadProjectDetail(detailProject.value.id)
+    window.$message?.success?.('链接已添加')
+  } finally {
+    projectFileLinkLoading.value = false
+  }
+}
+
 async function handleTaskAttachmentChange({ file }, task) {
   if (!file?.file || !detailProject.value) return
   const data = await readFileAsDataUrl(file.file)
@@ -460,6 +489,33 @@ async function handleTaskAttachmentChange({ file }, task) {
   await loadProjectDetail(detailProject.value.id)
 }
 
+async function addTaskAttachmentLink(task) {
+  const linkUrl = String(taskAttachmentLink[task.id] || '').trim()
+  if (!detailProject.value) return
+  if (!isValidExternalLink(linkUrl)) {
+    window.$message?.warning?.('请输入 http:// 或 https:// 开头的链接')
+    return
+  }
+  taskAttachmentLinkLoading[task.id] = true
+  try {
+    await api.projectApi.uploadAttachment({
+      project_id: detailProject.value.id,
+      task_id: task.id,
+      filename: linkUrl,
+      content_type: 'text/uri-list',
+      link_url: linkUrl,
+      remark: '外部链接',
+    })
+    taskAttachmentLink[task.id] = ''
+    activeTaskId.value = task.id
+    expandTask(task.id)
+    await loadProjectDetail(detailProject.value.id)
+    window.$message?.success?.('链接已添加')
+  } finally {
+    taskAttachmentLinkLoading[task.id] = false
+  }
+}
+
 async function deleteAttachment(item) {
   await api.projectApi.deleteAttachment({ attachment_id: item.id })
   await loadProjectDetail(detailProject.value.id)
@@ -472,6 +528,10 @@ function readFileAsDataUrl(file) {
     reader.onerror = reject
     reader.readAsDataURL(file)
   })
+}
+
+function isValidExternalLink(value) {
+  return /^https?:\/\/\S+/i.test(String(value || '').trim())
 }
 
 function getProjectsByStatus(status) {
@@ -1106,6 +1166,20 @@ onMounted(async () => {
                           上传截图/文件
                         </NButton>
                       </NUpload>
+                      <NInput
+                        v-model:value="taskAttachmentLink[task.id]"
+                        clearable
+                        placeholder="飞书文件/文件夹链接"
+                      />
+                      <NButton
+                        secondary
+                        round
+                        :loading="Boolean(taskAttachmentLinkLoading[task.id])"
+                        @click="addTaskAttachmentLink(task)"
+                      >
+                        <template #icon><TheIcon icon="mdi:link-variant" :size="17" /></template>
+                        添加链接
+                      </NButton>
                       <NButton type="primary" round @click="addTaskDiscussion(task)">发布回复</NButton>
                     </div>
                   </div>
@@ -1117,7 +1191,18 @@ onMounted(async () => {
 
             <NTabPane name="attachments" tab="项目文件">
               <div class="upload-row">
-                <NInput v-model:value="projectFileRemark" placeholder="文件说明" clearable />
+                <NInput
+                  v-model:value="projectFileRemark"
+                  class="upload-remark-input"
+                  placeholder="文件说明"
+                  clearable
+                />
+                <NInput
+                  v-model:value="projectFileLink"
+                  class="upload-link-input"
+                  placeholder="飞书文件/文件夹链接"
+                  clearable
+                />
                 <NUpload
                   :default-upload="false"
                   :show-file-list="false"
@@ -1128,6 +1213,10 @@ onMounted(async () => {
                     上传文件
                   </NButton>
                 </NUpload>
+                <NButton secondary round :loading="projectFileLinkLoading" @click="addProjectFileLink">
+                  <template #icon><TheIcon icon="mdi:link-variant" :size="18" /></template>
+                  添加链接
+                </NButton>
               </div>
               <NImageGroup v-if="detailProject.attachments?.length">
                 <div class="attachment-grid">
@@ -1908,14 +1997,26 @@ onMounted(async () => {
 
 .task-workbench-actions {
   display: grid;
-  grid-template-columns: minmax(160px, 1fr) auto auto;
+  grid-template-columns: minmax(150px, 1fr) auto minmax(180px, 1fr) auto auto;
   gap: 8px;
   align-items: center;
 }
 
 .upload-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.9fr) minmax(260px, 1.4fr) auto auto;
+  gap: 10px;
   align-items: center;
   margin-bottom: 14px;
+}
+
+.upload-row .n-button {
+  white-space: nowrap;
+}
+
+.upload-remark-input,
+.upload-link-input {
+  min-width: 0;
 }
 
 .attachment-grid {
@@ -1975,6 +2076,7 @@ onMounted(async () => {
   .hero-meta-grid,
   .task-create,
   .task-workbench-actions,
+  .upload-row,
   .comment-box,
   .reference-row,
   .attachment-grid {

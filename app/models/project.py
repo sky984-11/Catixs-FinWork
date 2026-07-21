@@ -95,7 +95,7 @@ class CustomerProjectAttachment(BaseModel, TimestampMixin):
     )
     uploader_id = fields.BigIntField(null=True, description="上传人ID", index=True)
     name = fields.CharField(max_length=200, description="资料名称")
-    file_url = fields.CharField(max_length=255, description="文件地址")
+    file_url = fields.CharField(max_length=1000, description="文件地址")
     content_type = fields.CharField(max_length=100, null=True, description="文件类型")
     remark = fields.CharField(max_length=500, null=True, description="备注")
 

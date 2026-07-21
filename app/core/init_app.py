@@ -1082,6 +1082,9 @@ async def ensure_project_columns():
         ALTER TABLE IF EXISTS "customer_project_attachment"
             ADD COLUMN IF NOT EXISTS "task_id" BIGINT;
 
+        ALTER TABLE IF EXISTS "customer_project_attachment"
+            ALTER COLUMN "file_url" TYPE VARCHAR(1000);
+
         ALTER TABLE IF EXISTS "customer_project_task"
             ADD COLUMN IF NOT EXISTS "due_soon_notified_at" TIMESTAMP,
             ADD COLUMN IF NOT EXISTS "due_notified_at" TIMESTAMP;

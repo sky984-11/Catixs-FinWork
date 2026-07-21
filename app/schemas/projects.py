@@ -110,7 +110,8 @@ class ProjectTaskUpdate(ProjectTaskCreate):
 class ProjectAttachmentUpload(BaseModel):
     project_id: int
     task_id: Optional[int] = None
-    filename: str = Field(..., description="原始文件名")
-    content_type: str = Field(..., description="文件 MIME 类型")
-    data: str = Field(..., description="Base64 内容，支持纯 base64 或 data URL")
+    filename: str = Field("", description="原始文件名")
+    content_type: str = Field("", description="文件 MIME 类型")
+    data: str = Field("", description="Base64 内容，支持纯 base64 或 data URL")
+    link_url: Optional[str] = Field("", max_length=1000, description="外部文件或文件夹链接")
     remark: Optional[str] = Field("", max_length=500)

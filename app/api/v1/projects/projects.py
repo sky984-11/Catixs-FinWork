@@ -255,6 +255,22 @@ async def upload_project_attachment(upload: ProjectAttachmentUpload):
     task = None
     if upload.task_id:
         task = await CustomerProjectTask.get(id=upload.task_id, project_id=project_obj.id)
+    link_url = str(upload.link_url or "").strip()
+    if link_url:
+        if not link_url.startswith(("http://", "https://")):
+            return Success(msg="链接必须以 http:// 或 https:// 开头", code=400)
+        link_name = str(upload.filename or upload.remark or link_url).strip()[:200]
+        attachment = await CustomerProjectAttachment.create(
+            project=project_obj,
+            task=task,
+            uploader_id=get_current_user_id(),
+            name=link_name,
+            file_url=link_url,
+            content_type=upload.content_type or "text/uri-list",
+            remark=upload.remark or link_name,
+        )
+        return Success(msg="Uploaded Successfully", data=await serialize_attachment(attachment))
+
     content, content_type = decode_base64_file(upload)
     if not content:
         return Success(msg="文件内容无效", code=400)
