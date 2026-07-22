@@ -574,7 +574,11 @@
           <span>结束时间</span>
           <strong>{{ formatTimestamp(taskModal.detail?.endtime) }}</strong>
           <span>任务状态</span>
-          <strong>{{ taskModal.detail?.status || taskStatusText }}</strong>
+          <strong>{{ taskModal.detail?.result_status || taskModal.detail?.status || taskStatusText }}</strong>
+          <template v-if="taskModal.detail?.failure_reason">
+            <span>失败原因</span>
+            <strong class="task-error-reason">{{ taskModal.detail.failure_reason }}</strong>
+          </template>
         </div>
         <template #footer>
           <div class="modal-footer">
@@ -737,6 +741,8 @@ const consoleModal = reactive({
 })
 
 const taskTimer = ref(null)
+const taskPollAttempt = ref(0)
+const taskPollDelays = [5000, 10000, 20000, 30000, 60000]
 const tableRenderKey = ref(0)
 const createOptionsCache = new Map()
 
@@ -1828,12 +1834,33 @@ async function handleMigrationTargetChange(targetRemote) {
 
 function clearTaskPolling() {
   if (!taskTimer.value) return
-  clearInterval(taskTimer.value)
+  clearTimeout(taskTimer.value)
   taskTimer.value = null
+}
+
+function scheduleTaskPolling() {
+  clearTaskPolling()
+  if (!taskModal.upid || taskFinished.value) return
+
+  const delay = document.hidden || !taskModal.show
+    ? 60000
+    : taskPollDelays[Math.min(taskPollAttempt.value, taskPollDelays.length - 1)]
+  taskTimer.value = setTimeout(async () => {
+    taskTimer.value = null
+    await pollTaskStatus()
+  }, delay)
+}
+
+async function pollTaskStatus() {
+  await fetchTaskStatus({ silent: true })
+  if (taskFinished.value || !taskModal.upid) return
+  scheduleTaskPolling()
+  taskPollAttempt.value += 1
 }
 
 function openTaskModal({ upid, remote, vmName }) {
   clearTaskPolling()
+  taskPollAttempt.value = 0
   Object.assign(taskModal, {
     show: true,
     loading: false,
@@ -1843,8 +1870,7 @@ function openTaskModal({ upid, remote, vmName }) {
     vmName,
     detail: { upid, remote, state: 'running', finished: false, success: false },
   })
-  fetchTaskStatus({ silent: true })
-  taskTimer.value = setInterval(() => fetchTaskStatus({ silent: true }), 5000)
+  pollTaskStatus()
 }
 
 function closeTaskModal() {
@@ -1861,7 +1887,7 @@ function closeTaskModal() {
 }
 
 async function fetchTaskStatus({ silent = true } = {}) {
-  if (!taskModal.upid) return
+  if (!taskModal.upid || taskModal.loading) return
   taskModal.loading = true
   try {
     const res = await api.virtualMachineApi.taskStatus({
@@ -1874,12 +1900,11 @@ async function fetchTaskStatus({ silent = true } = {}) {
       if (!taskModal.notified) {
         taskModal.notified = true
         if (taskModal.detail.state === 'error') {
-          message.error(`迁移任务失败：${taskModal.detail.status || '请查看 PDM 任务日志'}`)
+          message.error(`迁移任务失败：${taskModal.detail.failure_reason || taskModal.detail.result_status || '请查看 PDM 任务日志'}`)
         } else if (taskModal.detail.state === 'warning') {
-          message.warning(`迁移任务完成但有警告：${taskModal.detail.status || ''}`)
+          message.warning(`迁移任务完成但有警告：${taskModal.detail.failure_reason || taskModal.detail.result_status || ''}`)
           await refreshNodes()
         } else {
-          message.success('迁移任务已完成')
           await refreshNodes()
         }
       }
@@ -2565,6 +2590,11 @@ onBeforeUnmount(() => {
   color: #0f172a;
   font-size: 18px;
   line-height: 1.3;
+}
+
+.task-error-reason {
+  color: #d03050;
+  overflow-wrap: anywhere;
 }
 
 .task-detail-grid {

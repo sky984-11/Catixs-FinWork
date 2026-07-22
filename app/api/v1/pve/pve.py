@@ -1525,22 +1525,36 @@ def task_state(task: dict[str, Any] | None) -> dict[str, Any]:
     if not task:
         return {"state": "unknown", "finished": False, "success": False}
 
-    finished = bool(task.get("endtime"))
-    status = str(task.get("status") or "")
+    raw_status = str(task.get("status") or "").strip()
+    exit_status = str(task.get("exitstatus") or task.get("exit-status") or "").strip()
+    status = exit_status or raw_status
+    status_lower = raw_status.lower()
+    status_upper = status.upper()
+    finished = bool(
+        task.get("endtime")
+        or exit_status
+        or status_lower in {"stopped", "ok"}
+        or status_upper.startswith("WARNINGS")
+    )
     if not finished:
         state = "running"
         success = False
-    elif status == "OK":
+    elif status_upper == "OK":
         state = "success"
         success = True
-    elif status.startswith("WARNINGS"):
+    elif status_upper.startswith("WARNINGS"):
         state = "warning"
         success = True
     else:
         state = "error"
         success = False
 
-    return {"state": state, "finished": finished, "success": success}
+    return {
+        "state": state,
+        "finished": finished,
+        "success": success,
+        "result_status": status,
+    }
 
 
 def task_upid_candidates(upid: str) -> set[str]:
@@ -1568,6 +1582,83 @@ def same_task(upid: str, task_upid: str | None) -> bool:
     if task_upid in candidates:
         return True
     return any(candidate.endswith(task_upid) or task_upid.endswith(candidate) for candidate in candidates)
+
+
+def remote_task_upid_candidates(remote: str, upid: str) -> list[str]:
+    candidates: list[str] = []
+    native_upid = upid.split("!", 1)[1] if "!" in upid else upid
+    for value in (upid, native_upid, f"pve:{remote}!{native_upid}"):
+        if value and value not in candidates:
+            candidates.append(value)
+    return candidates
+
+
+def task_log_text(lines: Any) -> list[str]:
+    if isinstance(lines, dict) and any(key in lines for key in ("t", "text", "message")):
+        lines = [lines]
+    values: list[str] = []
+    for line in list_data(lines, keys=("data", "items", "lines")):
+        if isinstance(line, dict):
+            text = line.get("t") or line.get("text") or line.get("message") or ""
+        else:
+            text = line
+        text = str(text or "").strip()
+        if text:
+            values.append(text)
+    return values
+
+
+def task_failure_reason(lines: list[str], status: str = "") -> str:
+    error_markers = (
+        "task error",
+        "error:",
+        "failed",
+        "failure",
+        "unable",
+        "aborted",
+        "not found",
+        "no space left",
+        "permission denied",
+        "timed out",
+        "timeout",
+    )
+    for line in reversed(lines):
+        if any(marker in line.lower() for marker in error_markers):
+            return re.sub(r"^TASK ERROR:\s*", "", line, flags=re.IGNORECASE).strip()
+    return status or "迁移任务执行失败，请检查 PDM 任务日志"
+
+
+async def pdm_task_request(remote: str, upid: str, action: str) -> Any:
+    errors: list[str] = []
+    remote_path = quote(remote, safe="")
+    for candidate in remote_task_upid_candidates(remote, upid):
+        upid_path = quote(candidate, safe="")
+        for base in (
+            f"/pve/remotes/{remote_path}/tasks/{upid_path}",
+            f"/pve/remotes/remote/{remote_path}/tasks/{upid_path}",
+        ):
+            try:
+                params = {"wait": False} if action == "status" else {"start": 0, "limit": 0}
+                return await pdm_get(f"{base}/{action}", params=params, timeout=4)
+            except Exception as exc:
+                errors.append(error_detail(exc))
+    raise RuntimeError(errors[-1] if errors else f"PDM task {action} is unavailable")
+
+
+async def task_with_failure_log(remote: str, upid: str, task: dict[str, Any]) -> dict[str, Any]:
+    state = task_state(task)
+    result = {**task, **state, "remote": remote}
+    if not state["finished"] or state["state"] == "success":
+        return result
+
+    try:
+        lines = task_log_text(await pdm_task_request(remote, upid, "log"))
+    except Exception as exc:
+        result["log_error"] = error_detail(exc)
+        lines = []
+    result["log_tail"] = lines[-20:]
+    result["failure_reason"] = task_failure_reason(lines, str(state.get("result_status") or ""))
+    return result
 
 
 async def pdm_remote_config(remote: str) -> dict[str, Any]:
@@ -1997,28 +2088,26 @@ async def task_status(
     remote: str = Query(""),
 ):
     errors: list[str] = []
+    remote_id = remote or task_upid_remote(upid)
+    if not remote_id:
+        return Fail(msg="读取 PDM 任务状态失败: 缺少源 Remote")
+
     try:
-        data = await pdm_resources_list()
-        all_remotes = [str(group.get("remote") or "") for group in data if group.get("remote")]
-        preferred_remotes = [remote, task_upid_remote(upid)]
-        remotes = []
-        for remote_id in [*preferred_remotes, *all_remotes]:
-            if remote_id and remote_id not in remotes:
-                remotes.append(remote_id)
-
-        for remote_id in remotes:
-            try:
-                tasks = await pdm_get(f"/pve/remotes/{remote_id}/tasks", timeout=4)
-            except Exception as exc:
-                errors.append(f"{remote_id}: {exc}")
-                continue
-            for task in tasks:
-                if same_task(upid, task.get("upid")):
-                    return Success(data={**task, **task_state(task), "remote": remote_id})
+        status = await pdm_task_request(remote_id, upid, "status")
+        if isinstance(status, dict) and status:
+            return Success(data=await task_with_failure_log(remote_id, upid, status))
     except Exception as exc:
-        return Fail(msg=f"读取 PDM 数据失败: {error_detail(exc)}")
+        errors.append(error_detail(exc))
 
-    return Success(data={"upid": upid, "remote": remote, "errors": errors, **task_state(None)})
+    try:
+        tasks = await pdm_get(f"/pve/remotes/{quote(remote_id, safe='')}/tasks", timeout=4)
+        for task in list_data(tasks):
+            if isinstance(task, dict) and same_task(upid, task.get("upid")):
+                return Success(data=await task_with_failure_log(remote_id, upid, task))
+    except Exception as exc:
+        errors.append(error_detail(exc))
+
+    return Success(data={"upid": upid, "remote": remote_id, "errors": errors, **task_state(None)})
 
 
 @router.get("/vms/migration-options", summary="PDM virtual machine migration options")
