@@ -66,8 +66,11 @@ class Settings(BaseSettings):
     )
     PROJECT_DAILY_SUMMARY_HOUR: int = 8
     PROJECT_DAILY_SUMMARY_MINUTE: int = 30
+    PROJECT_DAILY_SUMMARY_OWNER_FILTER: str = "Azure"
     PROJECT_FEISHU_MENTION_MAP: str = ""
     WEB_BASE_URL: str = ""
+    WEB_DEV_BASE_URL: str = "http://127.0.0.1:3100"
+    WEB_DOMAIN: str = ""
 
     TORTOISE_ORM: dict[str, Any] = {}
     DATETIME_FORMAT: str = "%Y-%m-%d %H:%M:%S"
@@ -96,6 +99,24 @@ class Settings(BaseSettings):
 
     def model_post_init(self, __context):
         self.TORTOISE_ORM = self.build_tortoise_orm()
+
+    def get_web_base_url(self) -> str:
+        explicit_url = str(self.WEB_BASE_URL or "").strip()
+        if explicit_url:
+            return explicit_url.rstrip("/")
+        from app.core.runtime_context import get_last_frontend_origin
+
+        request_origin = get_last_frontend_origin()
+        if request_origin:
+            return request_origin.rstrip("/")
+        if self.DEBUG:
+            return str(self.WEB_DEV_BASE_URL or "http://127.0.0.1:3100").strip().rstrip("/")
+        domain = str(self.WEB_DOMAIN or "").strip().rstrip("/")
+        if not domain:
+            return ""
+        if domain.startswith(("http://", "https://")):
+            return domain
+        return f"https://{domain}"
 
     def build_tortoise_orm(self, default_connection: str | None = None) -> dict[str, Any]:
         connection = default_connection or self.DB_TYPE

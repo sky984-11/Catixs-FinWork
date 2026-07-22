@@ -368,6 +368,31 @@ function normalizeProgressValue(value) {
   return Math.min(100, Math.max(0, Math.round(progress)))
 }
 
+function getProgressColor(value) {
+  const progress = normalizeProgressValue(value)
+  const stops = [
+    { progress: 0, color: [239, 68, 68] },
+    { progress: 50, color: [249, 115, 22] },
+    { progress: 75, color: [234, 179, 8] },
+    { progress: 100, color: [34, 197, 94] },
+  ]
+  const nextIndex = stops.findIndex((stop) => progress <= stop.progress)
+  const next = stops[nextIndex === -1 ? stops.length - 1 : nextIndex]
+  const prev = stops[Math.max(0, (nextIndex === -1 ? stops.length - 1 : nextIndex) - 1)]
+  const range = Math.max(1, next.progress - prev.progress)
+  const ratio = Math.min(1, Math.max(0, (progress - prev.progress) / range))
+  const [r, g, b] = next.color.map((channel, index) =>
+    Math.round(prev.color[index] + (channel - prev.color[index]) * ratio)
+  )
+  return `rgb(${r}, ${g}, ${b})`
+}
+
+function getProgressStyle(value) {
+  return {
+    '--progress-color': getProgressColor(value),
+  }
+}
+
 function syncProjectProgress(projectId, progress) {
   if (detailProject.value?.id === projectId) detailProject.value.progress = progress
   const project = projects.value.find((item) => item.id === projectId)
@@ -1097,11 +1122,13 @@ onMounted(async () => {
             </div>
 
             <NProgress
+              class="project-progress"
+              :style="getProgressStyle(project.progress)"
               type="line"
               :percentage="Number(project.progress || 0)"
               :height="6"
               :show-indicator="false"
-              processing
+              :color="getProgressColor(project.progress)"
             />
 
             <div class="meta-grid">
@@ -1229,6 +1256,7 @@ onMounted(async () => {
                 <div class="progress-editor">
                   <NSlider
                     class="progress-slider"
+                    :style="getProgressStyle(detailProject.progress)"
                     :value="Number(detailProject.progress || 0)"
                     :min="0"
                     :max="100"
@@ -1795,6 +1823,10 @@ onMounted(async () => {
   opacity: 1;
 }
 
+.project-progress :deep(.n-progress-graph-line-fill) {
+  background: var(--progress-color) !important;
+}
+
 .project-task-tip::after {
   position: absolute;
   right: 24px;
@@ -2180,6 +2212,14 @@ onMounted(async () => {
 
 .progress-slider {
   min-width: 0;
+}
+
+.progress-slider :deep(.n-slider-rail__fill) {
+  background: var(--progress-color) !important;
+}
+
+.progress-slider :deep(.n-slider-handle) {
+  border-color: var(--progress-color) !important;
 }
 
 .progress-value {

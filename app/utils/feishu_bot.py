@@ -270,6 +270,7 @@ async def send_project_daily_summary_card(
         content_lines = []
         for project in projects[:8]:
             project_name = markdown_link(project.get("name"), project.get("url"))
+            project_index = project.get("index") or len(content_lines) + 1
             owners = project.get("owners") or "未设置负责人"
             due_date = project.get("due_date") or "无截止日期"
             progress = project.get("progress", 0)
@@ -277,12 +278,13 @@ async def send_project_daily_summary_card(
             task_parts = []
             for task in tasks[:3]:
                 task_title = markdown_link(task.get("title"), task.get("url"))
+                task_index = task.get("index") or len(task_parts) + 1
                 task_due = task.get("due_date") or "未设置"
-                task_parts.append(f"{task_title}（ETA {task_due}）")
+                task_parts.append(f"{project_index}.{task_index} {task_title}（ETA {task_due}）")
             task_text = "；".join(task_parts) if task_parts else "暂无未完成子任务"
             if len(tasks) > 3:
                 task_text += f"；另有 {len(tasks) - 3} 项"
-            content_lines.append(f"- **{project_name}** ｜{progress}%｜{owners}｜ETA {due_date}\n  子任务：{task_text}")
+            content_lines.append(f"- {project_index}. {project_name} ｜{progress}%｜{owners}｜ETA {due_date}\n  子任务：{task_text}")
         if len(projects) > 8:
             content_lines.append(f"- 还有 {len(projects) - 8} 个项目未展示")
 

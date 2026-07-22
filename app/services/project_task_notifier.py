@@ -97,6 +97,7 @@ def should_run_daily_summary(now: datetime) -> bool:
 
 
 async def build_daily_summary_sections() -> tuple[list[dict], list[str]]:
+    owner_filter = str(settings.PROJECT_DAILY_SUMMARY_OWNER_FILTER or "").strip()
     projects = await CustomerProject.filter(status__in=DAILY_SUMMARY_STATUSES).order_by(
         "status",
         "sort_order",
@@ -119,13 +120,18 @@ async def build_daily_summary_sections() -> tuple[list[dict], list[str]]:
         status_projects = [project for project in projects if project.status == status]
         section_projects = []
         open_task_count = 0
+        project_index = 0
         for project in status_projects:
             open_tasks = tasks_by_project.get(project.id, [])
+            if owner_filter and not is_project_related_to_people(project, open_tasks, [owner_filter]):
+                continue
+            project_index += 1
             open_task_count += len(open_tasks)
             project_owners = collect_people([project.owner] + [task.assignee for task in open_tasks])
             owners.extend(project_owners)
             section_projects.append(
                 {
+                    "index": project_index,
                     "name": project.name,
                     "url": build_project_url(project.id),
                     "owners": "、".join(project_owners) if project_owners else "",
@@ -133,12 +139,13 @@ async def build_daily_summary_sections() -> tuple[list[dict], list[str]]:
                     "progress": project.progress,
                     "tasks": [
                         {
+                            "index": task_index,
                             "id": task.id,
                             "title": task.title,
                             "due_date": format_due_date(task.due_date),
                             "url": build_project_url(project.id, task.id),
                         }
-                        for task in open_tasks
+                        for task_index, task in enumerate(open_tasks, start=1)
                     ],
                 }
             )
@@ -206,7 +213,7 @@ async def claim_project_task_notification(task: CustomerProjectTask, stage: str,
 
 
 def build_project_url(project_id: int | None, task_id: int | None = None) -> str:
-    base_url = str(settings.WEB_BASE_URL or "").strip().rstrip("/")
+    base_url = settings.get_web_base_url()
     if not base_url or not project_id:
         return ""
     query = {"project_id": project_id}
@@ -266,6 +273,30 @@ def collect_people(values: list[str | None]) -> list[str]:
             if item:
                 people.append(item)
     return unique_people(people)
+
+
+def is_project_related_to_people(
+    project: CustomerProject,
+    tasks: list[CustomerProjectTask],
+    people: list[str],
+) -> bool:
+    needles = {str(person or "").strip().lower() for person in people if str(person or "").strip()}
+    if not needles:
+        return True
+    values = [project.owner, getattr(project, "shared_users", None)]
+    values.extend(task.assignee for task in tasks)
+    haystack = {item.lower() for item in collect_people(flatten_people_values(values))}
+    return bool(haystack & needles)
+
+
+def flatten_people_values(values) -> list[str]:
+    result = []
+    for value in values:
+        if isinstance(value, (list, tuple, set)):
+            result.extend(str(item or "") for item in value)
+        else:
+            result.append(str(value or ""))
+    return result
 
 
 def unique_people(values: list[str]) -> list[str]:

@@ -12,6 +12,7 @@ from starlette.requests import Request
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.core.dependency import AuthControl
+from app.core.runtime_context import remember_frontend_origin
 from app.models.admin import AuditLog, User
 
 from .bgtask import BgTasks
@@ -44,6 +45,7 @@ class SimpleBaseMiddleware:
 
 class BackGroundTaskMiddleware(SimpleBaseMiddleware):
     async def before_request(self, request):
+        remember_frontend_origin(request)
         await BgTasks.init_bg_tasks_obj()
 
     async def after_request(self, request):
