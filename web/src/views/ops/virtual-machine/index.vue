@@ -504,9 +504,6 @@
                   @update:value="handleMigrationTargetChange"
                 />
               </n-form-item-gi>
-              <n-form-item-gi label="Target VMID">
-                <n-input-number v-model:value="migrationModal.form.targetVmid" :min="1" class="full-width" />
-              </n-form-item-gi>
               <n-form-item-gi label="Target Endpoint">
                 <n-select
                   v-model:value="migrationModal.form.targetEndpoint"
@@ -715,7 +712,6 @@ const migrationModal = reactive({
   },
   form: {
     target: '',
-    targetVmid: null,
     targetStorage: '',
     targetBridge: '',
     targetEndpoint: '',
@@ -1799,8 +1795,35 @@ function resetMigrationDefaults() {
   migrationModal.form.targetEndpoint = ''
 }
 
-function handleMigrationTargetChange() {
-  resetMigrationDefaults()
+async function handleMigrationTargetChange(targetRemote) {
+  migrationModal.form.targetStorage = ''
+  migrationModal.form.targetBridge = ''
+  migrationModal.form.targetEndpoint = ''
+  if (!targetRemote || !migrationModal.row) return
+
+  migrationModal.loading = true
+  try {
+    const res = await api.virtualMachineApi.migrationTargetOptions({
+      remote: targetRemote,
+      preferred_vmid: migrationModal.row.vmid,
+    })
+    if (migrationModal.form.target !== targetRemote) return
+
+    const targetOptions = res.data || { remote: targetRemote }
+    const index = migrationModal.options.remotes.findIndex((item) => item.remote === targetRemote)
+    if (index >= 0) {
+      migrationModal.options.remotes.splice(index, 1, targetOptions)
+    }
+    resetMigrationDefaults()
+  } catch (error) {
+    if (migrationModal.form.target === targetRemote) {
+      message.error(error.message || '读取目标 PVE 迁移选项失败')
+    }
+  } finally {
+    if (migrationModal.form.target === targetRemote) {
+      migrationModal.loading = false
+    }
+  }
 }
 
 function clearTaskPolling() {
@@ -1877,7 +1900,6 @@ async function openMigration(row) {
   migrationModal.options = { source: null, remotes: [], wizard: {} }
   Object.assign(migrationModal.form, {
     target: '',
-    targetVmid: Number(row.vmid) || null,
     targetStorage: '',
     targetBridge: '',
     targetEndpoint: '',
@@ -1893,8 +1915,6 @@ async function openMigration(row) {
       type: row.type,
     })
     migrationModal.options = res.data || { source: null, remotes: [], wizard: {} }
-    migrationModal.form.target = targetRemoteOptions.value[0]?.value || ''
-    resetMigrationDefaults()
   } catch (error) {
     message.error(error.message || '读取迁移选项失败')
   } finally {
@@ -1924,7 +1944,6 @@ async function submitMigration() {
       vmid: migrationModal.row.vmid,
       type: migrationModal.row.type,
       target: migrationModal.form.target,
-      target_vmid: migrationModal.form.targetVmid,
       target_storage: migrationModal.form.targetStorage,
       target_bridge: migrationModal.form.targetBridge,
       target_endpoint: migrationModal.form.targetEndpoint || undefined,

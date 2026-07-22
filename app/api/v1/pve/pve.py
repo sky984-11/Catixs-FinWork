@@ -1432,6 +1432,14 @@ def remote_resources(data: list[dict[str, Any]], remote: str) -> dict[str, Any]:
     for group in data:
         if str(group.get("remote") or "") == remote:
             resources = group.get("resources") or []
+            used_vmids = sorted(
+                {
+                    int(item.get("vmid"))
+                    for item in resources
+                    if canonical_resource_type(item.get("type")) in {"pve-qemu", "pve-lxc"}
+                    and str(item.get("vmid") or "").isdigit()
+                }
+            )
             return {
                 "remote": remote,
                 "nodes": sorted(
@@ -1460,8 +1468,27 @@ def remote_resources(data: list[dict[str, Any]], remote: str) -> dict[str, Any]:
                     }
                 ),
                 "endpoints": [],
+                "used_vmids": used_vmids,
             }
-    return {"remote": remote, "nodes": [], "storages": [], "networks": [], "endpoints": []}
+    return {
+        "remote": remote,
+        "nodes": [],
+        "storages": [],
+        "networks": [],
+        "endpoints": [],
+        "used_vmids": [],
+    }
+
+
+def next_available_vmid(used_vmids: list[int], preferred: int | None = None) -> int:
+    used = {int(vmid) for vmid in used_vmids if int(vmid) >= 100}
+    if preferred is not None and int(preferred) >= 100 and int(preferred) not in used:
+        return int(preferred)
+
+    candidate = 100
+    while candidate in used:
+        candidate += 1
+    return candidate
 
 
 async def remote_migration_resources(data: list[dict[str, Any]], remote: str) -> dict[str, Any]:
@@ -2001,7 +2028,7 @@ async def migration_options(
     type: str = Query("pve-qemu"),
 ):
     try:
-        data = await pdm_resources_list()
+        remotes = await pdm_remote_list()
         kind = guest_kind(type)
         try:
             wizard = await pdm_get(f"/pve/remotes/{remote}/{kind}/{vmid}/migrate")
@@ -2010,21 +2037,31 @@ async def migration_options(
     except Exception as exc:
         return Fail(msg=f"读取 PDM 数据失败: {error_detail(exc)}")
 
-    remotes = []
-    for group in data:
-        remote_id = str(group.get("remote") or "")
-        if not remote_id:
-            continue
-        remotes.append(await remote_migration_resources(data, remote_id))
-    remotes.sort(key=lambda row: row["remote"])
-
     return Success(
         data={
-            "source": await remote_migration_resources(data, remote),
-            "remotes": remotes,
+            "source": {"remote": remote},
+            "remotes": [{"remote": remote_id} for remote_id in sorted(remotes)],
             "wizard": wizard,
         }
     )
+
+
+@router.get("/vms/migration-target-options", summary="PDM migration options for one target remote")
+async def migration_target_options(
+    remote: str = Query(...),
+    preferred_vmid: int = Query(...),
+):
+    try:
+        live_resources = await pdm_remote_resources(remote)
+        if live_resources:
+            data = [{"remote": remote, "resources": live_resources}]
+        else:
+            data = await pdm_resources_list()
+        target = await remote_migration_resources(data, remote)
+        target["suggested_vmid"] = next_available_vmid(target["used_vmids"], preferred_vmid)
+        return Success(data=target)
+    except Exception as exc:
+        return Fail(msg=f"读取目标 PVE 迁移选项失败: {error_detail(exc)}")
 
 
 @router.post("/vms/migrate", summary="PDM virtual machine remote migration")
@@ -2032,6 +2069,21 @@ async def migrate_vm(payload: VMMigrateRequest):
     try:
         data = await pdm_resources_list()
         source = await remote_migration_resources(data, payload.remote)
+        try:
+            live_target_resources = await pdm_remote_resources(payload.target)
+        except Exception:
+            live_target_resources = []
+        if live_target_resources:
+            target = remote_resources(
+                [{"remote": payload.target, "resources": live_target_resources}],
+                payload.target,
+            )
+        else:
+            target = remote_resources(data, payload.target)
+        target_vmid = next_available_vmid(
+            target["used_vmids"],
+            payload.target_vmid or payload.vmid,
+        )
         kind = guest_kind(payload.type)
         request_payload: dict[str, Any] = {
             "remote": payload.remote,
@@ -2041,9 +2093,8 @@ async def migrate_vm(payload: VMMigrateRequest):
             "target-bridge": mapped_values(source["networks"], payload.target_bridge),
             "delete": payload.delete_source,
             "online": payload.online,
+            "target-vmid": target_vmid,
         }
-        if payload.target_vmid:
-            request_payload["target-vmid"] = payload.target_vmid
         if payload.bwlimit is not None:
             request_payload["bwlimit"] = payload.bwlimit
         if payload.node:
@@ -2055,7 +2106,15 @@ async def migrate_vm(payload: VMMigrateRequest):
     except Exception as exc:
         return Fail(msg=f"读取 PDM 数据失败: {error_detail(exc)}")
 
-    return Success(msg="迁移任务已发起", data={"upid": task_id, "source_remote": payload.remote, "target_remote": payload.target})
+    return Success(
+        msg=f"迁移任务已发起，目标 VMID: {target_vmid}",
+        data={
+            "upid": task_id,
+            "source_remote": payload.remote,
+            "target_remote": payload.target,
+            "target_vmid": target_vmid,
+        },
+    )
 
 
 @router.post("/vms/delete", summary="Delete PDM virtual machine")
