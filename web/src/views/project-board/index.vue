@@ -71,7 +71,6 @@ const shareVisible = ref(false)
 const shareLoading = ref(false)
 const shareProject = ref(null)
 const shareUsers = ref([])
-const dailySummaryTestLoading = ref(false)
 const taskContextMenu = reactive({
   show: false,
   x: 0,
@@ -266,19 +265,6 @@ async function loadProjects() {
     projects.value = res?.data || []
   } finally {
     loading.value = false
-  }
-}
-
-async function sendDailySummaryTest() {
-  dailySummaryTestLoading.value = true
-  try {
-    const res = await api.projectApi.testDailySummary()
-    const data = res?.data || {}
-    window.$message?.success?.(
-      `测试总结已发送，项目数 ${data.project_count ?? '-'}，未完成子任务 ${data.open_task_count ?? '-'}，链接地址 ${data.web_base_url || '-'}`
-    )
-  } finally {
-    dailySummaryTestLoading.value = false
   }
 }
 
@@ -1000,9 +986,9 @@ onMounted(async () => {
           <TheIcon icon="mdi:refresh" :size="18" class="mr-5" />
           刷新
         </NButton>
-        <NButton secondary round type="warning" :loading="dailySummaryTestLoading" @click="sendDailySummaryTest">
-          <TheIcon icon="mdi:bell-ring-outline" :size="18" class="mr-5" />
-          测试飞书总结
+        <NButton secondary round @click="router.push('/project-board-doc')">
+          <TheIcon icon="mdi:book-open-page-variant-outline" :size="18" class="mr-5" />
+          功能文档
         </NButton>
         <NButton type="primary" round @click="openAdd()">
           <TheIcon icon="material-symbols:add" :size="18" class="mr-5" />

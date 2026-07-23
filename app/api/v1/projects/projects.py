@@ -27,9 +27,6 @@ from app.schemas.projects import (
     ProjectTaskCreate,
     ProjectTaskUpdate,
 )
-from app.services.project_task_notifier import build_daily_summary_sections, build_mentions
-from app.settings.config import settings
-from app.utils.feishu_bot import send_project_daily_summary_card
 
 logger = logging.getLogger(__name__)
 
@@ -244,32 +241,6 @@ async def list_project(
     data = [await serialize_project(obj) for obj in project_objs]
     summary = build_project_summary(data)
     return SuccessExtra(data=data, total=total, page=page, page_size=page_size, summary=summary)
-
-
-@router.post("/daily-summary/test", summary="发送项目看板每日总结测试")
-async def test_project_daily_summary():
-    webhook_url = str(settings.PROJECT_TASK_FEISHU_WEBHOOK_URL or "").strip()
-    if not webhook_url:
-        return Success(msg="Feishu webhook is empty", code=400)
-    sections, owners = await build_daily_summary_sections()
-    sent = await send_project_daily_summary_card(
-        webhook_url=webhook_url,
-        summary_date=datetime.now().date().isoformat(),
-        sections=sections,
-        mention_text=build_mentions(owners),
-    )
-    if not sent:
-        return Success(msg="Feishu webhook failed", code=500)
-    total_projects = sum(int(section.get("count") or 0) for section in sections)
-    total_tasks = sum(int(section.get("open_task_count") or 0) for section in sections)
-    return Success(
-        msg="Sent Successfully",
-        data={
-            "project_count": total_projects,
-            "open_task_count": total_tasks,
-            "web_base_url": settings.get_web_base_url(),
-        },
-    )
 
 
 @router.get("/get", summary="查看客户项目")

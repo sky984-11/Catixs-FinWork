@@ -4,6 +4,7 @@ from tortoise.expressions import Q
 
 from app.controllers.api import api_controller
 from app.models.admin import Api
+from app.models.enums import MethodType
 from app.schemas import Success, SuccessExtra
 from app.schemas.apis import *
 
@@ -12,6 +13,7 @@ docs_router = APIRouter()
 
 DOCS_PATH = "/api/v1/api/docs"
 OPENAPI_DOCS_PATH = "/api/v1/api/docs/openapi"
+SUPPORTED_API_METHODS = {item.value for item in MethodType}
 
 
 def _normalize_methods(methods: dict, method: str | None):
@@ -40,18 +42,21 @@ async def _build_api_docs(
             continue
 
         for method_key, operation in _normalize_methods(methods, method):
+            method_upper = method_key.upper()
+            if method_upper not in SUPPORTED_API_METHODS:
+                continue
             operation_tags = operation.get("tags") or []
             if tags and tags not in operation_tags:
                 continue
 
-            api_obj = await Api.filter(method=method_key.upper(), path=route_path).first()
+            api_obj = await Api.filter(method=method_upper, path=route_path).first()
             if not include_public and not api_obj:
                 continue
 
             items.append(
                 {
                     "path": route_path,
-                    "method": method_key.upper(),
+                    "method": method_upper,
                     "summary": operation.get("summary", ""),
                     "description": operation.get("description", ""),
                     "tags": operation_tags,
