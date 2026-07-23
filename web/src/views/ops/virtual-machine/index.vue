@@ -504,9 +504,6 @@
                   @update:value="handleMigrationTargetChange"
                 />
               </n-form-item-gi>
-              <n-form-item-gi label="Target VMID">
-                <n-input-number v-model:value="migrationModal.form.targetVmid" :min="1" class="full-width" />
-              </n-form-item-gi>
               <n-form-item-gi label="Target Endpoint">
                 <n-select
                   v-model:value="migrationModal.form.targetEndpoint"
@@ -577,7 +574,11 @@
           <span>结束时间</span>
           <strong>{{ formatTimestamp(taskModal.detail?.endtime) }}</strong>
           <span>任务状态</span>
-          <strong>{{ taskModal.detail?.status || taskStatusText }}</strong>
+          <strong>{{ taskModal.detail?.result_status || taskModal.detail?.status || taskStatusText }}</strong>
+          <template v-if="taskModal.detail?.failure_reason">
+            <span>失败原因</span>
+            <strong class="task-error-reason">{{ taskModal.detail.failure_reason }}</strong>
+          </template>
         </div>
         <template #footer>
           <div class="modal-footer">
@@ -715,7 +716,6 @@ const migrationModal = reactive({
   },
   form: {
     target: '',
-    targetVmid: null,
     targetStorage: '',
     targetBridge: '',
     targetEndpoint: '',
@@ -741,6 +741,8 @@ const consoleModal = reactive({
 })
 
 const taskTimer = ref(null)
+const taskPollAttempt = ref(0)
+const taskPollDelays = [5000, 10000, 20000, 30000, 60000]
 const tableRenderKey = ref(0)
 const createOptionsCache = new Map()
 
@@ -1799,18 +1801,66 @@ function resetMigrationDefaults() {
   migrationModal.form.targetEndpoint = ''
 }
 
-function handleMigrationTargetChange() {
-  resetMigrationDefaults()
+async function handleMigrationTargetChange(targetRemote) {
+  migrationModal.form.targetStorage = ''
+  migrationModal.form.targetBridge = ''
+  migrationModal.form.targetEndpoint = ''
+  if (!targetRemote || !migrationModal.row) return
+
+  migrationModal.loading = true
+  try {
+    const res = await api.virtualMachineApi.migrationTargetOptions({
+      remote: targetRemote,
+      preferred_vmid: migrationModal.row.vmid,
+    })
+    if (migrationModal.form.target !== targetRemote) return
+
+    const targetOptions = res.data || { remote: targetRemote }
+    const index = migrationModal.options.remotes.findIndex((item) => item.remote === targetRemote)
+    if (index >= 0) {
+      migrationModal.options.remotes.splice(index, 1, targetOptions)
+    }
+    resetMigrationDefaults()
+  } catch (error) {
+    if (migrationModal.form.target === targetRemote) {
+      message.error(error.message || '读取目标 PVE 迁移选项失败')
+    }
+  } finally {
+    if (migrationModal.form.target === targetRemote) {
+      migrationModal.loading = false
+    }
+  }
 }
 
 function clearTaskPolling() {
   if (!taskTimer.value) return
-  clearInterval(taskTimer.value)
+  clearTimeout(taskTimer.value)
   taskTimer.value = null
+}
+
+function scheduleTaskPolling() {
+  clearTaskPolling()
+  if (!taskModal.upid || taskFinished.value) return
+
+  const delay = document.hidden || !taskModal.show
+    ? 60000
+    : taskPollDelays[Math.min(taskPollAttempt.value, taskPollDelays.length - 1)]
+  taskTimer.value = setTimeout(async () => {
+    taskTimer.value = null
+    await pollTaskStatus()
+  }, delay)
+}
+
+async function pollTaskStatus() {
+  await fetchTaskStatus({ silent: true })
+  if (taskFinished.value || !taskModal.upid) return
+  scheduleTaskPolling()
+  taskPollAttempt.value += 1
 }
 
 function openTaskModal({ upid, remote, vmName }) {
   clearTaskPolling()
+  taskPollAttempt.value = 0
   Object.assign(taskModal, {
     show: true,
     loading: false,
@@ -1820,8 +1870,7 @@ function openTaskModal({ upid, remote, vmName }) {
     vmName,
     detail: { upid, remote, state: 'running', finished: false, success: false },
   })
-  fetchTaskStatus({ silent: true })
-  taskTimer.value = setInterval(() => fetchTaskStatus({ silent: true }), 5000)
+  pollTaskStatus()
 }
 
 function closeTaskModal() {
@@ -1838,7 +1887,7 @@ function closeTaskModal() {
 }
 
 async function fetchTaskStatus({ silent = true } = {}) {
-  if (!taskModal.upid) return
+  if (!taskModal.upid || taskModal.loading) return
   taskModal.loading = true
   try {
     const res = await api.virtualMachineApi.taskStatus({
@@ -1851,12 +1900,11 @@ async function fetchTaskStatus({ silent = true } = {}) {
       if (!taskModal.notified) {
         taskModal.notified = true
         if (taskModal.detail.state === 'error') {
-          message.error(`迁移任务失败：${taskModal.detail.status || '请查看 PDM 任务日志'}`)
+          message.error(`迁移任务失败：${taskModal.detail.failure_reason || taskModal.detail.result_status || '请查看 PDM 任务日志'}`)
         } else if (taskModal.detail.state === 'warning') {
-          message.warning(`迁移任务完成但有警告：${taskModal.detail.status || ''}`)
+          message.warning(`迁移任务完成但有警告：${taskModal.detail.failure_reason || taskModal.detail.result_status || ''}`)
           await refreshNodes()
         } else {
-          message.success('迁移任务已完成')
           await refreshNodes()
         }
       }
@@ -1877,7 +1925,6 @@ async function openMigration(row) {
   migrationModal.options = { source: null, remotes: [], wizard: {} }
   Object.assign(migrationModal.form, {
     target: '',
-    targetVmid: Number(row.vmid) || null,
     targetStorage: '',
     targetBridge: '',
     targetEndpoint: '',
@@ -1893,8 +1940,6 @@ async function openMigration(row) {
       type: row.type,
     })
     migrationModal.options = res.data || { source: null, remotes: [], wizard: {} }
-    migrationModal.form.target = targetRemoteOptions.value[0]?.value || ''
-    resetMigrationDefaults()
   } catch (error) {
     message.error(error.message || '读取迁移选项失败')
   } finally {
@@ -1924,7 +1969,6 @@ async function submitMigration() {
       vmid: migrationModal.row.vmid,
       type: migrationModal.row.type,
       target: migrationModal.form.target,
-      target_vmid: migrationModal.form.targetVmid,
       target_storage: migrationModal.form.targetStorage,
       target_bridge: migrationModal.form.targetBridge,
       target_endpoint: migrationModal.form.targetEndpoint || undefined,
@@ -2546,6 +2590,11 @@ onBeforeUnmount(() => {
   color: #0f172a;
   font-size: 18px;
   line-height: 1.3;
+}
+
+.task-error-reason {
+  color: #d03050;
+  overflow-wrap: anywhere;
 }
 
 .task-detail-grid {
