@@ -268,7 +268,6 @@ async def init_menus():
     await ensure_finance_quote_menu()
     await remove_inventory_sale_menu()
     await ensure_customer_project_menu()
-    await ensure_project_board_doc_menu()
     await ensure_task_menu()
 
 
@@ -773,35 +772,6 @@ async def ensure_customer_project_menu():
     await Menu.create(menu_type=MenuType.MENU, **values)
 
 
-async def ensure_project_board_doc_menu():
-    menu = await Menu.filter(path="/project-board-doc").first()
-    values = {
-        "name": "项目看板文档",
-        "path": "/project-board-doc",
-        "order": 3,
-        "parent_id": 0,
-        "icon": "mdi:book-open-page-variant-outline",
-        "is_hidden": False,
-        "component": "/project-board-doc",
-        "keepalive": False,
-        "redirect": "",
-    }
-    if menu:
-        changed = False
-        for field, value in values.items():
-            if getattr(menu, field) != value:
-                setattr(menu, field, value)
-                changed = True
-        if menu.menu_type != MenuType.MENU:
-            menu.menu_type = MenuType.MENU
-            changed = True
-        if changed:
-            await menu.save()
-        return
-
-    await Menu.create(menu_type=MenuType.MENU, **values)
-
-
 async def ensure_task_menu():
     system_menu = await Menu.filter(path="/system").first()
     if not system_menu:
@@ -937,21 +907,15 @@ async def ensure_business_api_permissions():
         | Q(path__startswith="/api/v1/project/")
     )
     project_menu = await Menu.filter(path="/project-board").first()
-    project_doc_menu = await Menu.filter(path="/project-board-doc").first()
 
     for role in roles:
         if read_apis:
             await role.apis.add(*read_apis)
-        has_project_menu = bool(project_menu and await role.menus.filter(id=project_menu.id).exists())
         if is_admin_role_name(role.name):
             if manage_apis:
                 await role.apis.add(*manage_apis)
             if project_menu:
                 await role.menus.add(project_menu)
-            if project_doc_menu:
-                await role.menus.add(project_doc_menu)
-        elif has_project_menu and project_doc_menu:
-            await role.menus.add(project_doc_menu)
 
 
 async def ensure_task_permissions():

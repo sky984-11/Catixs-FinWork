@@ -107,6 +107,26 @@ export const basicRoutes = [
     isHidden: true,
   },
   {
+    name: 'ProjectBoardDoc',
+    path: '/project-board-doc',
+    component: Layout,
+    isHidden: true,
+    children: [
+      {
+        name: 'ProjectBoardDocDefault',
+        path: '',
+        component: () => import('@/views/project-board-doc/index.vue'),
+        meta: {
+          title: '项目看板文档',
+          icon: 'mdi:book-open-page-variant-outline',
+        },
+      },
+    ],
+    meta: {
+      title: '项目看板文档',
+    },
+  },
+  {
     name: 'OpsVirtualMachineConsole',
     path: '/ops/virtual-machine/console',
     component: () => import('@/views/ops/virtual-machine/console.vue'),
