@@ -91,6 +91,7 @@ export default {
     deleteTask: (params = {}) => request.delete('/project/task/delete', { params }),
     uploadAttachment: (data = {}) => request.post('/project/attachment/upload', data),
     deleteAttachment: (params = {}) => request.delete('/project/attachment/delete', { params }),
+    testDailySummary: () => request.post('/project/daily-summary/test'),
   },
 
   // bank

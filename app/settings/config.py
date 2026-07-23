@@ -104,11 +104,14 @@ class Settings(BaseSettings):
         explicit_url = str(self.WEB_BASE_URL or "").strip()
         if explicit_url:
             return explicit_url.rstrip("/")
-        from app.core.runtime_context import get_last_frontend_origin
+        from app.core.runtime_context import get_last_frontend_origin, get_last_request_origin
 
-        request_origin = get_last_frontend_origin()
+        request_origin = get_last_request_origin()
         if request_origin:
             return request_origin.rstrip("/")
+        frontend_origin = get_last_frontend_origin()
+        if frontend_origin:
+            return frontend_origin.rstrip("/")
         if self.DEBUG:
             return str(self.WEB_DEV_BASE_URL or "http://127.0.0.1:3100").strip().rstrip("/")
         domain = str(self.WEB_DOMAIN or "").strip().rstrip("/")

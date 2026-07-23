@@ -153,7 +153,7 @@ async def build_daily_summary_sections() -> tuple[list[dict], list[str]]:
             {
                 "key": status,
                 "label": DAILY_SUMMARY_LABELS[status],
-                "count": len(status_projects),
+                "count": len(section_projects),
                 "open_task_count": open_task_count,
                 "projects": section_projects,
             }
