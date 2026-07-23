@@ -287,6 +287,10 @@ async def create_project(project_in: CustomerProjectCreate):
 @router.post("/update", summary="更新客户项目")
 async def update_project(project_in: CustomerProjectUpdate):
     payload = normalize_project_payload(project_in.model_dump(exclude_unset=True, exclude={"id"}))
+    existing_project = await customer_project_controller.get(id=project_in.id)
+    if "due_date" in payload and payload["due_date"] != existing_project.due_date:
+        payload["due_soon_notified_at"] = None
+        payload["due_notified_at"] = None
     try:
         project_obj = await customer_project_controller.update(id=project_in.id, obj_in=payload)
     except IntegrityError as exc:

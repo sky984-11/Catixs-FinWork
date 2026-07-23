@@ -10,15 +10,12 @@ from app.settings.config import settings
 from app.utils.feishu_app import (
     build_assignment_card,
     build_project_daily_summary_card,
+    build_project_due_card,
     build_project_task_due_card,
     feishu_app_enabled,
     lookup_feishu_user_id_by_email,
     lookup_feishu_user_id_by_mobile,
     send_feishu_app_card,
-)
-from app.utils.feishu_bot import (
-    send_project_daily_summary_card,
-    send_project_task_due_notification,
 )
 from tortoise.expressions import Q
 
@@ -31,13 +28,31 @@ DAILY_SUMMARY_LABELS = {
 
 
 async def notify_due_project_tasks(now: datetime | None = None) -> int:
-    webhook_url = str(settings.PROJECT_TASK_FEISHU_WEBHOOK_URL or "").strip()
-    if not webhook_url and not feishu_app_enabled():
+    if not feishu_app_enabled():
         return 0
 
     now = now or datetime.now()
     soon_deadline = now + timedelta(days=1)
+    today = now.date()
+    soon_date = soon_deadline.date()
     sent_count = 0
+
+    due_soon_projects = await CustomerProject.filter(
+        due_date__gt=today,
+        due_date__lte=soon_date,
+        due_soon_notified_at=None,
+    ).exclude(status__in=["completed", "archived"]).select_related("customer")
+    for project in due_soon_projects:
+        if await notify_project_due(project, "due_soon", now):
+            sent_count += 1
+
+    due_projects = await CustomerProject.filter(
+        due_date__lte=today,
+        due_notified_at=None,
+    ).exclude(status__in=["completed", "archived"]).select_related("customer")
+    for project in due_projects:
+        if await notify_project_due(project, "due", now):
+            sent_count += 1
 
     due_soon_tasks = await CustomerProjectTask.filter(
         is_done=False,
@@ -46,7 +61,7 @@ async def notify_due_project_tasks(now: datetime | None = None) -> int:
         due_soon_notified_at=None,
     ).select_related("project", "project__customer")
     for task in due_soon_tasks:
-        if await notify_project_task(task, "due_soon", now, webhook_url):
+        if await notify_project_task(task, "due_soon", now):
             sent_count += 1
 
     due_tasks = await CustomerProjectTask.filter(
@@ -55,15 +70,47 @@ async def notify_due_project_tasks(now: datetime | None = None) -> int:
         due_notified_at=None,
     ).select_related("project", "project__customer")
     for task in due_tasks:
-        if await notify_project_task(task, "due", now, webhook_url):
+        if await notify_project_task(task, "due", now):
             sent_count += 1
 
     return sent_count
 
 
+async def notify_project_due(
+    project: CustomerProject,
+    stage: str,
+    now: datetime,
+) -> bool:
+    if getattr(project, "status", "") in {"completed", "archived"}:
+        return False
+    if not getattr(project, "due_date", None):
+        return False
+    if not project.owner:
+        return False
+    if not await claim_project_due_notification(project, stage, now):
+        return False
+
+    customer = await project.customer if getattr(project, "customer_id", None) else None
+    url = build_project_url(project.id)
+    try:
+        card = build_project_due_card(
+            stage=stage,
+            project_name=project.name,
+            due_date=format_due_date(project.due_date),
+            owner=project.owner,
+            customer_name=getattr(customer, "name", "") or getattr(customer, "legal_name", ""),
+            project_code=project.code,
+            progress=project.progress,
+            url=url,
+        )
+        return await send_card_to_person(project.owner, card)
+    except Exception:
+        logger.exception("project due feishu notification failed: project_id=%s stage=%s", project.id, stage)
+        return False
+
+
 async def notify_project_daily_summary(now: datetime | None = None) -> bool:
-    webhook_url = str(settings.PROJECT_TASK_FEISHU_WEBHOOK_URL or "").strip()
-    if not webhook_url and not feishu_app_enabled():
+    if not feishu_app_enabled():
         return False
 
     now = now or datetime.now()
@@ -80,23 +127,14 @@ async def notify_project_daily_summary(now: datetime | None = None) -> bool:
 
     sections, owners = await build_daily_summary_sections()
     try:
-        success = False
-        if feishu_app_enabled():
-            success = await send_daily_summary_to_people(summary_date.isoformat(), owners)
-        if not success and webhook_url:
-            success = await send_project_daily_summary_card(
-                webhook_url=webhook_url,
-                summary_date=summary_date.isoformat(),
-                sections=sections,
-                mention_text=build_mentions(owners),
-            )
+        success = await send_daily_summary_to_people(summary_date.isoformat(), owners)
     except Exception:
         logger.exception("project daily summary feishu notification failed")
         success = False
 
     record.status = "success" if success else "failed"
     record.sent_at = now if success else None
-    record.message = "sent" if success else "feishu webhook failed"
+    record.message = "sent" if success else "feishu app failed"
     await record.save()
     return success
 
@@ -184,10 +222,11 @@ async def notify_project_task(
     task: CustomerProjectTask,
     stage: str,
     now: datetime,
-    webhook_url: str = "",
 ) -> bool:
     project = task.project
     if getattr(project, "status", "") in {"completed", "archived"}:
+        return False
+    if not task.assignee:
         return False
 
     if not await claim_project_task_notification(task, stage, now):
@@ -196,24 +235,7 @@ async def notify_project_task(
     customer = await project.customer if getattr(project, "customer_id", None) else None
     url = build_project_url(project.id, task.id)
     try:
-        if feishu_app_enabled() and task.assignee:
-            card = build_project_task_due_card(
-                stage=stage,
-                project_name=project.name,
-                task_title=task.title,
-                due_date=format_due_date(task.due_date),
-                assignee=task.assignee,
-                customer_name=getattr(customer, "name", "") or getattr(customer, "legal_name", ""),
-                project_code=project.code,
-                remark=task.remark,
-                url=url,
-            )
-            if await send_card_to_person(task.assignee, card):
-                return True
-        if not webhook_url:
-            return False
-        return await send_project_task_due_notification(
-            webhook_url=webhook_url,
+        card = build_project_task_due_card(
             stage=stage,
             project_name=project.name,
             task_title=task.title,
@@ -222,7 +244,9 @@ async def notify_project_task(
             customer_name=getattr(customer, "name", "") or getattr(customer, "legal_name", ""),
             project_code=project.code,
             remark=task.remark,
+            url=url,
         )
+        return await send_card_to_person(task.assignee, card)
     except Exception:
         logger.exception("project task feishu notification failed: task_id=%s stage=%s", task.id, stage)
         return False
@@ -306,6 +330,20 @@ async def claim_project_task_notification(task: CustomerProjectTask, stage: str,
     return updated > 0
 
 
+async def claim_project_due_notification(project: CustomerProject, stage: str, now: datetime) -> bool:
+    filters = {"id": project.id}
+    values = {}
+    if stage == "due_soon":
+        filters["due_soon_notified_at"] = None
+        values["due_soon_notified_at"] = now
+    else:
+        filters["due_notified_at"] = None
+        values["due_notified_at"] = now
+
+    updated = await CustomerProject.filter(**filters).update(**values)
+    return updated > 0
+
+
 def build_project_url(project_id: int | None, task_id: int | None = None) -> str:
     base_url = settings.get_web_base_url()
     if not base_url or not project_id:
@@ -314,18 +352,6 @@ def build_project_url(project_id: int | None, task_id: int | None = None) -> str
     if task_id:
         query["task_id"] = task_id
     return f"{base_url}/project-board?{urlencode(query)}"
-
-
-def build_mentions(names: list[str]) -> str:
-    mention_map = parse_mention_map(settings.PROJECT_FEISHU_MENTION_MAP)
-    mention_parts = []
-    for name in unique_people(names):
-        feishu_user_id = mention_map.get(name)
-        if feishu_user_id:
-            mention_parts.append(f'<at user_id="{feishu_user_id}">{name}</at>')
-        else:
-            mention_parts.append(f"@{name}")
-    return " ".join(mention_parts)
 
 
 def parse_mention_map(raw: str | None) -> dict[str, str]:
@@ -377,9 +403,7 @@ async def resolve_feishu_receiver(person: str) -> tuple[str, str]:
     if not name:
         return "", ""
 
-    user_map = parse_mention_map(settings.PROJECT_FEISHU_USER_MAP) or parse_mention_map(
-        settings.PROJECT_FEISHU_MENTION_MAP
-    )
+    user_map = parse_mention_map(settings.PROJECT_FEISHU_USER_MAP)
     mapped = str(user_map.get(name) or "").strip()
     if mapped:
         receive_id_type, receive_id = parse_feishu_receiver_value(mapped)

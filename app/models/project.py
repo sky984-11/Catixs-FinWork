@@ -27,6 +27,8 @@ class CustomerProject(BaseModel, TimestampMixin):
     description = fields.TextField(null=True, description="项目说明")
     next_action = fields.CharField(max_length=255, null=True, description="下一步动作")
     sort_order = fields.IntField(default=0, description="看板排序")
+    due_soon_notified_at = fields.DatetimeField(null=True, description="提前一天通知时间")
+    due_notified_at = fields.DatetimeField(null=True, description="到期通知时间")
 
     class Meta:
         table = "customer_project"

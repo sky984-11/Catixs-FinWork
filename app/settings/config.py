@@ -61,13 +61,9 @@ class Settings(BaseSettings):
     DATACENTER_PARTS_API_USERNAME: str = "admin"
     DATACENTER_PARTS_API_PASSWORD: str = "Catixs@3202"
     DATACENTER_PARTS_API_TIMEOUT: float = 20
-    PROJECT_TASK_FEISHU_WEBHOOK_URL: str = (
-        "https://open.feishu.cn/open-apis/bot/v2/hook/dcdbb605-0018-44bf-8953-df3b7756a777"
-    )
     PROJECT_DAILY_SUMMARY_HOUR: int = 8
     PROJECT_DAILY_SUMMARY_MINUTE: int = 30
     PROJECT_DAILY_SUMMARY_OWNER_FILTER: str = ""
-    PROJECT_FEISHU_MENTION_MAP: str = ""
     PROJECT_FEISHU_USER_MAP: str = ""
     FEISHU_APP_ID: str = ""
     FEISHU_APP_SECRET: str = ""

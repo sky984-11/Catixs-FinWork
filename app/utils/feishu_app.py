@@ -344,6 +344,37 @@ def build_project_task_due_card(
     )
 
 
+def build_project_due_card(
+    *,
+    stage: str,
+    project_name: str,
+    due_date: str,
+    owner: str | None = None,
+    customer_name: str | None = None,
+    project_code: str | None = None,
+    progress: int | None = None,
+    url: str | None = None,
+) -> dict:
+    stage_label = "即将到期" if stage == "due_soon" else "已到期"
+    template = "orange" if stage == "due_soon" else "red"
+    fields = [
+        ("项目", markdown_link(project_name, url)),
+        ("项目 ETA", due_date),
+        ("负责人", owner or "未设置"),
+    ]
+    if customer_name:
+        fields.append(("客户", customer_name))
+    if project_code:
+        fields.append(("项目编号", project_code))
+    if progress is not None:
+        fields.append(("项目进度", f"{progress}%"))
+    return build_field_card(
+        title=f"项目{stage_label}提醒",
+        template=template,
+        fields=fields,
+    )
+
+
 def build_assignment_card(
     *,
     title: str,
