@@ -141,8 +141,9 @@ const customerOptions = computed(() =>
 const userOptions = computed(() =>
   userList.value.map((item) => {
     const name = getUserDisplayName(item)
+    const meta = [item.email, item.phone].filter(Boolean).join(' / ')
     return {
-      label: item.email ? `${name} - ${item.email}` : name,
+      label: meta ? `${name} - ${meta}` : name,
       value: name,
     }
   })
@@ -269,9 +270,14 @@ async function loadProjects() {
 }
 
 async function loadProjectDetail(projectId) {
+  const id = Number(projectId || 0)
+  if (!id) {
+    detailProject.value = null
+    return
+  }
   detailLoading.value = true
   try {
-    const res = await api.projectApi.get({ project_id: projectId })
+    const res = await api.projectApi.get({ project_id: id })
     detailProject.value = res?.data || null
   } finally {
     detailLoading.value = false

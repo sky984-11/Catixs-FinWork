@@ -19,6 +19,7 @@ async def list_user(
     page_size: int = Query(10, description="每页数量"),
     username: str = Query("", description="用户名称，用于搜索"),
     email: str = Query("", description="邮箱地址"),
+    phone: str = Query("", description="手机号"),
     dept_id: int = Query(None, description="部门ID"),
 ):
     q = Q()
@@ -26,6 +27,8 @@ async def list_user(
         q &= Q(username__contains=username)
     if email:
         q &= Q(email__contains=email)
+    if phone:
+        q &= Q(phone__contains=phone)
     if dept_id is not None:
         q &= Q(dept_id=dept_id)
     total, user_objs = await user_controller.list(page=page, page_size=page_size, search=q)

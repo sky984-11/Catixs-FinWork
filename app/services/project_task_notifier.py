@@ -4,12 +4,23 @@ from datetime import date, datetime, timedelta
 from urllib.parse import urlencode
 
 from app.log import logger
+from app.models.admin import User
 from app.models.project import CustomerProject, CustomerProjectDailySummary, CustomerProjectTask
 from app.settings.config import settings
+from app.utils.feishu_app import (
+    build_assignment_card,
+    build_project_daily_summary_card,
+    build_project_task_due_card,
+    feishu_app_enabled,
+    lookup_feishu_user_id_by_email,
+    lookup_feishu_user_id_by_mobile,
+    send_feishu_app_card,
+)
 from app.utils.feishu_bot import (
     send_project_daily_summary_card,
     send_project_task_due_notification,
 )
+from tortoise.expressions import Q
 
 DAILY_SUMMARY_STATUSES = ("planning", "active", "acceptance")
 DAILY_SUMMARY_LABELS = {
@@ -21,7 +32,7 @@ DAILY_SUMMARY_LABELS = {
 
 async def notify_due_project_tasks(now: datetime | None = None) -> int:
     webhook_url = str(settings.PROJECT_TASK_FEISHU_WEBHOOK_URL or "").strip()
-    if not webhook_url:
+    if not webhook_url and not feishu_app_enabled():
         return 0
 
     now = now or datetime.now()
@@ -52,7 +63,7 @@ async def notify_due_project_tasks(now: datetime | None = None) -> int:
 
 async def notify_project_daily_summary(now: datetime | None = None) -> bool:
     webhook_url = str(settings.PROJECT_TASK_FEISHU_WEBHOOK_URL or "").strip()
-    if not webhook_url:
+    if not webhook_url and not feishu_app_enabled():
         return False
 
     now = now or datetime.now()
@@ -69,12 +80,16 @@ async def notify_project_daily_summary(now: datetime | None = None) -> bool:
 
     sections, owners = await build_daily_summary_sections()
     try:
-        success = await send_project_daily_summary_card(
-            webhook_url=webhook_url,
-            summary_date=summary_date.isoformat(),
-            sections=sections,
-            mention_text=build_mentions(owners),
-        )
+        success = False
+        if feishu_app_enabled():
+            success = await send_daily_summary_to_people(summary_date.isoformat(), owners)
+        if not success and webhook_url:
+            success = await send_project_daily_summary_card(
+                webhook_url=webhook_url,
+                summary_date=summary_date.isoformat(),
+                sections=sections,
+                mention_text=build_mentions(owners),
+            )
     except Exception:
         logger.exception("project daily summary feishu notification failed")
         success = False
@@ -96,8 +111,12 @@ def should_run_daily_summary(now: datetime) -> bool:
     return now >= run_time
 
 
-async def build_daily_summary_sections() -> tuple[list[dict], list[str]]:
-    owner_filter = str(settings.PROJECT_DAILY_SUMMARY_OWNER_FILTER or "").strip()
+async def build_daily_summary_sections(owner_filter: str | None = None) -> tuple[list[dict], list[str]]:
+    filter_text = (
+        str(settings.PROJECT_DAILY_SUMMARY_OWNER_FILTER or "").strip()
+        if owner_filter is None
+        else str(owner_filter or "").strip()
+    )
     projects = await CustomerProject.filter(status__in=DAILY_SUMMARY_STATUSES).order_by(
         "status",
         "sort_order",
@@ -123,7 +142,7 @@ async def build_daily_summary_sections() -> tuple[list[dict], list[str]]:
         project_index = 0
         for project in status_projects:
             open_tasks = tasks_by_project.get(project.id, [])
-            if owner_filter and not is_project_related_to_people(project, open_tasks, [owner_filter]):
+            if filter_text and not is_project_related_to_people(project, open_tasks, [filter_text]):
                 continue
             project_index += 1
             open_task_count += len(open_tasks)
@@ -165,7 +184,7 @@ async def notify_project_task(
     task: CustomerProjectTask,
     stage: str,
     now: datetime,
-    webhook_url: str,
+    webhook_url: str = "",
 ) -> bool:
     project = task.project
     if getattr(project, "status", "") in {"completed", "archived"}:
@@ -175,7 +194,24 @@ async def notify_project_task(
         return False
 
     customer = await project.customer if getattr(project, "customer_id", None) else None
+    url = build_project_url(project.id, task.id)
     try:
+        if feishu_app_enabled() and task.assignee:
+            card = build_project_task_due_card(
+                stage=stage,
+                project_name=project.name,
+                task_title=task.title,
+                due_date=format_due_date(task.due_date),
+                assignee=task.assignee,
+                customer_name=getattr(customer, "name", "") or getattr(customer, "legal_name", ""),
+                project_code=project.code,
+                remark=task.remark,
+                url=url,
+            )
+            if await send_card_to_person(task.assignee, card):
+                return True
+        if not webhook_url:
+            return False
         return await send_project_task_due_notification(
             webhook_url=webhook_url,
             stage=stage,
@@ -190,6 +226,64 @@ async def notify_project_task(
     except Exception:
         logger.exception("project task feishu notification failed: task_id=%s stage=%s", task.id, stage)
         return False
+
+
+async def send_daily_summary_to_people(summary_date: str, owners: list[str]) -> bool:
+    recipients = unique_people(owners)
+    if not recipients:
+        return False
+    sent = 0
+    for owner in recipients:
+        sections, _ = await build_daily_summary_sections(owner_filter=owner)
+        if not any(section.get("projects") for section in sections):
+            continue
+        card = build_project_daily_summary_card(summary_date=summary_date, sections=sections, recipient=owner)
+        if await send_card_to_person(owner, card):
+            sent += 1
+    return sent > 0
+
+
+async def notify_project_created(project: CustomerProject, creator: User | None = None) -> bool:
+    owner = str(project.owner or "").strip()
+    if not owner or is_same_person(owner, creator):
+        return False
+    customer = await project.customer if getattr(project, "customer_id", None) else None
+    card = build_assignment_card(
+        title="你有一个新的负责项目",
+        fields=[
+            ("项目", project.name),
+            ("客户", getattr(customer, "name", "") or getattr(customer, "legal_name", "") or "-"),
+            ("项目编号", project.code or "-"),
+            ("状态", project.status or "-"),
+            ("ETA", project.due_date.isoformat() if project.due_date else "未设置"),
+            ("创建人", get_user_display_name(creator)),
+        ],
+        url=build_project_url(project.id),
+    )
+    return await send_card_to_person(owner, card)
+
+
+async def notify_project_task_created(
+    task: CustomerProjectTask,
+    project: CustomerProject,
+    creator: User | None = None,
+) -> bool:
+    assignee = str(task.assignee or "").strip()
+    if not assignee or is_same_person(assignee, creator):
+        return False
+    card = build_assignment_card(
+        title="你有一个新的项目子任务",
+        fields=[
+            ("项目", project.name),
+            ("子任务", task.title),
+            ("负责人", assignee),
+            ("ETA", format_due_date(task.due_date)),
+            ("创建人", get_user_display_name(creator)),
+            ("备注", task.remark or "-"),
+        ],
+        url=build_project_url(project.id, task.id),
+    )
+    return await send_card_to_person(assignee, card)
 
 
 def format_due_date(value: date | datetime | None) -> str:
@@ -260,6 +354,122 @@ def parse_mention_map(raw: str | None) -> dict[str, str]:
         if key and value:
             result[key] = value
     return result
+
+
+async def send_card_to_person(person: str, card: dict) -> bool:
+    receive_id_type, receive_id = await resolve_feishu_receiver(person)
+    if not receive_id:
+        logger.warning("feishu receiver not resolved for project person: %s", person)
+        return False
+    try:
+        return await send_feishu_app_card(
+            receive_id=receive_id,
+            receive_id_type=receive_id_type,
+            card=card,
+        )
+    except Exception:
+        logger.exception("feishu app message failed for project person: %s", person)
+        return False
+
+
+async def resolve_feishu_receiver(person: str) -> tuple[str, str]:
+    name = str(person or "").strip()
+    if not name:
+        return "", ""
+
+    user_map = parse_mention_map(settings.PROJECT_FEISHU_USER_MAP) or parse_mention_map(
+        settings.PROJECT_FEISHU_MENTION_MAP
+    )
+    mapped = str(user_map.get(name) or "").strip()
+    if mapped:
+        receive_id_type, receive_id = parse_feishu_receiver_value(mapped)
+        if receive_id_type == "email":
+            user_id = await lookup_feishu_user_id_by_email(receive_id)
+            if user_id:
+                return "user_id", user_id
+            logger.warning(f"feishu receiver email not resolved by contact or directory: person={name} email={receive_id}")
+            return "", ""
+        if receive_id_type == "mobile":
+            user_id = await lookup_feishu_user_id_by_mobile(receive_id)
+            if user_id:
+                return "user_id", user_id
+            logger.warning(f"feishu receiver mobile not resolved by contact: person={name} mobile={receive_id}")
+            return "", ""
+        return receive_id_type, receive_id
+
+    if "@" in name:
+        user_id = await lookup_feishu_user_id_by_email(name)
+        if user_id:
+            return "user_id", user_id
+        logger.warning(f"feishu receiver email not resolved by contact or directory: email={name}")
+        return "", ""
+
+    if is_mobile_like(name):
+        user_id = await lookup_feishu_user_id_by_mobile(name)
+        if user_id:
+            return "user_id", user_id
+        logger.warning(f"feishu receiver mobile not resolved by contact: mobile={name}")
+        return "", ""
+
+    user = await User.filter(Q(alias=name) | Q(username=name) | Q(email=name) | Q(phone=name)).first()
+    if user:
+        if user.email:
+            user_id = await lookup_feishu_user_id_by_email(user.email)
+            if user_id:
+                return "user_id", user_id
+        if user.phone:
+            user_id = await lookup_feishu_user_id_by_mobile(user.phone)
+            if user_id:
+                return "user_id", user_id
+        logger.warning(
+            f"feishu receiver user not resolved by contact: "
+            f"person={name} email={user.email or ''} phone={user.phone or ''}"
+        )
+    return "", ""
+
+
+def parse_feishu_receiver_value(value: str) -> tuple[str, str]:
+    text = str(value or "").strip()
+    if not text:
+        return "", ""
+    if ":" in text:
+        prefix, raw = text.split(":", 1)
+        prefix = prefix.strip().lower()
+        raw = raw.strip()
+        if prefix in {"email", "mobile", "open_id", "user_id", "union_id", "chat_id"} and raw:
+            return prefix, raw
+    if "@" in text:
+        return "email", text
+    if text.startswith("ou_"):
+        return "open_id", text
+    if text.startswith("on_"):
+        return "union_id", text
+    return "user_id", text
+
+
+def is_mobile_like(value: str) -> bool:
+    digits = "".join(ch for ch in str(value or "") if ch.isdigit())
+    return 8 <= len(digits) <= 15 and len(digits) >= len(str(value or "").strip()) - 2
+
+
+def get_user_display_name(user: User | None) -> str:
+    if not user:
+        return "未知用户"
+    return user.alias or user.username or user.email or "未知用户"
+
+
+def is_same_person(person: str, user: User | None) -> bool:
+    if not user:
+        return False
+    target = str(person or "").strip().lower()
+    if not target:
+        return False
+    candidates = {
+        str(user.alias or "").strip().lower(),
+        str(user.username or "").strip().lower(),
+        str(user.email or "").strip().lower(),
+    }
+    return target in candidates
 
 
 def collect_people(values: list[str | None]) -> list[str]:

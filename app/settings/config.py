@@ -66,8 +66,11 @@ class Settings(BaseSettings):
     )
     PROJECT_DAILY_SUMMARY_HOUR: int = 8
     PROJECT_DAILY_SUMMARY_MINUTE: int = 30
-    PROJECT_DAILY_SUMMARY_OWNER_FILTER: str = "Azure"
+    PROJECT_DAILY_SUMMARY_OWNER_FILTER: str = ""
     PROJECT_FEISHU_MENTION_MAP: str = ""
+    PROJECT_FEISHU_USER_MAP: str = ""
+    FEISHU_APP_ID: str = ""
+    FEISHU_APP_SECRET: str = ""
     WEB_BASE_URL: str = ""
     WEB_DEV_BASE_URL: str = "http://127.0.0.1:3100"
     WEB_DOMAIN: str = "finwork.catixs.net"

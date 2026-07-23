@@ -80,6 +80,16 @@ const columns = [
     ellipsis: { tooltip: true },
   },
   {
+    title: '手机号',
+    key: 'phone',
+    width: 60,
+    align: 'center',
+    ellipsis: { tooltip: true },
+    render(row) {
+      return row.phone || '-'
+    },
+  },
+  {
     title: '用户角色',
     key: 'role',
     width: 60,
@@ -405,6 +415,15 @@ const validateAddUser = {
                 @keypress.enter="$table?.handleSearch()"
               />
             </QueryBarItem>
+            <QueryBarItem label="手机号" :label-width="50">
+              <NInput
+                v-model:value="queryItems.phone"
+                clearable
+                type="text"
+                placeholder="请输入手机号"
+                @keypress.enter="$table?.handleSearch()"
+              />
+            </QueryBarItem>
           </template>
         </CrudTable>
 
@@ -428,6 +447,9 @@ const validateAddUser = {
             </NFormItem>
             <NFormItem label="邮箱" path="email">
               <NInput v-model:value="modalForm.email" clearable placeholder="请输入邮箱" />
+            </NFormItem>
+            <NFormItem label="手机号" path="phone">
+              <NInput v-model:value="modalForm.phone" clearable placeholder="请输入手机号" />
             </NFormItem>
             <NFormItem v-if="modalAction === 'add'" label="密码" path="password">
               <NInput

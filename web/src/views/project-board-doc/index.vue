@@ -28,7 +28,7 @@ const workflows = [
 const reminders = [
   { title: '子任务临近提醒', desc: '未完成子任务距离 ETA 还有一天时发送飞书提醒。' },
   { title: '子任务到期提醒', desc: '未完成子任务到达 ETA 时再发送一次提醒。' },
-  { title: '每日总结', desc: '每天 8:30 汇总规划中、进行中、验收中的 Azure 相关项目。' },
+  { title: '每日总结', desc: '每天 8:30 按负责人分别汇总规划中、进行中、验收中的相关项目，并通过用户手机号解析飞书 user_id 后推送。' },
   { title: '跳转链接', desc: '飞书中的项目和子任务标题可点击跳转，域名固定为 https://finwork.catixs.net。' },
 ]
 </script>
@@ -149,6 +149,9 @@ const reminders = [
           <p>{{ item.desc }}</p>
         </article>
       </div>
+      <div class="notice-band mt-12">
+        <p>飞书应用消息依赖系统用户列表中的手机号。维护用户手机号后，系统会用手机号获取飞书 user_id，再把每日总结、ETA 提醒、新项目和新子任务通知发送给对应负责人。</p>
+      </div>
     </section>
 
     <section class="doc-section">
@@ -172,11 +175,11 @@ const reminders = [
       </article>
       <article>
         <strong>为什么子任务没有提醒？</strong>
-        <p>可能是子任务已完成、项目已完成或归档、子任务没有 ETA、飞书 webhook 异常，或者该阶段提醒已经发送过。</p>
+        <p>可能是子任务已完成、项目已完成或归档、子任务没有 ETA、负责人没有维护手机号、手机号无法匹配飞书用户，或者该阶段提醒已经发送过。</p>
       </article>
       <article>
         <strong>为什么每日总结没有某个项目？</strong>
-        <p>每日总结只包含规划中、进行中、验收中的 Azure 相关项目，已完成或归档项目不会进入总结。</p>
+        <p>每日总结只包含规划中、进行中、验收中的相关项目，并按负责人分别发送。已完成或归档项目不会进入总结。</p>
       </article>
     </section>
   </CommonPage>

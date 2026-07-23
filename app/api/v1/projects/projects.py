@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query
+from tortoise.exceptions import IntegrityError
 from tortoise.expressions import Q
 
 from app.controllers.project import customer_project_controller
@@ -27,6 +28,7 @@ from app.schemas.projects import (
     ProjectTaskCreate,
     ProjectTaskUpdate,
 )
+from app.services.project_task_notifier import notify_project_created, notify_project_task_created
 
 logger = logging.getLogger(__name__)
 
@@ -171,6 +173,13 @@ def normalize_project_payload(payload: dict) -> dict:
     return payload
 
 
+def project_integrity_error_response(exc: IntegrityError) -> Success:
+    message = str(exc)
+    if "code" in message.lower():
+        return Success(msg="项目编号已存在，请换一个项目编号", code=400)
+    return Success(msg=f"项目保存失败：{message}", code=400)
+
+
 def normalize_shared_users(value) -> list[str]:
     if not value:
         return []
@@ -244,7 +253,9 @@ async def list_project(
 
 
 @router.get("/get", summary="查看客户项目")
-async def get_project(project_id: int = Query(..., description="项目ID")):
+async def get_project(project_id: int | None = Query(None, description="项目ID")):
+    if not project_id:
+        return Success(msg="project_id is required", code=400)
     project_obj = await customer_project_controller.get(id=project_id)
     await ensure_project_access(project_obj)
     return Success(data=await serialize_project_detail(project_obj))
@@ -252,16 +263,34 @@ async def get_project(project_id: int = Query(..., description="项目ID")):
 
 @router.post("/create", summary="创建客户项目")
 async def create_project(project_in: CustomerProjectCreate):
-    project_obj = await customer_project_controller.create(
-        normalize_project_payload(project_in.model_dump())
-    )
-    return Success(msg="Created Successfully", data=await serialize_project(project_obj))
+    try:
+        project_obj = await customer_project_controller.create(
+            normalize_project_payload(project_in.model_dump())
+        )
+    except IntegrityError as exc:
+        return project_integrity_error_response(exc)
+    except Exception as exc:
+        logger.exception("project create failed")
+        return Success(msg=f"项目创建失败：{exc}", code=500)
+    try:
+        await notify_project_created(project_obj, await get_current_project_user())
+    except Exception:
+        logger.exception("project create notification failed: project_id=%s", project_obj.id)
+    try:
+        data = await serialize_project(project_obj)
+    except Exception as exc:
+        logger.exception("project serialize failed after create: project_id=%s", project_obj.id)
+        return Success(msg=f"项目已创建，但返回详情失败：{exc}", code=500)
+    return Success(msg="Created Successfully", data=data)
 
 
 @router.post("/update", summary="更新客户项目")
 async def update_project(project_in: CustomerProjectUpdate):
     payload = normalize_project_payload(project_in.model_dump(exclude_unset=True, exclude={"id"}))
-    project_obj = await customer_project_controller.update(id=project_in.id, obj_in=payload)
+    try:
+        project_obj = await customer_project_controller.update(id=project_in.id, obj_in=payload)
+    except IntegrityError as exc:
+        return project_integrity_error_response(exc)
     return Success(msg="Updated Successfully", data=await serialize_project(project_obj))
 
 
@@ -314,6 +343,10 @@ async def create_project_task(task_in: ProjectTaskCreate):
     project_obj = await customer_project_controller.get(id=task_in.project_id)
     payload = task_in.model_dump(exclude={"project_id"})
     task = await CustomerProjectTask.create(project=project_obj, **payload)
+    try:
+        await notify_project_task_created(task, project_obj, await get_current_project_user())
+    except Exception:
+        logger.exception("project task create notification failed: task_id=%s", task.id)
     return Success(msg="Created Successfully", data=await serialize_task(task))
 
 
