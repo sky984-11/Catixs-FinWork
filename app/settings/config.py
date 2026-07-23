@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     PROJECT_FEISHU_MENTION_MAP: str = ""
     WEB_BASE_URL: str = ""
     WEB_DEV_BASE_URL: str = "http://127.0.0.1:3100"
-    WEB_DOMAIN: str = ""
+    WEB_DOMAIN: str = "finwork.catixs.net"
 
     TORTOISE_ORM: dict[str, Any] = {}
     DATETIME_FORMAT: str = "%Y-%m-%d %H:%M:%S"
