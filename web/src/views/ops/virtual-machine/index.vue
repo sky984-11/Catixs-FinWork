@@ -42,7 +42,7 @@
                       <strong>{{ node.label }}</strong>
                       <em>{{ nodeStatusText(node) }}</em>
                     </span>
-                    <n-tag size="small" round :type="node.status === 'online' ? 'success' : 'warning'">
+                    <n-tag size="small" round :type="nodeVmCountTagType(node)">
                       {{ node.vm_count ?? '-' }}
                     </n-tag>
                   </button>
@@ -235,9 +235,11 @@
                   v-model:value="createModal.form.network.rate_limit"
                   clearable
                   :min="0"
-                  placeholder="MB/s，可为空"
+                  placeholder="可为空"
                   class="full-width"
-                />
+                >
+                  <template #suffix>MB/s</template>
+                </n-input-number>
               </n-form-item-gi>
               <n-form-item-gi v-if="createModal.form.network.mode === 'static'" label="IP/掩码" required>
                 <n-input v-model:value="createModal.form.network.ip" placeholder="例如 192.168.1.100/24" />
@@ -2120,10 +2122,12 @@ function nodeStatusText(node) {
   if (node.error) {
     return String(node.error).includes('timeout') ? '连接超时' : '连接失败'
   }
-  if (!Number(node.node_count || 0)) {
-    return node.vm_count == null ? '等待查询' : '已查询'
-  }
-  return `${node.online_node_count || 0}/${node.node_count || 0} 节点在线`
+  return nodeAddress(node)
+}
+
+function nodeVmCountTagType(node) {
+  if (node?.error) return 'error'
+  return Number(node?.vm_count || 0) > 0 ? 'success' : 'default'
 }
 
 function nodeAddress(node) {
