@@ -32,6 +32,7 @@ import CommonPage from '@/components/page/CommonPage.vue'
 import CrudModal from '@/components/table/CrudModal.vue'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import api from '@/api'
+import { useUserStore } from '@/store'
 import { useRoute, useRouter } from 'vue-router'
 import { buildPinyinSearchText, pinyinOptionFilter } from '@/utils/pinyin-search'
 
@@ -114,6 +115,7 @@ const taskForm = reactive(createEmptyTaskForm())
 const taskEditForm = reactive(createEmptyTaskEditForm())
 const route = useRoute()
 const router = useRouter()
+const userStore = useUserStore()
 let progressSaveTimer = null
 let progressSaveSeq = 0
 
@@ -431,9 +433,28 @@ function buildProjectUpdatePayload(project, progress) {
 }
 
 function openShare(project) {
+  if (!canShareProject(project)) {
+    window.$message?.warning?.('只有项目负责人或管理员可以共享项目')
+    return
+  }
   shareProject.value = project
   shareUsers.value = [...(project.shared_users || [])]
   shareVisible.value = true
+}
+
+function canShareProject(project) {
+  if (!project) return false
+  if (userStore.isSuperUser || String(userStore.name || '').toLowerCase() === 'admin') return true
+  const owner = String(project.owner || '').trim().toLowerCase()
+  if (!owner) return false
+  const currentNames = [
+    userStore.name,
+    userStore.email,
+    userStore.userInfo?.alias,
+  ]
+    .map((item) => String(item || '').trim().toLowerCase())
+    .filter(Boolean)
+  return currentNames.includes(owner)
 }
 
 async function submitShare() {
@@ -1093,7 +1114,7 @@ onMounted(async () => {
                   </template>
                   编辑
                 </NTooltip>
-                <NTooltip trigger="hover" placement="top">
+                <NTooltip v-if="canShareProject(project)" trigger="hover" placement="top">
                   <template #trigger>
                     <NButton size="tiny" type="info" secondary circle round @click="openShare(project)">
                       <template #icon><TheIcon icon="mdi:share-variant-outline" :size="15" /></template>

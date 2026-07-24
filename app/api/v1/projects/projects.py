@@ -144,6 +144,15 @@ async def can_view_all_projects(user: User | None) -> bool:
     return bool(user.is_superuser or str(user.username or "").strip().lower() == "admin")
 
 
+def can_manage_project_share(project: CustomerProject, user: User | None) -> bool:
+    if not user:
+        return False
+    if bool(user.is_superuser or str(user.username or "").strip().lower() == "admin"):
+        return True
+    owner = str(project.owner or "").strip()
+    return owner in get_project_owner_names(user)
+
+
 async def ensure_project_access(project: CustomerProject) -> None:
     current_user = await get_current_project_user()
     if await can_view_all_projects(current_user):
@@ -292,6 +301,9 @@ async def update_project(project_in: CustomerProjectUpdate):
     except Exception as exc:
         logger.exception("project update load failed: project_id=%s", project_in.id)
         return Success(msg=f"项目读取失败：{exc}", code=500)
+    current_user = await get_current_project_user()
+    if "shared_users" in payload and not can_manage_project_share(existing_project, current_user):
+        raise HTTPException(status_code=403, detail="Only project owner or admin can share project")
     old_shared_users = normalize_shared_users(getattr(existing_project, "shared_users", []))
     if "due_date" in payload and payload["due_date"] != existing_project.due_date:
         payload["due_soon_notified_at"] = None
@@ -310,7 +322,7 @@ async def update_project(project_in: CustomerProjectUpdate):
         added_shared_users = [name for name in new_shared_users if name not in set(old_shared_users)]
         if added_shared_users:
             try:
-                await notify_project_shared(project_obj, added_shared_users, await get_current_project_user())
+                await notify_project_shared(project_obj, added_shared_users, current_user)
             except Exception:
                 logger.exception("project share notification failed: project_id=%s", project_obj.id)
     try:
