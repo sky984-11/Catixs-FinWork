@@ -34,14 +34,7 @@
                 <span>{{ rackUsedUnits }}/{{ rackVisibleUnitCount }}U</span>
               </div>
             </div>
-            <n-space align="center">
-              <n-select
-                v-model:value="selectedCabinetId"
-                class="cabinet-select"
-                :options="selectedCabinetOptions"
-                placeholder="选择机柜"
-                @update:value="loadCabinetDevices"
-              />
+            <n-space class="stage-actions" align="center">
               <n-button type="primary" round @click="openCabinetModal()">新增机柜</n-button>
               <n-button secondary round @click="openPlatformModal">厂商/型号管理</n-button>
               <n-button secondary round @click="backToMap">返回地图</n-button>
@@ -61,6 +54,7 @@
                 :class="{ active: selectedCabinetId === cabinet.id }"
                 @click="selectCabinet(cabinet.id)"
               >
+                <i v-if="selectedCabinetId === cabinet.id" class="cabinet-active-mark"></i>
                 <div class="cabinet-card-head">
                   <strong>{{ cabinet.name }}</strong>
                   <span class="cabinet-card-actions">
@@ -68,9 +62,15 @@
                     <button title="删除机柜" @click.stop="deleteCabinet(cabinet)">删除</button>
                   </span>
                 </div>
-                <span>{{ cabinetLocationName(cabinet) }}</span>
-                <em>{{ cabinetDeviceCount(cabinet.id) }} 台设备 / {{ formatCabinetURange(cabinet) }}</em>
-                <em>{{ formatCabinetSize(cabinet) }} / {{ formatCabinetPower(cabinet) }}</em>
+                <span class="cabinet-location">{{ cabinetLocationName(cabinet) }}</span>
+                <div class="cabinet-card-metrics">
+                  <em>{{ cabinetDeviceCount(cabinet.id) }} 台设备</em>
+                  <em>{{ formatCabinetURange(cabinet) }}</em>
+                </div>
+                <div class="cabinet-card-foot">
+                  <span>{{ formatCabinetSize(cabinet) }}</span>
+                  <span>{{ formatCabinetPower(cabinet) }}</span>
+                </div>
               </article>
             </div>
 
@@ -589,12 +589,6 @@ const selectedRegionNode = computed(
 )
 const selectedCabinets = computed(() => selectedRegionNode.value?.cabinets || [])
 const selectedCabinet = computed(() => cabinets.value.find((item) => item.id === selectedCabinetId.value) || null)
-const selectedCabinetOptions = computed(() =>
-  selectedCabinets.value.map((cabinet) => ({
-    label: `${cabinet.name} / ${cabinetLocationName(cabinet)}`,
-    value: cabinet.id,
-  }))
-)
 const selectedRegionLocationOptions = computed(() =>
   (selectedRegionNode.value?.locations || []).map((location) => ({
     label: location.name,
@@ -1592,10 +1586,11 @@ onBeforeUnmount(() => {
   height: 100%;
   min-height: 0;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   overflow: hidden;
-  background: #f5f7fb;
-  padding: 8px;
+  background:
+    linear-gradient(180deg, #f7f9fc 0%, #eef3f9 100%);
+  padding: 10px;
 }
 
 .cabinet-world-page.is-map-home {
@@ -1608,10 +1603,10 @@ onBeforeUnmount(() => {
 .map-panel,
 .region-list,
 .cabinet-stage {
-  border: 1px solid rgba(148, 163, 184, 0.22);
+  border: 1px solid rgba(148, 163, 184, 0.28);
   border-radius: 8px;
   background: #fff;
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.07);
 }
 
 .map-panel {
@@ -1653,11 +1648,13 @@ onBeforeUnmount(() => {
 }
 
 .stage-head {
-  min-height: 54px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
+  min-height: 86px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
   border-radius: 8px;
-  background: #f8fafc;
-  padding: 8px 10px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(240, 245, 252, 0.98));
+  padding: 14px 16px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 .map-head h2,
@@ -1666,8 +1663,12 @@ onBeforeUnmount(() => {
 .rack-title h3 {
   margin: 4px 0 0;
   color: #0f172a;
-  font-size: 20px;
+  font-size: 21px;
   line-height: 1.25;
+}
+
+.stage-actions {
+  flex-shrink: 0;
 }
 
 .eyebrow {
@@ -1784,7 +1785,7 @@ onBeforeUnmount(() => {
   display: flex;
   min-height: 0;
   flex-direction: column;
-  padding: 8px;
+  padding: 10px;
 }
 
 .region-list {
@@ -1796,17 +1797,24 @@ onBeforeUnmount(() => {
 
 .region-item,
 .cabinet-card {
+  position: relative;
   display: flex;
   width: 100%;
   flex-direction: column;
-  gap: 4px;
-  border: 1px solid #e2e8f0;
+  gap: 7px;
+  overflow: hidden;
+  border: 1px solid rgba(203, 213, 225, 0.9);
   border-radius: 8px;
   background: #fff;
   color: #0f172a;
   cursor: pointer;
-  padding: 9px 10px;
+  padding: 12px;
   text-align: left;
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
 }
 
 .region-item:hover,
@@ -1814,7 +1822,18 @@ onBeforeUnmount(() => {
 .cabinet-card:hover,
 .cabinet-card.active {
   border-color: #fb5b2f;
-  background: #fff7ed;
+  background: #fffaf4;
+}
+
+.cabinet-card:hover {
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
+}
+
+.cabinet-card.active {
+  box-shadow:
+    0 0 0 1px rgba(251, 91, 47, 0.14),
+    0 12px 26px rgba(251, 91, 47, 0.1);
 }
 
 .region-item span,
@@ -1823,6 +1842,15 @@ onBeforeUnmount(() => {
   color: #64748b;
   font-size: 12px;
   font-style: normal;
+}
+
+.cabinet-active-mark {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 4px;
+  height: 100%;
+  background: #fb4b22;
 }
 
 .cabinet-card-head {
@@ -1835,6 +1863,10 @@ onBeforeUnmount(() => {
 .cabinet-card-head strong {
   min-width: 0;
   overflow: hidden;
+  color: #0b1220;
+  font-size: 17px;
+  letter-spacing: 0;
+  line-height: 1.15;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1848,7 +1880,7 @@ onBeforeUnmount(() => {
 .cabinet-card-actions button {
   border: 0;
   border-radius: 4px;
-  background: #eef2f7;
+  background: #f1f5f9;
   color: #475569;
   cursor: pointer;
   font-size: 12px;
@@ -1861,34 +1893,58 @@ onBeforeUnmount(() => {
   color: #dc2626;
 }
 
-.cabinet-select {
-  width: clamp(280px, 28vw, 420px);
+.cabinet-location {
+  overflow: hidden;
+  color: #466083 !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cabinet-card-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cabinet-card-metrics em {
+  border-radius: 999px;
+  background: #edf4ff;
+  color: #31537a;
+  font-weight: 600;
+  line-height: 1;
+  padding: 5px 8px;
+}
+
+.cabinet-card-foot {
+  display: grid;
+  gap: 4px;
+  padding-top: 2px;
 }
 
 .region-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 6px;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 .region-meta span {
-  border: 1px solid rgba(148, 163, 184, 0.22);
+  border: 1px solid rgba(148, 163, 184, 0.26);
   border-radius: 999px;
-  background: #f8fafc;
+  background: rgba(255, 255, 255, 0.84);
   color: #475569;
   font-size: 12px;
   line-height: 1;
-  padding: 5px 9px;
+  padding: 6px 10px;
 }
 
 .cabinet-content {
   display: grid;
   min-height: 0;
   flex: 1;
-  grid-template-columns: minmax(620px, 1fr) clamp(260px, 22vw, 360px);
-  gap: 8px;
-  margin-top: 8px;
+  grid-template-columns: minmax(680px, 1fr) clamp(300px, 22vw, 380px);
+  gap: 10px;
+  margin-top: 10px;
 }
 
 .cabinet-list {
@@ -1897,24 +1953,31 @@ onBeforeUnmount(() => {
   max-height: none;
   min-height: 0;
   flex-direction: column;
-  gap: 8px;
+  gap: 9px;
   overflow-y: auto;
-  border: 1px solid rgba(148, 163, 184, 0.18);
+  border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 8px;
-  background: #f8fafc;
-  padding: 8px;
+  background:
+    linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+  padding: 10px;
 }
 
 .side-section-title {
+  position: sticky;
+  top: -10px;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
-  color: #64748b;
+  margin: -10px -10px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(248, 250, 252, 0.96);
+  color: #52637a;
   font-size: 12px;
   font-weight: 700;
-  padding: 0 2px 9px;
+  padding: 11px 12px;
   text-transform: uppercase;
+  backdrop-filter: blur(8px);
 }
 
 .side-section-title strong {
@@ -1942,14 +2005,20 @@ onBeforeUnmount(() => {
   min-height: 0;
   flex: 1;
   flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  background: #ffffff;
 }
 
 .rack-title {
-  min-height: 38px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 8px;
-  background: #f8fafc;
-  padding: 7px 10px;
+  min-height: 52px;
+  border: 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 0;
+  background:
+    linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  padding: 10px 12px;
 }
 
 .rack-title h3 {
@@ -1971,12 +2040,13 @@ onBeforeUnmount(() => {
   max-height: none;
   min-height: 0;
   flex: 1;
-  margin: 6px 0 0;
+  margin: 0;
   overflow: auto;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.12);
+  border: 0;
+  border-radius: 0;
+  background:
+    linear-gradient(90deg, #e8eef5 0, #f8fafc 52px, #ffffff 52px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 .rack-table {
@@ -1990,9 +2060,9 @@ onBeforeUnmount(() => {
   position: sticky;
   top: 0;
   z-index: 3;
-  height: 30px;
-  border: 1px solid #4b5563;
-  background: #4b5563;
+  height: 32px;
+  border: 1px solid #344052;
+  background: #3f4b5d;
   color: #fff;
   font-size: 13px;
   font-weight: 700;
@@ -2004,18 +2074,18 @@ onBeforeUnmount(() => {
 
 .rack-u-head,
 .rack-u-cell {
-  width: 54px;
+  width: 56px;
 }
 
 .rack-u-cell,
 .rack-empty-cell,
 .rack-device-cell {
   height: clamp(14px, calc((100vh - 222px) / var(--rack-units, 42)), 25px);
-  border: 1px solid #d1d5db;
+  border: 1px solid #ccd6e2;
 }
 
 .rack-u-cell {
-  background: #f8fafc;
+  background: #eef3f8;
   color: #475569;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
@@ -2024,7 +2094,8 @@ onBeforeUnmount(() => {
 
 .rack-empty-cell {
   background:
-    linear-gradient(90deg, rgba(148, 163, 184, 0.08), transparent 24%, transparent 76%, rgba(148, 163, 184, 0.08)),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.08), transparent 22%, transparent 78%, rgba(148, 163, 184, 0.08)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.7)),
     #fff;
   cursor: context-menu;
 }
@@ -2036,12 +2107,16 @@ onBeforeUnmount(() => {
 .rack-device-cell {
   position: relative;
   overflow: hidden;
-  background: #2563eb;
+  background:
+    linear-gradient(180deg, #3477f6 0%, #2563eb 100%);
   color: #fff;
   cursor: pointer;
-  padding: 2px 30px 2px 10px;
+  padding: 3px 34px 3px 12px;
   text-align: center;
   vertical-align: middle;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 0 rgba(15, 23, 42, 0.16);
 }
 
 .rack-device-cell:hover {
@@ -2092,16 +2167,16 @@ onBeforeUnmount(() => {
 
 .rack-device-cell.device-type-1,
 .rack-device-cell.device-type-2 {
-  background: #059669;
+  background: linear-gradient(180deg, #10b981 0%, #059669 100%);
 }
 
 .rack-device-cell.device-type-3 {
-  background: #d97706;
+  background: linear-gradient(180deg, #f59e0b 0%, #d97706 100%);
 }
 
 .rack-device-cell.device-type-4,
 .rack-device-cell.device-type-5 {
-  background: #db2777;
+  background: linear-gradient(180deg, #ec4899 0%, #db2777 100%);
 }
 
 .rack-device-cell.device-status-0 .rack-status-dot {
