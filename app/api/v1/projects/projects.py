@@ -297,7 +297,9 @@ async def update_project(project_in: CustomerProjectUpdate):
         payload["due_soon_notified_at"] = None
         payload["due_notified_at"] = None
     try:
-        project_obj = await customer_project_controller.update(id=project_in.id, obj_in=payload)
+        payload["updated_at"] = datetime.now()
+        await CustomerProject.filter(id=project_in.id).update(**payload)
+        project_obj = await customer_project_controller.get(id=project_in.id)
     except IntegrityError as exc:
         return project_integrity_error_response(exc)
     except Exception as exc:
@@ -321,10 +323,12 @@ async def update_project(project_in: CustomerProjectUpdate):
 
 @router.post("/status", summary="更新客户项目看板状态")
 async def update_project_status(project_in: CustomerProjectStatusUpdate):
-    project_obj = await customer_project_controller.update(
-        id=project_in.id,
-        obj_in={"status": project_in.status, "sort_order": project_in.sort_order},
+    await CustomerProject.filter(id=project_in.id).update(
+        status=project_in.status,
+        sort_order=project_in.sort_order,
+        updated_at=datetime.now(),
     )
+    project_obj = await customer_project_controller.get(id=project_in.id)
     return Success(msg="Updated Successfully", data=await serialize_project(project_obj))
 
 
@@ -382,8 +386,9 @@ async def update_project_task(task_in: ProjectTaskUpdate):
     if "due_date" in payload and payload["due_date"] != task.due_date:
         payload["due_soon_notified_at"] = None
         payload["due_notified_at"] = None
-    task.update_from_dict(payload)
-    await task.save()
+    payload["updated_at"] = datetime.now()
+    await CustomerProjectTask.filter(id=task_in.id).update(**payload)
+    task = await CustomerProjectTask.get(id=task_in.id)
     return Success(msg="Updated Successfully", data=await serialize_task(task))
 
 
