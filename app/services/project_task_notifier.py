@@ -310,6 +310,35 @@ async def notify_project_task_created(
     return await send_card_to_person(assignee, card)
 
 
+async def notify_project_shared(
+    project: CustomerProject,
+    shared_users: list[str],
+    sharer: User | None = None,
+) -> int:
+    recipients = [user for user in unique_people(shared_users) if not is_same_person(user, sharer)]
+    if not recipients:
+        return 0
+    customer = await project.customer if getattr(project, "customer_id", None) else None
+    sharer_name = get_user_display_name(sharer)
+    card = build_assignment_card(
+        title="你收到一个共享项目",
+        fields=[
+            ("分享人", sharer_name),
+            ("项目", project.name),
+            ("客户", getattr(customer, "name", "") or getattr(customer, "legal_name", "") or "-"),
+            ("项目编号", project.code or "-"),
+            ("负责人", project.owner or "-"),
+            ("ETA", project.due_date.isoformat() if project.due_date else "未设置"),
+        ],
+        url=build_project_url(project.id),
+    )
+    sent = 0
+    for user in recipients:
+        if await send_card_to_person(user, card):
+            sent += 1
+    return sent
+
+
 def format_due_date(value: date | datetime | None) -> str:
     if isinstance(value, datetime):
         return value.strftime("%Y-%m-%d %H:%M")

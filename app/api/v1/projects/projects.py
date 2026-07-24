@@ -28,7 +28,7 @@ from app.schemas.projects import (
     ProjectTaskCreate,
     ProjectTaskUpdate,
 )
-from app.services.project_task_notifier import notify_project_created, notify_project_task_created
+from app.services.project_task_notifier import notify_project_created, notify_project_shared, notify_project_task_created
 
 logger = logging.getLogger(__name__)
 
@@ -288,6 +288,7 @@ async def create_project(project_in: CustomerProjectCreate):
 async def update_project(project_in: CustomerProjectUpdate):
     payload = normalize_project_payload(project_in.model_dump(exclude_unset=True, exclude={"id"}))
     existing_project = await customer_project_controller.get(id=project_in.id)
+    old_shared_users = normalize_shared_users(getattr(existing_project, "shared_users", []))
     if "due_date" in payload and payload["due_date"] != existing_project.due_date:
         payload["due_soon_notified_at"] = None
         payload["due_notified_at"] = None
@@ -295,6 +296,14 @@ async def update_project(project_in: CustomerProjectUpdate):
         project_obj = await customer_project_controller.update(id=project_in.id, obj_in=payload)
     except IntegrityError as exc:
         return project_integrity_error_response(exc)
+    if "shared_users" in payload:
+        new_shared_users = normalize_shared_users(payload.get("shared_users"))
+        added_shared_users = [name for name in new_shared_users if name not in set(old_shared_users)]
+        if added_shared_users:
+            try:
+                await notify_project_shared(project_obj, added_shared_users, await get_current_project_user())
+            except Exception:
+                logger.exception("project share notification failed: project_id=%s", project_obj.id)
     return Success(msg="Updated Successfully", data=await serialize_project(project_obj))
 
 
