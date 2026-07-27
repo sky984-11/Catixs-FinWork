@@ -347,14 +347,15 @@ const regionCascaderOptions = computed(() => {
   const countryMap = new Map()
   regions.value.forEach((region) => {
     const country = String(region.country || '未分组').trim() || '未分组'
-    if (!countryMap.has(country)) {
-      countryMap.set(country, {
-        label: translateCountry(country),
+    const countryLabel = translateCountry(country)
+    if (!countryMap.has(countryLabel)) {
+      countryMap.set(countryLabel, {
+        label: countryLabel,
         value: `country:${country}`,
         children: [],
       })
     }
-    countryMap.get(country).children.push({
+    countryMap.get(countryLabel).children.push({
       label: cityOptionLabel(region),
       value: region.id,
     })
@@ -754,7 +755,7 @@ function isLocationRegionMatched(location, selectedValue) {
   if (!selectedValue) return true
   if (typeof selectedValue === 'string' && selectedValue.startsWith('country:')) {
     const country = selectedValue.slice('country:'.length)
-    return regionById(location.region_id)?.country === country
+    return translateCountry(regionById(location.region_id)?.country) === translateCountry(country)
   }
   return location.region_id === Number(selectedValue)
 }

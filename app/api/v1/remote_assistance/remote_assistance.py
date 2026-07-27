@@ -145,7 +145,7 @@ async def _engineer_to_dict(item: RemoteEngineer) -> dict[str, Any]:
 
 
 async def _datacenter_options() -> list[dict[str, Any]]:
-    locations = await AssetLocation.filter(type=2, status=True).select_related("region").order_by("region__name", "name")
+    locations = await AssetLocation.filter(type=1, status=True).select_related("region").order_by("region__name", "name")
     options = []
     for item in locations:
         region = item.region

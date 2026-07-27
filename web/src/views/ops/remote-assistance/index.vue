@@ -117,26 +117,15 @@
             <n-form-item label="工单号">
               <n-input v-model:value="remoteEditor.form.ticket" placeholder="关联工单号" />
             </n-form-item>
-            <n-form-item label="地区">
-              <n-select
-                v-model:value="remoteEditor.form.region"
-                filterable
-                clearable
-                tag
-                :options="regionOptions"
-                placeholder="选择或输入地区，回车确认"
-                @update:value="handleRemoteRegionChange"
-              />
-            </n-form-item>
             <n-form-item label="机房" required>
-              <n-select
-                v-model:value="remoteEditor.form.site"
+              <n-cascader
+                v-model:value="remoteEditor.form.site_key"
                 filterable
                 clearable
-                tag
-                :options="siteOptions"
-                :placeholder="remoteEditor.form.region ? '选择或输入该地区机房' : '选择或输入机房，回车确认'"
-                @update:value="handleRemoteSiteChange"
+                show-path
+                :options="siteCascaderOptions"
+                placeholder="选择地区 / 机房"
+                @update:value="handleRemoteSiteCascaderChange"
               />
             </n-form-item>
             <n-form-item label="工程师" required>
@@ -148,14 +137,6 @@
                 :disabled="!remoteEditor.form.region"
                 :placeholder="remoteEditor.form.region ? '选择启用工程师' : '请先选择地区'"
                 @update:value="handleEngineerSelected"
-              />
-            </n-form-item>
-            <n-form-item label="时区">
-              <n-select
-                v-model:value="remoteEditor.form.timezone"
-                filterable
-                tag
-                :options="timezoneOptions"
               />
             </n-form-item>
             <n-form-item label="任务状态">
@@ -197,12 +178,6 @@
                 style="width: 100%"
                 @update:formatted-value="updateWorkMinutes"
               />
-            </n-form-item>
-            <n-form-item label="工程师微信">
-              <n-input v-model:value="remoteEditor.form.engineer_wechat" placeholder="选择工程师后自动填写" />
-            </n-form-item>
-            <n-form-item label="联系群">
-              <n-input v-model:value="remoteEditor.form.engineer_group" placeholder="选择工程师后自动填写" />
             </n-form-item>
           </div>
           <n-form-item label="备注">
@@ -281,6 +256,7 @@
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import { NButton, NPopconfirm, NSpace, NTag, NTooltip, useMessage } from 'naive-ui'
 import api from '@/api'
+import { translateCity, translateCountry, translateLocationPath } from '@/utils/location-i18n'
 
 const message = useMessage()
 const loading = ref(false)
@@ -338,18 +314,6 @@ const engineerStatusOptions = [
   { label: '停用', value: 0 },
 ]
 
-const timezoneOptions = [
-  'Asia/Shanghai',
-  'Asia/Hong_Kong',
-  'Asia/Tokyo',
-  'Asia/Singapore',
-  'Europe/London',
-  'Europe/Berlin',
-  'America/New_York',
-  'America/Los_Angeles',
-  'UTC',
-].map((value) => ({ label: value, value }))
-
 const remoteEditor = reactive({ show: false, saving: false, form: createRemoteForm() })
 const engineerEditor = reactive({ show: false, saving: false, form: createEngineerForm() })
 
@@ -366,28 +330,65 @@ const activeEngineerCount = computed(
 const regionOptions = computed(() => {
   const values = new Set()
   datacenters.value.forEach((item) => {
-    const value = datacenterRegion(item)
+    const value = displayRegion(datacenterRegion(item))
     if (value) values.add(value)
   })
-  engineers.value.forEach((item) => engineerRegions(item).forEach((value) => values.add(value)))
+  engineers.value.forEach((item) => engineerRegions(item).forEach((value) => values.add(displayRegion(value))))
   remoteHands.value.forEach((item) => {
-    const value = fieldText(item.region)
+    const value = displayRegion(item.region)
     if (value) values.add(value)
   })
   return [...values].sort().map((value) => ({ label: value, value }))
 })
 
-const siteOptions = computed(() => {
-  const selectedRegion = remoteEditor.form.region
-  const options = datacenters.value
-    .filter((item) => !selectedRegion || datacenterMatchesRegion(item, selectedRegion))
-    .map((item) => ({ label: datacenterLabel(item), value: datacenterValue(item) }))
+const siteCascaderOptions = computed(() => {
+  const groups = new Map()
+  const addSite = ({ region, site, label, timezone }) => {
+    const regionLabel = displayRegion(region)
+    const siteValue = fieldText(site)
+    if (!regionLabel || !siteValue) return
+    if (!groups.has(regionLabel)) {
+      groups.set(regionLabel, {
+        label: regionLabel,
+        value: siteCascaderRegionValue(regionLabel),
+        children: [],
+      })
+    }
+    const group = groups.get(regionLabel)
+    const value = siteCascaderValue(regionLabel, siteValue)
+    if (group.children.some((item) => item.value === value)) return
+    group.children.push({
+      label: fieldText(label) || siteValue,
+      value,
+      region: regionLabel,
+      site: siteValue,
+      timezone,
+    })
+  }
 
-  remoteHands.value
-    .filter((item) => item.site && (!selectedRegion || valuesMatch(item.region, selectedRegion)))
-    .forEach((item) => options.push({ label: fieldText(item.site), value: fieldText(item.site) }))
+  datacenters.value.forEach((item) => {
+    const siteValue = datacenterValue(item)
+    const siteName = fieldText(item.name)
+    addSite({
+      region: datacenterRegion(item),
+      site: siteValue,
+      label: siteName && siteName !== siteValue ? `${siteValue} / ${siteName}` : siteValue,
+      timezone: item.timezone,
+    })
+  })
+  remoteHands.value.forEach((item) => addSite({
+    region: item.region,
+    site: item.site,
+    label: item.site,
+    timezone: item.timezone,
+  }))
 
-  return uniqueOptions(options)
+  return [...groups.values()]
+    .sort((left, right) => left.label.localeCompare(right.label, 'zh-Hans-CN'))
+    .map((group) => ({
+      ...group,
+      children: group.children.sort((left, right) => left.label.localeCompare(right.label, 'zh-Hans-CN')),
+    }))
 })
 
 const assignableEngineerOptions = computed(() => {
@@ -411,9 +412,10 @@ const remoteEngineerOptions = computed(() => uniqueOptions(
 ))
 
 const remoteSiteFilterOptions = computed(() => uniqueOptions(
-  remoteHands.value
-    .map((item) => ({ label: fieldText(item.site), value: fieldText(item.site) }))
-    .filter((item) => item.value)
+  [
+    ...datacenters.value.map((item) => ({ label: datacenterLabel(item), value: datacenterValue(item) })),
+    ...remoteHands.value.map((item) => ({ label: fieldText(item.site), value: fieldText(item.site) })),
+  ].filter((item) => item.value)
 ))
 
 const filteredRemoteHands = computed(() => {
@@ -453,7 +455,7 @@ const remoteColumns = [
   {
     title: '地区 / 机房', key: 'site', width: 190,
     render: (row) => h('div', { class: 'primary-cell' }, [
-      h('strong', row.region || '-'), h('small', row.site || '-'),
+      h('strong', displayRegion(row.region) || '-'), h('small', row.site || '-'),
     ]),
   },
   { title: '日期', key: 'date', width: 110, render: (row) => formatDate(row.arrived_at || row.left_at) },
@@ -542,8 +544,9 @@ function createRemoteForm(source = {}) {
     engineer_contact: source.engineer_contact || '',
     engineer_wechat: source.engineer_wechat || '',
     engineer_group: source.engineer_group || '',
-    region: source.region || '',
+    region: displayRegion(source.region),
     site: source.site || '',
+    site_key: findSiteCascaderValue(source),
     rack: '',
     timezone: source.timezone || 'Asia/Shanghai',
     arrived_at: normalizeDateTime(source.arrived_at),
@@ -575,17 +578,49 @@ function datacenterValue(item) {
 
 function datacenterLabel(item) {
   const value = datacenterValue(item)
-  return item.name && item.name !== value ? `${value} · ${item.name}` : value
+  const name = item.name && item.name !== value ? `${value} / ${item.name}` : value
+  const region = displayRegion(datacenterRegion(item))
+  return region ? `${region} / ${name}` : name
+}
+
+function siteCascaderRegionValue(region) {
+  return `region:${displayRegion(region)}`
+}
+
+function siteCascaderValue(region, site) {
+  return `${siteCascaderRegionValue(region)}|site:${fieldText(site)}`
+}
+
+function findSiteCascaderValue(source = {}) {
+  const site = fieldText(source.site)
+  if (!site) return null
+  const sourceRegion = displayRegion(source.region)
+  const datacenter = datacenters.value.find((item) => {
+    if (!valuesMatch(datacenterValue(item), site)) return false
+    return !sourceRegion || datacenterMatchesRegion(item, sourceRegion)
+  })
+  if (datacenter) return siteCascaderValue(datacenterRegion(datacenter), datacenterValue(datacenter))
+  const record = remoteHands.value.find((item) => {
+    if (!valuesMatch(item.site, site)) return false
+    return !sourceRegion || valuesMatch(item.region, sourceRegion)
+  })
+  return siteCascaderValue(sourceRegion || record?.region, site)
 }
 
 function datacenterRegion(item) {
-  const region = fieldText(item.region) || fieldText(item.region_name)
-  const country = fieldText(item.country) || fieldText(item.country_name)
-  const city = fieldText(item.city) || fieldText(item.city_name)
+  const region = displayRegion(fieldText(item.region) || fieldText(item.region_name))
+  const country = translateCountry(fieldText(item.country) || fieldText(item.country_name))
+  const city = translateCity(fieldText(item.city) || fieldText(item.city_name))
   const location = fieldText(item.location) || fieldText(item.location_name)
   if (region && city && !normalizeRegion(region).includes(normalizeRegion(city))) return `${region} / ${city}`
   if (country && city) return `${country} / ${city}`
   return region || location || city || country || fieldText(item.continent) || fieldText(item.continent_name)
+}
+
+function displayRegion(value) {
+  const text = fieldText(value)
+  if (!text) return ''
+  return translateLocationPath(text) || translateCountry(text) || translateCity(text) || text
 }
 
 function engineerRegions(item) {
@@ -636,8 +671,8 @@ function regionMatches(regionValue, selectedRegion) {
 }
 
 function valuesMatch(left, right) {
-  const normalizedLeft = normalizeRegion(left)
-  const normalizedRight = normalizeRegion(right)
+  const normalizedLeft = normalizeRegion(displayRegion(left))
+  const normalizedRight = normalizeRegion(displayRegion(right))
   return Boolean(normalizedLeft && normalizedRight) && normalizedLeft === normalizedRight
 }
 
@@ -687,19 +722,24 @@ function openEngineerEditor(row = null) {
   engineerEditor.show = true
 }
 
-function handleRemoteRegionChange() {
-  clearInvalidSite()
+function handleRemoteSiteCascaderChange(value, option) {
+  if (!value) {
+    remoteEditor.form.region = ''
+    remoteEditor.form.site = ''
+    handleEngineerSelected(null)
+    return
+  }
+  if (!option?.site) {
+    remoteEditor.form.region = displayRegion(option?.label)
+    remoteEditor.form.site = ''
+    handleEngineerSelected(null)
+    return
+  }
+  remoteEditor.form.region = displayRegion(option.region)
+  remoteEditor.form.site = option.site
+  if (option.timezone) remoteEditor.form.timezone = option.timezone
   const validEngineers = assignableEngineerOptions.value.map((item) => item.value)
   if (!validEngineers.includes(remoteEditor.form.engineer_id)) handleEngineerSelected(null)
-}
-
-function handleRemoteSiteChange(value) {
-  const site = datacenters.value.find((item) => valuesMatch(datacenterValue(item), value))
-  const savedRecord = remoteHands.value.find((item) => valuesMatch(item.site, value))
-  if (site?.timezone) remoteEditor.form.timezone = site.timezone
-  if (!remoteEditor.form.region) {
-    remoteEditor.form.region = site ? datacenterRegion(site) : fieldText(savedRecord?.region)
-  }
 }
 
 function handleEngineerSelected(value) {
@@ -709,20 +749,6 @@ function handleEngineerSelected(value) {
   remoteEditor.form.engineer_contact = engineer?.contact || ''
   remoteEditor.form.engineer_wechat = engineer?.wechat_id || ''
   remoteEditor.form.engineer_group = engineer?.wechat_group || ''
-}
-
-function clearInvalidSite() {
-  if (!remoteEditor.form.site) return
-  const selectedSite = fieldText(remoteEditor.form.site)
-  const knownDatacenters = datacenters.value.filter((item) => valuesMatch(datacenterValue(item), selectedSite))
-  const knownRecords = remoteHands.value.filter((item) => valuesMatch(item.site, selectedSite))
-
-  // Preserve a newly entered site. Known sites are cleared only when they
-  // definitely belong to another region.
-  if (!knownDatacenters.length && !knownRecords.length) return
-  const belongsToRegion = knownDatacenters.some((item) => datacenterMatchesRegion(item, remoteEditor.form.region))
-    || knownRecords.some((item) => valuesMatch(item.region, remoteEditor.form.region))
-  if (!belongsToRegion) remoteEditor.form.site = ''
 }
 
 function updateWorkMinutes() {
@@ -745,6 +771,7 @@ async function saveRemoteHands() {
   try {
     const payload = { ...form }
     delete payload.id
+    delete payload.site_key
     if (form.id) await api.remoteAssistanceApi.updateRemoteHands(form.id, payload)
     else await api.remoteAssistanceApi.createRemoteHands(payload)
     message.success(form.id ? '运维记录已更新' : '运维记录已创建')
