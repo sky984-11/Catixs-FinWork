@@ -1,18 +1,16 @@
 from __future__ import annotations
 
-import asyncio
+from datetime import datetime
 from typing import Any, Literal
 
-import httpx
 from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict
 
+from app.models.asset import AssetLocation
+from app.models.remote_assistance import RemoteEngineer, RemoteHands
 from app.schemas.base import Fail, Success
-from app.settings.config import settings
 
 router = APIRouter()
-
-_session_token = ""
 
 
 class RemoteHandsPayload(BaseModel):
@@ -28,9 +26,9 @@ class RemoteHandsPayload(BaseModel):
     region: str = ""
     site: str = ""
     rack: str = ""
-    timezone: str = "UTC"
-    arrived_at: str = ""
-    left_at: str = ""
+    timezone: str = "Asia/Shanghai"
+    arrived_at: str | None = ""
+    left_at: str | None = ""
     work_minutes: int = 0
     status: Literal["scheduled", "arrived", "done", "cancelled"] = "scheduled"
     ops_settlement_status: Literal["unbilled", "billed", "settled"] = "unbilled"
@@ -50,173 +48,202 @@ class EngineerPayload(BaseModel):
     note: str = ""
 
 
-def _base_url() -> str:
-    url = settings.DATACENTER_PARTS_API_URL.strip().rstrip("/")
-    if not url:
-        raise RuntimeError("未配置 DATACENTER_PARTS_API_URL")
-    return url
-
-
-def _api_url(path: str) -> str:
-    normalized = path.lstrip("/")
-    if normalized.startswith("api/"):
-        return f"{_base_url()}/{normalized}"
-    return f"{_base_url()}/api/{normalized}"
-
-
-async def _login(client: httpx.AsyncClient) -> str:
-    global _session_token
-
-    configured_token = settings.DATACENTER_PARTS_API_TOKEN.strip()
-    if configured_token:
-        return configured_token.removeprefix("Bearer ").strip()
-    if _session_token:
-        return _session_token
-
-    username = settings.DATACENTER_PARTS_API_USERNAME.strip()
-    password = settings.DATACENTER_PARTS_API_PASSWORD
-    if not username or not password:
-        raise RuntimeError(
-            "未配置备件系统认证信息，请设置 DATACENTER_PARTS_API_TOKEN，"
-            "或设置 DATACENTER_PARTS_API_USERNAME 和 DATACENTER_PARTS_API_PASSWORD"
-        )
-
-    response = await client.post(
-        _api_url("login"),
-        json={"username": username, "password": password},
-    )
-    response.raise_for_status()
-    payload = response.json()
-    data = payload.get("data") if isinstance(payload, dict) else None
-    token = str(
-        (payload.get("token") if isinstance(payload, dict) else "")
-        or (data.get("token") if isinstance(data, dict) else "")
-        or ""
-    ).strip()
-    if not token:
-        raise RuntimeError("备件系统登录成功，但响应中没有 token")
-    _session_token = token
-    return token
-
-
-def _error_message(response: httpx.Response) -> str:
+def _parse_datetime(value: str | None) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
     try:
-        payload = response.json()
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).replace(tzinfo=None)
     except ValueError:
-        return response.text.strip() or response.reason_phrase
-    error = payload.get("error") if isinstance(payload, dict) else None
-    if isinstance(error, dict):
-        return str(error.get("message") or error)
-    if isinstance(payload, dict):
-        return str(error or payload.get("message") or response.reason_phrase)
-    return str(payload)
+        return None
 
 
-def _response_data(response: httpx.Response) -> Any:
-    value = response.json()
-    if isinstance(value, dict) and "data" in value:
-        return value["data"]
-    return value
+def _format_datetime(value: datetime | None) -> str | None:
+    if not value:
+        return None
+    return value.strftime("%Y-%m-%dT%H:%M")
 
 
-async def _request(method: str, path: str, payload: dict[str, Any] | None = None) -> Any:
-    global _session_token
+def _clean_text(value: Any) -> str:
+    return str(value or "").strip()
 
-    timeout = httpx.Timeout(settings.DATACENTER_PARTS_API_TIMEOUT)
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-        token = await _login(client)
-        response = await client.request(
-            method,
-            _api_url(path),
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
-            json=payload,
+
+def _remote_payload_data(payload: RemoteHandsPayload) -> dict[str, Any]:
+    return {
+        "customer": _clean_text(payload.customer),
+        "ticket": _clean_text(payload.ticket) or None,
+        "engineer_id": payload.engineer_id,
+        "engineer_name": _clean_text(payload.engineer_name) or None,
+        "engineer_contact": _clean_text(payload.engineer_contact) or None,
+        "engineer_wechat": _clean_text(payload.engineer_wechat) or None,
+        "engineer_group": _clean_text(payload.engineer_group) or None,
+        "region": _clean_text(payload.region) or None,
+        "site": _clean_text(payload.site) or None,
+        "rack": _clean_text(payload.rack) or None,
+        "timezone": _clean_text(payload.timezone) or "Asia/Shanghai",
+        "arrived_at": _parse_datetime(payload.arrived_at),
+        "left_at": _parse_datetime(payload.left_at),
+        "work_minutes": int(payload.work_minutes or 0),
+        "status": payload.status,
+        "ops_settlement_status": payload.ops_settlement_status,
+        "customer_settlement_status": payload.customer_settlement_status,
+        "note": _clean_text(payload.note) or None,
+    }
+
+
+def _engineer_payload_data(payload: EngineerPayload) -> dict[str, Any]:
+    return {
+        "name": _clean_text(payload.name),
+        "contact": _clean_text(payload.contact) or None,
+        "wechat_id": _clean_text(payload.wechat_id) or None,
+        "wechat_group": _clean_text(payload.wechat_group) or None,
+        "region": _clean_text(payload.region) or None,
+        "is_active": int(payload.is_active or 0),
+        "note": _clean_text(payload.note) or None,
+    }
+
+
+async def _remote_to_dict(item: RemoteHands) -> dict[str, Any]:
+    return {
+        "id": item.id,
+        "customer": item.customer,
+        "ticket": item.ticket or "",
+        "engineer_id": item.engineer_id,
+        "engineer_name": item.engineer_name or "",
+        "engineer_contact": item.engineer_contact or "",
+        "engineer_wechat": item.engineer_wechat or "",
+        "engineer_group": item.engineer_group or "",
+        "region": item.region or "",
+        "site": item.site or "",
+        "rack": item.rack or "",
+        "timezone": item.timezone or "Asia/Shanghai",
+        "arrived_at": _format_datetime(item.arrived_at),
+        "left_at": _format_datetime(item.left_at),
+        "work_minutes": item.work_minutes or 0,
+        "status": item.status or "scheduled",
+        "ops_settlement_status": item.ops_settlement_status or "unbilled",
+        "customer_settlement_status": item.customer_settlement_status or "unbilled",
+        "note": item.note or "",
+        "created_at": _format_datetime(item.created_at),
+        "updated_at": _format_datetime(item.updated_at),
+    }
+
+
+async def _engineer_to_dict(item: RemoteEngineer) -> dict[str, Any]:
+    return {
+        "id": item.id,
+        "name": item.name,
+        "contact": item.contact or "",
+        "wechat_id": item.wechat_id or "",
+        "wechat_group": item.wechat_group or "",
+        "region": item.region or "",
+        "is_active": item.is_active,
+        "note": item.note or "",
+        "created_at": _format_datetime(item.created_at),
+        "updated_at": _format_datetime(item.updated_at),
+    }
+
+
+async def _datacenter_options() -> list[dict[str, Any]]:
+    locations = await AssetLocation.filter(type=2, status=True).select_related("region").order_by("region__name", "name")
+    options = []
+    for item in locations:
+        region = item.region
+        region_name = region.name if region else ""
+        country = region.country if region else ""
+        city = region.city if region else ""
+        options.append(
+            {
+                "id": item.id,
+                "code": item.name,
+                "name": item.name,
+                "region": region_name or " / ".join([value for value in [country, city] if value]),
+                "region_name": region_name,
+                "country": country,
+                "city": city,
+                "location": item.name,
+                "timezone": "Asia/Shanghai",
+            }
         )
-        if response.status_code == 401 and not settings.DATACENTER_PARTS_API_TOKEN.strip():
-            _session_token = ""
-            token = await _login(client)
-            response = await client.request(
-                method,
-                _api_url(path),
-                headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
-                json=payload,
-            )
-        if response.is_error:
-            raise RuntimeError(f"备件系统 API HTTP {response.status_code}: {_error_message(response)}")
-        if not response.content:
-            return None
-        return _response_data(response)
-
-
-async def _success(method: str, path: str, payload: dict[str, Any] | None = None):
-    try:
-        return Success(data=await _request(method, path, payload))
-    except (httpx.HTTPError, RuntimeError, ValueError) as exc:
-        return Fail(msg=f"运维记录操作失败: {exc}")
+    return options
 
 
 @router.get("/overview", summary="运维记录页面数据")
 async def overview():
-    global _session_token
-
     try:
-        timeout = httpx.Timeout(settings.DATACENTER_PARTS_API_TIMEOUT)
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            token = await _login(client)
-            headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-            responses = await asyncio.gather(
-                client.get(_api_url("remote-hands"), headers=headers),
-                client.get(_api_url("engineers"), headers=headers),
-                client.get(_api_url("datacenters"), headers=headers),
-            )
-            if any(response.status_code == 401 for response in responses) and not settings.DATACENTER_PARTS_API_TOKEN.strip():
-                _session_token = ""
-                token = await _login(client)
-                headers["Authorization"] = f"Bearer {token}"
-                responses = await asyncio.gather(
-                    client.get(_api_url("remote-hands"), headers=headers),
-                    client.get(_api_url("engineers"), headers=headers),
-                    client.get(_api_url("datacenters"), headers=headers),
-                )
-        for response in responses:
-            if response.is_error:
-                raise RuntimeError(f"备件系统 API HTTP {response.status_code}: {_error_message(response)}")
-
+        remote_hands = await RemoteHands.all().order_by("-arrived_at", "-created_at")
+        engineers = await RemoteEngineer.all().order_by("-is_active", "name")
         return Success(
             data={
-                "remote_hands": _response_data(responses[0]),
-                "engineers": _response_data(responses[1]),
-                "datacenters": _response_data(responses[2]),
+                "remote_hands": [await _remote_to_dict(item) for item in remote_hands],
+                "engineers": [await _engineer_to_dict(item) for item in engineers],
+                "datacenters": await _datacenter_options(),
             }
         )
-    except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+    except Exception as exc:
         return Fail(msg=f"读取运维记录数据失败: {exc}")
 
 
 @router.post("/remote-hands", summary="新增运维记录")
 async def create_remote_hands(payload: RemoteHandsPayload):
-    return await _success("POST", "remote-hands", payload.model_dump())
+    try:
+        data = _remote_payload_data(payload)
+        await RemoteHands.create(**data)
+        return Success(msg="运维记录已创建")
+    except Exception as exc:
+        return Fail(msg=f"新增运维记录失败: {exc}")
 
 
 @router.put("/remote-hands/{item_id}", summary="更新运维记录")
 async def update_remote_hands(item_id: int, payload: RemoteHandsPayload):
-    return await _success("PUT", f"remote-hands/{item_id}", payload.model_dump())
+    try:
+        data = _remote_payload_data(payload)
+        updated = await RemoteHands.filter(id=item_id).update(**data)
+        if not updated:
+            return Fail(msg="运维记录不存在")
+        return Success(msg="运维记录已更新")
+    except Exception as exc:
+        return Fail(msg=f"更新运维记录失败: {exc}")
 
 
 @router.delete("/remote-hands/{item_id}", summary="删除运维记录")
 async def delete_remote_hands(item_id: int):
-    return await _success("DELETE", f"remote-hands/{item_id}")
+    try:
+        deleted = await RemoteHands.filter(id=item_id).delete()
+        if not deleted:
+            return Fail(msg="运维记录不存在")
+        return Success(msg="运维记录已删除")
+    except Exception as exc:
+        return Fail(msg=f"删除运维记录失败: {exc}")
 
 
 @router.post("/engineers", summary="新增工程师")
 async def create_engineer(payload: EngineerPayload):
-    return await _success("POST", "engineers", payload.model_dump())
+    try:
+        await RemoteEngineer.create(**_engineer_payload_data(payload))
+        return Success(msg="工程师已创建")
+    except Exception as exc:
+        return Fail(msg=f"新增工程师失败: {exc}")
 
 
 @router.put("/engineers/{engineer_id}", summary="更新工程师")
 async def update_engineer(engineer_id: int, payload: EngineerPayload):
-    return await _success("PUT", f"engineers/{engineer_id}", payload.model_dump())
+    try:
+        data = _engineer_payload_data(payload)
+        updated = await RemoteEngineer.filter(id=engineer_id).update(**data)
+        if not updated:
+            return Fail(msg="工程师不存在")
+        return Success(msg="工程师已更新")
+    except Exception as exc:
+        return Fail(msg=f"更新工程师失败: {exc}")
 
 
 @router.delete("/engineers/{engineer_id}", summary="删除工程师")
 async def delete_engineer(engineer_id: int):
-    return await _success("DELETE", f"engineers/{engineer_id}")
+    try:
+        deleted = await RemoteEngineer.filter(id=engineer_id).delete()
+        if not deleted:
+            return Fail(msg="工程师不存在")
+        return Success(msg="工程师已删除")
+    except Exception as exc:
+        return Fail(msg=f"删除工程师失败: {exc}")

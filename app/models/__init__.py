@@ -6,3 +6,4 @@ from .ticket import *
 from .asset import *
 from .project import *
 from .finance import *
+from .remote_assistance import *
