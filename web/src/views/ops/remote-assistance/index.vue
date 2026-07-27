@@ -25,9 +25,20 @@
           <n-tab-pane name="remote" tab="运维记录">
             <div class="table-toolbar">
               <div class="filter-row">
-                <n-input v-model:value="remoteFilters.keyword" clearable placeholder="搜索客户、工单、工程师或机房">
-                  <template #prefix><TheIcon icon="mdi:magnify" :size="17" /></template>
-                </n-input>
+                <n-select
+                  v-model:value="remoteFilters.engineer_id"
+                  clearable
+                  filterable
+                  placeholder="按工程师筛选"
+                  :options="remoteEngineerOptions"
+                />
+                <n-select
+                  v-model:value="remoteFilters.site"
+                  clearable
+                  filterable
+                  placeholder="按机房筛选"
+                  :options="remoteSiteFilterOptions"
+                />
                 <n-select
                   v-model:value="remoteFilters.status"
                   clearable
@@ -279,7 +290,7 @@ const engineers = ref([])
 const datacenters = ref([])
 const engineerKeyword = ref('')
 
-const remoteFilters = reactive({ keyword: '', status: null })
+const remoteFilters = reactive({ engineer_id: null, site: null, status: null })
 const datePickerActions = ['clear', 'now', 'confirm']
 const minuteTimePickerProps = { format: 'HH:mm' }
 const remotePagination = reactive({
@@ -390,13 +401,31 @@ const assignableEngineerOptions = computed(() => {
     }))
 })
 
+const remoteEngineerOptions = computed(() => uniqueOptions(
+  remoteHands.value
+    .map((item) => ({
+      label: item.engineer_name || engineers.value.find((engineer) => String(engineer.id) === String(item.engineer_id))?.name,
+      value: item.engineer_id || item.engineer_name,
+    }))
+    .filter((item) => item.label && item.value)
+))
+
+const remoteSiteFilterOptions = computed(() => uniqueOptions(
+  remoteHands.value
+    .map((item) => ({ label: fieldText(item.site), value: fieldText(item.site) }))
+    .filter((item) => item.value)
+))
+
 const filteredRemoteHands = computed(() => {
-  const keyword = remoteFilters.keyword.trim().toLowerCase()
   return remoteHands.value.filter((item) => {
     if (remoteFilters.status && item.status !== remoteFilters.status) return false
-    if (!keyword) return true
-    return ['customer', 'ticket', 'engineer_name', 'region', 'site', 'note']
-      .some((key) => String(item[key] || '').toLowerCase().includes(keyword))
+    if (remoteFilters.engineer_id) {
+      const selectedEngineer = String(remoteFilters.engineer_id)
+      const currentEngineer = String(item.engineer_id || item.engineer_name || '')
+      if (currentEngineer !== selectedEngineer) return false
+    }
+    if (remoteFilters.site && !valuesMatch(item.site, remoteFilters.site)) return false
+    return true
   })
 })
 
@@ -992,8 +1021,8 @@ onMounted(fetchOverview)
 
 .filter-row {
   display: grid;
-  width: min(680px, 70%);
-  grid-template-columns: minmax(260px, 1fr) 180px;
+  width: min(780px, 72%);
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) 160px;
   gap: 10px;
 }
 
