@@ -63,6 +63,11 @@ def rewrite_text_content(content: bytes, content_type: str, region: str) -> byte
         rf"\1{base_slash}\2/",
         text,
     )
+    text = re.sub(
+        r"history:([A-Za-z_$][\w$]*)\(\)",
+        rf'history:\1("{base_slash}")',
+        text,
+    )
     return text.encode("utf-8")
 
 
