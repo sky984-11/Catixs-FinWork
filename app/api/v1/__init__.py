@@ -4,7 +4,7 @@ from app.core.dependency import DependPermission
 
 from .apis import api_docs_router, apis_router
 from .akvorado import router as akvorado_router
-from .assets import assets_router
+from .assets import assets_router, assets_ws_router
 from .auditlog import auditlog_router
 from .banks import banks_router
 from .bank_accounts import bank_accounts_router
@@ -42,6 +42,7 @@ v1_router.include_router(tasks_router, prefix="/task", dependencies=[DependPermi
 v1_router.include_router(vendors_router, prefix="/vendor", dependencies=[DependPermission])
 v1_router.include_router(dashboard_router, prefix="/ticket", tags=["仪表盘模块"])
 v1_router.include_router(ticket_router, prefix="/ticket", tags=["工单模块"])
+v1_router.include_router(assets_ws_router, prefix="/asset", tags=["资产管理 VNC模块"])
 v1_router.include_router(assets_router, prefix="/asset", dependencies=[DependPermission], tags=["资产管理模块"])
 v1_router.include_router(syslog_router, prefix="/syslog", dependencies=[DependPermission], tags=["Syslog日志管理模块"])
 v1_router.include_router(netbox_router, prefix="/netbox", dependencies=[DependPermission], tags=["NetBox IPAM"])

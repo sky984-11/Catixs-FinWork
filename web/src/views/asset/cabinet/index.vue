@@ -140,6 +140,7 @@
                     <button v-if="!rackContextMenu.device" @click="handleRackMenuAdd">新增设备</button>
                     <button v-if="rackContextMenu.device" @click="handleRackMenuEdit">编辑设备</button>
                     <button v-if="rackContextMenu.device" @click="handleRackMenuClone">克隆设备</button>
+                    <button v-if="rackContextMenu.device" @click="handleRackMenuVnc">VNC控制台</button>
                     <button v-if="rackContextMenu.device" @click="handleRackMenuDelete">删除设备</button>
                   </div>
                 </div>
@@ -173,6 +174,17 @@
               <n-descriptions-item label="序列号">{{ deviceDrawer.row.serial_no || '-' }}</n-descriptions-item>
               <n-descriptions-item label="备注">{{ deviceDrawer.row.remark || '-' }}</n-descriptions-item>
             </n-descriptions>
+
+            <n-space class="detail-actions">
+              <n-button
+                type="primary"
+                secondary
+                :loading="vncModal.loading"
+                @click="openDeviceVnc(deviceDrawer.row)"
+              >
+                打开 VNC 控制台
+              </n-button>
+            </n-space>
 
             <div v-if="deviceIpmiDetail.ipmi_host || deviceIpmiDetail.ipmi_user" class="detail-section">
               <h3>IPMI 信息</h3>
@@ -221,6 +233,25 @@
           </template>
         </n-drawer-content>
       </n-drawer>
+
+      <n-modal
+        v-model:show="vncModal.show"
+        class="device-vnc-modal"
+        style="width: min(1180px, 94vw)"
+        @after-leave="resetDeviceVnc"
+      >
+        <div class="device-vnc-shell">
+          <DeviceVncConsole
+            v-if="vncModal.wsUrl"
+            :title="vncModal.deviceName"
+            subtitle="设备 VNC 控制台"
+            :ws-url="vncModal.wsUrl"
+            :password="vncModal.password"
+            :target="vncModal.target"
+            @close="closeDeviceVnc"
+          />
+        </div>
+      </n-modal>
 
       <n-modal v-model:show="cabinetModal.show" preset="dialog" :title="cabinetModalTitle" style="width: 760px">
         <n-form label-placement="top">
@@ -437,8 +468,10 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import { useRoute, useRouter } from 'vue-router'
 import api from '@/api'
 import { translateRegion } from '@/utils/location-i18n'
+import DeviceVncConsole from './DeviceVncConsole.vue'
 
 defineOptions({ name: 'AssetCabinetWorldMap' })
 
@@ -454,7 +487,18 @@ const viewMode = ref('map')
 const selectedRegionId = ref(null)
 const selectedCabinetId = ref(null)
 const mapEl = ref(null)
+const route = useRoute()
+const router = useRouter()
 const deviceDrawer = reactive({ show: false, row: null })
+const vncModal = reactive({
+  show: false,
+  loading: false,
+  title: '设备 VNC 控制台',
+  deviceName: '',
+  wsUrl: '',
+  password: '',
+  target: '',
+})
 const cabinetModal = reactive({
   show: false,
   submitting: false,
@@ -637,6 +681,7 @@ const structuredAttributeKeys = new Set([
   'IPMI用户',
   'IPMI密码',
 ])
+const vncAttributeKeys = ['vnc_host', 'vnc_address', 'VNC地址', 'VNC主机', 'ipmi_host', 'IPMI地址']
 const attributeRows = computed(() =>
   attributesToList(deviceDrawer.row?.attributes).filter((item) => !structuredAttributeKeys.has(item.key))
 )
@@ -984,7 +1029,7 @@ function renderMapMarkers(fitBounds = false) {
       }),
       title: node.region.name || node.region.code || '',
     })
-    marker.on('click', () => selectRegion(node.region.id))
+    marker.on('click', () => navigateToRegion(node.region.id))
     marker.addTo(mapMarkerLayer)
   })
 }
@@ -1011,7 +1056,7 @@ async function loadData() {
     regions.value = regionRes.data || []
     locations.value = locationRes.data || []
     cabinets.value = cabinetRes.data || []
-    syncDefaultSelection()
+    applyRouteSelection()
   } finally {
     loading.value = false
   }
@@ -1024,35 +1069,75 @@ function handlePlatformChange(value) {
   }
 }
 
-function syncDefaultSelection() {
-  if (!selectedRegionId.value || !regionNodes.value.some((node) => node.region.id === selectedRegionId.value)) {
-    selectedRegionId.value = regionNodes.value[0]?.region.id || null
+function numberQueryValue(value) {
+  const source = Array.isArray(value) ? value[0] : value
+  const parsed = Number(source)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
+function regionIdByCabinetId(cabinetId) {
+  const cabinet = cabinets.value.find((item) => item.id === Number(cabinetId))
+  const location = locations.value.find((item) => item.id === cabinet?.location_id)
+  return location?.region_id || null
+}
+
+function firstCabinetIdInRegion(regionId) {
+  const node = regionNodes.value.find((item) => item.region.id === Number(regionId))
+  return node?.cabinets?.[0]?.id || null
+}
+
+function routeToMap() {
+  router.push({ path: route.path, query: {} })
+}
+
+function routeToCabinet(regionId, cabinetId = null) {
+  if (!regionId) return
+  const query = {
+    region_id: String(regionId),
   }
-  const nextCabinet = selectedCabinets.value.some((cabinet) => cabinet.id === selectedCabinetId.value)
-    ? selectedCabinetId.value
-    : selectedCabinets.value[0]?.id || null
-  selectedCabinetId.value = nextCabinet
-  if (viewMode.value === 'region' && nextCabinet) loadCabinetDevices()
+  if (cabinetId) query.cabinet_id = String(cabinetId)
+  router.push({ path: route.path, query })
+}
+
+function applyRouteSelection() {
+  const queryRegionId = numberQueryValue(route.query.region_id)
+  const queryCabinetId = numberQueryValue(route.query.cabinet_id)
+  if (!queryRegionId && !queryCabinetId) {
+    viewMode.value = 'map'
+    rackDevices.value = []
+    deviceDrawer.show = false
+    ensureMap()
+    return
+  }
+
+  const nextRegionId = queryRegionId || regionIdByCabinetId(queryCabinetId)
+  if (!nextRegionId || !regionNodes.value.some((node) => node.region.id === nextRegionId)) {
+    routeToMap()
+    return
+  }
+
+  selectedRegionId.value = nextRegionId
+  const nextCabinetId = selectedCabinets.value.some((cabinet) => cabinet.id === queryCabinetId)
+    ? queryCabinetId
+    : firstCabinetIdInRegion(nextRegionId)
+  selectedCabinetId.value = nextCabinetId
+  viewMode.value = 'region'
+  if (nextCabinetId) loadCabinetDevices()
   else rackDevices.value = []
 }
 
-function selectRegion(regionId) {
-  selectedRegionId.value = regionId
-  selectedCabinetId.value = selectedCabinets.value[0]?.id || null
-  rackDevices.value = []
-  viewMode.value = 'region'
-  if (selectedCabinetId.value) loadCabinetDevices()
+function navigateToRegion(regionId) {
+  routeToCabinet(regionId, firstCabinetIdInRegion(regionId))
 }
 
 function backToMap() {
-  viewMode.value = 'map'
-  deviceDrawer.show = false
-  ensureMap()
+  routeToMap()
 }
 
 function selectCabinet(cabinetId) {
-  selectedCabinetId.value = cabinetId
-  loadCabinetDevices()
+  const regionId = selectedRegionId.value || regionIdByCabinetId(cabinetId)
+  if (!regionId) return
+  routeToCabinet(regionId, cabinetId)
 }
 
 async function loadCabinetDevices() {
@@ -1145,8 +1230,7 @@ async function submitCabinet() {
     const res = await submit(payload)
     cabinetModal.show = false
     await loadData()
-    selectedCabinetId.value = res.data?.id || selectedCabinetId.value
-    if (selectedCabinetId.value) await loadCabinetDevices()
+    routeToCabinet(selectedRegionId.value, res.data?.id || selectedCabinetId.value)
     window.$message?.success(payload.id ? '机柜已更新' : '机柜已新增')
   } finally {
     cabinetModal.submitting = false
@@ -1163,10 +1247,11 @@ async function deleteCabinet(cabinet) {
   if (!window.confirm(`确认删除机柜 ${cabinet.name || ''}？`)) return
   await api.assetApi.deleteCabinet({ cabinet_id: cabinet.id })
   if (selectedCabinetId.value === cabinet.id) {
-    selectedCabinetId.value = selectedCabinets.value.find((item) => item.id !== cabinet.id)?.id || null
+    const nextCabinetId = selectedCabinets.value.find((item) => item.id !== cabinet.id)?.id || null
+    if (nextCabinetId) routeToCabinet(selectedRegionId.value, nextCabinetId)
+    else routeToCabinet(selectedRegionId.value)
   }
   await loadData()
-  if (selectedCabinetId.value) await loadCabinetDevices()
   window.$message?.success('机柜已删除')
 }
 
@@ -1282,8 +1367,7 @@ async function submitDevice() {
     await submit(payload)
     deviceModal.show = false
     await loadData()
-    selectedCabinetId.value = payload.cabinet_id
-    await loadCabinetDevices()
+    routeToCabinet(selectedRegionId.value || regionIdByCabinetId(payload.cabinet_id), payload.cabinet_id)
     window.$message?.success('设备已新增')
   } finally {
     deviceModal.submitting = false
@@ -1292,7 +1376,7 @@ async function submitDevice() {
 
 function openRackContextMenu(event, u, device = null) {
   const menuWidth = 132
-  const menuHeight = device ? 148 : 48
+  const menuHeight = device ? 184 : 48
   const maxX = Math.max(8, window.innerWidth - menuWidth - 8)
   const maxY = Math.max(8, window.innerHeight - menuHeight - 8)
   rackContextMenu.show = true
@@ -1322,6 +1406,12 @@ function handleRackMenuClone() {
   const device = rackContextMenu.device
   closeRackContextMenu()
   if (device) openDeviceCloneModal(device)
+}
+
+function handleRackMenuVnc() {
+  const device = rackContextMenu.device
+  closeRackContextMenu()
+  if (device) openDeviceVnc(device)
 }
 
 function openDeviceCloneModal(device) {
@@ -1461,6 +1551,72 @@ function attributesToList(attributes) {
   return Object.entries(attributes).map(([key, value]) => ({ key, value }))
 }
 
+function firstAttributeValue(attributes = {}, keys = []) {
+  for (const key of keys) {
+    const value = attributes?.[key]
+    if (value !== null && value !== undefined && String(value).trim()) return String(value).trim()
+  }
+  return ''
+}
+
+function hasDeviceVncConfig(device) {
+  return Boolean(firstAttributeValue(device?.attributes || {}, vncAttributeKeys))
+}
+
+function resetDeviceVnc() {
+  vncModal.loading = false
+  vncModal.title = '设备 VNC 控制台'
+  vncModal.deviceName = ''
+  vncModal.wsUrl = ''
+  vncModal.password = ''
+  vncModal.target = ''
+}
+
+function closeDeviceVnc() {
+  vncModal.show = false
+}
+
+function normalizeDeviceVncResponse(res) {
+  return res?.data?.wsUrl
+    ? res.data
+    : res?.wsUrl
+      ? res
+      : res?.data?.data?.wsUrl
+        ? res.data.data
+        : null
+}
+
+async function openDeviceVnc(device) {
+  if (!device?.id) return
+  if (!hasDeviceVncConfig(device)) {
+    window.$message?.warning('该设备未配置 VNC 地址或 IPMI 地址')
+    return
+  }
+  vncModal.loading = true
+  vncModal.title = `${device.name || '设备'} VNC 控制台`
+  vncModal.deviceName = device.name || ''
+  vncModal.wsUrl = ''
+  vncModal.password = ''
+  vncModal.target = ''
+  try {
+    const res = await api.assetApi.deviceVnc({ device_id: device.id })
+    const data = normalizeDeviceVncResponse(res)
+    if (!data?.wsUrl) {
+      throw new Error('后端未返回 VNC websocket 地址')
+    }
+    vncModal.deviceName = data.device_name || device.name || ''
+    vncModal.wsUrl = data.wsUrl
+    vncModal.password = data.password || ''
+    vncModal.target = [data.host, data.port].filter(Boolean).join(':')
+    vncModal.show = true
+  } catch (error) {
+    vncModal.show = false
+    window.$message?.error(error.message || '打开 VNC 控制台失败')
+  } finally {
+    vncModal.loading = false
+  }
+}
+
 function openDeviceDetail(device) {
   deviceDrawer.row = device
   deviceDrawer.show = true
@@ -1470,6 +1626,12 @@ watch(mapRegionNodes, () => renderMapMarkers(true))
 watch(viewMode, (mode) => {
   if (mode === 'map') ensureMap()
 })
+watch(
+  () => [route.query.region_id, route.query.cabinet_id],
+  () => {
+    applyRouteSelection()
+  }
+)
 
 onMounted(async () => {
   await loadData()
@@ -1492,6 +1654,20 @@ onBeforeUnmount(() => {
   background:
     linear-gradient(180deg, #f7f9fc 0%, #eef3f9 100%);
   padding: 10px;
+}
+
+:deep(.device-vnc-modal) {
+  overflow: visible;
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
+}
+
+.device-vnc-shell {
+  overflow: hidden;
+  border-radius: 8px;
+  background: #000;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.62);
 }
 
 .cabinet-world-page.is-map-home {

@@ -31,6 +31,8 @@ const props = defineProps({
   node: { type: String, default: '' },
   type: { type: String, default: 'pve-qemu' },
   title: { type: String, default: '' },
+  directWsUrl: { type: String, default: '' },
+  directPassword: { type: String, default: '' },
   embedded: { type: Boolean, default: false },
   autoConnect: { type: Boolean, default: true },
 })

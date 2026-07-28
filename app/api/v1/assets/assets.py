@@ -4,18 +4,25 @@ import ipaddress
 import io
 import json
 import os
+import socket
 import urllib.error
 import urllib.request
+import uuid
 from copy import deepcopy
 from datetime import date, datetime
+from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+import websockets
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile, WebSocket
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from starlette.websockets import WebSocketDisconnect
 from tortoise.expressions import Q
 from tortoise.functions import Count
 from tortoise.transactions import in_transaction
 
+from app.core.dependency import AuthControl
 from app.controllers.asset import (
     asset_cabinet_controller,
     asset_device_brand_controller,
@@ -40,6 +47,7 @@ from app.models.asset import (
     AssetRegion,
 )
 from app.core.ctx import CTX_USER_ID
+from app.log import logger
 from app.models.admin import User
 from app.schemas.assets import (
     AssetCabinetCreate,
@@ -63,15 +71,24 @@ from app.schemas.assets import (
 from app.schemas.base import Success, SuccessExtra
 
 router = APIRouter()
+ws_router = APIRouter()
 
 INVENTORY_FEISHU_WEBHOOK = os.getenv(
     "INVENTORY_FEISHU_WEBHOOK",
     "https://open.feishu.cn/open-apis/bot/v2/hook/4c3e89a6-35dd-4de3-b763-e1049449e5d4",
 )
 
-SENSITIVE_DEVICE_ATTRIBUTE_KEYS = {"IPMI密码", "ipmi_password", "snmp团体名"}
+SENSITIVE_DEVICE_ATTRIBUTE_KEYS = {"IPMI密码", "ipmi_password", "vnc_password", "VNC密码", "snmp团体名"}
 MASKED_DEVICE_SECRET = "******"
 DEVICE_SECRET_VIEW_ROLE_NAMES = {"admin", "noc"}
+DEVICE_VNC_SESSIONS: dict[str, dict] = {}
+DEVICE_VNC_SESSION_TTL = 120
+DEVICE_VNC_DEFAULT_PORT = 5901
+DEVICE_VNC_DEFAULT_PASSWORD = "vnc@3202"
+
+
+class AssetDeviceVncRequest(BaseModel):
+    device_id: int
 
 
 def normalize_redfish_host(value: str) -> str:
@@ -341,6 +358,58 @@ async def device_to_dict(device: AssetDevice, can_view_secrets: bool = False) ->
     data["location_name"] = location.name if location else ""
     data["region_name"] = region.name if region else ""
     return data
+
+
+def first_device_attribute(attributes: dict, keys: tuple[str, ...]) -> str:
+    for key in keys:
+        value = attributes.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return ""
+
+
+def device_vnc_config(device: AssetDevice) -> dict:
+    attributes = dict(device.attributes or {})
+    host = first_device_attribute(
+        attributes,
+        ("vnc_host", "vnc_address", "VNC地址", "VNC主机", "ipmi_host", "IPMI地址"),
+    )
+    port_text = first_device_attribute(attributes, ("vnc_port", "VNC端口"))
+    password = first_device_attribute(attributes, ("vnc_password", "VNC密码")) or DEVICE_VNC_DEFAULT_PASSWORD
+    if not host:
+        raise ValueError("设备未配置 VNC 地址或 IPMI 地址")
+    try:
+        port = int(port_text or DEVICE_VNC_DEFAULT_PORT)
+    except ValueError as exc:
+        raise ValueError("VNC 端口格式错误") from exc
+    if port < 1 or port > 65535:
+        raise ValueError("VNC 端口必须在 1-65535 之间")
+    return {"host": host, "port": port, "password": password}
+
+
+def cleanup_device_vnc_sessions() -> None:
+    now = datetime.now().timestamp()
+    expired = [
+        session_id
+        for session_id, session in DEVICE_VNC_SESSIONS.items()
+        if now - float(session.get("created_at") or 0) > DEVICE_VNC_SESSION_TTL
+    ]
+    for session_id in expired:
+        DEVICE_VNC_SESSIONS.pop(session_id, None)
+
+
+def create_device_vnc_session(device: AssetDevice, config: dict) -> str:
+    cleanup_device_vnc_sessions()
+    session_id = uuid.uuid4().hex
+    DEVICE_VNC_SESSIONS[session_id] = {
+        "created_at": datetime.now().timestamp(),
+        "device_id": device.id,
+        "device_name": device.name,
+        "host": config["host"],
+        "port": config["port"],
+        "password": config["password"],
+    }
+    return session_id
 
 
 async def inventory_to_dict(item: AssetInventory) -> dict:
@@ -1011,6 +1080,145 @@ async def list_device(
 async def get_device(device_id: int = Query(...)):
     obj = await asset_device_controller.get(id=device_id)
     return Success(data=await device_to_dict(obj, can_view_secrets=await can_view_device_secrets()))
+
+
+@router.post("/device/vnc", summary="创建设备 VNC 控制台会话")
+async def device_vnc_console(payload: AssetDeviceVncRequest):
+    try:
+        device = await asset_device_controller.get(id=payload.device_id)
+        config = device_vnc_config(device)
+        session_id = create_device_vnc_session(device, config)
+        query = urlencode({"session": session_id, "device_id": str(device.id)})
+        return Success(
+            data={
+                "wsUrl": f"/api/v1/asset/device/vnc/ws?{query}",
+                "password": config["password"],
+                "host": config["host"],
+                "port": config["port"],
+                "device_id": device.id,
+                "device_name": device.name,
+            }
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@ws_router.websocket("/device/vnc/ws")
+async def device_vnc_websocket_proxy(
+    websocket: WebSocket,
+    session: str,
+    device_id: int,
+    token: str = "",
+):
+    await websocket.accept(subprotocol="binary")
+    try:
+        await AuthControl.is_authed(token=token)
+    except HTTPException as exc:
+        await websocket.close(code=1008, reason=str(exc.detail)[:120])
+        return
+
+    cleanup_device_vnc_sessions()
+    vnc_session = DEVICE_VNC_SESSIONS.get(session)
+    if not vnc_session or int(vnc_session.get("device_id") or 0) != int(device_id):
+        await websocket.close(code=1008, reason="VNC session expired")
+        return
+
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(str(vnc_session["host"]), int(vnc_session["port"])),
+            timeout=8,
+        )
+    except Exception as exc:
+        logger.warning(
+            "device VNC TCP connect failed: device_id={} device_name={} target={}:{} error={}",
+            vnc_session.get("device_id"),
+            vnc_session.get("device_name"),
+            vnc_session.get("host"),
+            vnc_session.get("port"),
+            repr(exc),
+        )
+        await websocket.close(code=1011, reason=f"VNC connect failed: {exc}"[:120])
+        return
+
+    logger.info(
+        "device VNC TCP connected: device_id={} device_name={} target={}:{}",
+        vnc_session.get("device_id"),
+        vnc_session.get("device_name"),
+        vnc_session.get("host"),
+        vnc_session.get("port"),
+    )
+    transport = writer.get_extra_info("socket")
+    if transport:
+        transport.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    proxy_stats = {"client_bytes": 0, "vnc_bytes": 0}
+
+    async def client_to_vnc():
+        while True:
+            message = await websocket.receive()
+            if message.get("type") == "websocket.disconnect":
+                writer.close()
+                return
+            if message.get("bytes") is not None:
+                proxy_stats["client_bytes"] += len(message["bytes"])
+                writer.write(message["bytes"])
+            elif message.get("text") is not None:
+                data = message["text"].encode()
+                proxy_stats["client_bytes"] += len(data)
+                writer.write(data)
+            await writer.drain()
+
+    async def vnc_to_client():
+        while True:
+            data = await reader.read(65535)
+            if not data:
+                await websocket.close()
+                return
+            proxy_stats["vnc_bytes"] += len(data)
+            await websocket.send_bytes(data)
+
+    async def log_proxy_stats():
+        while True:
+            await asyncio.sleep(5)
+            logger.info(
+                "device VNC proxy stats: device_id={} target={}:{} client_bytes={} vnc_bytes={}",
+                vnc_session.get("device_id"),
+                vnc_session.get("host"),
+                vnc_session.get("port"),
+                proxy_stats["client_bytes"],
+                proxy_stats["vnc_bytes"],
+            )
+
+    tasks = [
+        asyncio.create_task(client_to_vnc()),
+        asyncio.create_task(vnc_to_client()),
+        asyncio.create_task(log_proxy_stats()),
+    ]
+    try:
+        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for task in done:
+            task.result()
+        for task in pending:
+            task.cancel()
+    except (WebSocketDisconnect, websockets.ConnectionClosed):
+        pass
+    except Exception as exc:
+        try:
+            await websocket.close(code=1011, reason=str(exc)[:120])
+        except Exception:
+            pass
+    finally:
+        logger.info(
+            "device VNC proxy closed: device_id={} target={}:{} client_bytes={} vnc_bytes={}",
+            vnc_session.get("device_id"),
+            vnc_session.get("host"),
+            vnc_session.get("port"),
+            proxy_stats["client_bytes"],
+            proxy_stats["vnc_bytes"],
+        )
+        for task in tasks:
+            task.cancel()
+        writer.close()
+        await writer.wait_closed()
 
 
 @router.post("/device/redfish-probe", summary="根据IPMI地址采集Redfish设备信息")
