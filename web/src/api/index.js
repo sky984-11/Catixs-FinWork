@@ -235,7 +235,7 @@ export default {
     probeNode: (data = {}) => request.post('/pve/nodes/probe', data),
     nodeRealms: (params = {}) => request.get('/pve/nodes/realms', { params }),
     createOptions: (params = {}) => request.get('/pve/vms/create-options', { params }),
-    createVm: (data = {}) => request.post('/pve/vms/create', data),
+    createVm: (data = {}) => request.post('/pve/vms/create', data, { timeout: 300000 }),
     migrationOptions: (params = {}) => request.get('/pve/vms/migration-options', { params }),
     migrationTargetOptions: (params = {}) => request.get('/pve/vms/migration-target-options', { params }),
     migrateVm: (data = {}) => request.post('/pve/vms/migrate', data),

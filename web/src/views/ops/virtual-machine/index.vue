@@ -282,7 +282,7 @@
           </n-form>
         </n-spin>
         <div v-else class="create-result-panel">
-          <n-result status="success" title="创建任务已提交" description="请记录这台虚拟机的初始配置，root 密码只对应当前创建的机器。">
+          <n-result status="success" title="虚拟机已创建" description="请记录这台虚拟机的初始配置，root 密码只对应当前创建的机器。">
             <template #footer>
               <n-descriptions bordered :column="2" size="small">
                 <n-descriptions-item label="虚拟机名称">
@@ -325,7 +325,7 @@
         </div>
         <template #footer>
           <div class="modal-footer">
-            <span>{{ createModal.created ? '任务已在目标节点后台执行，请稍后刷新列表查看。' : '创建时会通过 SSH 在目标节点执行 /root/create-vm.sh。' }}</span>
+            <span>{{ createModal.created ? '虚拟机已在目标 PVE 节点创建完成，请刷新列表查看。' : '创建时会通过 SSH 在目标节点执行 /root/create-vm.sh。' }}</span>
             <n-space v-if="!createModal.created">
               <n-button @click="createModal.show = false">取消</n-button>
               <n-button type="primary" :loading="createModal.submitting" @click="submitCreateVm">创建</n-button>
@@ -1537,7 +1537,7 @@ async function submitCreateVm() {
       description: payload.description,
     }
     createModal.created = true
-    message.success(res.msg || '创建任务已提交')
+    message.success(res.msg || '虚拟机已创建')
     await refreshNodes()
   } catch (err) {
     message.error(err.message || '创建虚拟机失败')

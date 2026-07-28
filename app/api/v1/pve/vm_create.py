@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, Query
+from loguru import logger
 from pydantic import BaseModel, Field
 
 from app.schemas.base import Fail, Success
@@ -147,10 +148,22 @@ def ssh_submit_background(host: str, command: str) -> tuple[int, str, str]:
 
     task_id = f"{int(time.time())}-{uuid4().hex[:8]}"
     log_file = f"/tmp/finwork-create-vm-{task_id}.log"
+    pid_file = f"/tmp/finwork-create-vm-{task_id}.pid"
     background_command = (
-        "cd /root && "
-        "test -f ./create-vm.sh && "
-        f"nohup {command} > {shlex.quote(log_file)} 2>&1 < /dev/null &"
+        "set -u; "
+        "cd /root || exit 1; "
+        "if [ ! -x ./create-vm.sh ]; then echo './create-vm.sh not found or not executable' >&2; exit 127; fi; "
+        f"nohup {command} > {shlex.quote(log_file)} 2>&1 < /dev/null & "
+        f"pid=$!; echo $pid > {shlex.quote(pid_file)}; "
+        "sleep 1; "
+        "if kill -0 $pid 2>/dev/null; then "
+        f"echo submitted pid=$pid log={shlex.quote(log_file)}; "
+        "else "
+        "wait $pid; status=$?; "
+        f"echo immediate_exit status=$status log={shlex.quote(log_file)}; "
+        f"tail -n 80 {shlex.quote(log_file)} 2>/dev/null; "
+        "exit $status; "
+        "fi"
     )
 
     client = paramiko.SSHClient()
@@ -168,9 +181,11 @@ def ssh_submit_background(host: str, command: str) -> tuple[int, str, str]:
 
         if channel.exit_status_ready():
             exit_status = channel.recv_exit_status()
+            output = stdout.read().decode("utf-8", errors="replace").strip()
             error = stderr.read().decode("utf-8", errors="replace").strip()
             if exit_status != 0:
-                return exit_status, "", error or "提交创建任务失败"
+                return exit_status, output, error or "提交创建任务失败"
+            return 0, output or f"log={log_file}", ""
 
         return 0, f"log={log_file}", ""
     except Exception as exc:
@@ -188,6 +203,17 @@ async def submit_remote_script(host: str, command: str) -> tuple[int, str, str]:
         return await asyncio.wait_for(asyncio.to_thread(ssh_submit_background, host, command), timeout=6)
     except asyncio.TimeoutError:
         return 0, "创建任务可能已提交，远端 SSH 未及时关闭通道", ""
+
+
+async def verify_vm_exists(host: str, vm_name: str, attempts: int = 12, delay: float = 5) -> bool:
+    quoted_name = shlex.quote(vm_name)
+    command = f"qm list | awk 'NR > 1 {{print $2}}' | grep -Fx -- {quoted_name}"
+    for _ in range(attempts):
+        exit_status, _stdout, _stderr = await run_remote_script(host, command)
+        if exit_status == 0:
+            return True
+        await asyncio.sleep(delay)
+    return False
 
 
 def shell_join(parts: list[Any]) -> str:
@@ -303,14 +329,40 @@ async def create_vm(payload: VMCreateRequest):
     try:
         ssh_host = await resolve_create_host(payload.region)
         command = create_vm_command(payload)
-        exit_status, stdout, stderr = await submit_remote_script(ssh_host, command)
+        logger.info(
+            "submit PVE VM create: region={} ssh_host={} vm_name={} storage={} os={}/{}",
+            payload.region,
+            ssh_host,
+            payload.vm_name,
+            payload.storage,
+            payload.os_type,
+            payload.os_version,
+        )
+        exit_status, stdout, stderr = await run_remote_script(ssh_host, command)
+        logger.info(
+            "PVE VM create submit result: vm_name={} ssh_host={} exit_status={} stdout={} stderr={}",
+            payload.vm_name,
+            ssh_host,
+            exit_status,
+            stdout,
+            stderr,
+        )
         if exit_status != 0:
-            return Fail(msg=fail_message("提交创建任务失败", stdout, stderr))
+            return Fail(msg=fail_message("创建虚拟机失败", stdout, stderr))
+        if not await verify_vm_exists(ssh_host, payload.vm_name):
+            return Fail(
+                msg=fail_message(
+                    "创建虚拟机失败，目标 PVE 节点未发现新虚拟机",
+                    stdout,
+                    f"已在 {ssh_host} 执行创建脚本，但 qm list 未找到名称为 {payload.vm_name} 的虚拟机",
+                )
+            )
     except Exception as exc:
-        return Fail(msg=f"提交创建任务失败: {exc}")
+        logger.exception("submit PVE VM create failed: region={} vm_name={}", payload.region, payload.vm_name)
+        return Fail(msg=f"创建虚拟机失败: {exc}")
 
     return Success(
-        msg="创建任务已提交",
+        msg="虚拟机已创建",
         data={
             "region": payload.region,
             "ssh_host": ssh_host,
