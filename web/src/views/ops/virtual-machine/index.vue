@@ -35,7 +35,6 @@
                     class="side-list-item"
                     :class="{ active: selectedNode?.value === node.value }"
                     @click="selectNode(node)"
-                    @mouseenter="loadNodeTooltipRemark(node)"
                     @contextmenu.prevent.stop="openNodeContextMenu($event, node)"
                   >
                     <span>
@@ -126,6 +125,12 @@
                 <h2>虚拟机列表</h2>
               </div>
               <div class="vm-list-actions">
+                <n-button secondary round :disabled="!selectedNode || loading.vms" :loading="loading.ips" @click="reloadVmIps">
+                  <template #icon>
+                    <TheIcon icon="mdi:ip-network" :size="18" />
+                  </template>
+                  加载 IP
+                </n-button>
                 <n-button type="primary" round :disabled="!selectedNode" @click="openCreateModal">
                   <template #icon>
                     <TheIcon icon="mdi:server-plus" :size="18" />
@@ -1485,7 +1490,18 @@ async function openCreateModal() {
       }
     })
   } else {
-    message.info('创建选项正在后台加载，请稍后选择系统和存储')
+    createModal.loading = true
+    try {
+      const options = await preloadCreateOptions(createModal.form.region, { silent: false })
+      if (createModal.show && createModal.form.region === selectedNode.value?.value && options) {
+        applyCreateOptions(options)
+      }
+    } catch (error) {
+      message.error(error.message || '读取创建选项失败')
+    } finally {
+      createModal.loading = false
+    }
+    return
   }
   createModal.loading = false
 }
@@ -2009,9 +2025,6 @@ async function fetchNodes() {
     } else if (selectedValue && !rememberedNode) {
       forgetSelectedNode()
     }
-    if (selectedNode.value?.value && !selectedNode.value.error) {
-      preloadCreateOptions(selectedNode.value.value)
-    }
   } catch (error) {
     nodeOptions.value = []
     message.error(error.message || '读取 PDM 节点列表失败')
@@ -2047,7 +2060,7 @@ async function fetchVms() {
     })
     vmList.value = (res.data?.items || []).map((vm) => ({
       ...vm,
-      ip_loading: vm.type === 'pve-qemu' && vm.status === 'running',
+      ip_loading: false,
     }))
     Object.assign(vmSummary, res.data?.summary || { total: 0, running: 0, stopped: 0 })
     syncSelectedNodeSummary(vmSummary)
@@ -2055,7 +2068,6 @@ async function fetchVms() {
     pagination.page = 1
     await nextTick()
     tableRenderKey.value += 1
-    fetchVmIps(requestNode)
   } catch (error) {
     vmIpRequestId += 1
     vmList.value = []
@@ -2066,6 +2078,16 @@ async function fetchVms() {
   } finally {
     loading.vms = false
   }
+}
+
+async function reloadVmIps() {
+  const nodeValue = selectedNode.value?.value
+  if (!nodeValue || loading.vms) return
+  vmList.value = vmList.value.map((vm) => ({
+    ...vm,
+    ip_loading: vm.type === 'pve-qemu' && vm.status === 'running',
+  }))
+  await fetchVmIps(nodeValue)
 }
 
 async function fetchVmIps(nodeValue) {
@@ -2114,7 +2136,6 @@ function selectNode(node) {
     pagination.page = 1
     return
   }
-  preloadCreateOptions(node.value)
   fetchVms()
 }
 
@@ -2143,21 +2164,6 @@ function nodeTooltipRemark(node) {
   const key = nodeCacheKey(node)
   const cached = key ? nodeRemarkCache[key] : null
   return String(cached?.remark || '').trim()
-}
-
-async function loadNodeTooltipRemark(node) {
-  const remote = nodeCacheKey(node)
-  if (!remote || nodeRemarkCache[remote]) return
-  nodeRemarkCache[remote] = { loading: true, remark: '' }
-  try {
-    const host = nodeAddress(node) === '-' ? '' : nodeAddress(node)
-    const res = await api.virtualMachineApi.nodeRemark(remote, {
-      host: host || undefined,
-    })
-    nodeRemarkCache[remote] = { loading: false, remark: res.data?.remark || '' }
-  } catch {
-    nodeRemarkCache[remote] = { loading: false, remark: '' }
-  }
 }
 
 function formatPercent(value) {
@@ -2473,6 +2479,7 @@ onBeforeUnmount(() => {
 
 .vm-list-actions {
   display: flex;
+  gap: 8px;
   margin-left: auto;
   justify-content: flex-end;
 }

@@ -23,6 +23,13 @@ logger = logging.getLogger(__name__)
 
 _PDM_RESOURCE_CACHE: list[dict[str, Any]] = []
 _PVE_VM_IP_CACHE: dict[tuple[str, str, int], tuple[float, list[str]]] = {}
+_PVE_VM_REMARK_CACHE: dict[tuple[str, str, int], tuple[float, str]] = {}
+_PVE_NODES_RESPONSE_CACHE: tuple[float, list[dict[str, Any]]] | None = None
+_PVE_REMOTE_RESOURCES_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+_PVE_REMOTE_RESOURCE_PATH_CACHE: dict[str, str] = {}
+PVE_NODES_CACHE_TTL = 15
+PVE_REMOTE_RESOURCES_CACHE_TTL = 10
+PVE_VM_REMARK_CACHE_TTL = 300
 
 
 def pdm_base_url() -> str:
@@ -690,21 +697,23 @@ def normalize_remote_items(items: Any, remote: str, item_type: str) -> list[dict
 
 
 async def pdm_remote_resources(remote: str) -> list[dict[str, Any]]:
-    resources: list[dict[str, Any]] = []
-    for path in (
+    preferred_paths = [
         f"/pve/remotes/{remote}/resources",
         f"/pve/remotes/{remote}/cluster/resources",
         f"/pve/remotes/{remote}/resources/list",
-    ):
+    ]
+    cached_path = _PVE_REMOTE_RESOURCE_PATH_CACHE.get(remote)
+    if cached_path:
+        preferred_paths = [cached_path, *[path for path in preferred_paths if path != cached_path]]
+
+    for path in preferred_paths:
         try:
             data = pdm_resource_items(await pdm_get(path, timeout=3), remote)
         except Exception:
             continue
-        if data:
-            resources.extend(data)
-
-    if has_resource_items(resources):
-        return resources
+        if has_resource_items(data):
+            _PVE_REMOTE_RESOURCE_PATH_CACHE[remote] = path
+            return data
 
     resources = []
     for path, item_type in (
@@ -830,6 +839,24 @@ async def pdm_nodes_list() -> list[dict[str, Any]]:
         return groups
 
     return await pdm_resources_list()
+
+
+def cached_nodes_response() -> list[dict[str, Any]] | None:
+    if not _PVE_NODES_RESPONSE_CACHE:
+        return None
+    cached_at, data = _PVE_NODES_RESPONSE_CACHE
+    if time.time() - cached_at <= PVE_NODES_CACHE_TTL:
+        return data
+    return None
+
+
+async def cached_pdm_remote_resources(remote: str) -> list[dict[str, Any]]:
+    cached = _PVE_REMOTE_RESOURCES_CACHE.get(remote)
+    if cached and time.time() - cached[0] <= PVE_REMOTE_RESOURCES_CACHE_TTL:
+        return cached[1]
+    resources = await pdm_remote_resources(remote)
+    _PVE_REMOTE_RESOURCES_CACHE[remote] = (time.time(), resources)
+    return resources
 
 
 async def pdm_post(path: str, payload: dict[str, Any]) -> Any:
@@ -1257,6 +1284,15 @@ def vm_remark_from_config(data: Any) -> str:
     return ""
 
 
+def vm_detail_cache_key(vm: dict[str, Any]) -> tuple[str, str, int] | None:
+    remote = str(vm.get("remote") or "")
+    vm_type = canonical_resource_type(vm.get("type"))
+    vmid = vm.get("vmid")
+    if not remote or not vmid:
+        return None
+    return remote, vm_type, int(vmid)
+
+
 def parse_qemu_kv(value: str) -> dict[str, str]:
     result: dict[str, str] = {}
     for part in str(value or "").split(","):
@@ -1361,6 +1397,11 @@ async def vm_config_from_pve(remote: str, vmid: int, vm_type: str = "pve-qemu") 
 
 
 async def fetch_vm_config_remark(vm: dict[str, Any]) -> str:
+    cache_key = vm_detail_cache_key(vm)
+    cached = _PVE_VM_REMARK_CACHE.get(cache_key) if cache_key else None
+    if cached and time.time() - cached[0] <= PVE_VM_REMARK_CACHE_TTL:
+        return cached[1]
+
     remote = str(vm.get("remote") or "")
     vmid = vm.get("vmid")
     if not remote or not vmid:
@@ -1378,6 +1419,8 @@ async def fetch_vm_config_remark(vm: dict[str, Any]) -> str:
         except Exception:
             continue
         if remark:
+            if cache_key:
+                _PVE_VM_REMARK_CACHE[cache_key] = (time.time(), remark)
             return remark
 
     try:
@@ -1385,28 +1428,64 @@ async def fetch_vm_config_remark(vm: dict[str, Any]) -> str:
     except Exception:
         host = ""
     if not host:
+        if cache_key:
+            _PVE_VM_REMARK_CACHE[cache_key] = (time.time(), "")
         return ""
 
     command = f"pvesh get /nodes/$(hostname -s)/{kind}/{int(vmid)}/config --output-format json"
     code, output, _error = await asyncio.to_thread(ssh_execute_pve, host, command)
     if code != 0:
+        if cache_key:
+            _PVE_VM_REMARK_CACHE[cache_key] = (time.time(), "")
         return ""
     try:
-        return vm_remark_from_config(json.loads(output or "{}"))
+        remark = vm_remark_from_config(json.loads(output or "{}"))
+        if cache_key:
+            _PVE_VM_REMARK_CACHE[cache_key] = (time.time(), remark)
+        return remark
     except Exception:
+        if cache_key:
+            _PVE_VM_REMARK_CACHE[cache_key] = (time.time(), "")
         return ""
     return ""
 
 
 async def enrich_vm_remarks(vms: list[dict[str, Any]]) -> None:
-    pending = [vm for vm in vms if not str(vm.get("remark") or "").strip()]
+    pending: list[dict[str, Any]] = []
+    for vm in vms:
+        if str(vm.get("remark") or "").strip():
+            continue
+        cache_key = vm_detail_cache_key(vm)
+        cached = _PVE_VM_REMARK_CACHE.get(cache_key) if cache_key else None
+        if cached and time.time() - cached[0] <= PVE_VM_REMARK_CACHE_TTL:
+            if cached[1]:
+                vm["remark"] = cached[1]
+            continue
+        pending.append(vm)
     if not pending:
         return
 
-    results = await asyncio.gather(*(fetch_vm_config_remark(vm) for vm in pending), return_exceptions=True)
+    semaphore = asyncio.Semaphore(8)
+
+    async def load(vm: dict[str, Any]) -> str:
+        async with semaphore:
+            return await fetch_vm_config_remark(vm)
+
+    results = await asyncio.gather(*(load(vm) for vm in pending), return_exceptions=True)
     for vm, result in zip(pending, results):
         if isinstance(result, str) and result:
             vm["remark"] = result
+
+
+def apply_cached_vm_remarks(vms: list[dict[str, Any]]) -> None:
+    now = time.time()
+    for vm in vms:
+        if str(vm.get("remark") or "").strip():
+            continue
+        cache_key = vm_detail_cache_key(vm)
+        cached = _PVE_VM_REMARK_CACHE.get(cache_key) if cache_key else None
+        if cached and now - cached[0] <= PVE_VM_REMARK_CACHE_TTL and cached[1]:
+            vm["remark"] = cached[1]
 
 
 def all_vms(data: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1752,6 +1831,12 @@ def ssh_execute_pve(host: str, command: str) -> tuple[int, str, str]:
 
 @router.get("/nodes", summary="PDM remote list")
 async def list_nodes():
+    global _PVE_NODES_RESPONSE_CACHE
+
+    cached = cached_nodes_response()
+    if cached is not None:
+        return Success(data=cached)
+
     try:
         data = await pdm_nodes_list()
         remote_details = await pdm_remote_config_detail_map()
@@ -1764,7 +1849,9 @@ async def list_nodes():
         remote_summaries = await pdm_remote_summary_map(data)
     except Exception as exc:
         return Fail(msg=f"读取 PDM 数据失败: {error_detail(exc)}")
-    return Success(data=resource_groups(data, remote_addresses, remote_summaries, remote_details))
+    result = resource_groups(data, remote_addresses, remote_summaries, remote_details)
+    _PVE_NODES_RESPONSE_CACHE = (time.time(), result)
+    return Success(data=result)
 
 
 @router.get("/vms", summary="PDM virtual machine list")
@@ -1774,7 +1861,7 @@ async def list_vms(
     try:
         if node:
             try:
-                resources = await pdm_remote_resources(node)
+                resources = await cached_pdm_remote_resources(node)
             except Exception:
                 resources = []
             data = [{"remote": node, "resources": resources}]
@@ -1786,7 +1873,7 @@ async def list_vms(
     vms = all_vms(data)
     if node:
         vms = [vm for vm in vms if vm.get("remote") == node]
-    await enrich_vm_remarks(vms)
+    apply_cached_vm_remarks(vms)
     vms.sort(key=lambda row: (str(row.get("remote") or ""), str(row.get("node") or ""), int(row.get("vmid") or 0)))
     summary = {
         "total": len(vms),
@@ -1803,7 +1890,7 @@ async def list_vm_ips(
     try:
         if node:
             try:
-                resources = await pdm_remote_resources(node)
+                resources = await cached_pdm_remote_resources(node)
             except Exception:
                 resources = []
             data = [{"remote": node, "resources": resources}]
