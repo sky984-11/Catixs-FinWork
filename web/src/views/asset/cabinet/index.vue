@@ -10,8 +10,7 @@
           <n-space>
             <n-tag round type="info">{{ mapRegionNodes.length }} 个地区</n-tag>
             <n-tag round type="success">{{ cabinets.length }} 个机柜</n-tag>
-            <n-tag round type="warning">{{ devices.length }} 台设备</n-tag>
-            <n-button secondary round @click="openPlatformModal">厂商/型号管理</n-button>
+            <n-tag round type="warning">{{ totalDeviceCount }} 台设备</n-tag>
             <n-button secondary round :loading="loading" @click="loadData">刷新</n-button>
           </n-space>
         </div>
@@ -36,7 +35,6 @@
             </div>
             <n-space class="stage-actions" align="center">
               <n-button type="primary" round @click="openCabinetModal()">新增机柜</n-button>
-              <n-button secondary round @click="openPlatformModal">厂商/型号管理</n-button>
               <n-button secondary round @click="backToMap">返回地图</n-button>
             </n-space>
           </div>
@@ -431,43 +429,6 @@
         </template>
       </n-modal>
 
-      <n-modal v-model:show="platformModal.show" preset="dialog" title="厂商/型号管理" style="width: 760px">
-        <div class="platform-manager">
-          <div class="platform-add-row">
-            <n-input v-model:value="platformModal.platformName" placeholder="新增厂商，例如 Dell / H3C / Cisco" @keyup.enter="addPlatform" />
-            <n-button type="primary" :loading="platformModal.submitting" @click="addPlatform">新增厂商</n-button>
-          </div>
-          <n-empty v-if="!devicePlatformTree.length" description="暂无厂商" />
-          <div v-else class="platform-list">
-            <article v-for="platform in devicePlatformTree" :key="platform.value" class="platform-card">
-              <div class="platform-card-head">
-                <strong>{{ platform.label }}</strong>
-                <n-popconfirm @positive-click="deletePlatform(platform)">
-                  <template #trigger>
-                    <n-button size="small" secondary type="error">删除厂商</n-button>
-                  </template>
-                  删除厂商会同时删除下面的型号，确认继续？
-                </n-popconfirm>
-              </div>
-              <div class="model-add-row">
-                <n-input
-                  v-model:value="platformModal.modelDrafts[platform.value]"
-                  size="small"
-                  placeholder="新增型号，例如 R750"
-                  @keyup.enter="addModel(platform)"
-                />
-                <n-button size="small" secondary @click="addModel(platform)">新增型号</n-button>
-              </div>
-              <div class="model-tags">
-                <n-tag v-for="model in platform.models" :key="model.value" closable @close="deleteModel(model)">
-                  {{ model.label }}
-                </n-tag>
-                <span v-if="!platform.models.length" class="muted-text">暂无型号</span>
-              </div>
-            </article>
-          </div>
-        </div>
-      </n-modal>
     </div>
   </AppPage>
 </template>
@@ -487,7 +448,6 @@ const redfishLoading = ref(false)
 const regions = ref([])
 const locations = ref([])
 const cabinets = ref([])
-const devices = ref([])
 const rackDevices = ref([])
 const devicePlatformTree = ref([])
 const viewMode = ref('map')
@@ -504,12 +464,6 @@ const deviceModal = reactive({
   show: false,
   submitting: false,
   form: createDeviceForm(),
-})
-const platformModal = reactive({
-  show: false,
-  submitting: false,
-  platformName: '',
-  modelDrafts: {},
 })
 const rackContextMenu = reactive({
   show: false,
@@ -569,18 +523,20 @@ const regionNodes = computed(() =>
       const regionCabinets = cabinets.value.filter((cabinet) =>
         regionLocations.some((location) => location.id === cabinet.location_id)
       )
-      const regionDevices = devices.value.filter((device) => device.region_id === region.id)
       return {
         region,
         locations: regionLocations,
         cabinets: regionCabinets,
         cabinetCount: regionCabinets.length,
-        deviceCount: regionDevices.length,
+        deviceCount: regionCabinets.reduce((total, cabinet) => total + cabinetDeviceCount(cabinet.id), 0),
         point: regionPoint(region, index),
       }
     })
 )
 const mapRegionNodes = computed(() => regionNodes.value.filter((node) => node.cabinetCount > 0))
+const totalDeviceCount = computed(() =>
+  cabinets.value.reduce((total, cabinet) => total + cabinetDeviceCount(cabinet.id), 0)
+)
 
 const selectedRegion = computed(() => regions.value.find((item) => item.id === selectedRegionId.value) || null)
 const selectedRegionLabel = computed(() => translateRegion(selectedRegion.value) || selectedRegion.value?.name || '')
@@ -1047,32 +1003,18 @@ function mapMarkerHtml(node) {
 async function loadData() {
   loading.value = true
   try {
-    const [regionRes, locationRes, cabinetRes, deviceRes, platformRes] = await Promise.all([
+    const [regionRes, locationRes, cabinetRes] = await Promise.all([
       api.assetApi.regions({ page_size: 1000 }),
       api.assetApi.locations({ page_size: 1000 }),
       api.assetApi.cabinets({ page_size: 1000 }),
-      api.assetApi.devices({ page: 1, page_size: 1000 }),
-      api.assetApi.deviceBrands(),
     ])
     regions.value = regionRes.data || []
     locations.value = locationRes.data || []
     cabinets.value = cabinetRes.data || []
-    devices.value = deviceRes.data || []
-    devicePlatformTree.value = normalizeDevicePlatformTree(platformRes.data || [])
     syncDefaultSelection()
   } finally {
     loading.value = false
   }
-}
-
-function openPlatformModal() {
-  platformModal.show = true
-  if (!devicePlatformTree.value.length) loadDevicePlatforms()
-}
-
-async function loadDevicePlatforms() {
-  const res = await api.assetApi.deviceBrands()
-  devicePlatformTree.value = normalizeDevicePlatformTree(res.data || [])
 }
 
 function handlePlatformChange(value) {
@@ -1080,55 +1022,6 @@ function handlePlatformChange(value) {
   if (!platform?.models?.some((model) => model.value === deviceModal.form.model)) {
     deviceModal.form.model = ''
   }
-}
-
-async function addPlatform() {
-  const name = String(platformModal.platformName || '').trim()
-  if (!name) return
-  if (devicePlatformTree.value.some((item) => item.value === name)) {
-    window.$message?.warning('厂商已存在')
-    return
-  }
-  platformModal.submitting = true
-  try {
-    const res = await api.assetApi.createDeviceBrand({ name })
-    devicePlatformTree.value = normalizeDevicePlatformTree(res.data || [])
-    platformModal.platformName = ''
-    window.$message?.success('厂商已新增')
-  } finally {
-    platformModal.submitting = false
-  }
-}
-
-async function deletePlatform(platform) {
-  const res = await api.assetApi.deleteDeviceBrand({ brand_id: platform.id })
-  devicePlatformTree.value = normalizeDevicePlatformTree(res.data || [])
-  if (deviceModal.form.brand === platform.value) {
-    deviceModal.form.brand = ''
-    deviceModal.form.model = ''
-  }
-  delete platformModal.modelDrafts[platform.value]
-  window.$message?.success('厂商已删除')
-}
-
-async function addModel(platform) {
-  const name = String(platformModal.modelDrafts[platform.value] || '').trim()
-  if (!name) return
-  if (platform.models.some((model) => model.value === name)) {
-    window.$message?.warning('型号已存在')
-    return
-  }
-  const res = await api.assetApi.createDeviceModel({ brand_id: platform.id, name })
-  devicePlatformTree.value = normalizeDevicePlatformTree(res.data || [])
-  platformModal.modelDrafts[platform.value] = ''
-  window.$message?.success('型号已新增')
-}
-
-async function deleteModel(model) {
-  const res = await api.assetApi.deleteDeviceModel({ model_id: model.id })
-  devicePlatformTree.value = normalizeDevicePlatformTree(res.data || [])
-  if (deviceModal.form.model === model.value) deviceModal.form.model = ''
-  window.$message?.success('型号已删除')
 }
 
 function syncDefaultSelection() {
@@ -1139,7 +1032,8 @@ function syncDefaultSelection() {
     ? selectedCabinetId.value
     : selectedCabinets.value[0]?.id || null
   selectedCabinetId.value = nextCabinet
-  if (nextCabinet) loadCabinetDevices()
+  if (viewMode.value === 'region' && nextCabinet) loadCabinetDevices()
+  else rackDevices.value = []
 }
 
 function selectRegion(regionId) {
@@ -1174,6 +1068,7 @@ async function loadCabinetDevices() {
       cabinet_id: selectedCabinetId.value,
     })
     rackDevices.value = res.data || []
+    updateCabinetDeviceCount(selectedCabinetId.value, rackDevices.value.length)
   } finally {
     deviceLoading.value = false
   }
@@ -1502,7 +1397,13 @@ function cabinetLocationName(cabinet) {
 }
 
 function cabinetDeviceCount(cabinetId) {
-  return devices.value.filter((device) => device.cabinet_id === cabinetId).length
+  const cabinet = cabinets.value.find((item) => item.id === cabinetId)
+  return Number(cabinet?.device_count || 0)
+}
+
+function updateCabinetDeviceCount(cabinetId, count) {
+  const cabinet = cabinets.value.find((item) => item.id === cabinetId)
+  if (cabinet) cabinet.device_count = Math.max(Number(count || 0), 0)
 }
 
 function formatCabinetURange(cabinet) {

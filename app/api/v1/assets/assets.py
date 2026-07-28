@@ -13,6 +13,7 @@ import httpx
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from tortoise.expressions import Q
+from tortoise.functions import Count
 from tortoise.transactions import in_transaction
 
 from app.controllers.asset import (
@@ -831,6 +832,17 @@ async def list_cabinet(
         q &= Q(status=status)
     total, objs = await asset_cabinet_controller.list_cabinets(page=page, page_size=page_size, search=q)
     data = [await obj.to_dict() for obj in objs]
+    cabinet_ids = [item["id"] for item in data]
+    if cabinet_ids:
+        rows = await AssetDevice.filter(cabinet_id__in=cabinet_ids).group_by("cabinet_id").annotate(
+            device_count=Count("id")
+        ).values("cabinet_id", "device_count")
+        count_map = {int(row["cabinet_id"]): int(row["device_count"] or 0) for row in rows}
+        for item in data:
+            item["device_count"] = count_map.get(int(item["id"]), 0)
+    else:
+        for item in data:
+            item["device_count"] = 0
     return SuccessExtra(data=data, total=total, page=page, page_size=page_size)
 
 
