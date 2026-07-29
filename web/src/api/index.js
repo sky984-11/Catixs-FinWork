@@ -170,6 +170,8 @@ export default {
     createDevice: (data = {}) => request.post('/asset/device/create', data),
     updateDevice: (data = {}) => request.post('/asset/device/update', data),
     deviceVnc: (data = {}) => request.post('/asset/device/vnc', data),
+    devicePower: (data = {}) => request.post('/asset/device/power', data),
+    deviceIpmiLogs: (data = {}) => request.post('/asset/device/ipmi-logs', data),
     redfishProbeDevice: (data = {}) => request.post('/asset/device/redfish-probe', data),
     deleteDevice: (params = {}) => request.delete('/asset/device/delete', { params }),
     inventory: (params = {}) => request.get('/asset/inventory/list', { params }),

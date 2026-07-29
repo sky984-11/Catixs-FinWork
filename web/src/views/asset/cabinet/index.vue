@@ -188,10 +188,39 @@
               >
                 {{ deviceConsoleButtonLabel(deviceDrawer.row) }}
               </n-button>
+              <n-popconfirm
+                v-for="action in devicePowerActions"
+                :key="action.value"
+                :positive-button-props="{ type: action.type }"
+                @positive-click="controlDevicePower(deviceDrawer.row, action.value)"
+              >
+                <template #trigger>
+                  <n-button
+                    secondary
+                    :type="action.type"
+                    :disabled="!hasDevicePowerConfig(deviceDrawer.row)"
+                    :loading="powerLoadingKey === devicePowerKey(deviceDrawer.row, action.value)"
+                  >
+                    {{ action.label }}
+                  </n-button>
+                </template>
+                确认对 {{ deviceDrawer.row.name || '该设备' }} 执行{{ action.label }}操作？
+              </n-popconfirm>
             </n-space>
 
             <div v-if="deviceIpmiDetail.ipmi_host || deviceIpmiDetail.ipmi_user" class="detail-section">
-              <h3>IPMI 信息</h3>
+              <div class="detail-section-head">
+                <h3>IPMI 信息</h3>
+                <n-button
+                  size="small"
+                  secondary
+                  :disabled="!hasDevicePowerConfig(deviceDrawer.row)"
+                  :loading="ipmiLogLoadingKey === deviceIpmiLogKey(deviceDrawer.row)"
+                  @click="loadDeviceIpmiLogs(deviceDrawer.row)"
+                >
+                  查看日志
+                </n-button>
+              </div>
               <div class="attribute-grid">
                 <div v-if="deviceIpmiDetail.ipmi_host" class="attribute-item">
                   <span>IPMI地址</span>
@@ -204,6 +233,19 @@
                 <div v-if="deviceIpmiDetail.ipmi_password" class="attribute-item">
                   <span>IPMI密码</span>
                   <strong>{{ deviceIpmiDetail.ipmi_password }}</strong>
+                </div>
+              </div>
+              <div v-if="ipmiLogTarget === deviceIpmiLogKey(deviceDrawer.row)" class="ipmi-log-panel">
+                <n-empty v-if="!ipmiLogs.length && !ipmiLogLoadingKey" description="暂无日志" />
+                <div v-else class="ipmi-log-list">
+                  <article v-for="item in ipmiLogs" :key="`${item.service}-${item.id}-${item.created}-${item.message}`" class="ipmi-log-row">
+                    <div>
+                      <strong>{{ item.message || item.message_id || '-' }}</strong>
+                      <span>{{ [item.service, item.entry_type, item.sensor].filter(Boolean).join(' / ') || '-' }}</span>
+                    </div>
+                    <em :class="severityClass(item.severity)">{{ item.severity || '-' }}</em>
+                    <time>{{ item.created || '-' }}</time>
+                  </article>
                 </div>
               </div>
             </div>
@@ -225,16 +267,46 @@
                 <article v-for="node in fourNodeDetailNodes" :key="node.name" class="node-detail-card">
                   <div class="node-detail-head">
                     <strong>{{ node.device_name || node.name }}</strong>
-                    <n-button
-                      size="tiny"
-                      secondary
-                      type="primary"
-                      :disabled="!hasNodeVncConfig(node)"
-                      :loading="vncModal.loading"
-                      @click="openDeviceVnc(deviceDrawer.row, node)"
-                    >
-                      VNC
-                    </n-button>
+                    <n-space size="small">
+                      <n-button
+                        size="tiny"
+                        secondary
+                        type="primary"
+                        :disabled="!hasNodeVncConfig(node)"
+                        :loading="vncModal.loading"
+                        @click="openDeviceVnc(deviceDrawer.row, node)"
+                      >
+                        VNC
+                      </n-button>
+                      <n-popconfirm
+                        v-for="action in devicePowerActions"
+                        :key="`${node.name}-${action.value}`"
+                        :positive-button-props="{ type: action.type }"
+                        @positive-click="controlDevicePower(deviceDrawer.row, action.value, node)"
+                      >
+                        <template #trigger>
+                          <n-button
+                            size="tiny"
+                            secondary
+                            :type="action.type"
+                            :disabled="!hasNodePowerConfig(node)"
+                            :loading="powerLoadingKey === devicePowerKey(deviceDrawer.row, action.value, node)"
+                          >
+                            {{ action.shortLabel }}
+                          </n-button>
+                        </template>
+                        确认对 {{ node.device_name || node.name }} 执行{{ action.label }}操作？
+                      </n-popconfirm>
+                      <n-button
+                        size="tiny"
+                        secondary
+                        :disabled="!hasNodePowerConfig(node)"
+                        :loading="ipmiLogLoadingKey === deviceIpmiLogKey(deviceDrawer.row, node)"
+                        @click="loadDeviceIpmiLogs(deviceDrawer.row, node)"
+                      >
+                        日志
+                      </n-button>
+                    </n-space>
                   </div>
                   <span>序列号: {{ node.serial_no || '-' }}</span>
                   <span>CPU: {{ formatFourNodeCpu(node) }}</span>
@@ -244,6 +316,19 @@
                   <span>IPMI用户: {{ node.ipmi_user || '-' }}</span>
                   <span>IPMI密码: {{ node.ipmi_password || '-' }}</span>
                   <span>备注: {{ node.remark || '-' }}</span>
+                  <div v-if="ipmiLogTarget === deviceIpmiLogKey(deviceDrawer.row, node)" class="ipmi-log-panel node-log-panel">
+                    <n-empty v-if="!ipmiLogs.length && !ipmiLogLoadingKey" description="暂无日志" />
+                    <div v-else class="ipmi-log-list">
+                      <article v-for="item in ipmiLogs" :key="`${item.service}-${item.id}-${item.created}-${item.message}`" class="ipmi-log-row">
+                        <div>
+                          <strong>{{ item.message || item.message_id || '-' }}</strong>
+                          <span>{{ [item.service, item.entry_type, item.sensor].filter(Boolean).join(' / ') || '-' }}</span>
+                        </div>
+                        <em :class="severityClass(item.severity)">{{ item.severity || '-' }}</em>
+                        <time>{{ item.created || '-' }}</time>
+                      </article>
+                    </div>
+                  </div>
                 </article>
               </div>
             </div>
@@ -497,6 +582,10 @@ defineOptions({ name: 'AssetCabinetWorldMap' })
 const loading = ref(false)
 const deviceLoading = ref(false)
 const redfishLoading = ref(false)
+const powerLoadingKey = ref('')
+const ipmiLogLoadingKey = ref('')
+const ipmiLogTarget = ref('')
+const ipmiLogs = ref([])
 const regions = ref([])
 const locations = ref([])
 const cabinets = ref([])
@@ -555,6 +644,12 @@ const deviceStatusOptions = [
   { label: '故障', value: 3 },
   { label: '使用', value: 1 },
   { label: '下线', value: 4 },
+]
+
+const devicePowerActions = [
+  { value: 'on', label: '开机', shortLabel: '开机', type: 'success' },
+  { value: 'off', label: '关机', shortLabel: '关机', type: 'warning' },
+  { value: 'restart', label: '重启', shortLabel: '重启', type: 'error' },
 ]
 
 const legacyDeviceStatusLabels = {
@@ -1664,6 +1759,38 @@ function hasNodeVncConfig(node) {
   return Boolean(firstAttributeValue(node || {}, ['vnc_host', 'vnc_address', 'VNC地址', 'VNC主机', 'ipmi_host', 'ipmiHost', 'IPMI地址']))
 }
 
+function hasDevicePowerConfig(device) {
+  return Boolean(firstAttributeValue(device?.attributes || {}, ['ipmi_host', 'IPMI地址']))
+}
+
+function hasNodePowerConfig(node) {
+  return Boolean(firstAttributeValue(node || {}, ['ipmi_host', 'ipmiHost', 'IPMI地址']))
+}
+
+function devicePowerKey(device, action, node = null) {
+  return [device?.id || '', node?.name || '', action].join(':')
+}
+
+function deviceIpmiLogKey(device, node = null) {
+  return [device?.id || '', node?.name || 'device', 'ipmi-log'].join(':')
+}
+
+function devicePowerLabel(action) {
+  return devicePowerActions.find((item) => item.value === action)?.label || action
+}
+
+function severityClass(value) {
+  const text = String(value || '').toLowerCase()
+  if (['critical', 'fatal', 'error'].some((item) => text.includes(item))) return 'danger'
+  if (['warning', 'warn'].some((item) => text.includes(item))) return 'warning'
+  if (['ok', 'normal', 'info'].some((item) => text.includes(item))) return 'success'
+  return ''
+}
+
+function apiErrorMessage(error, fallback) {
+  return error?.error?.detail || error?.error?.msg || error?.message || fallback
+}
+
 function deviceSignature(device) {
   return [device?.brand, device?.model, device?.name, JSON.stringify(device?.attributes || {})].join(' ').toLowerCase()
 }
@@ -1791,6 +1918,44 @@ async function openDeviceVnc(device, node = null) {
     window.$message?.error(error.message || '打开 VNC 控制台失败')
   } finally {
     vncModal.loading = false
+  }
+}
+
+async function controlDevicePower(device, action, node = null) {
+  if (!device?.id) return
+  const key = devicePowerKey(device, action, node)
+  powerLoadingKey.value = key
+  try {
+    const payload = node ? { device_id: device.id, action, node_name: node.name } : { device_id: device.id, action }
+    const res = await api.assetApi.devicePower(payload)
+    const data = res?.data?.data || res?.data || {}
+    const name = data.device_name || (node ? node.device_name || node.name : device.name) || '设备'
+    const resetType = data.reset_type ? `（${data.reset_type}）` : ''
+    window.$message?.success(`${name} ${devicePowerLabel(action)}指令已提交${resetType}`)
+  } catch (error) {
+    window.$message?.error(error.message || `${devicePowerLabel(action)}操作失败`)
+  } finally {
+    powerLoadingKey.value = ''
+  }
+}
+
+async function loadDeviceIpmiLogs(device, node = null) {
+  if (!device?.id) return
+  const key = deviceIpmiLogKey(device, node)
+  ipmiLogLoadingKey.value = key
+  ipmiLogTarget.value = key
+  ipmiLogs.value = []
+  try {
+    const payload = node ? { device_id: device.id, node_name: node.name, limit: 50 } : { device_id: device.id, limit: 50 }
+    const res = await api.assetApi.deviceIpmiLogs(payload)
+    const data = res?.data?.data || res?.data || {}
+    ipmiLogs.value = Array.isArray(data.logs) ? data.logs : []
+    window.$message?.success(`已加载 ${ipmiLogs.value.length} 条 IPMI 日志`)
+  } catch (error) {
+    ipmiLogs.value = []
+    window.$message?.error(apiErrorMessage(error, '读取 IPMI 日志失败'))
+  } finally {
+    ipmiLogLoadingKey.value = ''
   }
 }
 
@@ -2725,6 +2890,98 @@ onBeforeUnmount(() => {
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.detail-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ipmi-log-panel {
+  margin-top: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 8px;
+}
+
+.node-log-panel {
+  grid-column: 1 / -1;
+}
+
+.ipmi-log-list {
+  display: flex;
+  max-height: 360px;
+  flex-direction: column;
+  gap: 6px;
+  overflow: auto;
+}
+
+.ipmi-log-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #fff;
+  padding: 8px 10px;
+}
+
+.ipmi-log-row div {
+  min-width: 0;
+}
+
+.ipmi-log-row strong,
+.ipmi-log-row span {
+  display: block;
+}
+
+.ipmi-log-row strong {
+  color: #0f172a;
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.ipmi-log-row span,
+.ipmi-log-row time {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.ipmi-log-row em {
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #334155;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-style: normal;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.ipmi-log-row time {
+  grid-column: 1 / -1;
+  white-space: nowrap;
+}
+
+.ipmi-log-row em.danger {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.ipmi-log-row em.warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.ipmi-log-row em.success {
+  background: #dcfce7;
+  color: #166534;
 }
 
 .device-ipmi-editor,

@@ -93,6 +93,18 @@ class AssetDeviceVncRequest(BaseModel):
     node_name: str | None = None
 
 
+class AssetDevicePowerRequest(BaseModel):
+    device_id: int
+    action: str
+    node_name: str | None = None
+
+
+class AssetDeviceIpmiLogRequest(BaseModel):
+    device_id: int
+    node_name: str | None = None
+    limit: int = 50
+
+
 def normalize_redfish_host(value: str) -> str:
     host = str(value or "").strip().replace("https://", "").replace("http://", "").split("/", 1)[0]
     if ":" in host and not host.count(":") > 1:
@@ -120,6 +132,17 @@ async def redfish_get(client: httpx.AsyncClient, path: str) -> dict:
         return {}
     response = await client.get(path)
     response.raise_for_status()
+    data = response.json()
+    return data if isinstance(data, dict) else {}
+
+
+async def redfish_post(client: httpx.AsyncClient, path: str, data: dict) -> dict:
+    if not path:
+        return {}
+    response = await client.post(path, json=data)
+    response.raise_for_status()
+    if not response.content:
+        return {}
     data = response.json()
     return data if isinstance(data, dict) else {}
 
@@ -235,6 +258,214 @@ async def collect_redfish_inventory(payload: AssetDeviceRedfishProbe) -> dict:
         "host": host,
         "attributes": attributes,
     }
+
+
+def device_ipmi_config(device: AssetDevice, node_name: str | None = None) -> dict:
+    attributes = dict(device.attributes or {})
+    if node_name:
+        nodes = attributes.get("nodes")
+        if not isinstance(nodes, list):
+            raise ValueError("设备未配置四节点信息")
+        normalized_node_name = str(node_name or "").strip()
+        node = next(
+            (
+                item
+                for item in nodes
+                if isinstance(item, dict) and str(item.get("name") or "").strip() == normalized_node_name
+            ),
+            None,
+        )
+        if not node:
+            raise ValueError("未找到对应的四节点")
+        host = first_device_attribute(node, ("ipmi_host", "ipmiHost", "IPMI地址"))
+        user = first_device_attribute(node, ("ipmi_user", "ipmiUser", "IPMI用户"))
+        password = first_device_attribute(node, ("ipmi_password", "ipmiPassword", "IPMI密码"))
+        display_name = str(node.get("device_name") or node.get("deviceName") or normalized_node_name).strip()
+    else:
+        host = first_device_attribute(attributes, ("ipmi_host", "IPMI地址"))
+        user = first_device_attribute(attributes, ("ipmi_user", "IPMI用户"))
+        password = first_device_attribute(attributes, ("ipmi_password", "IPMI密码"))
+        display_name = device.name
+    if not host:
+        raise ValueError("设备未配置 IPMI 地址")
+    return {"host": host, "user": user, "password": password, "display_name": display_name}
+
+
+def redfish_reset_types(action: str) -> list[str]:
+    normalized = str(action or "").strip().lower()
+    if normalized in {"on", "power_on", "start"}:
+        return ["On"]
+    if normalized in {"off", "power_off", "shutdown"}:
+        return ["GracefulShutdown", "ForceOff"]
+    if normalized in {"restart", "reboot", "reset"}:
+        return ["GracefulRestart", "ForceRestart"]
+    raise ValueError("不支持的电源操作")
+
+
+async def redfish_system_path(client: httpx.AsyncClient) -> tuple[str, dict]:
+    service = await redfish_get(client, "/redfish/v1/")
+    systems_path = redfish_link(service, "Systems") or "/redfish/v1/Systems"
+    systems = await redfish_get(client, systems_path)
+    system_paths = redfish_members(systems)
+    if not system_paths:
+        raise ValueError("未发现 Redfish Systems 资源")
+    system = await redfish_get(client, system_paths[0])
+    return system_paths[0], system
+
+
+async def redfish_collection_member_paths(client: httpx.AsyncClient, path: str) -> list[str]:
+    if not path:
+        return []
+    try:
+        data = await redfish_get(client, path)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code in {404, 405}:
+            return []
+        raise
+    return redfish_members(data)
+
+
+async def redfish_log_service_paths(client: httpx.AsyncClient) -> list[str]:
+    service = await redfish_get(client, "/redfish/v1/")
+    candidate_roots = []
+    managers_path = redfish_link(service, "Managers") or "/redfish/v1/Managers"
+    systems_path = redfish_link(service, "Systems") or "/redfish/v1/Systems"
+    for collection_path in (managers_path, systems_path):
+        member_paths = await redfish_collection_member_paths(client, collection_path)
+        for member_path in member_paths:
+            if member_path:
+                candidate_roots.append(member_path)
+
+    log_paths = []
+    for root in candidate_roots:
+        try:
+            resource = await redfish_get(client, root)
+            log_services_path = redfish_link(resource, "LogServices") or f"{root}/LogServices"
+            for log_path in await redfish_collection_member_paths(client, log_services_path):
+                if log_path and log_path not in log_paths:
+                    log_paths.append(log_path)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in {401, 403}:
+                raise
+            logger.warning("skip Redfish log service discovery root={} error={}", root, repr(exc))
+
+    fallback_paths = [
+        "/redfish/v1/Managers/1/LogServices/SEL",
+        "/redfish/v1/Managers/1/LogServices/EventLog",
+        "/redfish/v1/Managers/1/LogServices/Log",
+        "/redfish/v1/Systems/1/LogServices/EventLog",
+        "/redfish/v1/Systems/1/LogServices/SEL",
+    ]
+    for path in fallback_paths:
+        if path not in log_paths:
+            log_paths.append(path)
+    return log_paths
+
+
+def normalize_redfish_log_entry(entry: dict, service_name: str) -> dict:
+    severity = str(entry.get("Severity") or entry.get("Health") or "").strip()
+    created = str(entry.get("Created") or entry.get("Timestamp") or "").strip()
+    message = str(entry.get("Message") or entry.get("Description") or entry.get("Name") or "").strip()
+    return {
+        "id": str(entry.get("Id") or entry.get("EntryCode") or "").strip(),
+        "created": created,
+        "severity": severity,
+        "message": message,
+        "message_id": str(entry.get("MessageId") or "").strip(),
+        "entry_type": str(entry.get("EntryType") or "").strip(),
+        "sensor": str(entry.get("SensorNumber") or entry.get("SensorType") or "").strip(),
+        "service": service_name,
+    }
+
+
+async def redfish_log_entries(client: httpx.AsyncClient, log_service_path: str, limit: int) -> list[dict]:
+    try:
+        service = await redfish_get(client, log_service_path)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code in {404, 405}:
+            return []
+        raise
+    service_name = str(service.get("Name") or service.get("Id") or log_service_path).strip()
+    entries_path = redfish_link(service, "Entries") or f"{log_service_path}/Entries"
+    entries = []
+    next_path = entries_path
+    while next_path and len(entries) < limit:
+        try:
+            data = await redfish_get(client, next_path)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in {404, 405}:
+                return entries
+            raise
+        members = data.get("Members") if isinstance(data, dict) else []
+        if not isinstance(members, list):
+            members = []
+        for item in members:
+            if isinstance(item, dict):
+                if item.get("@odata.id") and len(item) <= 1:
+                    try:
+                        item = await redfish_get(client, redfish_path(item.get("@odata.id")))
+                    except httpx.HTTPStatusError:
+                        continue
+                entries.append(normalize_redfish_log_entry(item, service_name))
+                if len(entries) >= limit:
+                    break
+        next_path = redfish_path(data.get("@odata.nextLink") or data.get("Members@odata.nextLink"))
+    return entries
+
+
+async def collect_redfish_ipmi_logs(config: dict, limit: int = 50) -> dict:
+    host = normalize_redfish_host(config["host"])
+    auth = (config["user"], config["password"]) if config.get("user") else None
+    base_url = f"https://{host}"
+    bounded_limit = max(1, min(int(limit or 50), 200))
+    timeout = httpx.Timeout(12.0, connect=5.0)
+    async with httpx.AsyncClient(base_url=base_url, timeout=timeout, verify=False, trust_env=False, auth=auth) as client:
+        log_paths = await redfish_log_service_paths(client)
+        entries_by_service = await asyncio.gather(
+            *(redfish_log_entries(client, path, bounded_limit) for path in log_paths),
+            return_exceptions=True,
+        )
+    entries = []
+    for item in entries_by_service:
+        if isinstance(item, Exception):
+            continue
+        entries.extend(item)
+    entries.sort(key=lambda row: row.get("created") or "", reverse=True)
+    return {
+        "host": host,
+        "logs": entries[:bounded_limit],
+        "services": log_paths,
+    }
+
+
+async def control_redfish_power(config: dict, action: str) -> dict:
+    host = normalize_redfish_host(config["host"])
+    auth = (config["user"], config["password"]) if config.get("user") else None
+    base_url = f"https://{host}"
+    timeout = httpx.Timeout(12.0, connect=5.0)
+    reset_types = redfish_reset_types(action)
+    async with httpx.AsyncClient(base_url=base_url, timeout=timeout, verify=False, trust_env=False, auth=auth) as client:
+        system_path, system = await redfish_system_path(client)
+        actions = system.get("Actions") if isinstance(system.get("Actions"), dict) else {}
+        reset_action = actions.get("#ComputerSystem.Reset") if isinstance(actions.get("#ComputerSystem.Reset"), dict) else {}
+        reset_target = redfish_path(reset_action.get("target")) or f"{system_path}/Actions/ComputerSystem.Reset"
+        last_error: Exception | None = None
+        for reset_type in reset_types:
+            try:
+                await redfish_post(client, reset_target, {"ResetType": reset_type})
+                return {
+                    "host": host,
+                    "reset_type": reset_type,
+                    "power_state": system.get("PowerState") or "",
+                    "target": reset_target,
+                }
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                if exc.response.status_code not in {400, 405, 409, 501}:
+                    raise
+        if last_error:
+            raise last_error
+    raise ValueError("电源操作提交失败")
 DEVICE_SECRET_VIEW_ACCOUNT_NAMES = {"admin", "noc"}
 INVENTORY_IMPORT_BASE_COLUMNS = {
     "区域",
@@ -1432,6 +1663,47 @@ async def redfish_probe_device(probe_in: AssetDeviceRedfishProbe):
         if status_code in {401, 403}:
             raise HTTPException(status_code=400, detail="Redfish认证失败，请检查IPMI账号密码") from exc
         raise HTTPException(status_code=400, detail=f"Redfish请求失败: HTTP {status_code}") from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=400, detail=f"无法连接Redfish服务: {exc}") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Success(data=data)
+
+
+@router.post("/device/power", summary="服务器电源控制")
+async def device_power_control(payload: AssetDevicePowerRequest):
+    try:
+        device = await asset_device_controller.get(id=payload.device_id)
+        config = device_ipmi_config(device, payload.node_name)
+        data = await control_redfish_power(config, payload.action)
+        data["device_id"] = device.id
+        data["device_name"] = config.get("display_name") or device.name
+        data["action"] = payload.action
+    except httpx.HTTPStatusError as exc:
+        status_code = exc.response.status_code
+        if status_code in {401, 403}:
+            raise HTTPException(status_code=400, detail="Redfish认证失败，请检查IPMI账号密码") from exc
+        raise HTTPException(status_code=400, detail=f"Redfish电源操作失败: HTTP {status_code}") from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=400, detail=f"无法连接Redfish服务: {exc}") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Success(data=data)
+
+
+@router.post("/device/ipmi-logs", summary="查看服务器IPMI日志")
+async def device_ipmi_logs(payload: AssetDeviceIpmiLogRequest):
+    try:
+        device = await asset_device_controller.get(id=payload.device_id)
+        config = device_ipmi_config(device, payload.node_name)
+        data = await collect_redfish_ipmi_logs(config, payload.limit)
+        data["device_id"] = device.id
+        data["device_name"] = config.get("display_name") or device.name
+    except httpx.HTTPStatusError as exc:
+        status_code = exc.response.status_code
+        if status_code in {401, 403}:
+            raise HTTPException(status_code=400, detail="Redfish认证失败，请检查IPMI账号密码") from exc
+        raise HTTPException(status_code=400, detail=f"Redfish日志读取失败: HTTP {status_code}") from exc
     except httpx.RequestError as exc:
         raise HTTPException(status_code=400, detail=f"无法连接Redfish服务: {exc}") from exc
     except ValueError as exc:
