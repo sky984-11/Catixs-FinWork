@@ -22,56 +22,7 @@
 
       <section v-else class="region-layout">
         <main class="cabinet-stage">
-          <div class="stage-head">
-            <div>
-              <span class="eyebrow">{{ selectedRegion?.code || '-' }}</span>
-              <h2>{{ selectedRegionLabel || '请选择地区' }}</h2>
-              <div class="region-meta">
-                <span>{{ selectedRegionNode?.locations.length || 0 }} 机房</span>
-                <span>{{ selectedRegionNode?.cabinetCount || 0 }} 机柜</span>
-                <span>{{ selectedRegionNode?.deviceCount || 0 }} 设备</span>
-                <span>{{ rackUsedUnits }}/{{ rackVisibleUnitCount }}U</span>
-              </div>
-            </div>
-            <n-space class="stage-actions" align="center">
-              <n-button type="primary" round @click="openCabinetModal()">新增机柜</n-button>
-              <n-button secondary round @click="backToMap">返回地图</n-button>
-            </n-space>
-          </div>
-
           <div class="cabinet-content">
-            <div class="cabinet-list">
-              <div class="side-section-title">
-                <span>Cabinets</span>
-                <strong>{{ selectedCabinets.length }}</strong>
-              </div>
-              <article
-                v-for="cabinet in selectedCabinets"
-                :key="cabinet.id"
-                class="cabinet-card"
-                :class="{ active: selectedCabinetId === cabinet.id }"
-                @click="selectCabinet(cabinet.id)"
-              >
-                <i v-if="selectedCabinetId === cabinet.id" class="cabinet-active-mark"></i>
-                <div class="cabinet-card-head">
-                  <strong>{{ cabinet.name }}</strong>
-                  <span class="cabinet-card-actions">
-                    <button title="编辑机柜" @click.stop="openCabinetModal(cabinet)">编辑</button>
-                    <button title="删除机柜" @click.stop="deleteCabinet(cabinet)">删除</button>
-                  </span>
-                </div>
-                <span class="cabinet-location">{{ cabinetLocationName(cabinet) }}</span>
-                <div class="cabinet-card-metrics">
-                  <em>{{ cabinetDeviceCount(cabinet.id) }} 台设备</em>
-                  <em>{{ formatCabinetURange(cabinet) }}</em>
-                </div>
-                <div class="cabinet-card-foot">
-                  <span>{{ formatCabinetSize(cabinet) }}</span>
-                  <span>{{ formatCabinetPower(cabinet) }}</span>
-                </div>
-              </article>
-            </div>
-
             <n-spin :show="deviceLoading" class="rack-spin">
               <div v-if="selectedCabinet" class="rack-board">
                 <div class="rack-title">
@@ -140,7 +91,7 @@
                     <button v-if="!rackContextMenu.device" @click="handleRackMenuAdd">新增设备</button>
                     <button v-if="rackContextMenu.device" @click="handleRackMenuEdit">编辑设备</button>
                     <button v-if="rackContextMenu.device" @click="handleRackMenuClone">克隆设备</button>
-                    <button v-if="rackContextMenu.device" @click="handleRackMenuVnc">VNC控制台</button>
+                    <button v-if="rackContextMenu.device && !isFourNodeAttributes(rackContextMenu.device.attributes)" @click="handleRackMenuVnc">VNC控制台</button>
                     <button v-if="rackContextMenu.device" @click="handleRackMenuDelete">删除设备</button>
                   </div>
                 </div>
@@ -153,6 +104,57 @@
               </div>
               <n-empty v-else description="请选择一个机柜" />
             </n-spin>
+
+            <aside class="cabinet-side">
+              <div class="stage-head">
+                <div>
+                  <span class="eyebrow">{{ selectedRegion?.code || '-' }}</span>
+                  <h2>{{ selectedRegionLabel || '请选择地区' }}</h2>
+                  <div class="region-meta">
+                    <span>{{ selectedRegionNode?.locations.length || 0 }} 机房</span>
+                    <span>{{ selectedRegionNode?.cabinetCount || 0 }} 机柜</span>
+                    <span>{{ selectedRegionNode?.deviceCount || 0 }} 设备</span>
+                    <span>{{ rackUsedUnits }}/{{ rackVisibleUnitCount }}U</span>
+                  </div>
+                </div>
+                <n-space class="stage-actions" align="center">
+                  <n-button type="primary" round @click="openCabinetModal()">新增机柜</n-button>
+                  <n-button secondary round @click="backToMap">返回地图</n-button>
+                </n-space>
+              </div>
+
+              <div class="cabinet-list">
+                <div class="side-section-title">
+                  <span>Cabinets</span>
+                  <strong>{{ selectedCabinets.length }}</strong>
+                </div>
+                <article
+                  v-for="cabinet in selectedCabinets"
+                  :key="cabinet.id"
+                  class="cabinet-card"
+                  :class="{ active: selectedCabinetId === cabinet.id }"
+                  @click="selectCabinet(cabinet.id)"
+                >
+                  <i v-if="selectedCabinetId === cabinet.id" class="cabinet-active-mark"></i>
+                  <div class="cabinet-card-head">
+                    <strong>{{ cabinet.name }}</strong>
+                    <span class="cabinet-card-actions">
+                      <button title="编辑机柜" @click.stop="openCabinetModal(cabinet)">编辑</button>
+                      <button title="删除机柜" @click.stop="deleteCabinet(cabinet)">删除</button>
+                    </span>
+                  </div>
+                  <span class="cabinet-location">{{ cabinetLocationName(cabinet) }}</span>
+                  <div class="cabinet-card-metrics">
+                    <em>{{ cabinetDeviceCount(cabinet.id) }} 台设备</em>
+                    <em>{{ formatCabinetURange(cabinet) }}</em>
+                  </div>
+                  <div class="cabinet-card-foot">
+                    <span>{{ formatCabinetSize(cabinet) }}</span>
+                    <span>{{ formatCabinetPower(cabinet) }}</span>
+                  </div>
+                </article>
+              </div>
+            </aside>
           </div>
         </main>
       </section>
@@ -219,12 +221,25 @@
               <h3>四节点服务器</h3>
               <div class="node-detail-grid">
                 <article v-for="node in fourNodeDetailNodes" :key="node.name" class="node-detail-card">
-                  <strong>{{ node.device_name || node.name }}</strong>
+                  <div class="node-detail-head">
+                    <strong>{{ node.device_name || node.name }}</strong>
+                    <n-button
+                      size="tiny"
+                      secondary
+                      type="primary"
+                      :disabled="!hasNodeVncConfig(node)"
+                      :loading="vncModal.loading"
+                      @click="openDeviceVnc(deviceDrawer.row, node)"
+                    >
+                      VNC
+                    </n-button>
+                  </div>
                   <span>序列号: {{ node.serial_no || '-' }}</span>
                   <span>CPU: {{ formatFourNodeCpu(node) }}</span>
                   <span>内存: {{ node.memory || '-' }}</span>
                   <span>磁盘: {{ node.disk || '-' }}</span>
-                  <span>IPMI: {{ node.ipmi_user || '-' }}</span>
+                  <span>IPMI地址: {{ node.ipmi_host || '-' }}</span>
+                  <span>IPMI用户: {{ node.ipmi_user || '-' }}</span>
                   <span>IPMI密码: {{ node.ipmi_password || '-' }}</span>
                   <span>备注: {{ node.remark || '-' }}</span>
                 </article>
@@ -362,6 +377,7 @@
                 tag
                 :options="modelOptions"
                 placeholder="选择型号"
+                @update:value="handleModelChange"
               />
             </n-form-item-gi>
             <n-form-item-gi label="序列号">
@@ -1048,14 +1064,16 @@ function mapMarkerHtml(node) {
 async function loadData() {
   loading.value = true
   try {
-    const [regionRes, locationRes, cabinetRes] = await Promise.all([
+    const [regionRes, locationRes, cabinetRes, brandRes] = await Promise.all([
       api.assetApi.regions({ page_size: 1000 }),
       api.assetApi.locations({ page_size: 1000 }),
       api.assetApi.cabinets({ page_size: 1000 }),
+      api.assetApi.deviceBrands(),
     ])
     regions.value = regionRes.data || []
     locations.value = locationRes.data || []
     cabinets.value = cabinetRes.data || []
+    devicePlatformTree.value = normalizeDevicePlatformTree(brandRes.data || [])
     applyRouteSelection()
   } finally {
     loading.value = false
@@ -1063,9 +1081,71 @@ async function loadData() {
 }
 
 function handlePlatformChange(value) {
-  const platform = devicePlatformTree.value.find((item) => item.value === value)
+  const normalizedValue = String(value || '').trim()
+  if (normalizedValue && !devicePlatformTree.value.some((item) => item.value === normalizedValue)) {
+    devicePlatformTree.value.push({
+      label: normalizedValue,
+      value: normalizedValue,
+      name: normalizedValue,
+      models: [],
+      _local: true,
+    })
+  }
+  const platform = devicePlatformTree.value.find((item) => item.value === normalizedValue)
   if (!platform?.models?.some((model) => model.value === deviceModal.form.model)) {
     deviceModal.form.model = ''
+  }
+}
+
+function handleModelChange(value) {
+  const normalizedValue = String(value || '').trim()
+  const brandValue = String(deviceModal.form.brand || '').trim()
+  if (!normalizedValue || !brandValue) return
+  const platform = ensureLocalPlatformOption(brandValue)
+  if (!platform.models.some((model) => model.value === normalizedValue)) {
+    platform.models.push({
+      label: normalizedValue,
+      value: normalizedValue,
+      name: normalizedValue,
+      _local: true,
+    })
+  }
+}
+
+function ensureLocalPlatformOption(value) {
+  const normalizedValue = String(value || '').trim()
+  let platform = devicePlatformTree.value.find((item) => item.value === normalizedValue)
+  if (!platform && normalizedValue) {
+    platform = {
+      label: normalizedValue,
+      value: normalizedValue,
+      name: normalizedValue,
+      models: [],
+      _local: true,
+    }
+    devicePlatformTree.value.push(platform)
+  }
+  if (platform && !Array.isArray(platform.models)) platform.models = []
+  return platform
+}
+
+async function ensureDeviceBrandAndModel() {
+  const brandName = String(deviceModal.form.brand || '').trim()
+  const modelName = String(deviceModal.form.model || '').trim()
+  if (!brandName) return
+
+  let platform = devicePlatformTree.value.find((item) => item.value === brandName || item.name === brandName)
+  if (!platform?.id) {
+    const res = await api.assetApi.createDeviceBrand({ name: brandName, status: true })
+    devicePlatformTree.value = normalizeDevicePlatformTree(res.data || [])
+    platform = devicePlatformTree.value.find((item) => item.value === brandName || item.name === brandName)
+  }
+
+  if (!modelName || !platform?.id) return
+  const existedModel = (platform.models || []).find((model) => model.value === modelName || model.name === modelName)
+  if (!existedModel?.id) {
+    const res = await api.assetApi.createDeviceModel({ brand_id: platform.id, name: modelName, status: true })
+    devicePlatformTree.value = normalizeDevicePlatformTree(res.data || [])
   }
 }
 
@@ -1329,6 +1409,7 @@ async function submitDevice() {
 
   deviceModal.submitting = true
   try {
+    await ensureDeviceBrandAndModel()
     const attributes = {
       ...buildAttributesFromList(deviceModal.form.attributeList),
       form_factor: isFourNode ? 'four_node' : 'standard',
@@ -1563,6 +1644,10 @@ function hasDeviceVncConfig(device) {
   return Boolean(firstAttributeValue(device?.attributes || {}, vncAttributeKeys))
 }
 
+function hasNodeVncConfig(node) {
+  return Boolean(firstAttributeValue(node || {}, ['vnc_host', 'vnc_address', 'VNC地址', 'VNC主机', 'ipmi_host', 'ipmiHost', 'IPMI地址']))
+}
+
 function resetDeviceVnc() {
   vncModal.loading = false
   vncModal.title = '设备 VNC 控制台'
@@ -1586,25 +1671,33 @@ function normalizeDeviceVncResponse(res) {
         : null
 }
 
-async function openDeviceVnc(device) {
+async function openDeviceVnc(device, node = null) {
   if (!device?.id) return
-  if (!hasDeviceVncConfig(device)) {
+  if (node && !hasNodeVncConfig(node)) {
+    window.$message?.warning('该节点未配置 VNC 地址或 IPMI 地址')
+    return
+  }
+  if (!node && !hasDeviceVncConfig(device)) {
     window.$message?.warning('该设备未配置 VNC 地址或 IPMI 地址')
     return
   }
   vncModal.loading = true
-  vncModal.title = `${device.name || '设备'} VNC 控制台`
-  vncModal.deviceName = device.name || ''
+  const displayName = node ? `${device.name || '设备'} / ${node.device_name || node.name}` : device.name || '设备'
+  vncModal.title = `${displayName} VNC 控制台`
+  vncModal.deviceName = displayName
   vncModal.wsUrl = ''
   vncModal.password = ''
   vncModal.target = ''
   try {
-    const res = await api.assetApi.deviceVnc({ device_id: device.id })
+    const payload = node ? { device_id: device.id, node_name: node.name } : { device_id: device.id }
+    const res = await api.assetApi.deviceVnc(payload)
     const data = normalizeDeviceVncResponse(res)
     if (!data?.wsUrl) {
       throw new Error('后端未返回 VNC websocket 地址')
     }
-    vncModal.deviceName = data.device_name || device.name || ''
+    vncModal.deviceName = node
+      ? `${device.name || '设备'} / ${data.device_name || node.device_name || node.name}`
+      : data.device_name || device.name || ''
     vncModal.wsUrl = data.wsUrl
     vncModal.password = data.password || ''
     vncModal.target = [data.host, data.port].filter(Boolean).join(':')
@@ -2024,8 +2117,14 @@ onBeforeUnmount(() => {
   margin-top: 10px;
 }
 
+.cabinet-side {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+}
+
 .cabinet-list {
-  order: 2;
   display: flex;
   max-height: none;
   min-height: 0;
@@ -2063,7 +2162,6 @@ onBeforeUnmount(() => {
 }
 
 .rack-spin {
-  order: 1;
   display: flex;
   min-height: 0;
   flex-direction: column;
@@ -2510,6 +2608,21 @@ onBeforeUnmount(() => {
 .four-node-card strong {
   color: #0f172a;
   font-size: 13px;
+}
+
+.node-detail-head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.node-detail-head strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .four-node-fields {

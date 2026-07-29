@@ -89,6 +89,7 @@ DEVICE_VNC_DEFAULT_PASSWORD = "vnc@3202"
 
 class AssetDeviceVncRequest(BaseModel):
     device_id: int
+    node_name: str | None = None
 
 
 def normalize_redfish_host(value: str) -> str:
@@ -385,6 +386,55 @@ def device_vnc_config(device: AssetDevice) -> dict:
     if port < 1 or port > 65535:
         raise ValueError("VNC 端口必须在 1-65535 之间")
     return {"host": host, "port": port, "password": password}
+
+
+def four_node_vnc_config(device: AssetDevice, node_name: str) -> dict:
+    attributes = dict(device.attributes or {})
+    nodes = attributes.get("nodes")
+    if not isinstance(nodes, list):
+        raise ValueError("设备未配置四节点信息")
+
+    normalized_node_name = str(node_name or "").strip()
+    node = next(
+        (
+            item
+            for item in nodes
+            if isinstance(item, dict) and str(item.get("name") or "").strip() == normalized_node_name
+        ),
+        None,
+    )
+    if not node:
+        raise ValueError("未找到对应的四节点")
+
+    host = first_device_attribute(
+        node,
+        ("vnc_host", "vnc_address", "VNC地址", "VNC主机", "ipmi_host", "ipmiHost", "IPMI地址"),
+    )
+    port_text = first_device_attribute(node, ("vnc_port", "vncPort", "VNC端口")) or first_device_attribute(
+        attributes, ("vnc_port", "VNC端口")
+    )
+    password = (
+        first_device_attribute(node, ("vnc_password", "vncPassword", "VNC密码"))
+        or first_device_attribute(attributes, ("vnc_password", "VNC密码"))
+        or DEVICE_VNC_DEFAULT_PASSWORD
+    )
+    if not host:
+        raise ValueError("该节点未配置 IPMI 地址")
+    try:
+        port = int(port_text or DEVICE_VNC_DEFAULT_PORT)
+    except ValueError as exc:
+        raise ValueError("VNC 端口格式错误") from exc
+    if port < 1 or port > 65535:
+        raise ValueError("VNC 端口必须在 1-65535 之间")
+
+    display_name = str(node.get("device_name") or node.get("deviceName") or normalized_node_name).strip()
+    return {
+        "host": host,
+        "port": port,
+        "password": password,
+        "node_name": normalized_node_name,
+        "display_name": display_name,
+    }
 
 
 def cleanup_device_vnc_sessions() -> None:
@@ -1086,9 +1136,10 @@ async def get_device(device_id: int = Query(...)):
 async def device_vnc_console(payload: AssetDeviceVncRequest):
     try:
         device = await asset_device_controller.get(id=payload.device_id)
-        config = device_vnc_config(device)
+        config = four_node_vnc_config(device, payload.node_name) if payload.node_name else device_vnc_config(device)
         session_id = create_device_vnc_session(device, config)
         query = urlencode({"session": session_id, "device_id": str(device.id)})
+        device_name = config.get("display_name") or device.name
         return Success(
             data={
                 "wsUrl": f"/api/v1/asset/device/vnc/ws?{query}",
@@ -1096,7 +1147,8 @@ async def device_vnc_console(payload: AssetDeviceVncRequest):
                 "host": config["host"],
                 "port": config["port"],
                 "device_id": device.id,
-                "device_name": device.name,
+                "device_name": device_name,
+                "node_name": config.get("node_name", ""),
             }
         )
     except ValueError as exc:
