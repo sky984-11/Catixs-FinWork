@@ -20,6 +20,7 @@ from app.utils.feishu_app import (
 from tortoise.expressions import Q
 
 DAILY_SUMMARY_STATUSES = ("planning", "active", "acceptance")
+DAILY_SUMMARY_RETRY_AFTER_MINUTES = 30
 DAILY_SUMMARY_LABELS = {
     "planning": "规划中",
     "active": "进行中",
@@ -122,8 +123,16 @@ async def notify_project_daily_summary(now: datetime | None = None) -> bool:
         summary_date=summary_date,
         defaults={"status": "sending", "message": "sending"},
     )
-    if not created:
+    if not created and record.status == "success":
         return False
+    if not created and not should_retry_daily_summary_record(record, now):
+        return False
+
+    if not created:
+        record.status = "sending"
+        record.message = "retrying"
+        record.sent_at = None
+        await record.save()
 
     sections, owners = await build_daily_summary_sections()
     try:
@@ -137,6 +146,20 @@ async def notify_project_daily_summary(now: datetime | None = None) -> bool:
     record.message = "sent" if success else "feishu app failed"
     await record.save()
     return success
+
+
+def should_retry_daily_summary_record(record: CustomerProjectDailySummary, now: datetime) -> bool:
+    status = str(record.status or "").strip().lower()
+    if status == "success":
+        return False
+    updated_at = getattr(record, "updated_at", None)
+    if not updated_at:
+        return True
+    try:
+        elapsed_seconds = abs(now.timestamp() - updated_at.timestamp())
+    except Exception:
+        return True
+    return elapsed_seconds >= DAILY_SUMMARY_RETRY_AFTER_MINUTES * 60
 
 
 def should_run_daily_summary(now: datetime) -> bool:
