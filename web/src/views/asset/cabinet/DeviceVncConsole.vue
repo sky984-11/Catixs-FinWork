@@ -41,6 +41,7 @@ const props = defineProps({
   wsUrl: { type: String, default: '' },
   password: { type: String, default: '' },
   target: { type: String, default: '' },
+  profile: { type: String, default: 'default' },
   autoConnect: { type: Boolean, default: true },
 })
 const emit = defineEmits(['close'])
@@ -52,7 +53,7 @@ const error = ref('')
 let rfb = null
 let connectTimer = null
 let resizeObserver = null
-let rawEncodingPatchInstalled = false
+const defaultSendEncodings = RFB.prototype._sendEncodings
 
 const statusText = computed(() => {
   if (connected.value) return '已连接'
@@ -153,10 +154,12 @@ function refreshScreen() {
   window.dispatchEvent(new Event('resize'))
 }
 
-function installRawEncodingPatch() {
-  if (rawEncodingPatchInstalled) return
-  rawEncodingPatchInstalled = true
-  RFB.prototype._sendEncodings = function sendIdracCompatibleEncodings() {
+function applyEncodingProfile() {
+  if (props.profile === 'huawei') {
+    RFB.prototype._sendEncodings = defaultSendEncodings
+    return
+  }
+  RFB.prototype._sendEncodings = function sendDeviceCompatibleEncodings() {
     RFB.messages.clientEncodings(this._sock, [
       encodings.encodingCopyRect,
       encodings.encodingRaw,
@@ -178,11 +181,11 @@ async function connect() {
   loading.value = true
   await nextTick()
   try {
-    installRawEncodingPatch()
+    applyEncodingProfile()
     rfb = new RFB(screenRef.value, websocketUrl(props.wsUrl), {
       credentials: { password: props.password },
       wsProtocols: ['binary'],
-      shared: false,
+      shared: true,
     })
     rfb._catixsPassword = props.password
     rfb.scaleViewport = true
@@ -212,7 +215,7 @@ async function connect() {
 }
 
 watch(
-  () => [props.wsUrl, props.password],
+  () => [props.wsUrl, props.password, props.profile],
   () => {
     if (props.autoConnect && props.wsUrl) connect()
   }

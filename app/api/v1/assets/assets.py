@@ -5,6 +5,7 @@ import io
 import json
 import os
 import socket
+import ssl
 import urllib.error
 import urllib.request
 import uuid
@@ -369,6 +370,19 @@ def first_device_attribute(attributes: dict, keys: tuple[str, ...]) -> str:
     return ""
 
 
+def is_huawei_vnc_device(device: AssetDevice) -> bool:
+    attributes = dict(device.attributes or {})
+    text = " ".join(
+        [
+            str(device.name or ""),
+            str(getattr(device, "brand", "") or ""),
+            str(getattr(device, "model", "") or ""),
+            json.dumps(attributes, ensure_ascii=False),
+        ]
+    ).lower()
+    return any(keyword in text for keyword in ("huawei", "ibmc", "\u534e\u4e3a"))
+
+
 def device_vnc_config(device: AssetDevice) -> dict:
     attributes = dict(device.attributes or {})
     host = first_device_attribute(
@@ -385,7 +399,7 @@ def device_vnc_config(device: AssetDevice) -> dict:
         raise ValueError("VNC 端口格式错误") from exc
     if port < 1 or port > 65535:
         raise ValueError("VNC 端口必须在 1-65535 之间")
-    return {"host": host, "port": port, "password": password}
+    return {"host": host, "port": port, "password": password, "tls_preferred": is_huawei_vnc_device(device)}
 
 
 def four_node_vnc_config(device: AssetDevice, node_name: str) -> dict:
@@ -434,6 +448,7 @@ def four_node_vnc_config(device: AssetDevice, node_name: str) -> dict:
         "password": password,
         "node_name": normalized_node_name,
         "display_name": display_name,
+        "tls_preferred": is_huawei_vnc_device(device),
     }
 
 
@@ -458,6 +473,7 @@ def create_device_vnc_session(device: AssetDevice, config: dict) -> str:
         "host": config["host"],
         "port": config["port"],
         "password": config["password"],
+        "tls_preferred": bool(config.get("tls_preferred")),
     }
     return session_id
 
@@ -1175,14 +1191,100 @@ async def device_vnc_websocket_proxy(
         await websocket.close(code=1008, reason="VNC session expired")
         return
 
-    try:
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(str(vnc_session["host"]), int(vnc_session["port"])),
+    proxy_stats = {"client_bytes": 0, "vnc_bytes": 0}
+
+    async def close_vnc_writer(writer_obj):
+        if not writer_obj:
+            return
+        try:
+            writer_obj.close()
+            await writer_obj.wait_closed()
+        except (ConnectionResetError, OSError):
+            pass
+
+    async def open_vnc_connection(use_tls: bool = False):
+        tls_context = None
+        if use_tls:
+            tls_context = ssl.create_default_context()
+            tls_context.check_hostname = False
+            tls_context.verify_mode = ssl.CERT_NONE
+        mode = "tls" if use_tls else "plain"
+        reader_obj, writer_obj = await asyncio.wait_for(
+            asyncio.open_connection(
+                str(vnc_session["host"]),
+                int(vnc_session["port"]),
+                ssl=tls_context,
+                server_hostname=None if use_tls else None,
+            ),
             timeout=8,
         )
+        transport_obj = writer_obj.get_extra_info("socket")
+        if transport_obj:
+            transport_obj.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        logger.info(
+            "device VNC TCP connected: device_id={} device_name={} target={}:{} mode={}",
+            vnc_session.get("device_id"),
+            vnc_session.get("device_name"),
+            vnc_session.get("host"),
+            vnc_session.get("port"),
+            mode,
+        )
+        try:
+            banner = await asyncio.wait_for(reader_obj.readexactly(12), timeout=5)
+            if not banner.startswith(b"RFB "):
+                raise ValueError(f"invalid RFB banner: {banner!r}")
+            return reader_obj, writer_obj, banner, mode
+        except Exception:
+            await close_vnc_writer(writer_obj)
+            raise
+
+    reader = None
+    writer = None
+    vnc_mode = "plain"
+    preferred_tls = bool(vnc_session.get("tls_preferred"))
+    first_tls = preferred_tls
+    second_tls = not preferred_tls
+    try:
+        reader, writer, rfb_banner, vnc_mode = await open_vnc_connection(use_tls=first_tls)
+    except asyncio.TimeoutError:
+        logger.info(
+            "device VNC {} handshake timeout, retrying {}: device_id={} device_name={} target={}:{}",
+            "TLS" if first_tls else "plain",
+            "plain" if first_tls else "TLS",
+            vnc_session.get("device_id"),
+            vnc_session.get("device_name"),
+            vnc_session.get("host"),
+            vnc_session.get("port"),
+        )
+        try:
+            reader, writer, rfb_banner, vnc_mode = await open_vnc_connection(use_tls=second_tls)
+        except Exception as exc:
+            logger.warning(
+                "device VNC {} fallback failed: device_id={} device_name={} target={}:{} error={}",
+                "plain" if first_tls else "TLS",
+                vnc_session.get("device_id"),
+                vnc_session.get("device_name"),
+                vnc_session.get("host"),
+                vnc_session.get("port"),
+                repr(exc),
+            )
+            await websocket.close(code=1011, reason=f"VNC handshake failed: {exc}"[:120])
+            return
+    except asyncio.IncompleteReadError as exc:
+        logger.warning(
+            "device VNC handshake incomplete: device_id={} device_name={} target={}:{} bytes={} error={}",
+            vnc_session.get("device_id"),
+            vnc_session.get("device_name"),
+            vnc_session.get("host"),
+            vnc_session.get("port"),
+            len(exc.partial or b""),
+            repr(exc),
+        )
+        await websocket.close(code=1011, reason="VNC service closed before RFB handshake")
+        return
     except Exception as exc:
         logger.warning(
-            "device VNC TCP connect failed: device_id={} device_name={} target={}:{} error={}",
+            "device VNC connect/handshake failed: device_id={} device_name={} target={}:{} error={}",
             vnc_session.get("device_id"),
             vnc_session.get("device_name"),
             vnc_session.get("host"),
@@ -1193,22 +1295,67 @@ async def device_vnc_websocket_proxy(
         return
 
     logger.info(
-        "device VNC TCP connected: device_id={} device_name={} target={}:{}",
+        "device VNC RFB handshake ready: device_id={} device_name={} target={}:{} mode={} banner={!r}",
         vnc_session.get("device_id"),
         vnc_session.get("device_name"),
         vnc_session.get("host"),
         vnc_session.get("port"),
+        vnc_mode,
+        rfb_banner,
     )
-    transport = writer.get_extra_info("socket")
-    if transport:
-        transport.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-    proxy_stats = {"client_bytes": 0, "vnc_bytes": 0}
+    proxy_stats["vnc_bytes"] += len(rfb_banner)
+    await websocket.send_bytes(rfb_banner)
+    server_initial_bytes = bytearray(rfb_banner)
+    server_init_logged = False
+
+    def log_server_init_if_ready() -> bool:
+        if len(server_initial_bytes) < 14:
+            return False
+        security_type_count = server_initial_bytes[12]
+        security_types = list(server_initial_bytes[13 : 13 + security_type_count])
+        if len(server_initial_bytes) < 13 + security_type_count:
+            return False
+
+        security_offset = 13 + security_type_count
+        server_init_offsets = []
+        if 2 in security_types:
+            server_init_offsets.append(security_offset + 16 + 4)
+        if 1 in security_types:
+            server_init_offsets.append(security_offset + 4)
+
+        for server_init_offset in server_init_offsets:
+            if len(server_initial_bytes) < server_init_offset + 24:
+                continue
+            width = int.from_bytes(server_initial_bytes[server_init_offset : server_init_offset + 2], "big")
+            height = int.from_bytes(server_initial_bytes[server_init_offset + 2 : server_init_offset + 4], "big")
+            name_length = int.from_bytes(
+                server_initial_bytes[server_init_offset + 20 : server_init_offset + 24],
+                "big",
+            )
+            if len(server_initial_bytes) < server_init_offset + 24 + name_length:
+                continue
+            desktop_name = bytes(
+                server_initial_bytes[server_init_offset + 24 : server_init_offset + 24 + name_length]
+            ).decode("utf-8", errors="replace")
+            logger.info(
+                "device VNC server init: device_id={} target={}:{} mode={} security_types={} size={}x{} name={!r}",
+                vnc_session.get("device_id"),
+                vnc_session.get("host"),
+                vnc_session.get("port"),
+                vnc_mode,
+                security_types,
+                width,
+                height,
+                desktop_name,
+            )
+            return True
+        return False
 
     async def client_to_vnc():
         while True:
             message = await websocket.receive()
             if message.get("type") == "websocket.disconnect":
-                writer.close()
+                await close_vnc_writer(writer)
                 return
             if message.get("bytes") is not None:
                 proxy_stats["client_bytes"] += len(message["bytes"])
@@ -1220,12 +1367,16 @@ async def device_vnc_websocket_proxy(
             await writer.drain()
 
     async def vnc_to_client():
+        nonlocal server_init_logged
         while True:
             data = await reader.read(65535)
             if not data:
                 await websocket.close()
                 return
             proxy_stats["vnc_bytes"] += len(data)
+            if not server_init_logged and len(server_initial_bytes) < 512:
+                server_initial_bytes.extend(data[: 512 - len(server_initial_bytes)])
+                server_init_logged = log_server_init_if_ready()
             await websocket.send_bytes(data)
 
     async def log_proxy_stats():
@@ -1269,8 +1420,7 @@ async def device_vnc_websocket_proxy(
         )
         for task in tasks:
             task.cancel()
-        writer.close()
-        await writer.wait_closed()
+        await close_vnc_writer(writer)
 
 
 @router.post("/device/redfish-probe", summary="根据IPMI地址采集Redfish设备信息")

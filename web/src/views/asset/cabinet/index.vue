@@ -91,7 +91,9 @@
                     <button v-if="!rackContextMenu.device" @click="handleRackMenuAdd">新增设备</button>
                     <button v-if="rackContextMenu.device" @click="handleRackMenuEdit">编辑设备</button>
                     <button v-if="rackContextMenu.device" @click="handleRackMenuClone">克隆设备</button>
-                    <button v-if="rackContextMenu.device && !isFourNodeAttributes(rackContextMenu.device.attributes)" @click="handleRackMenuVnc">VNC控制台</button>
+                    <button v-if="rackContextMenu.device && !isFourNodeAttributes(rackContextMenu.device.attributes)" @click="handleRackMenuConsole">
+                      {{ deviceConsoleLabel(rackContextMenu.device) }}
+                    </button>
                     <button v-if="rackContextMenu.device" @click="handleRackMenuDelete">删除设备</button>
                   </div>
                 </div>
@@ -182,9 +184,9 @@
                 type="primary"
                 secondary
                 :loading="vncModal.loading"
-                @click="openDeviceVnc(deviceDrawer.row)"
+                @click="openDeviceConsole(deviceDrawer.row)"
               >
-                打开 VNC 控制台
+                {{ deviceConsoleButtonLabel(deviceDrawer.row) }}
               </n-button>
             </n-space>
 
@@ -263,6 +265,7 @@
             :ws-url="vncModal.wsUrl"
             :password="vncModal.password"
             :target="vncModal.target"
+            :profile="vncModal.profile"
             @close="closeDeviceVnc"
           />
         </div>
@@ -514,6 +517,7 @@ const vncModal = reactive({
   wsUrl: '',
   password: '',
   target: '',
+  profile: 'default',
 })
 const cabinetModal = reactive({
   show: false,
@@ -698,6 +702,18 @@ const structuredAttributeKeys = new Set([
   'IPMI密码',
 ])
 const vncAttributeKeys = ['vnc_host', 'vnc_address', 'VNC地址', 'VNC主机', 'ipmi_host', 'IPMI地址']
+const webConsoleUrlKeys = [
+  'ilo_console_url',
+  'bmc_console_url',
+  'web_console_url',
+  'iLO控制台地址',
+  'ILO控制台地址',
+  'BMC控制台地址',
+  'WEB控制台地址',
+  'Web控制台地址',
+  'remote_console_url',
+  '远程控制台地址',
+]
 const attributeRows = computed(() =>
   attributesToList(deviceDrawer.row?.attributes).filter((item) => !structuredAttributeKeys.has(item.key))
 )
@@ -1489,10 +1505,10 @@ function handleRackMenuClone() {
   if (device) openDeviceCloneModal(device)
 }
 
-function handleRackMenuVnc() {
+function handleRackMenuConsole() {
   const device = rackContextMenu.device
   closeRackContextMenu()
-  if (device) openDeviceVnc(device)
+  if (device) openDeviceConsole(device)
 }
 
 function openDeviceCloneModal(device) {
@@ -1648,6 +1664,72 @@ function hasNodeVncConfig(node) {
   return Boolean(firstAttributeValue(node || {}, ['vnc_host', 'vnc_address', 'VNC地址', 'VNC主机', 'ipmi_host', 'ipmiHost', 'IPMI地址']))
 }
 
+function deviceSignature(device) {
+  return [device?.brand, device?.model, device?.name, JSON.stringify(device?.attributes || {})].join(' ').toLowerCase()
+}
+
+function isIloDevice(device) {
+  const text = deviceSignature(device)
+  return ['ilo', 'hpe', 'hewlett', 'hewlett-packard', '惠普'].some((keyword) => text.includes(keyword))
+}
+
+function isInspurDevice(device) {
+  const text = deviceSignature(device)
+  return ['inspur', '浪潮'].some((keyword) => text.includes(keyword))
+}
+
+function isWebConsoleDevice(device) {
+  return isIloDevice(device) || isInspurDevice(device)
+}
+
+function deviceConsoleLabel(device) {
+  if (isInspurDevice(device)) return 'BMC控制台'
+  return isIloDevice(device) ? 'iLO控制台' : 'VNC控制台'
+}
+
+function deviceConsoleButtonLabel(device) {
+  if (isInspurDevice(device)) return '打开 BMC 控制台'
+  return isIloDevice(device) ? '打开 iLO 控制台' : '打开 VNC 控制台'
+}
+
+function normalizeConsoleUrl(value) {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  if (/^https?:\/\//i.test(text)) return text
+  return `https://${text}`
+}
+
+function deviceWebConsoleUrl(device) {
+  const attributes = device?.attributes || {}
+  const configuredUrl = firstAttributeValue(attributes, webConsoleUrlKeys)
+  if (configuredUrl) return normalizeConsoleUrl(configuredUrl)
+  return normalizeConsoleUrl(firstAttributeValue(attributes, ['ipmi_host', 'IPMI地址']))
+}
+
+function openWebConsole(device) {
+  const url = deviceWebConsoleUrl(device)
+  if (!url) {
+    window.$message?.warning('该设备未配置 BMC/IPMI 地址')
+    return false
+  }
+  window.open(url, '_blank', 'noopener,noreferrer')
+  return true
+}
+
+function openDeviceConsole(device) {
+  if (isWebConsoleDevice(device)) {
+    openWebConsole(device)
+    return
+  }
+  openDeviceVnc(device)
+}
+
+function deviceVncProfile(device) {
+  const text = deviceSignature(device)
+  if (['ibmc', 'huawei', '华为'].some((keyword) => text.includes(keyword))) return 'huawei'
+  return 'default'
+}
+
 function resetDeviceVnc() {
   vncModal.loading = false
   vncModal.title = '设备 VNC 控制台'
@@ -1655,6 +1737,7 @@ function resetDeviceVnc() {
   vncModal.wsUrl = ''
   vncModal.password = ''
   vncModal.target = ''
+  vncModal.profile = 'default'
 }
 
 function closeDeviceVnc() {
@@ -1688,6 +1771,7 @@ async function openDeviceVnc(device, node = null) {
   vncModal.wsUrl = ''
   vncModal.password = ''
   vncModal.target = ''
+  vncModal.profile = deviceVncProfile(device)
   try {
     const payload = node ? { device_id: device.id, node_name: node.name } : { device_id: device.id }
     const res = await api.assetApi.deviceVnc(payload)
