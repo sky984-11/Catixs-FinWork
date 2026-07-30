@@ -93,6 +93,13 @@ export default {
     deleteAttachment: (params = {}) => request.delete('/project/attachment/delete', { params }),
   },
 
+  // resource board
+  resourceApi: {
+    freeDevices: (params = {}) => request.get('/resource/free-devices', { params }),
+    zenlayerPricing: () => request.get('/resource/zenlayer-pricing'),
+    ipxoResources: (params = {}) => request.get('/resource/ipxo/resources', { params }),
+  },
+
   // bank
   getBankList: (params = {}) => request.get('/bank/list', { params }),
   createBank: (data = {}) => request.post('/bank/create', data),

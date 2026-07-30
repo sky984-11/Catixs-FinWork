@@ -268,6 +268,7 @@ async def init_menus():
     await ensure_finance_quote_menu()
     await remove_inventory_sale_menu()
     await ensure_customer_project_menu()
+    await ensure_resource_menu()
     await ensure_task_menu()
 
 
@@ -314,6 +315,63 @@ async def ensure_service_module_menus():
         redirect="/vendor",
     )
     return ops_menu, finance_menu
+
+
+async def ensure_resource_menu():
+    resource_menu = await ensure_menu_catalog(
+        name="资源模块",
+        path="/resource",
+        order=5,
+        icon="mdi:database-eye-outline",
+        redirect="/resource/free-devices",
+    )
+    resource_menus = [
+        {
+            "name": "空闲设备",
+            "path": "free-devices",
+            "order": 1,
+            "icon": "mdi:server-plus-outline",
+            "component": "/resource/free-devices",
+        },
+        {
+            "name": "层峰价格",
+            "path": "zenlayer-pricing",
+            "order": 2,
+            "icon": "mdi:chart-line-variant",
+            "component": "/resource/zenlayer-pricing",
+        },
+        {
+            "name": "IPXO",
+            "path": "ipxo",
+            "order": 3,
+            "icon": "mdi:ip-network-outline",
+            "component": "/resource/ipxo",
+        },
+    ]
+    for menu_data in resource_menus:
+        menu = await Menu.filter(component=menu_data["component"]).first()
+        values = {
+            "menu_type": MenuType.MENU,
+            "name": menu_data["name"],
+            "path": menu_data["path"],
+            "order": menu_data["order"],
+            "parent_id": resource_menu.id,
+            "icon": menu_data["icon"],
+            "is_hidden": False,
+            "component": menu_data["component"],
+            "keepalive": False,
+            "redirect": "",
+        }
+        if menu:
+            changed = False
+            for field, value in values.items():
+                if getattr(menu, field) != value:
+                    setattr(menu, field, value)
+                    changed = True
+            if changed:
+                await menu.save()
+        else:
+            await Menu.create(**values)
 
 
 async def get_service_module_menu(path: str):
@@ -899,6 +957,9 @@ async def ensure_business_api_permissions():
         | Q(method="GET", path="/api/v1/asset/inventory-flow/list")
         | Q(method="GET", path="/api/v1/project/list")
         | Q(method="GET", path="/api/v1/project/get")
+        | Q(method="GET", path="/api/v1/resource/free-devices")
+        | Q(method="GET", path="/api/v1/resource/zenlayer-pricing")
+        | Q(method="GET", path="/api/v1/resource/ipxo/resources")
     )
     manage_apis = await Api.filter(
         Q(path__startswith="/api/v1/company/")
@@ -907,10 +968,16 @@ async def ensure_business_api_permissions():
         | Q(path__startswith="/api/v1/project/")
     )
     project_menu = await Menu.filter(path="/project-board").first()
+    resource_menu = await Menu.filter(path="/resource").first()
+    resource_child_menus = await Menu.filter(parent_id=resource_menu.id) if resource_menu else []
 
     for role in roles:
         if read_apis:
             await role.apis.add(*read_apis)
+        if resource_menu:
+            await role.menus.add(resource_menu)
+        if resource_child_menus:
+            await role.menus.add(*resource_child_menus)
         if is_admin_role_name(role.name):
             if manage_apis:
                 await role.apis.add(*manage_apis)

@@ -20,6 +20,7 @@ from .projects import projects_router
 from .pve import grafana_router as pve_grafana_router
 from .pve import pve_router
 from .pve.novnc import ws_router as pve_novnc_ws_router
+from .resources import resources_router
 from .remote_assistance import remote_assistance_router
 from .roles import roles_router
 from .syslog import syslog_router
@@ -61,4 +62,5 @@ v1_router.include_router(bills_router, prefix="/bill", dependencies=[DependPermi
 v1_router.include_router(finance_quotes_router, prefix="/finance/quote", dependencies=[DependPermission])
 v1_router.include_router(companies_router, prefix="/company", dependencies=[DependPermission])
 v1_router.include_router(projects_router, prefix="/project", dependencies=[DependPermission])
+v1_router.include_router(resources_router, prefix="/resource", dependencies=[DependPermission])
 v1_router.include_router(akvorado_router, prefix="/akvorado", tags=["Akvorado"])
