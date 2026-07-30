@@ -19,7 +19,7 @@ if __name__ == "__main__":
     LOGGING_CONFIG["formatters"]["access"]["datefmt"] = "%Y-%m-%d %H:%M:%S"
 
     port = int(os.getenv("PORT", "9999"))
-    reload = parse_bool(os.getenv("UVICORN_RELOAD"), default=True)
+    reload = False
 
     uvicorn.run(
         "app:app",

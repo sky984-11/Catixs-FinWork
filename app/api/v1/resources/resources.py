@@ -45,6 +45,11 @@ def round_money(value: Any) -> float:
     return round(number(value), 2)
 
 
+def normalized_country_code(value: Any) -> str:
+    code = text(value).upper()
+    return code if code.isalpha() and 2 <= len(code) <= 3 else ""
+
+
 def pick(data: dict, *keys: str, default: Any = "") -> Any:
     for key in keys:
         value: Any = data
@@ -573,7 +578,7 @@ async def lookup_ip_region(ip_address: str) -> dict:
         "country_code": country_code,
         "city": city,
         "region_name": region_name,
-        "region": " / ".join(item for item in [country_code, city] if item) or country_code,
+        "region": country_code,
         "source": "ipinfo",
     }
     _ip_geo_cache[ip_address] = result
@@ -585,7 +590,9 @@ def normalize_ipinfo_region(data: Any) -> dict:
         return {}
     geo = data.get("geo") if isinstance(data.get("geo"), dict) else {}
     raw_country = text(data.get("country"))
-    country_code = text(pick(geo, "country_code", default="") or data.get("country_code") or (raw_country if len(raw_country) <= 3 else ""))
+    country_code = normalized_country_code(
+        pick(geo, "country_code", default="") or data.get("country_code") or raw_country
+    )
     country_name = text(pick(geo, "country", default="") or data.get("country_name") or (raw_country if len(raw_country) > 3 else ""))
     region_name = text(pick(geo, "region", default="") or data.get("region"))
     city = text(pick(geo, "city", default="") or data.get("city") or region_name)
@@ -600,7 +607,7 @@ def normalize_ipinfo_region(data: Any) -> dict:
         "city": city,
         "region_name": region_name,
         "continent": continent,
-        "region": " / ".join(item for item in [country, city] if item) or country,
+        "region": country_code or country,
         "source": "ipinfo_batch",
     }
 
@@ -613,20 +620,26 @@ async def lookup_ip_regions_batch(addresses: list[str]) -> dict[str, dict]:
     if not token or not missing_ips:
         return result
 
-    batch_payload = missing_ips[:1000]
-    batch_status = 0
-    try:
-        async with httpx.AsyncClient(base_url=IPINFO_BATCH_API_BASE, timeout=2.0, trust_env=True) as client:
-            response = await client.post("/batch/lite", params={"token": token}, json=batch_payload)
-        batch_status = response.status_code
-        data = response.json()
-    except Exception as exc:
-        logger.warning(f"ipinfo lite batch lookup failed: count={len(batch_payload)} error={exc!r}")
-        data = {}
+    chunks = [missing_ips[index : index + 20] for index in range(0, min(len(missing_ips), 1000), 20)]
 
-    if isinstance(data, dict) and batch_status == 200:
-        for ip in batch_payload:
-            geo = normalize_ipinfo_region(data.get(ip))
+    async def fetch_chunk(client: httpx.AsyncClient, chunk: list[str]) -> dict:
+        try:
+            response = await client.post("/batch/lite", params={"token": token}, json=chunk)
+            if response.status_code != 200:
+                logger.info("ipinfo lite batch unavailable: status=%s count=%s", response.status_code, len(chunk))
+                return {}
+            data = response.json()
+            return data if isinstance(data, dict) else {}
+        except Exception as exc:
+            logger.warning(f"ipinfo lite batch lookup failed: count={len(chunk)} error={exc!r}")
+            return {}
+
+    async with httpx.AsyncClient(base_url=IPINFO_BATCH_API_BASE, timeout=3.0, trust_env=True) as client:
+        batch_results = await asyncio.gather(*(fetch_chunk(client, chunk) for chunk in chunks))
+
+    for data in batch_results:
+        for ip, raw_geo in data.items():
+            geo = normalize_ipinfo_region(raw_geo)
             if geo:
                 _ip_geo_cache[ip] = geo
 
@@ -652,7 +665,10 @@ def normalize_ipxo_resource(item: dict) -> dict:
         default=0,
     )
     currency = pick(item, "billing_service.currency", "currency", "price_currency", "billing.currency", default="USD")
-    country = pick(item, "geo_country_code", "country", "geodata.0.countryCode", "whois.country", default="")
+    country = pick(item, "country", "geo_country_code", "geodata.0.countryCode", "whois.country", default="")
+    country_code = normalized_country_code(
+        pick(item, "geo_country_code", "country_code", "geodata.0.countryCode", "whois.country", default="")
+    )
     status = pick(item, "billing_service.status", "status", "state", "subscription.status", default="")
     registry = pick(item, "market_service.registry", "registry", default="")
     return {
@@ -662,7 +678,8 @@ def normalize_ipxo_resource(item: dict) -> dict:
         "address": text(address),
         "cidr": text(cidr),
         "country": text(country),
-        "region": text(country, "未返回地区"),
+        "country_code": text(country_code),
+        "region": text(country_code or country, "未返回地区"),
         "registry": text(registry).upper(),
         "status": text(status, "unknown"),
         "monthly_price": number(price),
@@ -679,16 +696,32 @@ async def enrich_ipxo_regions(items: list[dict]) -> None:
             item["country"] = geo.get("country") or item.get("country") or ""
             item["country_code"] = geo.get("country_code") or ""
             item["city"] = geo.get("city") or ""
-            item["region"] = geo.get("region") or item.get("region") or "未识别地区"
+            item["region"] = geo.get("country_code") or geo.get("country") or item.get("country_code") or item.get("country") or "未识别地区"
         elif not item.get("region") or item.get("region") == "未返回地区":
             item["region"] = "未识别地区"
+
+
+def apply_ipxo_country_code_region(items: list[dict]) -> None:
+    for item in items:
+        country_name = text(item.get("country_name") or item.get("country"))
+        country_code = (
+            normalized_country_code(item.get("country_code"))
+            or normalized_country_code(item.get("region"))
+            or normalized_country_code(country_name)
+        )
+        if country_name:
+            item["region"] = country_name
+        elif country_code:
+            item["region"] = country_code
+        if country_code:
+            item["country_code"] = country_code
 
 
 @router.get("/ipxo/resources", summary="IPXO IP资源")
 async def ipxo_resources(
     limit: int = Query(100, ge=1, le=500),
     refresh: bool = Query(False, description="skip cache and refresh from IPXO"),
-    geo: bool = Query(False, description="enrich region via IPinfo"),
+    geo: bool = Query(True, description="enrich country code via IPinfo"),
 ):
     if not text(settings.IPXO_COMPANY_UUID):
         return Success(code=400, msg="IPXO company uuid is not configured", data={"items": []})
@@ -720,6 +753,7 @@ async def ipxo_resources(
             items = [normalize_ipxo_resource(item) for item in raw_items if isinstance(item, dict)]
             if geo:
                 await enrich_ipxo_regions(items)
+            apply_ipxo_country_code_region(items)
             active_items = [item for item in items if item["status"].lower() in {"active", "running"}]
             display_items = active_items
             summary = {
@@ -769,6 +803,7 @@ async def ipxo_resources(
         items = [normalize_ipxo_resource(item) for item in raw_items if isinstance(item, dict)]
         if geo:
             await enrich_ipxo_regions(items)
+        apply_ipxo_country_code_region(items)
         active_items = [item for item in items if item["status"].lower() in {"active", "running"}]
         summary = {
             "count": len(items),
