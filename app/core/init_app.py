@@ -334,7 +334,7 @@ async def ensure_resource_menu():
             "component": "/resource/free-devices",
         },
         {
-            "name": "层峰价格",
+            "name": "供应商比价",
             "path": "zenlayer-pricing",
             "order": 2,
             "icon": "mdi:chart-line-variant",

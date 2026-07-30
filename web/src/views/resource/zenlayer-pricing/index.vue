@@ -1,5 +1,5 @@
 <template>
-  <CommonPage show-footer title="层峰价格">
+  <CommonPage show-footer title="供应商比价">
     <template #action>
       <n-button :loading="loadingOptions" secondary @click="loadOptions">刷新</n-button>
     </template>

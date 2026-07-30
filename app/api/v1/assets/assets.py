@@ -559,6 +559,56 @@ def preserve_masked_four_node_secrets(attributes: dict, existed_attributes: dict
             node.pop("ipmi_password", None)
 
 
+def normalize_device_status_value(value, default: int = 0) -> int:
+    try:
+        status = int(value)
+    except (TypeError, ValueError):
+        return default
+    return status if status in {0, 1, 3, 4} else default
+
+
+def is_four_node_attributes(attributes: dict) -> bool:
+    return attributes.get("form_factor") == "four_node" or attributes.get("设备形态") == "四节点服务器"
+
+
+def aggregate_four_node_status(nodes: list) -> int:
+    statuses = [
+        normalize_device_status_value(node.get("status"), 0)
+        for node in nodes
+        if isinstance(node, dict)
+    ]
+    if not statuses:
+        return 0
+    if all(status == 4 for status in statuses):
+        return 4
+    if any(status == 3 for status in statuses):
+        return 3
+    if any(status == 1 for status in statuses):
+        return 1
+    if any(status == 0 for status in statuses):
+        return 0
+    return statuses[0]
+
+
+def normalize_four_node_status_for_save(device_in: AssetDeviceCreate | AssetDeviceUpdate) -> None:
+    attributes = dict(device_in.attributes or {})
+    if not is_four_node_attributes(attributes):
+        return
+    nodes = attributes.get("nodes")
+    if not isinstance(nodes, list):
+        nodes = []
+    normalized_nodes = []
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        item = dict(node)
+        item["status"] = normalize_device_status_value(item.get("status"), 0)
+        normalized_nodes.append(item)
+    attributes["nodes"] = normalized_nodes
+    device_in.attributes = attributes
+    device_in.status = aggregate_four_node_status(normalized_nodes)
+
+
 async def prepare_device_attributes_for_save(device_in: AssetDeviceCreate | AssetDeviceUpdate) -> None:
     attributes = dict(device_in.attributes or {})
     if await can_view_device_secrets():
@@ -582,6 +632,10 @@ async def prepare_device_attributes_for_save(device_in: AssetDeviceCreate | Asse
 
 async def device_to_dict(device: AssetDevice, can_view_secrets: bool = False) -> dict:
     data = await device.to_dict()
+    raw_attributes = data.get("attributes") if isinstance(data.get("attributes"), dict) else {}
+    if is_four_node_attributes(raw_attributes):
+        nodes = raw_attributes.get("nodes") if isinstance(raw_attributes.get("nodes"), list) else []
+        data["status"] = aggregate_four_node_status(nodes)
     if not can_view_secrets:
         data["attributes"] = mask_device_secret_attributes(data.get("attributes"))
     cabinet = await AssetCabinet.get_or_none(id=device.cabinet_id)
@@ -1717,6 +1771,7 @@ async def create_device(device_in: AssetDeviceCreate):
     if error:
         return Success(msg=error, code=400)
     await prepare_device_attributes_for_save(device_in)
+    normalize_four_node_status_for_save(device_in)
     obj = await asset_device_controller.create_device(device_in)
     return Success(data=await device_to_dict(obj, can_view_secrets=await can_view_device_secrets()), msg="Created Successfully")
 
@@ -1727,6 +1782,7 @@ async def update_device(device_in: AssetDeviceUpdate):
     if error:
         return Success(msg=error, code=400)
     await prepare_device_attributes_for_save(device_in)
+    normalize_four_node_status_for_save(device_in)
     obj = await asset_device_controller.update_device(id=device_in.id, obj_in=device_in)
     return Success(data=await device_to_dict(obj, can_view_secrets=await can_view_device_secrets()), msg="Updated Successfully")
 

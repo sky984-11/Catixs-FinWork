@@ -693,6 +693,7 @@
                     <div class="four-node-fields">
                       <n-input v-model:value="node.device_name" size="small" placeholder="设备名称" />
                       <n-input v-model:value="node.serial_no" size="small" placeholder="设备序号" />
+                      <n-select v-model:value="node.status" size="small" :options="deviceStatusOptions" placeholder="节点状态" />
                       <n-input-number v-model:value="node.cpu_count" size="small" placeholder="CPU数量" :min="0" />
                       <n-input v-model:value="node.cpu_model" size="small" placeholder="CPU型号" />
                       <n-input-number v-model:value="node.cpu_cores" size="small" placeholder="CPU核心数" :min="0" />
@@ -1111,12 +1112,12 @@ const deviceStatusOptions = [
   { label: '空闲', value: 0 },
   { label: '故障', value: 3 },
   { label: '使用', value: 1 },
-  { label: '下线', value: 4 },
+  { label: '下架', value: 4 },
 ]
 
 const legacyDeviceStatusLabels = {
   2: '故障',
-  5: '下线',
+  5: '下架',
 }
 
 const deviceFormFactorOptions = [
@@ -1697,6 +1698,7 @@ function createFourNodeList() {
     name,
     device_name: '',
     serial_no: '',
+    status: 0,
     cpu_count: null,
     cpu_model: '',
     cpu_cores: null,
@@ -1720,6 +1722,7 @@ function normalizeFourNodeList(nodes) {
       ...fallback,
       device_name: String(matched.device_name || matched.deviceName || matched.name || ''),
       serial_no: String(matched.serial_no || matched.serialNo || ''),
+      status: normalizeDeviceStatusValue(matched.status, fallback.status),
       cpu_count: matched.cpu_count ?? matched.cpuCount ?? null,
       cpu_model: String(matched.cpu_model || matched.cpuModel || matched.cpu || ''),
       cpu_cores: matched.cpu_cores ?? matched.cpuCores ?? null,
@@ -1742,11 +1745,27 @@ function formatFourNodeCpu(node) {
     .join(' / ') || '-'
 }
 
+function normalizeDeviceStatusValue(value, fallback = 0) {
+  const status = Number(value)
+  return deviceStatusOptions.some((item) => item.value === status) ? status : fallback
+}
+
+function aggregateFourNodeStatus(nodes) {
+  const statuses = normalizeFourNodeList(nodes).map((node) => normalizeDeviceStatusValue(node.status, 0))
+  if (!statuses.length) return 0
+  if (statuses.every((status) => status === 4)) return 4
+  if (statuses.some((status) => status === 3)) return 3
+  if (statuses.some((status) => status === 1)) return 1
+  if (statuses.some((status) => status === 0)) return 0
+  return statuses[0] ?? 0
+}
+
 function serializeFourNodeList(nodes) {
   return normalizeFourNodeList(nodes).map((node) => ({
     name: node.name,
     device_name: String(node.device_name || '').trim(),
     serial_no: String(node.serial_no || '').trim(),
+    status: normalizeDeviceStatusValue(node.status, 0),
     cpu_count: node.cpu_count === null || node.cpu_count === '' ? null : Number(node.cpu_count),
     cpu_model: String(node.cpu_model || '').trim(),
     cpu_cores: node.cpu_cores === null || node.cpu_cores === '' ? null : Number(node.cpu_cores),
@@ -3027,6 +3046,7 @@ async function submitDevice() {
       attributes.node_count = '4'
       attributes.节点数量 = '4'
       attributes.nodes = serializeFourNodeList(deviceModal.form.nodeList)
+      deviceModal.form.status = aggregateFourNodeStatus(attributes.nodes)
       deviceModal.form.type = 0
       deviceModal.form.u_height = 2
     } else {

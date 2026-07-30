@@ -15,7 +15,7 @@
       </RouterLink>
       <RouterLink class="resource-home__card" to="/resource/zenlayer-pricing">
         <TheIcon icon="mdi:chart-line-variant" :size="26" />
-        <strong>层峰价格</strong>
+        <strong>供应商比价</strong>
         <span>快速查询 SDN 线路报价参考</span>
       </RouterLink>
       <RouterLink class="resource-home__card" to="/resource/ipxo">

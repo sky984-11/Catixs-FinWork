@@ -161,7 +161,7 @@
         </main>
       </section>
 
-      <n-drawer v-model:show="deviceDrawer.show" width="560">
+      <n-drawer v-model:show="deviceDrawer.show" :width="deviceDrawerWidth">
         <n-drawer-content :title="deviceDrawer.row?.name || '设备详情'" closable>
           <template v-if="deviceDrawer.row">
             <n-descriptions bordered :column="1" label-placement="left" size="small">
@@ -208,7 +208,7 @@
               </n-popconfirm>
             </n-space>
 
-            <div v-if="deviceIpmiDetail.ipmi_host || deviceIpmiDetail.ipmi_user" class="detail-section">
+            <div v-if="!isFourNodeDrawerDevice && (deviceIpmiDetail.ipmi_host || deviceIpmiDetail.ipmi_user)" class="detail-section">
               <div class="detail-section-head">
                 <h3>IPMI 信息</h3>
                 <n-button
@@ -250,7 +250,7 @@
               </div>
             </div>
 
-            <div class="detail-section">
+            <div v-if="!isFourNodeDrawerDevice" class="detail-section">
               <h3>设备配置</h3>
               <n-empty v-if="!attributeRows.length" description="暂无配置" />
               <div v-else class="attribute-grid">
@@ -308,14 +308,17 @@
                       </n-button>
                     </n-space>
                   </div>
-                  <span>序列号: {{ node.serial_no || '-' }}</span>
-                  <span>CPU: {{ formatFourNodeCpu(node) }}</span>
-                  <span>内存: {{ node.memory || '-' }}</span>
-                  <span>磁盘: {{ node.disk || '-' }}</span>
-                  <span>IPMI地址: {{ node.ipmi_host || '-' }}</span>
-                  <span>IPMI用户: {{ node.ipmi_user || '-' }}</span>
-                  <span>IPMI密码: {{ node.ipmi_password || '-' }}</span>
-                  <span>备注: {{ node.remark || '-' }}</span>
+                  <div class="node-detail-fields">
+                    <span><b>状态</b><em>{{ getDeviceStatus(node.status) }}</em></span>
+                    <span><b>序列号</b><em>{{ node.serial_no || '-' }}</em></span>
+                    <span class="wide"><b>CPU</b><em>{{ formatFourNodeCpu(node) }}</em></span>
+                    <span><b>内存</b><em>{{ node.memory || '-' }}</em></span>
+                    <span><b>磁盘</b><em>{{ node.disk || '-' }}</em></span>
+                    <span><b>IPMI地址</b><em>{{ node.ipmi_host || '-' }}</em></span>
+                    <span><b>IPMI用户</b><em>{{ node.ipmi_user || '-' }}</em></span>
+                    <span><b>IPMI密码</b><em>{{ node.ipmi_password || '-' }}</em></span>
+                    <span class="wide"><b>备注</b><em>{{ node.remark || '-' }}</em></span>
+                  </div>
                   <div v-if="ipmiLogTarget === deviceIpmiLogKey(deviceDrawer.row, node)" class="ipmi-log-panel node-log-panel">
                     <n-empty v-if="!ipmiLogs.length && !ipmiLogLoadingKey" description="暂无日志" />
                     <div v-else class="ipmi-log-list">
@@ -476,7 +479,7 @@
             <n-input v-model:value="deviceModal.form.remark" type="textarea" />
           </n-form-item>
 
-          <div class="device-ipmi-editor">
+          <div v-if="deviceModal.form.form_factor !== 'four_node'" class="device-ipmi-editor">
             <div class="four-node-head">
               <div>
                 <span class="eyebrow">IPMI / Redfish</span>
@@ -506,7 +509,7 @@
             </n-grid>
           </div>
 
-          <div class="device-attribute-editor">
+          <div v-if="deviceModal.form.form_factor !== 'four_node'" class="device-attribute-editor">
             <div class="four-node-head">
               <div>
                 <span class="eyebrow">Device Config</span>
@@ -544,6 +547,7 @@
                 <div class="four-node-fields">
                   <n-input v-model:value="node.device_name" size="small" placeholder="设备名称" />
                   <n-input v-model:value="node.serial_no" size="small" placeholder="设备序号" />
+                  <n-select v-model:value="node.status" size="small" :options="deviceStatusOptions" placeholder="节点状态" />
                   <n-input-number v-model:value="node.cpu_count" size="small" placeholder="CPU数量" :min="0" />
                   <n-input v-model:value="node.cpu_model" size="small" placeholder="CPU型号" />
                   <n-input-number v-model:value="node.cpu_cores" size="small" placeholder="CPU核心数" :min="0" />
@@ -643,7 +647,7 @@ const deviceStatusOptions = [
   { label: '空闲', value: 0 },
   { label: '故障', value: 3 },
   { label: '使用', value: 1 },
-  { label: '下线', value: 4 },
+  { label: '下架', value: 4 },
 ]
 
 const devicePowerActions = [
@@ -654,7 +658,7 @@ const devicePowerActions = [
 
 const legacyDeviceStatusLabels = {
   2: '故障',
-  5: '下线',
+  5: '下架',
 }
 
 const deviceFormFactorOptions = [
@@ -824,6 +828,7 @@ const isFourNodeDrawerDevice = computed(() => isFourNodeAttributes(deviceDrawer.
 const fourNodeDetailNodes = computed(() =>
   isFourNodeDrawerDevice.value ? normalizeFourNodeList(deviceDrawer.row?.attributes?.nodes || []) : []
 )
+const deviceDrawerWidth = computed(() => (fourNodeDetailNodes.value.length ? 'min(920px, 92vw)' : 620))
 
 function isFourNodeAttributes(attributes) {
   return attributes?.form_factor === 'four_node' || attributes?.设备形态 === '四节点服务器'
@@ -883,6 +888,7 @@ function createFourNodeList() {
     name,
     device_name: '',
     serial_no: '',
+    status: 0,
     cpu_count: null,
     cpu_model: '',
     cpu_cores: null,
@@ -906,6 +912,7 @@ function normalizeFourNodeList(nodes) {
       ...fallback,
       device_name: String(matched.device_name || matched.deviceName || matched.name || ''),
       serial_no: String(matched.serial_no || matched.serialNo || ''),
+      status: normalizeDeviceStatusValue(matched.status, fallback.status),
       cpu_count: matched.cpu_count ?? matched.cpuCount ?? null,
       cpu_model: String(matched.cpu_model || matched.cpuModel || matched.cpu || ''),
       cpu_cores: matched.cpu_cores ?? matched.cpuCores ?? null,
@@ -928,11 +935,27 @@ function formatFourNodeCpu(node) {
     .join(' / ') || '-'
 }
 
+function normalizeDeviceStatusValue(value, fallback = 0) {
+  const status = Number(value)
+  return deviceStatusOptions.some((item) => item.value === status) ? status : fallback
+}
+
+function aggregateFourNodeStatus(nodes) {
+  const statuses = normalizeFourNodeList(nodes).map((node) => normalizeDeviceStatusValue(node.status, 0))
+  if (!statuses.length) return 0
+  if (statuses.every((status) => status === 4)) return 4
+  if (statuses.some((status) => status === 3)) return 3
+  if (statuses.some((status) => status === 1)) return 1
+  if (statuses.some((status) => status === 0)) return 0
+  return statuses[0] ?? 0
+}
+
 function serializeFourNodeList(nodes) {
   return normalizeFourNodeList(nodes).map((node) => ({
     name: node.name,
     device_name: String(node.device_name || '').trim(),
     serial_no: String(node.serial_no || '').trim(),
+    status: normalizeDeviceStatusValue(node.status, 0),
     cpu_count: node.cpu_count === null || node.cpu_count === '' ? null : Number(node.cpu_count),
     cpu_model: String(node.cpu_model || '').trim(),
     cpu_cores: node.cpu_cores === null || node.cpu_cores === '' ? null : Number(node.cpu_cores),
@@ -1522,15 +1545,16 @@ async function submitDevice() {
   try {
     await ensureDeviceBrandAndModel()
     const attributes = {
-      ...buildAttributesFromList(deviceModal.form.attributeList),
+      ...(isFourNode ? {} : buildAttributesFromList(deviceModal.form.attributeList)),
       form_factor: isFourNode ? 'four_node' : 'standard',
       设备形态: isFourNode ? '四节点服务器' : '标准设备',
     }
-    Object.assign(attributes, applyIpmiInfoToAttributes(attributes))
+    if (!isFourNode) Object.assign(attributes, applyIpmiInfoToAttributes(attributes))
     if (isFourNode) {
       attributes.node_count = '4'
       attributes.节点数量 = '4'
       attributes.nodes = serializeFourNodeList(deviceModal.form.nodeList)
+      deviceModal.form.status = aggregateFourNodeStatus(attributes.nodes)
     } else {
       delete attributes.node_count
       delete attributes.节点数量
@@ -2837,7 +2861,7 @@ onBeforeUnmount(() => {
 .node-detail-grid,
 .four-node-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 10px;
 }
 
@@ -2884,12 +2908,39 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 
-.node-detail-card span {
-  overflow: hidden;
+.node-detail-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px 10px;
+}
+
+.node-detail-fields span {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 58px minmax(0, 1fr);
+  align-items: start;
+  gap: 6px;
   color: #475569;
   font-size: 12px;
-  text-overflow: ellipsis;
+  line-height: 1.45;
+}
+
+.node-detail-fields span.wide {
+  grid-column: 1 / -1;
+}
+
+.node-detail-fields b {
+  color: #64748b;
+  font-weight: 500;
   white-space: nowrap;
+}
+
+.node-detail-fields em {
+  min-width: 0;
+  color: #0f172a;
+  font-style: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .detail-section-head {

@@ -79,6 +79,53 @@ def format_device_config(attributes: dict) -> str:
     return " | ".join(parts)
 
 
+def format_four_node_config(node: dict) -> str:
+    node_data = node if isinstance(node, dict) else {}
+    cpu_parts = [
+        f"{node_data.get('cpu_count')}颗" if node_data.get("cpu_count") not in (None, "") else "",
+        text(node_data.get("cpu_model")),
+        f"{node_data.get('cpu_cores')}核" if node_data.get("cpu_cores") not in (None, "") else "",
+    ]
+    parts = [" / ".join(item for item in cpu_parts if item)]
+    for key in ("memory", "disk"):
+        value = text(node_data.get(key))
+        if value:
+            parts.append(value)
+    return " | ".join(item for item in parts if item)
+
+
+def is_four_node_device(attributes: dict) -> bool:
+    attrs = attributes if isinstance(attributes, dict) else {}
+    return (
+        attrs.get("form_factor") == "four_node"
+        or attrs.get("设备形态") == "四合一服务器"
+        or text(attrs.get("node_count") or attrs.get("节点数量")) == "4"
+    )
+
+
+def normalize_four_node_list(attributes: dict) -> list[dict]:
+    attrs = attributes if isinstance(attributes, dict) else {}
+    nodes = attrs.get("nodes") if isinstance(attrs.get("nodes"), list) else []
+    if is_four_node_device(attrs):
+        normalized = [node for node in nodes if isinstance(node, dict)]
+        result = []
+        for index in range(1, 5):
+            node = normalized[index - 1] if index <= len(normalized) else {}
+            result.append({"name": f"Node {index}", **node})
+        return result
+    if nodes:
+        return [node for node in nodes if isinstance(node, dict)]
+    return []
+
+
+def normalize_device_status(value, default: int = 0) -> int:
+    try:
+        status = int(value)
+    except (TypeError, ValueError):
+        return default
+    return status if status in {0, 1, 3, 4} else default
+
+
 def device_to_card_row(device: AssetDevice) -> dict:
     attrs = device.attributes if isinstance(device.attributes, dict) else {}
     cabinet = device.cabinet
@@ -95,6 +142,7 @@ def device_to_card_row(device: AssetDevice) -> dict:
         "business_ip": device.business_ip or "",
         "u_position": device.u_position,
         "u_height": device.u_height,
+        "status": normalize_device_status(device.status, 0),
         "cabinet": cabinet.name if cabinet else "",
         "location": location.name if location else "",
         "region": region.name if region else "",
@@ -106,12 +154,45 @@ def device_to_card_row(device: AssetDevice) -> dict:
     }
 
 
+def device_to_sales_rows(device: AssetDevice) -> list[dict]:
+    row = device_to_card_row(device)
+    attrs = row["attributes"]
+    nodes = normalize_four_node_list(attrs)
+    if not nodes or not is_four_node_device(attrs):
+        return [row]
+
+    rows = []
+    for index, node in enumerate(nodes[:4], start=1):
+        node_status = normalize_device_status(node.get("status"), 0)
+        node_name = text(node.get("name"), f"Node {index}")
+        display_name = text(node.get("device_name"), f"{row['name']}-{node_name}")
+        rows.append(
+            {
+                **row,
+                "id": f"{row['id']}:{node_name}",
+                "parent_id": row["id"],
+                "asset_no": f"{row['asset_no']}-{node_name}" if row["asset_no"] else node_name,
+                "name": display_name,
+                "serial_no": text(node.get("serial_no"), row["serial_no"]),
+                "mgmt_ip": text(node.get("mgmt_ip") or node.get("ipmi_host"), row["mgmt_ip"]),
+                "business_ip": text(node.get("business_ip"), row["business_ip"]),
+                "config": format_four_node_config(node) or row["config"],
+                "remark": text(node.get("remark"), row["remark"]),
+                "status": node_status,
+                "node_name": node_name,
+                "parent_name": row["name"],
+                "is_four_node": True,
+            }
+        )
+    return rows
+
+
 @router.get("/free-devices", summary="空闲设备销售看板")
 async def free_devices(
     region_id: int | None = Query(None, description="地区ID"),
     keyword: str = Query("", description="设备名称、型号、资产编号"),
 ):
-    query = AssetDevice.filter(status=0).select_related("region", "location", "cabinet")
+    query = AssetDevice.filter(type=0).select_related("region", "location", "cabinet")
     if region_id:
         query = query.filter(region_id=region_id)
     rows = await query.order_by("region__name", "location__name", "cabinet__name", "u_position", "name")
@@ -119,14 +200,6 @@ async def free_devices(
     keyword_text = keyword.strip().lower()
     groups: dict[str, dict] = {}
     for device in rows:
-        row = device_to_card_row(device)
-        if keyword_text:
-            haystack = " ".join(
-                str(row.get(key) or "")
-                for key in ["asset_no", "name", "brand", "model", "serial_no", "mgmt_ip", "business_ip", "config"]
-            ).lower()
-            if keyword_text not in haystack:
-                continue
         group_key = str(getattr(device.region, "id", 0) or 0)
         if group_key not in groups:
             region = device.region
@@ -141,15 +214,38 @@ async def free_devices(
                 "devices": [],
             }
         group = groups[group_key]
-        group["count"] += 1
-        if row["model"]:
-            group["models"][row["model"]] += 1
-        if row["location"]:
-            group["locations"][row["location"]] += 1
-        group["devices"].append(row)
+        for row in device_to_sales_rows(device):
+            if normalize_device_status(row.get("status"), 0) != 0:
+                continue
+            if keyword_text:
+                haystack = " ".join(
+                    str(row.get(key) or "")
+                    for key in [
+                        "asset_no",
+                        "name",
+                        "brand",
+                        "model",
+                        "serial_no",
+                        "mgmt_ip",
+                        "business_ip",
+                        "config",
+                        "node_name",
+                        "parent_name",
+                    ]
+                ).lower()
+                if keyword_text not in haystack:
+                    continue
+            group["count"] += 1
+            if row["model"]:
+                group["models"][row["model"]] += 1
+            if row["location"]:
+                group["locations"][row["location"]] += 1
+            group["devices"].append(row)
 
     result = []
     for group in groups.values():
+        if not group["count"]:
+            continue
         result.append(
             {
                 **{key: group[key] for key in ["region_id", "region", "country", "city", "count", "devices"]},
