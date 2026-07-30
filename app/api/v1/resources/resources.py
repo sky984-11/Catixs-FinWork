@@ -96,10 +96,13 @@ def format_four_node_config(node: dict) -> str:
 
 def is_four_node_device(attributes: dict) -> bool:
     attrs = attributes if isinstance(attributes, dict) else {}
+    nodes = attrs.get("nodes")
     return (
         attrs.get("form_factor") == "four_node"
         or attrs.get("设备形态") == "四合一服务器"
+        or attrs.get("设备形态") == "四节点服务器"
         or text(attrs.get("node_count") or attrs.get("节点数量")) == "4"
+        or (isinstance(nodes, list) and len([node for node in nodes if isinstance(node, dict)]) >= 4)
     )
 
 
