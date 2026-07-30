@@ -447,7 +447,12 @@
               <n-input-number v-model:value="deviceModal.form.u_position" :min="rackStartU" :max="rackEndU" />
             </n-form-item-gi>
             <n-form-item-gi label="状态">
-              <n-select v-model:value="deviceModal.form.status" :options="deviceStatusOptions" />
+              <n-select
+                v-model:value="deviceModal.form.status"
+                :options="deviceStatusOptions"
+                :disabled="deviceModal.form.form_factor === 'four_node'"
+                :placeholder="deviceModal.form.form_factor === 'four_node' ? '由四节点状态自动计算' : '请选择设备状态'"
+              />
             </n-form-item-gi>
             <n-form-item-gi label="厂商">
               <n-select
@@ -547,7 +552,13 @@
                 <div class="four-node-fields">
                   <n-input v-model:value="node.device_name" size="small" placeholder="设备名称" />
                   <n-input v-model:value="node.serial_no" size="small" placeholder="设备序号" />
-                  <n-select v-model:value="node.status" size="small" :options="deviceStatusOptions" placeholder="节点状态" />
+                  <n-select
+                    v-model:value="node.status"
+                    size="small"
+                    :options="deviceStatusOptions"
+                    placeholder="节点状态"
+                    @update:value="syncFourNodeDeviceStatus"
+                  />
                   <n-input-number v-model:value="node.cpu_count" size="small" placeholder="CPU数量" :min="0" />
                   <n-input v-model:value="node.cpu_model" size="small" placeholder="CPU型号" />
                   <n-input-number v-model:value="node.cpu_cores" size="small" placeholder="CPU核心数" :min="0" />
@@ -950,6 +961,12 @@ function aggregateFourNodeStatus(nodes) {
   return statuses[0] ?? 0
 }
 
+function syncFourNodeDeviceStatus() {
+  if (deviceModal.form.form_factor === 'four_node') {
+    deviceModal.form.status = aggregateFourNodeStatus(deviceModal.form.nodeList)
+  }
+}
+
 function serializeFourNodeList(nodes) {
   return normalizeFourNodeList(nodes).map((node) => ({
     name: node.name,
@@ -1059,9 +1076,9 @@ async function probeDeviceRedfish() {
       ipmi_password: deviceModal.form.ipmi_password,
     })
     applyRedfishResult(res.data || {})
-    window.$message?.success('Redfish 信息已回填')
+    window.$message?.success('Redfish 配置已回填到当前设备')
   } catch (error) {
-    window.$message?.error(error.message || 'Redfish 获取失败')
+    window.$message?.error(error.message || 'Redfish 配置获取失败')
   } finally {
     redfishLoading.value = false
   }
@@ -1445,7 +1462,7 @@ async function submitCabinet() {
     cabinetModal.show = false
     await loadData()
     routeToCabinet(selectedRegionId.value, res.data?.id || selectedCabinetId.value)
-    window.$message?.success(payload.id ? '机柜已更新' : '机柜已新增')
+    window.$message?.success(payload.id ? `机柜 ${name} 已更新` : `机柜 ${name} 已新增`)
   } finally {
     cabinetModal.submitting = false
   }
@@ -1455,7 +1472,7 @@ async function deleteCabinet(cabinet) {
   if (!cabinet?.id) return
   const count = cabinetDeviceCount(cabinet.id)
   if (count > 0) {
-    window.$message?.warning('机柜下存在设备，不能删除')
+    window.$message?.warning(`机柜 ${cabinet.name || ''} 下存在设备，不能删除`)
     return
   }
   if (!window.confirm(`确认删除机柜 ${cabinet.name || ''}？`)) return
@@ -1466,7 +1483,7 @@ async function deleteCabinet(cabinet) {
     else routeToCabinet(selectedRegionId.value)
   }
   await loadData()
-  window.$message?.success('机柜已删除')
+  window.$message?.success(`机柜 ${cabinet.name || ''} 已删除`)
 }
 
 function openDeviceModal(device = null, uPosition = null) {
@@ -1490,6 +1507,7 @@ function openDeviceModal(device = null, uPosition = null) {
   if (!device) {
     deviceModal.form.u_position = uPosition || firstAvailableU()
   }
+  if (deviceModal.form.form_factor === 'four_node') syncFourNodeDeviceStatus()
   deviceModal.show = true
 }
 
@@ -1498,6 +1516,7 @@ function handleDeviceFormFactorChange(value) {
     deviceModal.form.type = 0
     deviceModal.form.u_height = Math.min(2, rackVisibleUnitCount.value)
     deviceModal.form.nodeList = normalizeFourNodeList(deviceModal.form.nodeList)
+    syncFourNodeDeviceStatus()
   } else if (!deviceModal.form.u_height || deviceModal.form.u_height < 1) {
     deviceModal.form.u_height = 1
   }
@@ -1582,9 +1601,8 @@ async function submitDevice() {
     const submit = payload.id ? api.assetApi.updateDevice : api.assetApi.createDevice
     await submit(payload)
     deviceModal.show = false
-    await loadData()
-    routeToCabinet(selectedRegionId.value || regionIdByCabinetId(payload.cabinet_id), payload.cabinet_id)
-    window.$message?.success('设备已新增')
+    window.$message?.success(payload.id ? `设备 ${name} 已更新` : `设备 ${name} 已新增`)
+    await loadCabinetDevices()
   } finally {
     deviceModal.submitting = false
   }
@@ -1658,6 +1676,7 @@ function openDeviceCloneModal(device) {
     attributeList: createCloneAttributeList(device.attributes),
     nodeList: isFourNodeDevice ? normalizeCloneFourNodeList(device.attributes?.nodes || []) : createFourNodeList(),
   }
+  if (deviceModal.form.form_factor === 'four_node') syncFourNodeDeviceStatus()
   deviceModal.show = true
 }
 
@@ -1692,8 +1711,9 @@ async function handleRackMenuDelete() {
   const device = rackContextMenu.device
   closeRackContextMenu()
   if (!device?.id) return
+  const deviceName = device.name || '该设备'
   await api.assetApi.deleteDevice({ device_id: device.id })
-  window.$message?.success('设备已删除')
+  window.$message?.success(`设备 ${deviceName} 已删除`)
   await loadData()
   await loadCabinetDevices()
 }
@@ -1939,7 +1959,7 @@ async function openDeviceVnc(device, node = null) {
     vncModal.show = true
   } catch (error) {
     vncModal.show = false
-    window.$message?.error(error.message || '打开 VNC 控制台失败')
+    window.$message?.error(error.message || 'VNC 控制台打开失败')
   } finally {
     vncModal.loading = false
   }
