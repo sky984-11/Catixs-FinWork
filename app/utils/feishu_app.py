@@ -15,6 +15,15 @@ _email_user_id_cache: dict[str, str] = {}
 _mobile_user_id_cache: dict[str, str] = {}
 
 
+def mask_receive_id(value: str | None) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if len(text) <= 6:
+        return "***"
+    return f"{text[:3]}***{text[-3:]}"
+
+
 def feishu_app_enabled() -> bool:
     return bool(str(settings.FEISHU_APP_ID or "").strip() and str(settings.FEISHU_APP_SECRET or "").strip())
 
@@ -28,17 +37,26 @@ async def get_tenant_access_token() -> str:
     app_id = str(settings.FEISHU_APP_ID or "").strip()
     app_secret = str(settings.FEISHU_APP_SECRET or "").strip()
     if not app_id or not app_secret:
+        logger.warning("feishu tenant token skipped: app_id_or_secret_missing")
         return ""
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.post(
-            f"{FEISHU_API_BASE}/auth/v3/tenant_access_token/internal",
-            json={"app_id": app_id, "app_secret": app_secret},
-        )
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"{FEISHU_API_BASE}/auth/v3/tenant_access_token/internal",
+                json={"app_id": app_id, "app_secret": app_secret},
+            )
+    except Exception:
+        logger.exception("feishu tenant token request failed")
+        return ""
     try:
         data = response.json()
     except ValueError:
-        logger.error("feishu tenant token response is not json: %s", response.text)
+        logger.error(
+            "feishu tenant token response is not json: status=%s body=%s",
+            response.status_code,
+            response.text[:1000],
+        )
         return ""
 
     token = data.get("tenant_access_token") or ""
@@ -48,6 +66,7 @@ async def get_tenant_access_token() -> str:
 
     _tenant_access_token = token
     _tenant_access_token_expire_at = now + int(data.get("expire") or 7200)
+    logger.info("feishu tenant token refreshed: expire_seconds=%s", int(data.get("expire") or 7200))
     return _tenant_access_token
 
 
@@ -59,36 +78,66 @@ async def send_feishu_app_card(
 ) -> bool:
     receive_id = str(receive_id or "").strip()
     if not receive_id:
+        logger.warning("feishu app message skipped: receive_id_empty receive_id_type=%s", receive_id_type)
         return False
     token = await get_tenant_access_token()
     if not token:
+        logger.error(
+            "feishu app message skipped: tenant_token_missing receive_id_type=%s receive_id=%s",
+            receive_id_type,
+            mask_receive_id(receive_id),
+        )
         return False
 
+    content = json.dumps(card, ensure_ascii=False)
     payload = {
         "receive_id": receive_id,
         "msg_type": "interactive",
-        "content": json.dumps(card, ensure_ascii=False),
+        "content": content,
     }
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.post(
-            f"{FEISHU_API_BASE}/im/v1/messages",
-            params={"receive_id_type": receive_id_type},
-            headers={"Authorization": f"Bearer {token}"},
-            json=payload,
+    content_bytes = len(content.encode("utf-8"))
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"{FEISHU_API_BASE}/im/v1/messages",
+                params={"receive_id_type": receive_id_type},
+                headers={"Authorization": f"Bearer {token}"},
+                json=payload,
+            )
+    except Exception:
+        logger.exception(
+            "feishu app message request failed: receive_id_type=%s receive_id=%s content_bytes=%s",
+            receive_id_type,
+            mask_receive_id(receive_id),
+            content_bytes,
         )
+        return False
     try:
         data = response.json()
     except ValueError:
-        logger.error("feishu app message response is not json: %s", response.text)
+        logger.error(
+            "feishu app message response is not json: receive_id_type=%s receive_id=%s status=%s content_bytes=%s body=%s",
+            receive_id_type,
+            mask_receive_id(receive_id),
+            response.status_code,
+            content_bytes,
+            response.text[:1000],
+        )
         return False
 
     if response.status_code == 200 and data.get("code") == 0:
-        logger.info("feishu app message sent: receive_id_type=%s receive_id=%s", receive_id_type, receive_id)
+        logger.info(
+            "feishu app message sent: receive_id_type=%s receive_id=%s content_bytes=%s",
+            receive_id_type,
+            mask_receive_id(receive_id),
+            content_bytes,
+        )
         return True
 
     logger.error(
         f"feishu app message failed: receive_id_type={receive_id_type} "
-        f"receive_id={receive_id} status={response.status_code} data={data}"
+        f"receive_id={mask_receive_id(receive_id)} status={response.status_code} "
+        f"content_bytes={content_bytes} data={data}"
     )
     return False
 

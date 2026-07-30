@@ -15,6 +15,7 @@ from app.utils.feishu_app import (
     feishu_app_enabled,
     lookup_feishu_user_id_by_email,
     lookup_feishu_user_id_by_mobile,
+    mask_receive_id,
     send_feishu_app_card,
 )
 from tortoise.expressions import Q
@@ -112,6 +113,7 @@ async def notify_project_due(
 
 async def notify_project_daily_summary(now: datetime | None = None) -> bool:
     if not feishu_app_enabled():
+        logger.warning("project daily summary skipped: feishu_app_disabled")
         return False
 
     now = now or datetime.now()
@@ -124,8 +126,15 @@ async def notify_project_daily_summary(now: datetime | None = None) -> bool:
         defaults={"status": "sending", "message": "sending"},
     )
     if not created and record.status == "success":
+        logger.info("project daily summary skipped: already_sent summary_date=%s", summary_date)
         return False
     if not created and not should_retry_daily_summary_record(record, now):
+        logger.info(
+            "project daily summary skipped: waiting_retry_window summary_date=%s status=%s updated_at=%s",
+            summary_date,
+            record.status,
+            record.updated_at,
+        )
         return False
 
     if not created:
@@ -135,16 +144,30 @@ async def notify_project_daily_summary(now: datetime | None = None) -> bool:
         await record.save()
 
     sections, owners = await build_daily_summary_sections()
+    logger.info(
+        "project daily summary sending: summary_date=%s created=%s owners=%s sections=%s",
+        summary_date,
+        created,
+        owners,
+        [(section.get("key"), section.get("count"), section.get("open_task_count")) for section in sections],
+    )
     try:
-        success = await send_daily_summary_to_people(summary_date.isoformat(), owners)
+        success, detail_message = await send_daily_summary_to_people(summary_date.isoformat(), owners)
     except Exception:
         logger.exception("project daily summary feishu notification failed")
         success = False
+        detail_message = "exception"
 
     record.status = "success" if success else "failed"
     record.sent_at = now if success else None
-    record.message = "sent" if success else "feishu app failed"
+    record.message = detail_message[:1000] if detail_message else ("sent" if success else "feishu app failed")
     await record.save()
+    logger.info(
+        "project daily summary finished: summary_date=%s status=%s message=%s",
+        summary_date,
+        record.status,
+        record.message,
+    )
     return success
 
 
@@ -275,19 +298,43 @@ async def notify_project_task(
         return False
 
 
-async def send_daily_summary_to_people(summary_date: str, owners: list[str]) -> bool:
+async def send_daily_summary_to_people(summary_date: str, owners: list[str]) -> tuple[bool, str]:
     recipients = unique_people(owners)
     if not recipients:
-        return False
+        logger.warning("project daily summary skipped: no_recipients summary_date=%s", summary_date)
+        return False, "no recipients"
     sent = 0
+    failed = 0
+    skipped = 0
+    details = []
     for owner in recipients:
         sections, _ = await build_daily_summary_sections(owner_filter=owner)
         if not any(section.get("projects") for section in sections):
+            skipped += 1
+            details.append(f"{owner}:skipped(no_projects)")
+            logger.info(
+                "project daily summary recipient skipped: summary_date=%s recipient=%s reason=no_projects",
+                summary_date,
+                owner,
+            )
             continue
         card = build_project_daily_summary_card(summary_date=summary_date, sections=sections, recipient=owner)
-        if await send_card_to_person(owner, card):
+        card_bytes = len(json.dumps(card, ensure_ascii=False).encode("utf-8"))
+        ok, detail = await send_card_to_person_detail(owner, card, card_bytes=card_bytes)
+        details.append(f"{owner}:{detail}")
+        if ok:
             sent += 1
-    return sent > 0
+        else:
+            failed += 1
+    success = sent > 0
+    message = f"sent={sent} failed={failed} skipped={skipped} recipients={len(recipients)}; " + "; ".join(details)
+    logger.info(
+        "project daily summary recipients finished: summary_date=%s success=%s %s",
+        summary_date,
+        success,
+        message,
+    )
+    return success, message
 
 
 async def notify_project_created(project: CustomerProject, creator: User | None = None) -> bool:
@@ -435,19 +482,36 @@ def parse_mention_map(raw: str | None) -> dict[str, str]:
 
 
 async def send_card_to_person(person: str, card: dict) -> bool:
+    ok, _ = await send_card_to_person_detail(person, card)
+    return ok
+
+
+async def send_card_to_person_detail(person: str, card: dict, card_bytes: int | None = None) -> tuple[bool, str]:
     receive_id_type, receive_id = await resolve_feishu_receiver(person)
     if not receive_id:
         logger.warning("feishu receiver not resolved for project person: %s", person)
-        return False
+        return False, "failed(receiver_not_resolved)"
+    card_bytes = card_bytes if card_bytes is not None else len(json.dumps(card, ensure_ascii=False).encode("utf-8"))
+    safe_receive_id = mask_receive_id(receive_id)
+    logger.info(
+        "project feishu recipient resolved: person=%s receive_id_type=%s receive_id=%s card_bytes=%s",
+        person,
+        receive_id_type,
+        safe_receive_id,
+        card_bytes,
+    )
     try:
-        return await send_feishu_app_card(
+        ok = await send_feishu_app_card(
             receive_id=receive_id,
             receive_id_type=receive_id_type,
             card=card,
         )
+        if ok:
+            return True, f"sent({receive_id_type}:{safe_receive_id},bytes={card_bytes})"
+        return False, f"failed(api_false,{receive_id_type}:{safe_receive_id},bytes={card_bytes})"
     except Exception:
         logger.exception("feishu app message failed for project person: %s", person)
-        return False
+        return False, f"failed(exception,{receive_id_type}:{safe_receive_id},bytes={card_bytes})"
 
 
 async def resolve_feishu_receiver(person: str) -> tuple[str, str]:
