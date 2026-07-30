@@ -280,7 +280,8 @@ async def send_project_daily_summary_card(
                 task_title = markdown_link(task.get("title"), task.get("url"))
                 task_index = task.get("index") or len(task_parts) + 1
                 task_due = task.get("due_date") or "未设置"
-                task_parts.append(f"{project_index}.{task_index} {task_title}（ETA {task_due}）")
+                task_assignee = task.get("assignee") or "未设置负责人"
+                task_parts.append(f"{project_index}.{task_index} {task_title}（{task_assignee} / ETA {task_due}）")
             task_text = "；".join(task_parts) if task_parts else "暂无未完成子任务"
             if len(tasks) > 3:
                 task_text += f"；另有 {len(tasks) - 3} 项"

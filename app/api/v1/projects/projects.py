@@ -383,6 +383,12 @@ async def delete_project_discussion(discussion_id: int = Query(..., description=
 async def create_project_task(task_in: ProjectTaskCreate):
     project_obj = await customer_project_controller.get(id=task_in.project_id)
     payload = task_in.model_dump(exclude={"project_id"})
+    payload["title"] = str(payload.get("title") or "").strip()
+    payload["assignee"] = str(payload.get("assignee") or "").strip()
+    if not payload["title"]:
+        return Success(msg="任务标题不能为空", code=400)
+    if not payload["assignee"]:
+        return Success(msg="任务负责人不能为空", code=400)
     task = await CustomerProjectTask.create(project=project_obj, **payload)
     try:
         await notify_project_task_created(task, project_obj, await get_current_project_user())

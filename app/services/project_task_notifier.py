@@ -245,6 +245,7 @@ async def build_daily_summary_sections(owner_filter: str | None = None) -> tuple
                             "index": task_index,
                             "id": task.id,
                             "title": task.title,
+                            "assignee": task.assignee or "",
                             "due_date": format_due_date(task.due_date),
                             "url": build_project_url(project.id, task.id),
                         }

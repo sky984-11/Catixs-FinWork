@@ -113,6 +113,7 @@ const currencyOptions = ['USD', 'CNY', 'HKD', 'EUR', 'GBP', 'SGD', 'JPY'].map((i
 const modalForm = reactive(createEmptyForm())
 const taskForm = reactive(createEmptyTaskForm())
 const taskEditForm = reactive(createEmptyTaskEditForm())
+const taskCreateSubmitted = ref(false)
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
@@ -186,6 +187,8 @@ const taskStats = computed(() => {
     percent: tasks.length ? Math.round((done / tasks.length) * 100) : 0,
   }
 })
+const taskTitleInvalid = computed(() => taskCreateSubmitted.value && !String(taskForm.title || '').trim())
+const taskAssigneeInvalid = computed(() => taskCreateSubmitted.value && !String(taskForm.assignee || '').trim())
 const discussionTaskOptions = computed(() =>
   (detailProject.value?.tasks || []).map((task) => ({
     label: `${task.is_done ? '已完成' : '未完成'} · ${task.title}`,
@@ -326,6 +329,7 @@ function resetForm() {
 
 function resetTaskForm() {
   Object.assign(taskForm, createEmptyTaskForm())
+  taskCreateSubmitted.value = false
 }
 
 function openAdd(status = 'planning') {
@@ -546,11 +550,23 @@ async function deleteDiscussion(item) {
 }
 
 async function addTask() {
-  if (!taskForm.title.trim() || !detailProject.value) return
+  if (!detailProject.value) return
+  taskCreateSubmitted.value = true
+  const title = String(taskForm.title || '').trim()
+  const assignee = String(taskForm.assignee || '').trim()
+  if (!title) {
+    window.$message?.warning?.('请输入任务标题')
+    return
+  }
+  if (!assignee) {
+    window.$message?.warning?.('请选择任务负责人')
+    return
+  }
   await api.projectApi.createTask({
     project_id: detailProject.value.id,
     ...taskForm,
-    title: taskForm.title.trim(),
+    title,
+    assignee,
   })
   resetTaskForm()
   await loadProjectDetail(detailProject.value.id)
@@ -1306,13 +1322,18 @@ onMounted(async () => {
 
             <NTabPane name="tasks" tab="任务">
               <div class="task-create">
-                <NInput v-model:value="taskForm.title" placeholder="任务标题" />
+                <NInput
+                  v-model:value="taskForm.title"
+                  placeholder="任务标题（必填）"
+                  :status="taskTitleInvalid ? 'error' : undefined"
+                />
                 <NSelect
                   v-model:value="taskForm.assignee"
                   filterable
                   clearable
                   :options="userOptions"
-                  placeholder="负责人"
+                  placeholder="负责人（必填）"
+                  :status="taskAssigneeInvalid ? 'error' : undefined"
                 />
                 <NDatePicker
                   v-model:formatted-value="taskForm.due_date"
