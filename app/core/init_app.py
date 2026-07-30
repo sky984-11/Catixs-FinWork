@@ -959,6 +959,7 @@ async def ensure_business_api_permissions():
         | Q(method="GET", path="/api/v1/project/get")
         | Q(method="GET", path="/api/v1/resource/free-devices")
         | Q(method="GET", path="/api/v1/resource/zenlayer-pricing")
+        | Q(method="POST", path="/api/v1/resource/zenlayer-pricing/quote")
         | Q(method="GET", path="/api/v1/resource/ipxo/resources")
     )
     manage_apis = await Api.filter(

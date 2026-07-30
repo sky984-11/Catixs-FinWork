@@ -97,6 +97,7 @@ export default {
   resourceApi: {
     freeDevices: (params = {}) => request.get('/resource/free-devices', { params }),
     zenlayerPricing: () => request.get('/resource/zenlayer-pricing'),
+    zenlayerQuote: (data = {}) => request.post('/resource/zenlayer-pricing/quote', data),
     ipxoResources: (params = {}) => request.get('/resource/ipxo/resources', { params }),
   },
 

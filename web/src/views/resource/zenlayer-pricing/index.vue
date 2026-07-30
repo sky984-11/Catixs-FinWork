@@ -1,156 +1,589 @@
 <template>
   <CommonPage show-footer title="层峰价格">
     <template #action>
-      <n-button :loading="loading" secondary @click="loadData">刷新</n-button>
+      <n-button :loading="loadingOptions" secondary @click="loadOptions">刷新</n-button>
     </template>
 
-    <div class="pricing-page">
-      <section class="pricing-toolbar">
-        <n-input v-model:value="keyword" clearable placeholder="搜索区域、起点、终点" />
-        <n-select v-model:value="bandwidth" :options="bandwidthOptions" />
-      </section>
-
-      <section class="pricing-note">
-        <strong>SDN 价格参考</strong>
-        <span>{{ note }}</span>
-      </section>
-
-      <div class="pricing-grid">
-        <article v-for="row in filteredRows" :key="`${row.from}-${row.to}-${row.bandwidth}`" class="price-card">
-          <div>
-            <span>{{ row.area }}</span>
-            <h2>{{ row.from }} → {{ row.to }}</h2>
+    <div class="zenlayer-page">
+      <section class="quote-shell">
+        <aside class="quote-form">
+          <div class="panel-head">
+            <span>报价参数</span>
+            <strong>{{ activeServiceLabel }}</strong>
           </div>
-          <div class="price-card__price">
-            <strong>${{ scalePrice(row.monthly_usd) }}</strong>
-            <span>/ 月</span>
+
+          <n-form label-placement="top" :show-feedback="false">
+            <n-form-item label="客户要询什么服务？">
+              <n-select
+                v-model:value="form.service"
+                :options="serviceOptions"
+                placeholder="请选择服务"
+                @update:value="resetResult"
+              />
+            </n-form-item>
+
+            <template v-if="form.service === 'datacenter_port'">
+              <n-form-item label="机房">
+                <n-cascader
+                  v-model:value="form.dcId"
+                  :options="datacenterCascaderOptions"
+                  filterable
+                  clearable
+                  check-strategy="child"
+                  placeholder="选择机房"
+                />
+              </n-form-item>
+              <n-form-item label="端口规格">
+                <n-select v-model:value="form.portType" :options="portTypeOptions" />
+              </n-form-item>
+            </template>
+
+            <template v-else-if="needsEndpoints">
+              <div class="endpoint-grid">
+                <n-form-item label="A 点机房">
+                  <n-cascader
+                    v-model:value="form.endpointA"
+                    :options="datacenterCascaderOptions"
+                    filterable
+                    clearable
+                    check-strategy="child"
+                    placeholder="A 点"
+                  />
+                </n-form-item>
+                <n-form-item label="Z 点机房">
+                  <n-cascader
+                    v-model:value="form.endpointZ"
+                    :options="datacenterCascaderOptions"
+                    filterable
+                    clearable
+                    check-strategy="child"
+                    placeholder="Z 点"
+                  />
+                </n-form-item>
+              </div>
+              <n-form-item v-if="form.service === 'private_connect'" label="端口规格">
+                <n-select v-model:value="form.portType" :options="portTypeOptions" />
+              </n-form-item>
+              <div class="endpoint-grid">
+                <n-form-item label="带宽">
+                  <n-select v-model:value="form.bandwidthMbps" :options="bandwidthOptions" />
+                </n-form-item>
+                <n-form-item label="计费方式">
+                  <n-select v-model:value="form.internetType" :options="internetTypeOptions" />
+                </n-form-item>
+              </div>
+              <n-form-item v-if="form.service === 'private_connect_bandwidth'" label="服务等级">
+                <n-select v-model:value="form.serviceLevel" :options="serviceLevelOptions" />
+              </n-form-item>
+            </template>
+
+            <n-checkbox v-model:checked="form.buildCrossConnectWithAssisted">
+              需要协助 Cross Connect
+            </n-checkbox>
+          </n-form>
+
+          <div class="form-actions">
+            <n-button type="primary" :loading="quoting" @click="generateQuote">{{ primaryActionLabel }}</n-button>
+            <n-button secondary :disabled="!quote.costItems.length" @click="copyQuote">复制报价</n-button>
           </div>
-          <footer>
-            <span>{{ bandwidth }}</span>
-            <em>{{ row.unit }}</em>
-          </footer>
-        </article>
-      </div>
+
+          <p class="hint">
+            机房列表从 Zenlayer 加载；报价使用后台保存的 API 密钥实时查询。
+          </p>
+        </aside>
+
+        <main class="quote-result">
+          <div class="result-head">
+            <div>
+              <span>报价结果</span>
+              <strong>{{ quoteStatus }}</strong>
+            </div>
+            <n-tag :type="sourceTagType" round>{{ sourceLabel }}</n-tag>
+          </div>
+
+          <n-alert v-if="errorMessage" type="error" :bordered="false" closable @close="errorMessage = ''">
+            {{ errorMessage }}
+          </n-alert>
+
+          <div class="summary-grid">
+            <div v-for="item in summaryCards" :key="item.label" class="summary-card">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </div>
+          </div>
+
+          <div v-if="form.service === 'datacenter_lookup'" class="dc-list">
+            <div v-for="item in datacenters" :key="item.dcId" class="dc-item">
+              <strong>{{ item.label }}</strong>
+              <span>{{ item.serviceTypes?.join(' / ') || '服务类型未返回' }}</span>
+            </div>
+          </div>
+
+          <div v-else class="cost-table">
+            <div class="cost-row cost-row--head">
+              <span>成本项</span>
+              <span>供应商原价</span>
+              <span>报价成本</span>
+              <span>建议售价 +20%</span>
+              <span>建议售价 +30%</span>
+              <span>建议售价 +40%</span>
+              <span>30% 毛利售价</span>
+              <span>计费单位</span>
+            </div>
+            <div v-if="!quote.costItems.length" class="empty-state">
+              生成报价后会在这里显示成本明细。
+            </div>
+            <div v-for="item in quote.costItems" :key="item.name" class="cost-row">
+              <strong>{{ costNameMap[item.name] || item.name }}</strong>
+              <span>{{ money(item.supplier_price, item.currency) }}</span>
+              <span>{{ money(item.quote_cost, item.currency) }}</span>
+              <span>{{ money(item.suggest_20, item.currency) }}</span>
+              <span>{{ money(item.suggest_30, item.currency) }}</span>
+              <span>{{ money(item.suggest_40, item.currency) }}</span>
+              <span>{{ money(item.margin_30, item.currency) }}</span>
+              <span>{{ item.unit || 'MONTH' }}</span>
+            </div>
+          </div>
+
+          <details class="technical">
+            <summary>技术详情</summary>
+            <pre>{{ technicalText }}</pre>
+          </details>
+        </main>
+      </section>
     </div>
   </CommonPage>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
-import { NButton, NInput, NSelect } from 'naive-ui'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useMessage } from 'naive-ui'
+import {
+  NAlert,
+  NButton,
+  NCascader,
+  NCheckbox,
+  NForm,
+  NFormItem,
+  NSelect,
+  NTag,
+} from 'naive-ui'
 
 import CommonPage from '@/components/page/CommonPage.vue'
 import api from '@/api'
 
 defineOptions({ name: 'ResourceZenlayerPricing' })
 
-const loading = ref(false)
-const rows = ref([])
-const note = ref('')
-const keyword = ref('')
-const bandwidth = ref('100M')
-const bandwidthOptions = ['50M', '100M', '200M', '500M', '1G', '10G'].map((item) => ({ label: item, value: item }))
+const message = useMessage()
+const loadingOptions = ref(false)
+const quoting = ref(false)
+const source = ref('fallback')
+const errorMessage = ref('')
+const services = ref([])
+const datacenters = ref([])
+const portTypes = ref(['1G', '10G', '40G'])
+const bandwidths = ref([10, 50, 100, 200, 500, 1000, 2000, 5000, 10000])
+const internetTypes = ref([
+  { label: '固定带宽', value: 'ByBandwidth' },
+  { label: '95计费', value: 'ByInstanceBandwidth95' },
+])
 
-const bandwidthRatio = computed(() => {
-  const value = bandwidth.value
-  if (value.endsWith('G')) return (Number(value.replace('G', '')) * 1000) / 100
-  return Number(value.replace('M', '')) / 100
+const form = reactive({
+  service: 'datacenter_port',
+  dcId: '',
+  endpointA: '',
+  endpointZ: '',
+  portType: '10G',
+  bandwidthMbps: 100,
+  internetType: 'ByBandwidth',
+  serviceLevel: 'Gold',
+  buildCrossConnectWithAssisted: false,
 })
 
-const filteredRows = computed(() => {
-  const key = keyword.value.trim().toLowerCase()
-  if (!key) return rows.value
-  return rows.value.filter((row) => [row.area, row.from, row.to].join(' ').toLowerCase().includes(key))
+const quote = reactive({
+  costItems: [],
+  totalCost: 0,
+  currency: 'USD',
+  stock: '',
+  action: '',
+  payload: {},
+  raw: null,
 })
 
-function scalePrice(price) {
-  return Math.round(Number(price || 0) * bandwidthRatio.value).toLocaleString()
+const costNameMap = {
+  datacenter_port: '机房端口成本',
+  cross_connect_monthly: 'Cross Connect 月费',
+  cross_connect_setup: 'Cross Connect 一次性建设费',
+  private_connect_bandwidth: '专线带宽成本',
+  endpoint_a_access: 'A 点接入成本',
+  endpoint_a_cross_connect_monthly: 'A 点 Cross Connect 月费',
+  endpoint_a_cross_connect_setup: 'A 点 Cross Connect 一次性建设费',
+  endpoint_z_access: 'Z 点接入成本',
+  endpoint_z_cross_connect_monthly: 'Z 点 Cross Connect 月费',
+  endpoint_z_cross_connect_setup: 'Z 点 Cross Connect 一次性建设费',
+  quote_cost: '报价成本',
 }
 
-async function loadData() {
-  loading.value = true
+const serviceLevelOptions = ['Bronze', 'Silver', 'Gold', 'Platinum'].map((item) => ({ label: item, value: item }))
+
+const serviceOptions = computed(() => services.value.map((item) => ({
+  label: item.disabled ? `${item.label}（待补参数）` : item.label,
+  value: item.value,
+  disabled: item.disabled,
+})))
+
+const datacenterCascaderOptions = computed(() => {
+  const areaMap = new Map()
+  datacenters.value.forEach((item) => {
+    const area = item.areaName || 'Other'
+    const city = item.cityName || 'Unknown City'
+    if (!areaMap.has(area)) {
+      areaMap.set(area, { label: area, value: `area:${area}`, children: new Map() })
+    }
+    const areaNode = areaMap.get(area)
+    if (!areaNode.children.has(city)) {
+      areaNode.children.set(city, { label: city, value: `city:${area}:${city}`, children: [] })
+    }
+    areaNode.children.get(city).children.push({
+      label: item.dcName || item.label || item.dcId,
+      value: item.dcId,
+    })
+  })
+  return Array.from(areaMap.values())
+    .sort((a, b) => a.label.localeCompare(b.label))
+    .map((areaNode) => ({
+      label: areaNode.label,
+      value: areaNode.value,
+      children: Array.from(areaNode.children.values())
+        .sort((a, b) => a.label.localeCompare(b.label))
+        .map((cityNode) => ({
+          ...cityNode,
+          children: cityNode.children.sort((a, b) => a.label.localeCompare(b.label)),
+        })),
+    }))
+})
+
+const portTypeOptions = computed(() => portTypes.value.map((item) => ({ label: item, value: item })))
+const bandwidthOptions = computed(() => bandwidths.value.map((item) => ({ label: `${item} Mbps`, value: item })))
+const internetTypeOptions = computed(() => internetTypes.value)
+const activeService = computed(() => services.value.find((item) => item.value === form.service))
+const activeServiceLabel = computed(() => activeService.value?.label || '机房端口')
+const needsEndpoints = computed(() => ['private_connect', 'private_connect_bandwidth'].includes(form.service))
+const quoteStatus = computed(() => (quote.costItems.length ? '报价生成成功。' : '等待生成报价。'))
+const sourceLabel = computed(() => (source.value === 'zenlayer_api' ? 'Zenlayer API' : '本地候选机房'))
+const sourceTagType = computed(() => (source.value === 'zenlayer_api' ? 'success' : 'warning'))
+const primaryActionLabel = computed(() => (form.service === 'datacenter_lookup' ? '查询机房' : '生成报价'))
+
+const summaryCards = computed(() => [
+  { label: '服务', value: activeServiceLabel.value },
+  { label: 'A 点机房', value: selectedDcShortName(form.endpointA || form.dcId) || '-' },
+  { label: 'Z 点机房', value: needsEndpoints.value ? selectedDcShortName(form.endpointZ) || '-' : '-' },
+  { label: '规格', value: needsEndpoints.value ? `${form.bandwidthMbps} Mbps / ${form.portType}` : form.portType },
+  { label: '库存', value: quote.stock === null || quote.stock === undefined || quote.stock === '' ? '-' : quote.stock },
+  { label: '成本合计', value: money(quote.totalCost, quote.currency) },
+])
+
+const technicalText = computed(() => JSON.stringify({
+  action: quote.action,
+  payload: quote.payload,
+  raw: quote.raw,
+}, null, 2))
+
+function selectedDcName(dcId) {
+  const item = datacenters.value.find((row) => row.dcId === dcId)
+  return item?.label || ''
+}
+
+function selectedDcShortName(dcId) {
+  const item = datacenters.value.find((row) => row.dcId === dcId)
+  return item?.dcName || ''
+}
+
+function money(value, currency = 'USD') {
+  return `${currency || 'USD'} ${Number(value || 0).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`
+}
+
+function resetResult() {
+  quote.costItems = []
+  quote.totalCost = 0
+  quote.stock = ''
+  quote.action = ''
+  quote.payload = {}
+  quote.raw = null
+  errorMessage.value = ''
+}
+
+function applyDefaults() {
+  if (!form.dcId && datacenters.value[0]?.dcId) form.dcId = datacenters.value[0].dcId
+  if (!form.endpointA && datacenters.value[0]?.dcId) form.endpointA = datacenters.value[0].dcId
+  if (!form.endpointZ && datacenters.value[1]?.dcId) form.endpointZ = datacenters.value[1].dcId
+}
+
+async function loadOptions() {
+  loadingOptions.value = true
   try {
     const res = await api.resourceApi.zenlayerPricing()
-    rows.value = res?.data?.rows || []
-    note.value = res?.data?.note || ''
+    const data = res?.data || {}
+    source.value = data.source || 'fallback'
+    services.value = data.services || []
+    datacenters.value = data.datacenters || []
+    portTypes.value = data.portTypes || portTypes.value
+    bandwidths.value = data.bandwidthOptions || bandwidths.value
+    internetTypes.value = data.internetTypes || internetTypes.value
+    applyDefaults()
+    if (data.errors?.length) {
+      message.warning('机房列表暂未从 Zenlayer 完整加载，已使用本地候选项。')
+    }
   } finally {
-    loading.value = false
+    loadingOptions.value = false
   }
 }
 
-onMounted(loadData)
+async function generateQuote() {
+  errorMessage.value = ''
+  quoting.value = true
+  try {
+    if (form.service === 'datacenter_lookup') {
+      await loadOptions()
+      quote.action = 'DescribeDatacenters'
+      quote.payload = { isPortAvailable: true }
+      quote.raw = { datacenters: datacenters.value }
+      quote.costItems = []
+      quote.totalCost = 0
+      message.success(`已加载 ${datacenters.value.length} 个可用机房`)
+      return
+    }
+    const res = await api.resourceApi.zenlayerQuote({ ...form })
+    const data = res?.data || {}
+    quote.costItems = data.costItems || []
+    quote.totalCost = data.totalCost || 0
+    quote.currency = data.currency || 'USD'
+    quote.stock = data.stock
+    quote.action = data.action || ''
+    quote.payload = data.payload || {}
+    quote.raw = data.raw || null
+    if (!quote.costItems.length) {
+      errorMessage.value = 'Zenlayer 已返回结果，但没有可展示的成本项，请展开技术详情查看原始返回。'
+    }
+  } catch (error) {
+    errorMessage.value = error?.message || '生成报价失败'
+  } finally {
+    quoting.value = false
+  }
+}
+
+async function copyQuote() {
+  const lines = [
+    `服务：${activeServiceLabel.value}`,
+    `机房：${selectedDcShortName(form.endpointA || form.dcId)}`,
+    needsEndpoints.value ? `Z 点：${selectedDcShortName(form.endpointZ)}` : '',
+    `规格：${needsEndpoints.value ? `${form.bandwidthMbps} Mbps / ${form.portType}` : form.portType}`,
+    ...quote.costItems.map((item) => `${costNameMap[item.name] || item.name}：${money(item.quote_cost, item.currency)} / ${item.unit}`),
+    `成本合计：${money(quote.totalCost, quote.currency)}`,
+  ].filter(Boolean)
+  await navigator.clipboard.writeText(lines.join('\n'))
+  message.success('报价已复制')
+}
+
+onMounted(loadOptions)
 </script>
 
 <style scoped>
-.pricing-page {
-  display: grid;
-  gap: 14px;
+.zenlayer-page {
+  min-height: calc(100vh - 180px);
 }
 
-.pricing-toolbar {
+.quote-shell {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) 180px;
+  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.quote-form,
+.quote-result {
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.06);
+}
+
+.quote-form {
+  padding: 18px;
+}
+
+.quote-result {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.panel-head,
+.result-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.panel-head span,
+.result-head span,
+.summary-card span,
+.hint {
+  color: #5b6b84;
+  font-size: 13px;
+}
+
+.panel-head strong,
+.result-head strong {
+  display: block;
+  margin-top: 4px;
+  color: #111827;
+  font-size: 18px;
+}
+
+.endpoint-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
 
-.pricing-note {
+.form-actions {
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border: 1px solid #cbd5e1;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.hint {
+  margin: 12px 0 0;
+  line-height: 1.7;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.summary-card {
+  padding: 12px;
+  border: 1px solid #dbe3ef;
   border-radius: 8px;
   background: #f8fafc;
 }
 
-.pricing-note span,
-.price-card span,
-.price-card em {
-  color: #64748b;
-}
-
-.pricing-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 14px;
-}
-
-.price-card {
-  display: grid;
-  gap: 18px;
-  padding: 16px;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #fff;
-}
-
-.price-card h2 {
-  margin: 4px 0 0;
+.summary-card strong {
+  display: block;
+  margin-top: 8px;
+  color: #111827;
   font-size: 18px;
+  word-break: break-word;
 }
 
-.price-card__price strong {
-  font-size: 32px;
-  color: #0f172a;
+.cost-table {
+  overflow-x: auto;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
 }
 
-.price-card footer {
-  display: flex;
-  justify-content: space-between;
+.dc-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 10px;
-  border-top: 1px solid #edf2f7;
-  padding-top: 10px;
+  max-height: 520px;
+  overflow: auto;
 }
 
-.price-card em {
-  font-style: normal;
+.dc-item {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.dc-item strong {
+  color: #111827;
+}
+
+.dc-item span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.cost-row {
+  display: grid;
+  grid-template-columns: 1.15fr repeat(6, minmax(110px, 1fr)) 92px;
+  min-width: 980px;
+  border-top: 1px solid #e7edf5;
+}
+
+.cost-row:first-child {
+  border-top: 0;
+}
+
+.cost-row > * {
+  padding: 12px 10px;
+  color: #111827;
+  font-size: 13px;
+}
+
+.cost-row--head {
+  background: #f1f5fb;
+}
+
+.cost-row--head > * {
+  color: #475569;
+  font-weight: 600;
+}
+
+.empty-state {
+  padding: 44px 16px;
+  color: #64748b;
+  text-align: center;
+}
+
+.technical {
+  border-top: 1px solid #dbe3ef;
+  padding-top: 12px;
+  color: #475569;
+}
+
+.technical summary {
+  cursor: pointer;
+}
+
+.technical pre {
+  overflow: auto;
+  max-height: 360px;
+  margin: 12px 0 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #dbeafe;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+@media (max-width: 1180px) {
+  .quote-shell {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 720px) {
-  .pricing-toolbar,
-  .pricing-note {
+  .summary-grid,
+  .endpoint-grid {
     grid-template-columns: 1fr;
-    display: grid;
+  }
+
+  .form-actions {
+    flex-direction: column;
   }
 }
 </style>

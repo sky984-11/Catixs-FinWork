@@ -1,9 +1,13 @@
+import asyncio
+import hashlib
+import hmac
+import json
 import time
 from collections import defaultdict
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Body, Query
 
 from app.log import logger
 from app.models.asset import AssetDevice
@@ -14,9 +18,15 @@ router = APIRouter()
 
 IPXO_TOKEN_URL = "https://hydra.ipxo.com/oauth2/token"
 IPXO_API_BASE = "https://apigw.ipxo.com"
+IPINFO_API_BASE = "https://ipinfo.io"
+IPINFO_BATCH_API_BASE = "https://api.ipinfo.io"
+ZENLAYER_PRODUCT_SDN = "sdn"
+IPXO_RESOURCES_CACHE_TTL = 300
+
 _ipxo_token = ""
 _ipxo_token_expire_at = 0.0
 _ip_geo_cache: dict[str, dict] = {}
+_ipxo_resources_cache: dict[str, tuple[float, dict]] = {}
 
 
 def text(value: Any, default: str = "") -> str:
@@ -29,6 +39,10 @@ def number(value: Any, default: float = 0) -> float:
         return float(value or 0)
     except (TypeError, ValueError):
         return default
+
+
+def round_money(value: Any) -> float:
+    return round(number(value), 2)
 
 
 def pick(data: dict, *keys: str, default: Any = "") -> Any:
@@ -46,9 +60,9 @@ def pick(data: dict, *keys: str, default: Any = "") -> Any:
 
 def format_device_config(attributes: dict) -> str:
     attrs = attributes if isinstance(attributes, dict) else {}
-    cpu = pick(attrs, "CPU型号", "cpu_model", "CPU鍨嬪彿")
-    cpu_count = pick(attrs, "CPU数量", "CPU鏁伴噺", "cpu_count")
-    memory = pick(attrs, "内存容量", "鍐呭瓨瀹归噺", "memory")
+    cpu = pick(attrs, "CPU型号", "cpu_model", "CPU Model")
+    cpu_count = pick(attrs, "CPU数量", "CPU核心数", "cpu_count")
+    memory = pick(attrs, "内存容量", "内存", "memory")
     disk = pick(attrs, "磁盘", "硬盘", "disk")
     parts = []
     if cpu_count or cpu:
@@ -57,7 +71,7 @@ def format_device_config(attributes: dict) -> str:
         parts.append(text(memory))
     if disk:
         parts.append(text(disk))
-    return " · ".join(parts)
+    return " | ".join(parts)
 
 
 def device_to_card_row(device: AssetDevice) -> dict:
@@ -147,20 +161,307 @@ async def free_devices(
     return Success(data={"summary": summary, "regions": result})
 
 
-@router.get("/zenlayer-pricing", summary="层峰价格参考")
-async def zenlayer_pricing():
+def sha256_hex(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def zenlayer_json_payload(payload: dict | None) -> str:
+    return json.dumps(payload or {}, ensure_ascii=False, separators=(",", ":"))
+
+
+async def zenlayer_request(product: str, action: str, payload: dict | None = None) -> tuple[int, dict]:
+    access_key = text(settings.ZENLAYER_ACCESS_KEY_ID)
+    access_secret = text(settings.ZENLAYER_ACCESS_KEY_PASSWORD)
+    if not access_key or not access_secret:
+        return 400, {"error": "Zenlayer credentials are not configured"}
+
+    body = zenlayer_json_payload(payload)
+    body_bytes = body.encode("utf-8")
+    timestamp = str(int(time.time()))
+    content_type = "application/json; charset=utf-8"
+    host = "console.zenlayer.com"
+    signed_headers = "content-type;host"
+    canonical_headers = f"content-type:{content_type}\nhost:{host}\n"
+    canonical_request = "\n".join(["POST", "/", "", canonical_headers, signed_headers, sha256_hex(body_bytes)])
+    string_to_sign = "\n".join(
+        ["ZC2-HMAC-SHA256", timestamp, sha256_hex(canonical_request.encode("utf-8"))]
+    )
+    signature = hmac.new(access_secret.encode("utf-8"), string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
+    headers = {
+        "Authorization": f"ZC2-HMAC-SHA256 Credential={access_key}, SignedHeaders={signed_headers}, Signature={signature}",
+        "Content-Type": content_type,
+        "Host": host,
+        "X-ZC-Action": action,
+        "X-ZC-Timestamp": timestamp,
+        "X-ZC-Signature-Method": "ZC2-HMAC-SHA256",
+        "X-ZC-Version": text(settings.ZENLAYER_SDN_VERSION, "2026-04-01"),
+    }
+    url = f"{text(settings.ZENLAYER_API_BASE, 'https://console.zenlayer.com/api/v2').rstrip('/')}/{product}"
+    async with httpx.AsyncClient(timeout=25.0, trust_env=False) as client:
+        response = await client.post(url, content=body_bytes, headers=headers)
+    try:
+        data = response.json()
+    except ValueError:
+        data = {"raw": response.text[:2000]}
+    return response.status_code, data if isinstance(data, dict) else {"raw": data}
+
+
+def zenlayer_response_body(data: dict) -> dict:
+    if isinstance(data.get("response"), dict):
+        return data["response"]
+    return data
+
+
+def zenlayer_error(data: dict) -> str:
+    body = zenlayer_response_body(data)
+    error = body.get("error") if isinstance(body.get("error"), dict) else {}
+    return text(
+        pick(error, "message", "code")
+        or body.get("message")
+        or data.get("message")
+        or data.get("error")
+        or ""
+    )
+
+
+def normalize_datacenter(item: dict) -> dict:
+    dc_id = text(pick(item, "dcId", "id"))
+    name = text(pick(item, "dcName", "name"), dc_id)
+    city = text(pick(item, "cityName", "city"))
+    area = text(pick(item, "areaName", "area"))
+    display_parts = [value for value in [name if name != dc_id else "", city, area] if value]
+    return {
+        "dcId": dc_id,
+        "dcName": name,
+        "label": " / ".join(display_parts) or dc_id,
+        "cityName": city,
+        "areaName": area,
+        "serviceTypes": item.get("serviceTypes") or [],
+        "raw": item,
+    }
+
+
+def fallback_datacenters() -> list[dict]:
     rows = [
-        {"area": "Asia", "from": "Hong Kong", "to": "Singapore", "bandwidth": "100M", "monthly_usd": 580, "unit": "USD/Mbps/月"},
-        {"area": "Asia", "from": "Hong Kong", "to": "Tokyo", "bandwidth": "100M", "monthly_usd": 620, "unit": "USD/Mbps/月"},
-        {"area": "Asia", "from": "Singapore", "to": "Jakarta", "bandwidth": "100M", "monthly_usd": 680, "unit": "USD/Mbps/月"},
-        {"area": "Europe", "from": "London", "to": "Frankfurt", "bandwidth": "100M", "monthly_usd": 420, "unit": "USD/Mbps/月"},
-        {"area": "US", "from": "Los Angeles", "to": "Ashburn", "bandwidth": "100M", "monthly_usd": 390, "unit": "USD/Mbps/月"},
+        {"dcId": "SIN1", "dcName": "Equinix SG1", "cityName": "Singapore", "areaName": "Asia"},
+        {"dcId": "HKG1", "dcName": "Equinix HK1", "cityName": "Hong Kong", "areaName": "Asia"},
+        {"dcId": "TYO1", "dcName": "Tokyo", "cityName": "Tokyo", "areaName": "Asia"},
+        {"dcId": "LAX1", "dcName": "Los Angeles", "cityName": "Los Angeles", "areaName": "North America"},
+        {"dcId": "LON1", "dcName": "London", "cityName": "London", "areaName": "Europe"},
     ]
+    return [normalize_datacenter(item) for item in rows]
+
+
+def extract_datacenters(data: dict) -> list[dict]:
+    body = zenlayer_response_body(data)
+    rows = (
+        body.get("dataSet")
+        or body.get("dcSet")
+        or body.get("datacenters")
+        or body.get("dataCenters")
+        or body.get("items")
+        or body.get("list")
+        or []
+    )
+    if isinstance(rows, dict):
+        rows = rows.get("items") or rows.get("dataSet") or []
+    if not isinstance(rows, list):
+        return []
+    return [normalize_datacenter(item) for item in rows if isinstance(item, dict) and text(pick(item, "dcId", "id"))]
+
+
+def normalize_zenlayer_price(price: Any) -> dict:
+    if not isinstance(price, dict):
+        return {"original": round_money(price), "discount": round_money(price), "charge_unit": "", "raw": price}
+    original = pick(price, "originalPrice", "unitPrice", "price", "amount", default=0)
+    discount = pick(price, "discountPrice", "discountUnitPrice", "unitPrice", "originalPrice", "price", "amount", default=0)
+    return {
+        "original": round_money(original),
+        "discount": round_money(discount),
+        "charge_unit": text(pick(price, "chargeUnit", "unit", "period")),
+        "currency": text(pick(price, "currency", "currencyCode"), "USD"),
+        "raw": price,
+    }
+
+
+def price_cost_item(name: str, price: Any, stock: Any = None) -> dict | None:
+    normalized = normalize_zenlayer_price(price)
+    cost = normalized["discount"] or normalized["original"]
+    if not cost:
+        return None
+    return {
+        "name": name,
+        "supplier_price": normalized["original"] or cost,
+        "quote_cost": cost,
+        "suggest_20": round_money(cost * 1.2),
+        "suggest_30": round_money(cost * 1.3),
+        "suggest_40": round_money(cost * 1.4),
+        "margin_30": round_money(cost / 0.7),
+        "unit": normalized.get("charge_unit") or "MONTH",
+        "currency": normalized.get("currency") or "USD",
+        "stock": stock,
+        "raw": normalized["raw"],
+    }
+
+
+def build_zenlayer_cost_items(service: str, body: dict) -> list[dict]:
+    if service == "datacenter_port":
+        candidates = [
+            ("datacenter_port", "price"),
+            ("cross_connect_monthly", "crossConnectPrice"),
+            ("cross_connect_setup", "crossConnectOneTimeConstructionPrice"),
+        ]
+    else:
+        candidates = [
+            ("private_connect_bandwidth", "price"),
+            ("endpoint_a_access", "endpointAPrice.price"),
+            ("endpoint_a_cross_connect_monthly", "endpointAPrice.crossConnectPrice"),
+            ("endpoint_a_cross_connect_setup", "endpointAPrice.crossConnectOneTimeConstructionPrice"),
+            ("endpoint_z_access", "endpointZPrice.price"),
+            ("endpoint_z_cross_connect_monthly", "endpointZPrice.crossConnectPrice"),
+            ("endpoint_z_cross_connect_setup", "endpointZPrice.crossConnectOneTimeConstructionPrice"),
+            ("cloud_router_bandwidth", "bandwidthPrice"),
+            ("cloud_onramp_access", "cloudOnrampPrice"),
+            ("ip_transit", "ipTransitPrice"),
+        ]
+    stock = pick(body, "stock", "endpointAPrice.stock", "endpointZPrice.stock", default=None)
+    items = []
+    for name, key in candidates:
+        item = price_cost_item(name, pick(body, key, default=None), stock)
+        if item:
+            items.append(item)
+    if not items and isinstance(body.get("price"), dict):
+        item = price_cost_item("quote_cost", body["price"], body.get("stock"))
+        if item:
+            items.append(item)
+    return items
+
+
+def endpoint_payload(dc_id: str, port_type: str, assisted: bool) -> dict:
+    return {
+        "endpointType": "DATACENTER_PORT",
+        "dcId": dc_id,
+        "portType": port_type,
+        "buildCrossConnectWithAssisted": assisted,
+    }
+
+
+@router.get("/zenlayer-pricing", summary="Zenlayer SDN报价选项")
+async def zenlayer_pricing():
+    errors = []
+    datacenters = []
+    if text(settings.ZENLAYER_ACCESS_KEY_ID) and text(settings.ZENLAYER_ACCESS_KEY_PASSWORD):
+        try:
+            status, data = await zenlayer_request(ZENLAYER_PRODUCT_SDN, "DescribeDatacenters", {"isPortAvailable": True})
+        except Exception as exc:
+            logger.exception("zenlayer datacenter request failed")
+            errors.append({"action": "DescribeDatacenters", "error": str(exc)})
+        else:
+            if status >= 400 or zenlayer_error(data):
+                errors.append({"action": "DescribeDatacenters", "status": status, "data": data})
+            else:
+                datacenters = extract_datacenters(data)
+
+    source = "zenlayer_api" if datacenters else "fallback"
+    datacenters = datacenters or fallback_datacenters()
     return Success(
         data={
-            "source": "local_reference",
-            "note": "参考 Zenlayer SDN 报价页布局；实际下单价格以后可接 Zenlayer API/报价表同步。",
-            "rows": rows,
+            "source": source,
+            "account": text(settings.ZENLAYER_ACCOUNT_EMAIL),
+            "services": [
+                {"label": "机房端口", "value": "datacenter_port"},
+                {"label": "二层专线", "value": "private_connect"},
+                {"label": "已有二层专线升级带宽", "value": "private_connect_bandwidth"},
+                {"label": "云专线接入", "value": "cloud_onramp", "disabled": True},
+                {"label": "三层云路由带宽", "value": "cloud_router_bandwidth", "disabled": True},
+                {"label": "IP Transit", "value": "ip_transit", "disabled": True},
+                {"label": "查询可用机房", "value": "datacenter_lookup"},
+            ],
+            "datacenters": datacenters,
+            "portTypes": ["1G", "10G", "40G"],
+            "bandwidthOptions": [10, 50, 100, 200, 500, 1000, 2000, 5000, 10000],
+            "internetTypes": [
+                {"label": "固定带宽", "value": "ByBandwidth"},
+                {"label": "95计费", "value": "ByInstanceBandwidth95"},
+            ],
+            "errors": errors,
+        }
+    )
+
+
+@router.post("/zenlayer-pricing/quote", summary="Zenlayer SDN生成报价")
+async def zenlayer_quote(payload: dict = Body(default_factory=dict)):
+    service = text(payload.get("service"), "datacenter_port")
+    dc_id = text(payload.get("dcId"))
+    endpoint_a = text(payload.get("endpointA") or payload.get("sourceDcId"))
+    endpoint_z = text(payload.get("endpointZ") or payload.get("destinationDcId"))
+    port_type = text(payload.get("portType"), "10G")
+    bandwidth = int(number(payload.get("bandwidthMbps"), 10))
+    internet_type = text(payload.get("internetType"), "ByBandwidth")
+    service_level = text(payload.get("serviceLevel"), "Gold")
+    assisted = bool(payload.get("buildCrossConnectWithAssisted"))
+
+    action = ""
+    request_payload: dict[str, Any] = {}
+    if service == "datacenter_port":
+        if not dc_id:
+            return Success(code=400, msg="请选择机房")
+        action = "QueryDataCenterPortPrice"
+        request_payload = {"dcId": dc_id, "portType": port_type, "buildCrossConnectWithAssisted": assisted}
+    elif service == "private_connect":
+        if not endpoint_a or not endpoint_z:
+            return Success(code=400, msg="请选择 A/Z 点机房")
+        action = "QueryPrivateConnectPrice"
+        request_payload = {
+            "internetType": internet_type,
+            "bandwidthMbps": bandwidth,
+            "endpointA": endpoint_payload(endpoint_a, port_type, assisted),
+            "endpointZ": endpoint_payload(endpoint_z, port_type, assisted),
+        }
+    elif service == "private_connect_bandwidth":
+        if not endpoint_a or not endpoint_z:
+            return Success(code=400, msg="请选择 A/Z 点机房")
+        action = "QueryPrivateConnectBandwidthPrice"
+        request_payload = {
+            "sourceDcId": endpoint_a,
+            "destinationDcId": endpoint_z,
+            "internetType": internet_type,
+            "bandwidthMbps": bandwidth,
+            "serviceLevel": service_level,
+        }
+    elif service == "datacenter_lookup":
+        return await zenlayer_pricing()
+    else:
+        return Success(code=400, msg="该服务的 Zenlayer 报价参数还需要进一步确认", data={"service": service})
+
+    try:
+        status, data = await zenlayer_request(ZENLAYER_PRODUCT_SDN, action, request_payload)
+    except Exception as exc:
+        logger.exception("zenlayer quote request failed: action=%s payload=%s", action, request_payload)
+        return Success(code=400, msg=f"Zenlayer API请求失败: {exc}", data={"action": action, "payload": request_payload})
+
+    body = zenlayer_response_body(data)
+    error = zenlayer_error(data)
+    if status >= 400 or error:
+        logger.warning("zenlayer quote failed: status=%s action=%s error=%s data=%s", status, action, error, data)
+        return Success(
+            code=400,
+            msg=error or "Zenlayer报价失败",
+            data={"action": action, "payload": request_payload, "status": status, "raw": data},
+        )
+
+    cost_items = build_zenlayer_cost_items(service, body)
+    return Success(
+        data={
+            "source": "zenlayer_api",
+            "service": service,
+            "action": action,
+            "payload": request_payload,
+            "stock": pick(body, "stock", "endpointAPrice.stock", "endpointZPrice.stock", default=None),
+            "costItems": cost_items,
+            "totalCost": round_money(sum(item["quote_cost"] for item in cost_items)),
+            "currency": cost_items[0]["currency"] if cost_items else "USD",
+            "raw": data,
         }
     )
 
@@ -210,71 +511,146 @@ async def ipxo_request(method: str, path: str, token: str, **kwargs) -> tuple[in
 
 async def fetch_ipxo_billing_services(token: str, tenant: str, limit: int) -> tuple[int, dict]:
     per_page = min(max(limit, 1), 100)
-    page = 1
+    pages = max(1, min((limit + per_page - 1) // per_page, 5))
+    path = f"/billing/v1/{tenant}/market/ipv4/services"
+
+    async def fetch_page(client: httpx.AsyncClient, page: int) -> tuple[int, dict]:
+        response = await client.get(path, params={"page": page, "per_page": per_page})
+        try:
+            data = response.json()
+        except ValueError:
+            data = {"raw": response.text[:1000]}
+        return response.status_code, data if isinstance(data, dict) else {"raw": data}
+
+    async with httpx.AsyncClient(
+        base_url=IPXO_API_BASE,
+        timeout=20.0,
+        trust_env=False,
+        headers={"Authorization": f"Bearer {token}", "accept": "application/json"},
+    ) as client:
+        results = await asyncio.gather(*(fetch_page(client, page) for page in range(1, pages + 1)))
+
     rows = []
     last_meta = {}
-    while len(rows) < limit:
-        status, data = await ipxo_request(
-            "GET",
-            f"/billing/v1/{tenant}/market/ipv4/services",
-            token,
-            params={"page": page, "per_page": per_page},
-        )
+    for page_index, (status, data) in enumerate(results, start=1):
         if status >= 400:
-            return status, data if isinstance(data, dict) else {"raw": data}
-        batch = data.get("data") if isinstance(data, dict) else []
+            return status, data
         last_meta = data.get("meta") if isinstance(data, dict) else {}
-        if not isinstance(batch, list) or not batch:
-            break
-        rows.extend(batch)
-        last_page = int(last_meta.get("last_page") or page)
-        if page >= last_page:
-            break
-        page += 1
+        last_page = int(last_meta.get("last_page") or pages)
+        if page_index > last_page:
+            continue
+        batch = data.get("data") if isinstance(data, dict) else []
+        if isinstance(batch, list):
+            rows.extend(batch)
     return 200, {"data": rows[:limit], "meta": last_meta}
 
 
 async def lookup_ip_region(ip_address: str) -> dict:
-    ip_address = text(ip_address)
+    ip_address = text(ip_address).split("/")[0]
     if not ip_address:
         return {}
     if ip_address in _ip_geo_cache:
         return _ip_geo_cache[ip_address]
+    token = text(settings.IPINFO_TOKEN)
+    if not token:
+        logger.info("ipinfo token is not configured")
+        return {}
     try:
-        async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
-            response = await client.get(
-                f"http://ip-api.com/json/{ip_address}",
-                params={"fields": "status,country,countryCode,regionName,city,message"},
-            )
+        async with httpx.AsyncClient(base_url=IPINFO_API_BASE, timeout=8.0, trust_env=True) as client:
+            response = await client.get(f"/{ip_address}/json", params={"token": token})
         data = response.json()
     except Exception as exc:
-        logger.warning(f"ip geolocation lookup failed: ip={ip_address} error={exc}")
+        logger.warning(f"ipinfo geolocation lookup failed: ip={ip_address} error={exc!r}")
         return {}
-    if response.status_code != 200 or data.get("status") != "success":
-        logger.info("ip geolocation unavailable: ip=%s status=%s data=%s", ip_address, response.status_code, data)
+    if response.status_code != 200 or data.get("bogon") or data.get("error"):
+        logger.info("ipinfo geolocation unavailable: ip=%s status=%s data=%s", ip_address, response.status_code, data)
         return {}
-    country = text(data.get("country"))
-    city = text(data.get("city") or data.get("regionName"))
+    country_code = text(data.get("country"))
+    region_name = text(data.get("region"))
+    city = text(data.get("city") or region_name)
     result = {
-        "country": country,
-        "country_code": text(data.get("countryCode")),
+        "country": country_code,
+        "country_code": country_code,
         "city": city,
-        "region": " / ".join(item for item in [country, city] if item) or country,
+        "region_name": region_name,
+        "region": " / ".join(item for item in [country_code, city] if item) or country_code,
+        "source": "ipinfo",
     }
     _ip_geo_cache[ip_address] = result
     return result
 
 
+def normalize_ipinfo_region(data: Any) -> dict:
+    if not isinstance(data, dict) or data.get("bogon") or data.get("error"):
+        return {}
+    geo = data.get("geo") if isinstance(data.get("geo"), dict) else {}
+    raw_country = text(data.get("country"))
+    country_code = text(pick(geo, "country_code", default="") or data.get("country_code") or (raw_country if len(raw_country) <= 3 else ""))
+    country_name = text(pick(geo, "country", default="") or data.get("country_name") or (raw_country if len(raw_country) > 3 else ""))
+    region_name = text(pick(geo, "region", default="") or data.get("region"))
+    city = text(pick(geo, "city", default="") or data.get("city") or region_name)
+    continent = text(data.get("continent") or pick(geo, "continent", default=""))
+    if not country_code and not country_name:
+        return {}
+    country = country_name or country_code
+    return {
+        "country": country,
+        "country_code": country_code,
+        "country_name": country_name,
+        "city": city,
+        "region_name": region_name,
+        "continent": continent,
+        "region": " / ".join(item for item in [country, city] if item) or country,
+        "source": "ipinfo_batch",
+    }
+
+
+async def lookup_ip_regions_batch(addresses: list[str]) -> dict[str, dict]:
+    token = text(settings.IPINFO_TOKEN)
+    normalized_addresses = {address: text(address).split("/")[0] for address in addresses if text(address)}
+    result = {address: _ip_geo_cache[ip] for address, ip in normalized_addresses.items() if ip in _ip_geo_cache}
+    missing_ips = sorted({ip for ip in normalized_addresses.values() if ip and ip not in _ip_geo_cache})
+    if not token or not missing_ips:
+        return result
+
+    batch_payload = missing_ips[:1000]
+    batch_status = 0
+    try:
+        async with httpx.AsyncClient(base_url=IPINFO_BATCH_API_BASE, timeout=2.0, trust_env=True) as client:
+            response = await client.post("/batch/lite", params={"token": token}, json=batch_payload)
+        batch_status = response.status_code
+        data = response.json()
+    except Exception as exc:
+        logger.warning(f"ipinfo lite batch lookup failed: count={len(batch_payload)} error={exc!r}")
+        data = {}
+
+    if isinstance(data, dict) and batch_status == 200:
+        for ip in batch_payload:
+            geo = normalize_ipinfo_region(data.get(ip))
+            if geo:
+                _ip_geo_cache[ip] = geo
+
+    for address, ip in normalized_addresses.items():
+        if ip in _ip_geo_cache:
+            result[address] = _ip_geo_cache[ip]
+    return result
+
+
 def normalize_ipxo_resource(item: dict) -> dict:
-    billing_service = item.get("billing_service") if isinstance(item.get("billing_service"), dict) else {}
-    market_service = item.get("market_service") if isinstance(item.get("market_service"), dict) else {}
     address = pick(item, "billing_service.address", "address", "prefix", "notation", "product_fields.address", default="")
     cidr = pick(item, "billing_service.cidr", "prefix_length", "cidr", "product_fields.cidr", default="")
-    if address and cidr and "/" not in str(address):
-        notation = f"{address}/{cidr}"
-    else:
-        notation = text(address)
-    price = pick(item, "billing_service.recurring_amount", "price", "monthly_price", "recurring_price", "total", "amount", "billing.price", default=0)
+    notation = f"{address}/{cidr}" if address and cidr and "/" not in str(address) else text(address)
+    price = pick(
+        item,
+        "billing_service.recurring_amount",
+        "price",
+        "monthly_price",
+        "recurring_price",
+        "total",
+        "amount",
+        "billing.price",
+        default=0,
+    )
     currency = pick(item, "billing_service.currency", "currency", "price_currency", "billing.currency", default="USD")
     country = pick(item, "geo_country_code", "country", "geodata.0.countryCode", "whois.country", default="")
     status = pick(item, "billing_service.status", "status", "state", "subscription.status", default="")
@@ -291,15 +667,12 @@ def normalize_ipxo_resource(item: dict) -> dict:
         "status": text(status, "unknown"),
         "monthly_price": number(price),
         "currency": text(currency, "USD"),
-        "raw": item,
     }
 
 
 async def enrich_ipxo_regions(items: list[dict]) -> None:
-    by_address = {}
-    for address in [item.get("address") for item in items if item.get("address")]:
-        if address not in by_address:
-            by_address[address] = await lookup_ip_region(address)
+    addresses = sorted({item.get("address") for item in items if item.get("address")})
+    by_address = await lookup_ip_regions_batch(addresses)
     for item in items:
         geo = by_address.get(item.get("address")) or {}
         if geo:
@@ -312,9 +685,20 @@ async def enrich_ipxo_regions(items: list[dict]) -> None:
 
 
 @router.get("/ipxo/resources", summary="IPXO IP资源")
-async def ipxo_resources(limit: int = Query(100, ge=1, le=500)):
+async def ipxo_resources(
+    limit: int = Query(100, ge=1, le=500),
+    refresh: bool = Query(False, description="skip cache and refresh from IPXO"),
+    geo: bool = Query(False, description="enrich region via IPinfo"),
+):
     if not text(settings.IPXO_COMPANY_UUID):
         return Success(code=400, msg="IPXO company uuid is not configured", data={"items": []})
+    cache_key = f"limit:{limit}:geo:{int(geo)}"
+    now = time.time()
+    if not refresh:
+        cached = _ipxo_resources_cache.get(cache_key)
+        if cached and now - cached[0] < IPXO_RESOURCES_CACHE_TTL:
+            cached_data = {**cached[1], "cached": True, "cache_age": round(now - cached[0], 1)}
+            return Success(data=cached_data)
     token = await get_ipxo_token()
     if not token:
         return Success(code=400, msg="IPXO token unavailable", data={"items": []})
@@ -334,7 +718,8 @@ async def ipxo_resources(limit: int = Query(100, ge=1, le=500)):
             if not isinstance(raw_items, list):
                 raw_items = []
             items = [normalize_ipxo_resource(item) for item in raw_items if isinstance(item, dict)]
-            await enrich_ipxo_regions(items)
+            if geo:
+                await enrich_ipxo_regions(items)
             active_items = [item for item in items if item["status"].lower() in {"active", "running"}]
             display_items = active_items
             summary = {
@@ -347,7 +732,15 @@ async def ipxo_resources(limit: int = Query(100, ge=1, le=500)):
                 "currencies": sorted({item["currency"] for item in display_items if item["currency"]}),
                 "registries": sorted({item["registry"] for item in display_items if item["registry"]}),
             }
-            return Success(data={"source": "billing_services", "summary": summary, "items": display_items, "errors": errors})
+            result_data = {
+                "source": "billing_services",
+                "summary": summary,
+                "items": display_items,
+                "errors": errors,
+                "cached": False,
+            }
+            _ipxo_resources_cache[cache_key] = (time.time(), result_data)
+            return Success(data=result_data)
 
     attempts = [
         ("billing_services_alt", "GET", f"/billing/v1/{tenant}/services", {"params": {"limit": limit}}),
@@ -374,7 +767,8 @@ async def ipxo_resources(limit: int = Query(100, ge=1, le=500)):
         if not isinstance(raw_items, list):
             raw_items = []
         items = [normalize_ipxo_resource(item) for item in raw_items if isinstance(item, dict)]
-        await enrich_ipxo_regions(items)
+        if geo:
+            await enrich_ipxo_regions(items)
         active_items = [item for item in items if item["status"].lower() in {"active", "running"}]
         summary = {
             "count": len(items),
@@ -385,6 +779,8 @@ async def ipxo_resources(limit: int = Query(100, ge=1, le=500)):
             "currencies": sorted({item["currency"] for item in items if item["currency"]}),
             "registries": sorted({item["registry"] for item in items if item["registry"]}),
         }
-        return Success(data={"source": source, "summary": summary, "items": items, "errors": errors})
+        result_data = {"source": source, "summary": summary, "items": items, "errors": errors, "cached": False}
+        _ipxo_resources_cache[cache_key] = (time.time(), result_data)
+        return Success(data=result_data)
 
     return Success(code=400, msg="IPXO resource APIs unavailable", data={"items": [], "errors": errors})

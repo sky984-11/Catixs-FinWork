@@ -1,7 +1,7 @@
 <template>
   <CommonPage show-footer title="IPXO">
     <template #action>
-      <n-button :loading="loading" secondary @click="loadData">刷新</n-button>
+      <n-button :loading="loading" secondary @click="loadData(true)">刷新</n-button>
     </template>
 
     <div class="ipxo-page">
@@ -156,10 +156,10 @@ function formatMoney(value) {
   })
 }
 
-async function loadData() {
+async function loadData(refresh = false) {
   loading.value = true
   try {
-    const res = await api.resourceApi.ipxoResources({ limit: 200 })
+    const res = await api.resourceApi.ipxoResources({ limit: 200, refresh })
     items.value = res?.data?.items || []
     summary.value = res?.data?.summary || {}
     errors.value = res?.data?.errors || []
