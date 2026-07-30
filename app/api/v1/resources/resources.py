@@ -351,13 +351,26 @@ def endpoint_payload(dc_id: str, port_type: str, assisted: bool) -> dict:
     }
 
 
+def zenlayer_service_level(value: Any) -> str:
+    level = text(value).upper()
+    if level in {"SINGLE_PROTECTED", "SINGLE_UNPROTECTED"}:
+        return level
+    legacy_map = {
+        "PLATINUM": "SINGLE_PROTECTED",
+        "GOLD": "SINGLE_UNPROTECTED",
+        "SILVER": "SINGLE_UNPROTECTED",
+        "BRONZE": "SINGLE_UNPROTECTED",
+    }
+    return legacy_map.get(level, "SINGLE_UNPROTECTED")
+
+
 @router.get("/zenlayer-pricing", summary="Zenlayer SDN报价选项")
 async def zenlayer_pricing():
     errors = []
     datacenters = []
     if text(settings.ZENLAYER_ACCESS_KEY_ID) and text(settings.ZENLAYER_ACCESS_KEY_PASSWORD):
         try:
-            status, data = await zenlayer_request(ZENLAYER_PRODUCT_SDN, "DescribeDatacenters", {"isPortAvailable": True})
+            status, data = await zenlayer_request(ZENLAYER_PRODUCT_SDN, "DescribeDatacenters", {})
         except Exception as exc:
             logger.exception("zenlayer datacenter request failed")
             errors.append({"action": "DescribeDatacenters", "error": str(exc)})
@@ -377,10 +390,6 @@ async def zenlayer_pricing():
                 {"label": "机房端口", "value": "datacenter_port"},
                 {"label": "二层专线", "value": "private_connect"},
                 {"label": "已有二层专线升级带宽", "value": "private_connect_bandwidth"},
-                {"label": "云专线接入", "value": "cloud_onramp", "disabled": True},
-                {"label": "三层云路由带宽", "value": "cloud_router_bandwidth", "disabled": True},
-                {"label": "IP Transit", "value": "ip_transit", "disabled": True},
-                {"label": "查询可用机房", "value": "datacenter_lookup"},
             ],
             "datacenters": datacenters,
             "portTypes": ["1G", "10G", "40G"],
@@ -403,7 +412,7 @@ async def zenlayer_quote(payload: dict = Body(default_factory=dict)):
     port_type = text(payload.get("portType"), "10G")
     bandwidth = int(number(payload.get("bandwidthMbps"), 10))
     internet_type = text(payload.get("internetType"), "ByBandwidth")
-    service_level = text(payload.get("serviceLevel"), "Gold")
+    service_level = zenlayer_service_level(payload.get("serviceLevel"))
     assisted = bool(payload.get("buildCrossConnectWithAssisted"))
 
     action = ""

@@ -112,14 +112,7 @@
             </div>
           </div>
 
-          <div v-if="form.service === 'datacenter_lookup'" class="dc-list">
-            <div v-for="item in datacenters" :key="item.dcId" class="dc-item">
-              <strong>{{ item.label }}</strong>
-              <span>{{ item.serviceTypes?.join(' / ') || '服务类型未返回' }}</span>
-            </div>
-          </div>
-
-          <div v-else class="cost-table">
+          <div class="cost-table">
             <div class="cost-row cost-row--head">
               <span>成本项</span>
               <span>供应商原价</span>
@@ -196,7 +189,7 @@ const form = reactive({
   portType: '10G',
   bandwidthMbps: 100,
   internetType: 'ByBandwidth',
-  serviceLevel: 'Gold',
+  serviceLevel: 'SINGLE_UNPROTECTED',
   buildCrossConnectWithAssisted: false,
 })
 
@@ -224,13 +217,17 @@ const costNameMap = {
   quote_cost: '报价成本',
 }
 
-const serviceLevelOptions = ['Bronze', 'Silver', 'Gold', 'Platinum'].map((item) => ({ label: item, value: item }))
+const serviceLevelOptions = [
+  { label: 'Single Unprotected', value: 'SINGLE_UNPROTECTED' },
+  { label: 'Single Protected', value: 'SINGLE_PROTECTED' },
+]
 
-const serviceOptions = computed(() => services.value.map((item) => ({
-  label: item.disabled ? `${item.label}（待补参数）` : item.label,
-  value: item.value,
-  disabled: item.disabled,
-})))
+const serviceOptions = computed(() => services.value
+  .filter((item) => !item.disabled && item.value !== 'datacenter_lookup')
+  .map((item) => ({
+    label: item.label,
+    value: item.value,
+  })))
 
 const datacenterCascaderOptions = computed(() => {
   const areaMap = new Map()
@@ -272,7 +269,7 @@ const needsEndpoints = computed(() => ['private_connect', 'private_connect_bandw
 const quoteStatus = computed(() => (quote.costItems.length ? '报价生成成功。' : '等待生成报价。'))
 const sourceLabel = computed(() => (source.value === 'zenlayer_api' ? 'Zenlayer API' : '本地候选机房'))
 const sourceTagType = computed(() => (source.value === 'zenlayer_api' ? 'success' : 'warning'))
-const primaryActionLabel = computed(() => (form.service === 'datacenter_lookup' ? '查询机房' : '生成报价'))
+const primaryActionLabel = computed(() => '生成报价')
 
 const summaryCards = computed(() => [
   { label: '服务', value: activeServiceLabel.value },
@@ -346,16 +343,6 @@ async function generateQuote() {
   errorMessage.value = ''
   quoting.value = true
   try {
-    if (form.service === 'datacenter_lookup') {
-      await loadOptions()
-      quote.action = 'DescribeDatacenters'
-      quote.payload = { isPortAvailable: true }
-      quote.raw = { datacenters: datacenters.value }
-      quote.costItems = []
-      quote.totalCost = 0
-      message.success(`已加载 ${datacenters.value.length} 个可用机房`)
-      return
-    }
     const res = await api.resourceApi.zenlayerQuote({ ...form })
     const data = res?.data || {}
     quote.costItems = data.costItems || []
