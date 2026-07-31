@@ -107,10 +107,11 @@
         preset="card"
         :title="remoteEditor.form.id ? '编辑运维记录' : '新增运维记录'"
         class="editor-modal remote-editor-modal"
+        style="width: min(640px, calc(100vw - 40px))"
         :bordered="false"
       >
-        <n-form label-placement="left" label-width="92" :model="remoteEditor.form">
-          <div class="form-grid">
+        <n-form class="remote-form" label-placement="left" label-width="76" size="small" :model="remoteEditor.form">
+          <div class="remote-form-grid">
             <n-form-item label="客户" required>
               <n-input v-model:value="remoteEditor.form.customer" placeholder="客户名称" />
             </n-form-item>
@@ -190,9 +191,9 @@
           </n-form-item>
         </n-form>
         <template #footer>
-          <div class="modal-actions">
-            <n-button round @click="remoteEditor.show = false">取消</n-button>
-            <n-button type="primary" round :loading="remoteEditor.saving" @click="saveRemoteHands">保存</n-button>
+          <div class="modal-actions compact-modal-actions">
+            <n-button round size="small" @click="remoteEditor.show = false">取消</n-button>
+            <n-button type="primary" round size="small" :loading="remoteEditor.saving" @click="saveRemoteHands">保存</n-button>
           </div>
         </template>
       </n-modal>
@@ -202,10 +203,11 @@
         preset="card"
         :title="engineerEditor.form.id ? '编辑工程师' : '新增工程师'"
         class="editor-modal engineer-editor-modal"
+        style="width: min(420px, calc(100vw - 40px))"
         :bordered="false"
       >
-        <n-form label-placement="left" label-width="92" :model="engineerEditor.form">
-          <div class="form-grid">
+        <n-form class="engineer-form" label-placement="left" label-width="76" size="small" :model="engineerEditor.form">
+          <div class="engineer-form-grid">
             <n-form-item label="姓名" required>
               <n-input v-model:value="engineerEditor.form.name" placeholder="工程师姓名" />
             </n-form-item>
@@ -224,6 +226,7 @@
                 multiple
                 filterable
                 tag
+                max-tag-count="responsive"
                 :options="regionOptions"
                 placeholder="选择一个或多个地区"
               />
@@ -242,9 +245,9 @@
           </n-form-item>
         </n-form>
         <template #footer>
-          <div class="modal-actions">
-            <n-button round @click="engineerEditor.show = false">取消</n-button>
-            <n-button type="primary" round :loading="engineerEditor.saving" @click="saveEngineer">保存</n-button>
+          <div class="modal-actions engineer-modal-actions">
+            <n-button round size="small" @click="engineerEditor.show = false">取消</n-button>
+            <n-button type="primary" round size="small" :loading="engineerEditor.saving" @click="saveEngineer">保存</n-button>
           </div>
         </template>
       </n-modal>
@@ -269,6 +272,28 @@ const engineerKeyword = ref('')
 const remoteFilters = reactive({ engineer_id: null, site: null, status: null })
 const datePickerActions = ['clear', 'now', 'confirm']
 const minuteTimePickerProps = { format: 'HH:mm' }
+const regionAliasMap = new Map([
+  ['hk', '香港'],
+  ['hongkong', '香港'],
+  ['hong kong', '香港'],
+  ['newyork', '纽约'],
+  ['new york', '纽约'],
+  ['ny', '纽约'],
+  ['ny2', '纽约'],
+  ['secaucus', '纽约'],
+  ['secaucus usa', '纽约'],
+  ['losangeles', '洛杉矶'],
+  ['los angeles', '洛杉矶'],
+  ['la', '洛杉矶'],
+  ['la3', '洛杉矶'],
+  ['london', '伦敦'],
+  ['lon', '伦敦'],
+  ['ashburn', '阿什本'],
+  ['tokyo', '东京'],
+  ['singapore', '新加坡'],
+  ['taipei', '台北'],
+  ['seoul', '首尔'],
+])
 const remotePagination = reactive({
   page: 1,
   pageSize: 10,
@@ -328,17 +353,20 @@ const activeEngineerCount = computed(
 )
 
 const regionOptions = computed(() => {
-  const values = new Set()
+  const values = new Map()
+  const addRegion = (source) => {
+    const value = canonicalRegion(source)
+    const key = normalizeRegion(value)
+    if (value && key && !values.has(key)) values.set(key, value)
+  }
   datacenters.value.forEach((item) => {
-    const value = displayRegion(datacenterRegion(item))
-    if (value) values.add(value)
+    addRegion(datacenterRegion(item))
   })
-  engineers.value.forEach((item) => engineerRegions(item).forEach((value) => values.add(displayRegion(value))))
+  engineers.value.forEach((item) => engineerRegions(item).forEach(addRegion))
   remoteHands.value.forEach((item) => {
-    const value = displayRegion(item.region)
-    if (value) values.add(value)
+    addRegion(item.region)
   })
-  return [...values].sort().map((value) => ({ label: value, value }))
+  return [...values.values()].sort().map((value) => ({ label: value, value }))
 })
 
 const siteCascaderOptions = computed(() => {
@@ -566,7 +594,7 @@ function createEngineerForm(source = {}) {
     contact: source.contact || '',
     wechat_id: source.wechat_id || '',
     wechat_group: source.wechat_group || '',
-    regions: splitRegions(source.region),
+    regions: uniqueRegionValues(splitRegions(source.region)),
     is_active: Number(source.is_active ?? 1),
     note: source.note || '',
   }
@@ -621,6 +649,33 @@ function displayRegion(value) {
   const text = fieldText(value)
   if (!text) return ''
   return translateLocationPath(text) || translateCountry(text) || translateCity(text) || text
+}
+
+function canonicalRegion(value) {
+  const text = displayRegion(value)
+  if (!text) return ''
+  const commaParts = text
+    .split(/[,，、|;；]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+  const source = commaParts.find((item) => item.includes('/')) || commaParts[0] || text
+  const pathParts = source
+    .split('/')
+    .map((item) => item.trim())
+    .filter(Boolean)
+  return translateRegionAlias(pathParts[pathParts.length - 1] || source)
+}
+
+function translateRegionAlias(value) {
+  const text = fieldText(value)
+  if (!text) return ''
+  const translated = translateCity(text) || translateCountry(text)
+  const normalized = text
+    .toLowerCase()
+    .replace(/[,，]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return regionAliasMap.get(normalized) || regionAliasMap.get(normalized.replace(/\s+/g, '')) || translated || text
 }
 
 function engineerRegions(item) {
@@ -690,11 +745,22 @@ function uniqueValues(values) {
   return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))]
 }
 
+function uniqueRegionValues(values) {
+  const result = new Map()
+  values.forEach((source) => {
+    const value = canonicalRegion(source)
+    const key = normalizeRegion(value)
+    if (value && key && !result.has(key)) result.set(key, value)
+  })
+  return [...result.values()]
+}
+
 function uniqueOptions(options) {
   const values = new Map()
   options.forEach((option) => {
     const value = fieldText(option?.value)
-    if (value && !values.has(value)) values.set(value, { label: fieldText(option.label) || value, value })
+    const key = normalizeRegion(value)
+    if (value && key && !values.has(key)) values.set(key, { label: fieldText(option.label) || value, value })
   })
   return [...values.values()]
 }
@@ -1077,15 +1143,27 @@ onMounted(fetchOverview)
 :deep(.muted-text) { color: #9ca3af; }
 
 .editor-modal { width: min(900px, calc(100vw - 32px)); }
-.engineer-editor-modal { width: min(760px, calc(100vw - 32px)); }
+.engineer-editor-modal { width: min(560px, calc(100vw - 32px)); }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 22px; }
+.remote-form-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 14px; }
+.remote-form :deep(.n-form-item) { margin-bottom: 12px; }
+.remote-form :deep(.n-input),
+.remote-form :deep(.n-base-selection),
+.remote-form :deep(.n-date-picker) { min-height: 30px; }
+.engineer-form-grid { display: grid; grid-template-columns: 1fr; }
+.engineer-form :deep(.n-form-item) { margin-bottom: 12px; }
+.engineer-form :deep(.n-input),
+.engineer-form :deep(.n-base-selection) { min-height: 30px; }
 .modal-actions { justify-content: flex-end; }
+.compact-modal-actions,
+.engineer-modal-actions { gap: 8px; }
 
 @media (max-width: 900px) {
   .summary-grid { grid-template-columns: 1fr 1fr; }
   .table-toolbar { align-items: stretch; flex-direction: column; }
   .filter-row { width: 100%; }
   .form-grid { grid-template-columns: 1fr; }
+  .remote-form-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 560px) {
