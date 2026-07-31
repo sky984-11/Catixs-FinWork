@@ -85,7 +85,7 @@
 
                   <div class="device-spec">
                     <span>配置</span>
-                    <strong>{{ device.config || '配置未补充' }}</strong>
+                    <strong>{{ formatDeviceConfig(device) }}</strong>
                   </div>
 
                   <footer>
@@ -170,12 +170,81 @@ function toggleRegion(key) {
   collapsedRegions.value = next
 }
 
+function pickAttribute(attributes, keys) {
+  const source = attributes && typeof attributes === 'object' ? attributes : {}
+  for (const key of keys) {
+    const value = source[key]
+    if (value !== undefined && value !== null && String(value).trim()) return String(value).trim()
+  }
+  return ''
+}
+
+function formatDeviceConfig(device) {
+  if (device?.config) return device.config
+  const attributes = device?.attributes || {}
+  const cpu = pickAttribute(attributes, ['CPU型号', 'CPU Model', 'cpu_model', 'processor', 'Processor'])
+  const cpuCount = pickAttribute(attributes, ['CPU数量', 'CPU颗数', 'CPU核心数', 'cpu_count', 'cpu_cores'])
+  const memory = pickAttribute(attributes, ['内存容量', '内存大小', '内存', 'memory', 'Memory'])
+  const disk = pickAttribute(attributes, ['磁盘', '硬盘', '硬盘容量', 'disk', 'Disk'])
+  const parts = []
+  if (cpuCount || cpu) parts.push([cpuCount, cpu].filter(Boolean).join(' / '))
+  if (memory) parts.push(memory)
+  if (disk) parts.push(disk)
+  return parts.join(' | ') || '配置未补充'
+}
+
+function isFreeDevice(device) {
+  return Number(device?.status) === 0
+}
+
+function summarizeModels(devices) {
+  const modelCount = new Map()
+  for (const device of devices) {
+    const model = String(device.model || '').trim()
+    if (model) modelCount.set(model, (modelCount.get(model) || 0) + 1)
+  }
+  return [...modelCount.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0], 'zh-Hans-CN'))
+    .map(([name, count]) => ({ name, count }))
+}
+
+function normalizeFreeDeviceRegions(sourceRegions) {
+  return (sourceRegions || [])
+    .map((region) => {
+      const devices = (region.devices || []).filter(isFreeDevice)
+      return {
+        ...region,
+        devices,
+        count: devices.length,
+        models: summarizeModels(devices),
+      }
+    })
+    .filter((region) => region.count > 0)
+}
+
+function summarizeFreeDeviceRegions(sourceRegions) {
+  const modelSet = new Set()
+  let total = 0
+  for (const region of sourceRegions) {
+    total += Number(region.count || 0)
+    for (const model of region.models || []) {
+      if (model.name) modelSet.add(model.name)
+    }
+  }
+  return {
+    total,
+    regions: sourceRegions.length,
+    models: [...modelSet].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN')),
+  }
+}
+
 async function loadData() {
   loading.value = true
   try {
     const res = await api.resourceApi.freeDevices({ keyword: query.keyword })
-    regions.value = res?.data?.regions || []
-    summary.value = res?.data?.summary || {}
+    const nextRegions = normalizeFreeDeviceRegions(res?.data?.regions || [])
+    regions.value = nextRegions
+    summary.value = summarizeFreeDeviceRegions(nextRegions)
   } finally {
     loading.value = false
   }

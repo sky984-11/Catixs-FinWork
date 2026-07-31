@@ -63,12 +63,24 @@ def pick(data: dict, *keys: str, default: Any = "") -> Any:
     return default
 
 
+def normalize_attribute_dict(attributes: Any) -> dict:
+    if isinstance(attributes, dict):
+        return attributes
+    if isinstance(attributes, str):
+        try:
+            data = json.loads(attributes)
+        except json.JSONDecodeError:
+            return {}
+        return data if isinstance(data, dict) else {}
+    return {}
+
+
 def format_device_config(attributes: dict) -> str:
-    attrs = attributes if isinstance(attributes, dict) else {}
-    cpu = pick(attrs, "CPU型号", "cpu_model", "CPU Model")
-    cpu_count = pick(attrs, "CPU数量", "CPU核心数", "cpu_count")
-    memory = pick(attrs, "内存容量", "内存", "memory")
-    disk = pick(attrs, "磁盘", "硬盘", "disk")
+    attrs = normalize_attribute_dict(attributes)
+    cpu = pick(attrs, "CPU型号", "CPU Model", "cpu_model", "processor", "Processor")
+    cpu_count = pick(attrs, "CPU数量", "CPU颗数", "CPU核心数", "cpu_count", "cpu_cores")
+    memory = pick(attrs, "内存容量", "内存大小", "内存", "memory", "Memory")
+    disk = pick(attrs, "磁盘", "硬盘", "硬盘容量", "disk", "Disk")
     parts = []
     if cpu_count or cpu:
         parts.append(" / ".join(item for item in [text(cpu_count), text(cpu)] if item))
@@ -127,6 +139,13 @@ def normalize_device_status(value, default: int = 0) -> int:
     except (TypeError, ValueError):
         return default
     return status if status in {0, 1, 2, 3, 4} else default
+
+
+def is_free_device_status(value: Any) -> bool:
+    try:
+        return int(value) == 0
+    except (TypeError, ValueError):
+        return False
 
 
 def device_to_card_row(device: AssetDevice) -> dict:
@@ -218,7 +237,7 @@ async def free_devices(
             }
         group = groups[group_key]
         for row in device_to_sales_rows(device):
-            if normalize_device_status(row.get("status"), 0) != 0:
+            if not is_free_device_status(row.get("status")):
                 continue
             if keyword_text:
                 haystack = " ".join(
