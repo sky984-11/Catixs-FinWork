@@ -30,6 +30,16 @@
                     <span class="eyebrow">Rack Diagram</span>
                     <h3>{{ selectedCabinet.name }}</h3>
                   </div>
+                  <div class="rack-status-legend" aria-label="设备状态颜色说明">
+                    <span
+                      v-for="item in rackStatusLegend"
+                      :key="item.value"
+                      class="rack-status-legend-item"
+                      :class="`device-status-${item.value}`"
+                    >
+                      <i></i>{{ item.label }}
+                    </span>
+                  </div>
                   <n-space align="center">
                     <n-tag round :type="rackConflictCount ? 'error' : 'success'">
                       {{ rackConflictCount ? `${rackConflictCount} 个U位冲突` : 'U位正常' }}
@@ -145,14 +155,12 @@
                       <button title="删除机柜" @click.stop="deleteCabinet(cabinet)">删除</button>
                     </span>
                   </div>
-                  <span class="cabinet-location">{{ cabinetLocationName(cabinet) }}</span>
                   <div class="cabinet-card-metrics">
                     <em>{{ cabinetDeviceCount(cabinet.id) }} 台设备</em>
                     <em>{{ formatCabinetURange(cabinet) }}</em>
                   </div>
                   <div class="cabinet-card-foot">
-                    <span>{{ formatCabinetSize(cabinet) }}</span>
-                    <span>{{ formatCabinetPower(cabinet) }}</span>
+                    <span>{{ cabinetLocationName(cabinet) }}</span>
                   </div>
                 </article>
               </div>
@@ -606,12 +614,14 @@ const locations = ref([])
 const cabinets = ref([])
 const rackDevices = ref([])
 const devicePlatformTree = ref([])
-const viewMode = ref('map')
+const devicePlatformLoaded = ref(false)
+let devicePlatformLoadingPromise = null
+const route = useRoute()
+const router = useRouter()
+const viewMode = ref(route.query.region_id || route.query.cabinet_id ? 'region' : 'map')
 const selectedRegionId = ref(null)
 const selectedCabinetId = ref(null)
 const mapEl = ref(null)
-const route = useRoute()
-const router = useRouter()
 const deviceDrawer = reactive({ show: false, row: null })
 const vncModal = reactive({
   show: false,
@@ -659,6 +669,13 @@ const deviceStatusOptions = [
   { label: '待维护', value: 2 },
   { label: '故障', value: 3 },
   { label: '使用', value: 1 },
+  { label: '下架', value: 4 },
+]
+const rackStatusLegend = [
+  { label: '使用', value: 1 },
+  { label: '空闲', value: 0 },
+  { label: '待维护', value: 2 },
+  { label: '故障', value: 3 },
   { label: '下架', value: 4 },
 ]
 
@@ -1217,20 +1234,34 @@ function mapMarkerHtml(node) {
 async function loadData() {
   loading.value = true
   try {
-    const [regionRes, locationRes, cabinetRes, brandRes] = await Promise.all([
+    const [regionRes, locationRes, cabinetRes] = await Promise.all([
       api.assetApi.regions({ page_size: 1000 }),
       api.assetApi.locations({ page_size: 1000 }),
       api.assetApi.cabinets({ page_size: 1000 }),
-      api.assetApi.deviceBrands(),
     ])
     regions.value = regionRes.data || []
     locations.value = locationRes.data || []
     cabinets.value = cabinetRes.data || []
-    devicePlatformTree.value = normalizeDevicePlatformTree(brandRes.data || [])
     applyRouteSelection()
   } finally {
     loading.value = false
   }
+}
+
+async function ensureDevicePlatformsLoaded() {
+  if (devicePlatformLoaded.value) return
+  if (!devicePlatformLoadingPromise) {
+    devicePlatformLoadingPromise = api.assetApi
+      .deviceBrands()
+      .then((res) => {
+        devicePlatformTree.value = normalizeDevicePlatformTree(res.data || [])
+        devicePlatformLoaded.value = true
+      })
+      .finally(() => {
+        devicePlatformLoadingPromise = null
+      })
+  }
+  await devicePlatformLoadingPromise
 }
 
 function handlePlatformChange(value) {
@@ -1461,9 +1492,17 @@ async function submitCabinet() {
     }
     const submit = payload.id ? api.assetApi.updateCabinet : api.assetApi.createCabinet
     const res = await submit(payload)
+    const isEditing = Boolean(payload.id)
+    const savedCabinet = upsertCabinetLocal(res.data || payload, {
+      ...payload,
+      id: res.data?.id || payload.id,
+      device_count: isEditing ? cabinetDeviceCount(payload.id) : 0,
+    })
     cabinetModal.show = false
-    await loadData()
-    routeToCabinet(selectedRegionId.value, res.data?.id || selectedCabinetId.value)
+    if (!isEditing) {
+      const nextRegionId = regionIdByLocationId(savedCabinet.location_id) || selectedRegionId.value
+      routeToCabinet(nextRegionId, savedCabinet.id)
+    }
     window.$message?.success(payload.id ? `机柜 ${name} 已更新` : `机柜 ${name} 已新增`)
   } finally {
     cabinetModal.submitting = false
@@ -1479,18 +1518,25 @@ async function deleteCabinet(cabinet) {
   }
   if (!window.confirm(`确认删除机柜 ${cabinet.name || ''}？`)) return
   await api.assetApi.deleteCabinet({ cabinet_id: cabinet.id })
+  const nextCabinetId = selectedCabinets.value.find((item) => item.id !== cabinet.id)?.id || null
+  removeCabinetLocal(cabinet.id)
   if (selectedCabinetId.value === cabinet.id) {
-    const nextCabinetId = selectedCabinets.value.find((item) => item.id !== cabinet.id)?.id || null
     if (nextCabinetId) routeToCabinet(selectedRegionId.value, nextCabinetId)
     else routeToCabinet(selectedRegionId.value)
   }
-  await loadData()
   window.$message?.success(`机柜 ${cabinet.name || ''} 已删除`)
 }
 
-function openDeviceModal(device = null, uPosition = null) {
+async function openDeviceModal(device = null, uPosition = null) {
   if (!selectedCabinetId.value) {
     window.$message?.warning('请先选择机柜')
+    return
+  }
+  try {
+    await ensureDevicePlatformsLoaded()
+  } catch (error) {
+    console.error(error)
+    window.$message?.error('设备厂商型号加载失败，请稍后重试')
     return
   }
   const isFourNodeDevice = isFourNodeAttributes(device?.attributes)
@@ -1716,7 +1762,6 @@ async function handleRackMenuDelete() {
   const deviceName = device.name || '该设备'
   await api.assetApi.deleteDevice({ device_id: device.id })
   window.$message?.success(`设备 ${deviceName} 已删除`)
-  await loadData()
   await loadCabinetDevices()
 }
 
@@ -1727,6 +1772,29 @@ function cabinetLocationName(cabinet) {
 function cabinetDeviceCount(cabinetId) {
   const cabinet = cabinets.value.find((item) => item.id === cabinetId)
   return Number(cabinet?.device_count || 0)
+}
+
+function regionIdByLocationId(locationId) {
+  return locations.value.find((location) => location.id === Number(locationId))?.region_id || null
+}
+
+function upsertCabinetLocal(cabinet, fallback = {}) {
+  const source = { ...fallback, ...(cabinet || {}) }
+  if (!source.id) return source
+  const index = cabinets.value.findIndex((item) => item.id === source.id)
+  const current = index >= 0 ? cabinets.value[index] : {}
+  const nextCabinet = {
+    ...current,
+    ...source,
+    device_count: Number(source.device_count ?? current.device_count ?? 0),
+  }
+  if (index >= 0) cabinets.value.splice(index, 1, nextCabinet)
+  else cabinets.value.push(nextCabinet)
+  return nextCabinet
+}
+
+function removeCabinetLocal(cabinetId) {
+  cabinets.value = cabinets.value.filter((item) => item.id !== Number(cabinetId))
 }
 
 function updateCabinetDeviceCount(cabinetId, count) {
@@ -2495,6 +2563,54 @@ onBeforeUnmount(() => {
   font-size: 16px;
 }
 
+.rack-status-legend {
+  display: flex;
+  min-width: 260px;
+  flex: 1 1 360px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 14px;
+}
+
+.rack-status-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rack-status-legend-item i {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.86);
+}
+
+.rack-status-legend-item.device-status-0 i {
+  background: #38bdf8;
+}
+
+.rack-status-legend-item.device-status-1 i {
+  background: #22c55e;
+}
+
+.rack-status-legend-item.device-status-2 i {
+  background: #f59e0b;
+}
+
+.rack-status-legend-item.device-status-3 i,
+.rack-status-legend-item.device-status-5 i {
+  background: #ef4444;
+}
+
+.rack-status-legend-item.device-status-4 i {
+  background: #64748b;
+}
+
 .rack-title :deep(.n-button) {
   height: 30px;
   padding-inline: 12px;
@@ -3217,6 +3333,12 @@ onBeforeUnmount(() => {
   .rack-title {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .rack-status-legend {
+    min-width: 0;
+    flex-basis: auto;
+    justify-content: flex-start;
   }
 
   .cabinet-list {
