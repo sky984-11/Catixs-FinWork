@@ -185,11 +185,12 @@ function formatDeviceConfig(device) {
   const cpu = pickAttribute(attributes, ['CPU型号', 'CPU Model', 'cpu_model', 'processor', 'Processor'])
   const cpuCount = pickAttribute(attributes, ['CPU数量', 'CPU颗数', 'CPU核心数', 'cpu_count', 'cpu_cores'])
   const memory = pickAttribute(attributes, ['内存容量', '内存大小', '内存', 'memory', 'Memory'])
-  const disk = pickAttribute(attributes, ['磁盘', '硬盘', '硬盘容量', 'disk', 'Disk'])
+  const disk = pickAttribute(attributes, ['磁盘', '硬盘', '硬盘容量', '磁盘大小', 'disk', 'Disk', 'disk_size', 'disk_capacity'])
+  const diskCount = pickAttribute(attributes, ['磁盘数量', '硬盘数量', 'disk_count'])
   const parts = []
   if (cpuCount || cpu) parts.push([cpuCount, cpu].filter(Boolean).join(' / '))
   if (memory) parts.push(memory)
-  if (disk) parts.push(disk)
+  if (diskCount || disk) parts.push([diskCount, disk].filter(Boolean).join(' / '))
   return parts.join(' | ') || '配置未补充'
 }
 

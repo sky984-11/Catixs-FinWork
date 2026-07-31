@@ -80,14 +80,15 @@ def format_device_config(attributes: dict) -> str:
     cpu = pick(attrs, "CPU型号", "CPU Model", "cpu_model", "processor", "Processor")
     cpu_count = pick(attrs, "CPU数量", "CPU颗数", "CPU核心数", "cpu_count", "cpu_cores")
     memory = pick(attrs, "内存容量", "内存大小", "内存", "memory", "Memory")
-    disk = pick(attrs, "磁盘", "硬盘", "硬盘容量", "disk", "Disk")
+    disk = pick(attrs, "磁盘", "硬盘", "硬盘容量", "磁盘大小", "disk", "Disk", "disk_size", "disk_capacity")
+    disk_count = pick(attrs, "磁盘数量", "硬盘数量", "disk_count")
     parts = []
     if cpu_count or cpu:
         parts.append(" / ".join(item for item in [text(cpu_count), text(cpu)] if item))
     if memory:
         parts.append(text(memory))
-    if disk:
-        parts.append(text(disk))
+    if disk_count or disk:
+        parts.append(" / ".join(item for item in [text(disk_count), text(disk)] if item))
     return " | ".join(parts)
 
 
