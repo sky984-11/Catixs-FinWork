@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Catixs 工单快捷提交</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="popup">
+      <header class="popup__header">
+        <div>
+          <span>Catixs FinWork</span>
+          <h1>提交新工单</h1>
+        </div>
+        <button id="openSettings" class="icon-btn" title="账号设置" type="button">⚙</button>
+      </header>
+
+      <section id="settingsPanel" class="panel">
+        <label>
+          用户名
+          <input id="username" type="text" maxlength="40" placeholder="请输入 FinWork 用户名" autocomplete="username" required />
+        </label>
+        <label>
+          密码
+          <input id="password" type="password" maxlength="128" placeholder="FinWork 登录密码" autocomplete="current-password" required />
+        </label>
+        <p class="hint">账号信息长期保存在当前浏览器本地。提交时先登录生成 Token，再创建工单。</p>
+      </section>
+
+      <form id="ticketForm" class="form">
+        <label>
+          工单标题
+          <input id="title" type="text" maxlength="120" placeholder="请简要描述您遇到的问题" required />
+        </label>
+
+        <label>
+          工单类型
+          <select id="type" required>
+            <option value="0">故障工单</option>
+            <option value="1">服务请求工单</option>
+            <option value="2">维护工单</option>
+          </select>
+        </label>
+
+        <label id="locationField">
+          地点
+          <input id="location" type="text" maxlength="120" placeholder="请输入地点" />
+        </label>
+
+        <label id="singleTimeField" class="hidden">
+          故障时间
+          <input id="planTime" type="datetime-local" />
+        </label>
+
+        <div id="rangeTimeField" class="time-range hidden">
+          <label>
+            维护开始时间
+            <input id="startTime" type="datetime-local" />
+          </label>
+          <label>
+            维护结束时间
+            <input id="endTime" type="datetime-local" />
+          </label>
+        </div>
+
+        <label>
+          工单描述
+          <textarea id="desc" rows="8" placeholder="请选择工单类型后填写描述" required></textarea>
+        </label>
+
+        <button id="submitBtn" class="submit" type="submit">提交工单</button>
+      </form>
+
+      <div id="message" class="message" role="status"></div>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -1,0 +1,169 @@
+:root {
+  color-scheme: light;
+  font-family:
+    Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+  color: #111827;
+  background: #eef3fb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  width: 380px;
+  min-height: 540px;
+  max-height: 640px;
+  margin: 0;
+  background: #eef3fb;
+  overflow: auto;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.popup {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.popup__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 72px;
+  padding: 14px;
+  border: 1px solid #dbe5f3;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+}
+
+.popup__header span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.popup__header h1 {
+  margin: 4px 0 0;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.icon-btn {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: #f1f5f9;
+  cursor: pointer;
+}
+
+.panel,
+.form {
+  display: grid;
+  gap: 13px;
+  padding: 14px;
+  border: 1px solid #dbe5f3;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.hidden {
+  display: none;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid #d4dfed;
+  border-radius: 8px;
+  outline: none;
+  background: #fff;
+  color: #0f172a;
+  font-size: 14px;
+}
+
+input,
+select {
+  height: 38px;
+  padding: 0 10px;
+}
+
+textarea {
+  resize: vertical;
+  padding: 10px;
+  line-height: 1.5;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: #ff4d1c;
+  box-shadow: 0 0 0 3px rgba(255, 77, 28, 0.12);
+}
+
+.time-range {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.submit {
+  height: 40px;
+  border: 0;
+  border-radius: 8px;
+  background: #ff4d1c;
+  color: #fff;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.hint,
+.message {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.message {
+  min-height: 18px;
+  padding: 0 4px;
+}
+
+.message.is-error {
+  color: #dc2626;
+}
+
+.message.is-success {
+  color: #059669;
+}
