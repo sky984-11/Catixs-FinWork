@@ -4,10 +4,12 @@ import hmac
 import json
 import time
 from collections import defaultdict
+from datetime import datetime
 from typing import Any
 
 import httpx
 from fastapi import APIRouter, Body, Query
+from pydantic import BaseModel, Field
 
 from app.log import logger
 from app.models.asset import AssetDevice
@@ -22,6 +24,12 @@ IPINFO_API_BASE = "https://ipinfo.io"
 IPINFO_BATCH_API_BASE = "https://api.ipinfo.io"
 ZENLAYER_PRODUCT_SDN = "sdn"
 IPXO_RESOURCES_CACHE_TTL = 300
+
+
+class FreeDeviceSellRequest(BaseModel):
+    device_id: int = Field(..., description="设备ID")
+    description: str = Field(..., description="出售/交付描述")
+    node_name: str | None = Field(None, description="四合一节点名称")
 
 _ipxo_token = ""
 _ipxo_token_expire_at = 0.0
@@ -210,6 +218,29 @@ def device_to_sales_rows(device: AssetDevice) -> list[dict]:
     return rows
 
 
+def aggregate_sales_device_status(nodes: list[dict]) -> int:
+    statuses = [normalize_device_status(node.get("status"), 0) for node in nodes if isinstance(node, dict)]
+    if not statuses:
+        return 0
+    if all(status == 4 for status in statuses):
+        return 4
+    if any(status == 3 for status in statuses):
+        return 3
+    if any(status == 2 for status in statuses):
+        return 2
+    if any(status == 0 for status in statuses):
+        return 0
+    if any(status == 1 for status in statuses):
+        return 1
+    return statuses[0]
+
+
+def append_device_remark(remark: str | None, description: str) -> str:
+    sold_line = f"出售记录：{description}"
+    current = text(remark).strip()
+    return f"{current}\n{sold_line}" if current else sold_line
+
+
 @router.get("/free-devices", summary="空闲设备销售看板")
 async def free_devices(
     region_id: int | None = Query(None, description="地区ID"),
@@ -283,6 +314,61 @@ async def free_devices(
         "models": sorted({model["name"] for item in result for model in item["models"] if model["name"]}),
     }
     return Success(data={"summary": summary, "regions": result})
+
+
+@router.post("/free-devices/sell", summary="出售空闲设备")
+async def sell_free_device(payload: FreeDeviceSellRequest):
+    description = text(payload.description).strip()
+    if not description:
+        return Success(code=400, msg="请填写机器描述")
+
+    device = await AssetDevice.get_or_none(id=payload.device_id)
+    if not device:
+        return Success(code=404, msg="设备不存在")
+
+    attrs = normalize_attribute_dict(device.attributes)
+    sold_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    node_name = text(payload.node_name).strip()
+
+    if node_name:
+        nodes = normalize_four_node_list(attrs)
+        matched = False
+        for node in nodes:
+            if text(node.get("name")) == node_name:
+                if not is_free_device_status(node.get("status")):
+                    return Success(code=400, msg="该节点不是空闲状态")
+                node["status"] = 1
+                node["sale_description"] = description
+                node["sold_at"] = sold_at
+                matched = True
+                break
+        if not matched:
+            return Success(code=404, msg="四合一节点不存在")
+        attrs["nodes"] = nodes
+        attrs.setdefault("sale_records", []).append({
+            "node_name": node_name,
+            "description": description,
+            "sold_at": sold_at,
+        })
+        device.status = aggregate_sales_device_status(nodes)
+        device.attributes = attrs
+        await device.save(update_fields=["status", "attributes", "updated_at"])
+        return Success(msg="节点已出售", data=device_to_sales_rows(device))
+
+    if not is_free_device_status(device.status):
+        return Success(code=400, msg="设备不是空闲状态")
+
+    attrs["sale_description"] = description
+    attrs["sold_at"] = sold_at
+    attrs.setdefault("sale_records", []).append({
+        "description": description,
+        "sold_at": sold_at,
+    })
+    device.status = 1
+    device.attributes = attrs
+    device.remark = append_device_remark(device.remark, description)
+    await device.save(update_fields=["status", "attributes", "remark", "updated_at"])
+    return Success(msg="设备已出售", data=device_to_card_row(device))
 
 
 def sha256_hex(value: bytes) -> str:

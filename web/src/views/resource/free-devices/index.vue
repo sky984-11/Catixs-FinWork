@@ -1,20 +1,6 @@
 <template>
-  <CommonPage show-footer title="空闲设备">
-    <template #action>
-      <n-button :loading="loading" secondary @click="loadData">刷新</n-button>
-    </template>
-
+  <CommonPage show-footer :show-header="false">
     <div class="free-device-page">
-      <section class="toolbar">
-        <n-input
-          v-model:value="query.keyword"
-          clearable
-          placeholder="搜索资产编号、型号、IP、配置"
-          @keyup.enter="loadData"
-        />
-        <n-button type="primary" @click="loadData">查询</n-button>
-      </section>
-
       <section class="summary-band">
         <div class="summary-main">
           <span>可售设备</span>
@@ -70,7 +56,9 @@
                       <span>{{ device.asset_no || device.serial_no || '未录入资产号' }}</span>
                       <strong>{{ device.name || device.model || '-' }}</strong>
                     </div>
-                    <n-tag size="small" :bordered="false">{{ device.is_four_node ? '四合一节点' : (device.brand || '设备') }}</n-tag>
+                    <div class="device-card__actions">
+                      <n-button size="tiny" type="primary" secondary @click="openSellModal(device)">出售</n-button>
+                    </div>
                   </div>
 
                   <div v-if="device.is_four_node" class="device-spec">
@@ -100,12 +88,41 @@
         <n-empty v-else description="暂无空闲设备" />
       </n-spin>
     </div>
+
+    <n-modal
+      v-model:show="sellModal.show"
+      preset="card"
+      title="出售设备"
+      class="sell-modal"
+      :style="{ width: '420px', maxWidth: 'calc(100vw - 32px)' }"
+      :segmented="{ content: true, footer: true }"
+    >
+      <n-form label-placement="top">
+        <n-form-item label="设备">
+          <n-input :value="sellDeviceLabel" disabled />
+        </n-form-item>
+        <n-form-item label="机器描述" required>
+          <n-input
+            v-model:value="sellModal.form.description"
+            type="textarea"
+            placeholder="例如：交付给某客户 / 合同编号 / 交付备注"
+            :autosize="{ minRows: 4, maxRows: 6 }"
+          />
+        </n-form-item>
+      </n-form>
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="sellModal.show = false">取消</n-button>
+          <n-button type="primary" :loading="sellModal.submitting" @click="submitSellDevice">保存</n-button>
+        </n-space>
+      </template>
+    </n-modal>
   </CommonPage>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { NButton, NEmpty, NInput, NSpin, NTag } from 'naive-ui'
+import { NButton, NEmpty, NForm, NFormItem, NInput, NModal, NSpace, NSpin, NTag } from 'naive-ui'
 
 import CommonPage from '@/components/page/CommonPage.vue'
 import api from '@/api'
@@ -119,6 +136,14 @@ const regions = ref([])
 const summary = ref({})
 const query = reactive({ keyword: '' })
 const collapsedRegions = ref(new Set())
+const sellModal = reactive({
+  show: false,
+  submitting: false,
+  device: null,
+  form: {
+    description: '',
+  },
+})
 
 const regionGroups = computed(() => regions.value
   .map((region, index) => {
@@ -150,6 +175,16 @@ const boardLanes = computed(() => {
   }
 
   return lanes
+})
+
+const sellDeviceLabel = computed(() => {
+  const device = sellModal.device
+  if (!device) return ''
+  const title = device.is_four_node
+    ? `${device.parent_name || device.name || '-'} / ${device.node_name || '-'}`
+    : (device.name || device.model || '-')
+  const rack = [device.cabinet, device.u_position ? `U${device.u_position}` : ''].filter(Boolean).join(' / ')
+  return [title, device.location, rack].filter(Boolean).join(' · ')
 })
 
 function getGroupWeight(group) {
@@ -239,6 +274,52 @@ function summarizeFreeDeviceRegions(sourceRegions) {
   }
 }
 
+function openSellModal(device) {
+  sellModal.device = device
+  sellModal.form.description = ''
+  sellModal.show = true
+}
+
+function removeSoldDevice(device) {
+  const nextRegions = normalizeFreeDeviceRegions(regions.value.map((region) => ({
+    ...region,
+    devices: (region.devices || []).filter((item) => item.id !== device.id),
+  })))
+  regions.value = nextRegions
+  summary.value = summarizeFreeDeviceRegions(nextRegions)
+}
+
+async function submitSellDevice() {
+  const description = String(sellModal.form.description || '').trim()
+  const device = sellModal.device
+  if (!device) return
+  if (!description) {
+    window.$message?.warning('请填写机器描述')
+    return
+  }
+
+  sellModal.submitting = true
+  try {
+    const deviceId = Number(String(device.parent_id || device.id).split(':')[0])
+    const res = await api.resourceApi.sellFreeDevice({
+      device_id: deviceId,
+      node_name: device.is_four_node ? device.node_name : undefined,
+      description,
+    })
+    if (res?.code && res.code !== 200) {
+      window.$message?.error(res.msg || '出售失败')
+      return
+    }
+    window.$message?.success(res?.msg || '出售成功')
+    sellModal.show = false
+    removeSoldDevice(device)
+  } catch (error) {
+    window.$message?.error(error?.response?.data?.msg || error?.message || '出售失败')
+  } finally {
+    sellModal.submitting = false
+  }
+}
+
 async function loadData() {
   loading.value = true
   try {
@@ -258,13 +339,6 @@ onMounted(loadData)
 .free-device-page {
   display: grid;
   gap: 16px;
-}
-
-.toolbar {
-  display: grid;
-  grid-template-columns: minmax(260px, 1fr) auto;
-  gap: 10px;
-  align-items: center;
 }
 
 .summary-band {
@@ -389,8 +463,7 @@ onMounted(loadData)
   gap: 8px;
 }
 
-.column-actions :deep(.n-tag),
-.device-card__head :deep(.n-tag) {
+.column-actions :deep(.n-tag) {
   color: var(--tone-strong);
   background: var(--tone-tag);
 }
@@ -433,6 +506,18 @@ onMounted(loadData)
   gap: 10px;
 }
 
+.device-card__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.device-card__actions :deep(.n-button) {
+  height: 24px;
+  padding-inline: 8px;
+}
+
 .device-card__head > div,
 .device-spec {
   display: grid;
@@ -467,6 +552,10 @@ onMounted(loadData)
   font-size: 13px;
   font-weight: 700;
   white-space: nowrap;
+}
+
+.sell-modal {
+  width: min(520px, calc(100vw - 32px));
 }
 
 .tone-blue {
@@ -512,7 +601,6 @@ onMounted(loadData)
 }
 
 @media (max-width: 720px) {
-  .toolbar,
   .summary-band {
     grid-template-columns: 1fr;
   }
