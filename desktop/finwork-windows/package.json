@@ -1,0 +1,52 @@
+{
+  "name": "catixs-finwork-windows",
+  "version": "1.0.0",
+  "description": "Catixs FinWork Windows desktop app",
+  "private": true,
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --win nsis portable",
+    "dist:portable": "electron-builder --win portable"
+  },
+  "author": "Catixs",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "electron": "^34.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "net.catixs.finwork",
+    "productName": "Catixs FinWork",
+    "copyright": "Copyright © Catixs",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "artifactName": "${productName}-${version}-${arch}-Setup.${ext}",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Catixs FinWork"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-${arch}-Portable.${ext}"
+    }
+  }
+}
