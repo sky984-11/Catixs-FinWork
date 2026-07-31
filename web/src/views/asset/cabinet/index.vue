@@ -656,6 +656,7 @@ const deviceTypeOptions = [
 
 const deviceStatusOptions = [
   { label: '空闲', value: 0 },
+  { label: '待维护', value: 2 },
   { label: '故障', value: 3 },
   { label: '使用', value: 1 },
   { label: '下架', value: 4 },
@@ -668,7 +669,7 @@ const devicePowerActions = [
 ]
 
 const legacyDeviceStatusLabels = {
-  2: '故障',
+  2: '待维护',
   5: '下架',
 }
 
@@ -956,6 +957,7 @@ function aggregateFourNodeStatus(nodes) {
   if (!statuses.length) return 0
   if (statuses.every((status) => status === 4)) return 4
   if (statuses.some((status) => status === 3)) return 3
+  if (statuses.some((status) => status === 2)) return 2
   if (statuses.some((status) => status === 1)) return 1
   if (statuses.some((status) => status === 0)) return 0
   return statuses[0] ?? 0
@@ -2655,10 +2657,13 @@ onBeforeUnmount(() => {
   background: #22c55e;
 }
 
-.rack-device-cell.device-status-2 .rack-status-dot,
 .rack-device-cell.device-status-3 .rack-status-dot,
 .rack-device-cell.device-status-5 .rack-status-dot {
   background: #ef4444;
+}
+
+.rack-device-cell.device-status-2 .rack-status-dot {
+  background: #f59e0b;
 }
 
 .rack-device-cell.device-status-4 .rack-status-dot {
@@ -2855,13 +2860,19 @@ onBeforeUnmount(() => {
 }
 
 .device-block.conflict,
-.device-block.device-status-2,
 .device-block.device-status-3,
 .device-block.device-status-5 {
   border-color: rgba(252, 165, 165, 0.82);
   background:
     linear-gradient(90deg, rgba(255, 255, 255, 0.14), transparent 18%),
     linear-gradient(180deg, #dc2626, #991b1b);
+}
+
+.device-block.device-status-2 {
+  border-color: rgba(251, 191, 36, 0.82);
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.14), transparent 18%),
+    linear-gradient(180deg, #f59e0b, #b45309);
 }
 
 .rack-empty {

@@ -126,7 +126,7 @@ def normalize_device_status(value, default: int = 0) -> int:
         status = int(value)
     except (TypeError, ValueError):
         return default
-    return status if status in {0, 1, 3, 4} else default
+    return status if status in {0, 1, 2, 3, 4} else default
 
 
 def device_to_card_row(device: AssetDevice) -> dict:

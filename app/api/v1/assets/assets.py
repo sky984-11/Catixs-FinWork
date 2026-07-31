@@ -564,7 +564,7 @@ def normalize_device_status_value(value, default: int = 0) -> int:
         status = int(value)
     except (TypeError, ValueError):
         return default
-    return status if status in {0, 1, 3, 4} else default
+    return status if status in {0, 1, 2, 3, 4} else default
 
 
 def is_four_node_attributes(attributes: dict) -> bool:
@@ -583,6 +583,8 @@ def aggregate_four_node_status(nodes: list) -> int:
         return 4
     if any(status == 3 for status in statuses):
         return 3
+    if any(status == 2 for status in statuses):
+        return 2
     if any(status == 1 for status in statuses):
         return 1
     if any(status == 0 for status in statuses):

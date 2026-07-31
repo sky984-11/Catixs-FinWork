@@ -1110,13 +1110,14 @@ const deviceTypeOptions = [
 
 const deviceStatusOptions = [
   { label: '空闲', value: 0 },
+  { label: '待维护', value: 2 },
   { label: '故障', value: 3 },
   { label: '使用', value: 1 },
   { label: '下架', value: 4 },
 ]
 
 const legacyDeviceStatusLabels = {
-  2: '故障',
+  2: '待维护',
   5: '下架',
 }
 
@@ -1755,6 +1756,7 @@ function aggregateFourNodeStatus(nodes) {
   if (!statuses.length) return 0
   if (statuses.every((status) => status === 4)) return 4
   if (statuses.some((status) => status === 3)) return 3
+  if (statuses.some((status) => status === 2)) return 2
   if (statuses.some((status) => status === 1)) return 1
   if (statuses.some((status) => status === 0)) return 0
   return statuses[0] ?? 0
@@ -3488,7 +3490,7 @@ onMounted(refreshAll)
 }
 
 .rack-status-dot.device-status-2 {
-  background: #ef4444;
+  background: #f59e0b;
 }
 
 .rack-status-dot.device-status-3,
@@ -3557,8 +3559,8 @@ onMounted(refreshAll)
 }
 
 .rack-detail-status.device-status-2 {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: #fef3c7;
+  color: #b45309;
 }
 
 .rack-detail-status.device-status-3,
@@ -3812,8 +3814,8 @@ onMounted(refreshAll)
 }
 
 .content-panel :deep(.device-status-2) {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: #fef3c7;
+  color: #b45309;
 }
 
 .content-panel :deep(.device-status-3),
@@ -4224,10 +4226,14 @@ html.dark .content-panel :deep(.device-status-4) {
 }
 
 html.dark .content-panel :deep(.device-status-3),
-html.dark .content-panel :deep(.device-status-2),
 html.dark .content-panel :deep(.device-status-5) {
   background: rgba(127, 29, 29, 0.42);
   color: #fca5a5;
+}
+
+html.dark .content-panel :deep(.device-status-2) {
+  background: rgba(146, 64, 14, 0.42);
+  color: #fbbf24;
 }
 
 html.dark .device-config-table,
