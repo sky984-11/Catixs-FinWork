@@ -30,7 +30,7 @@
                   <span class="column-dot"></span>
                   <div>
                     <strong>{{ group.region }}</strong>
-                    <span>{{ group.subtitle }}</span>
+                    <span v-if="group.subtitle">{{ group.subtitle }}</span>
                   </div>
                 </div>
                 <div class="column-actions">
@@ -61,19 +61,16 @@
                     </div>
                   </div>
 
-                  <div v-if="device.is_four_node" class="device-spec">
-                    <span>母机</span>
-                    <strong>{{ device.parent_name || '-' }} / {{ device.node_name || '-' }}</strong>
-                  </div>
-
                   <div class="device-spec">
                     <span>型号</span>
                     <strong>{{ [device.brand, device.model].filter(Boolean).join(' ') || '-' }}</strong>
                   </div>
 
-                  <div class="device-spec">
-                    <span>配置</span>
-                    <strong>{{ formatDeviceConfig(device) }}</strong>
+                  <div class="device-config-grid">
+                    <div v-for="item in getDeviceConfigItems(device)" :key="item.label" class="device-config-item">
+                      <span>{{ item.label }}</span>
+                      <strong>{{ item.value }}</strong>
+                    </div>
                   </div>
 
                   <footer>
@@ -148,7 +145,7 @@ const sellModal = reactive({
 const regionGroups = computed(() => regions.value
   .map((region, index) => {
     const key = String(region.region_id || region.region || index)
-    const subtitle = [region.country, region.city].filter(Boolean).join(' / ') || '未设置地区信息'
+    const subtitle = formatRegionSubtitle(region)
     return {
       ...region,
       key,
@@ -163,6 +160,14 @@ const regionGroups = computed(() => regions.value
     if (b.count !== a.count) return b.count - a.count
     return String(a.region || '').localeCompare(String(b.region || ''), 'zh-Hans-CN')
   }))
+
+function formatRegionSubtitle(region) {
+  const title = String(region?.region || '').trim()
+  const subtitle = [region?.country, region?.city].filter(Boolean).join(' / ')
+  if (!subtitle) return '未设置地区信息'
+  if (title && (title === subtitle || title.includes(subtitle) || subtitle.includes(title))) return ''
+  return subtitle
+}
 
 const boardLanes = computed(() => {
   const lanes = Array.from({ length: laneCount }, () => [])
@@ -217,16 +222,131 @@ function pickAttribute(attributes, keys) {
 function formatDeviceConfig(device) {
   if (device?.config) return device.config
   const attributes = device?.attributes || {}
-  const cpu = pickAttribute(attributes, ['CPU型号', 'CPU Model', 'cpu_model', 'processor', 'Processor'])
-  const cpuCount = pickAttribute(attributes, ['CPU数量', 'CPU颗数', 'CPU核心数', 'cpu_count', 'cpu_cores'])
-  const memory = pickAttribute(attributes, ['内存容量', '内存大小', '内存', 'memory', 'Memory'])
-  const disk = pickAttribute(attributes, ['磁盘', '硬盘', '硬盘容量', '磁盘大小', 'disk', 'Disk', 'disk_size', 'disk_capacity'])
-  const diskCount = pickAttribute(attributes, ['磁盘数量', '硬盘数量', 'disk_count'])
+  const { cpuModel, cpuCount, cpuCores, memory, disk } = getDeviceConfigValues(device, attributes)
   const parts = []
-  if (cpuCount || cpu) parts.push([cpuCount, cpu].filter(Boolean).join(' / '))
+  if (cpuCount || cpuModel) parts.push([cpuCount, cpuModel].filter(Boolean).join(' / '))
+  if (cpuCores) parts.push(`${cpuCores}核`)
   if (memory) parts.push(memory)
-  if (diskCount || disk) parts.push([diskCount, disk].filter(Boolean).join(' / '))
+  if (disk) parts.push(disk)
   return parts.join(' | ') || '配置未补充'
+}
+
+function splitConfigText(value) {
+  return String(value || '')
+    .split(/[|,，;；]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function findConfigPart(device, matcher) {
+  return splitConfigText(device?.config).find(matcher) || ''
+}
+
+function parseCpuBundle(value) {
+  const text = String(value || '').trim()
+  if (!text) return {}
+
+  const parts = text
+    .split('/')
+    .map((item) => item.trim())
+    .filter(Boolean)
+  const candidates = parts.length > 1 ? parts : [text]
+  const result = {}
+
+  if (parts.length >= 3) {
+    const [countPart, modelPart, coresPart] = parts
+    if (/\d+\s*(颗|路|socket|sockets)/i.test(countPart)) result.cpuCount = countPart
+    if (/xeon|epyc|ryzen|intel|amd/i.test(modelPart)) result.cpuModel = modelPart
+    if (/\d+\s*(核|core|cores)/i.test(coresPart)) result.cpuCores = coresPart
+  }
+
+  for (const part of candidates) {
+    if (!result.cpuCount && /(^|\s)\d+\s*(颗|路|socket|sockets)\s*$/i.test(part)) {
+      result.cpuCount = part
+      continue
+    }
+    if (!result.cpuCores && /(^|\s)\d+\s*(核|core|cores)\s*$/i.test(part)) {
+      result.cpuCores = part
+      continue
+    }
+    if (!result.cpuModel && /xeon|epyc|ryzen|intel|amd/i.test(part)) {
+      result.cpuModel = part
+    }
+  }
+
+  return result
+}
+
+function cleanCpuModel(value) {
+  const parsed = parseCpuBundle(value)
+  if (parsed.cpuModel && parsed.cpuModel !== String(value || '').trim()) return parsed.cpuModel
+  const text = String(value || '').trim()
+  return /xeon|epyc|ryzen|intel|amd/i.test(text) && !/^\d+\s*(颗|路|核|core|cores|socket|sockets)?\s*$/i.test(text)
+    ? text
+    : ''
+}
+
+function cleanCpuCount(value) {
+  const parsed = parseCpuBundle(value)
+  if (parsed.cpuCount) return parsed.cpuCount
+  const text = String(value || '').trim()
+  return /^\d+\s*(颗|路|socket|sockets)?$/i.test(text) ? text : ''
+}
+
+function cleanCpuCores(value) {
+  const parsed = parseCpuBundle(value)
+  if (parsed.cpuCores) return parsed.cpuCores
+  const text = String(value || '').trim()
+  return /^\d+\s*(核|core|cores)$/i.test(text) ? text : ''
+}
+
+function getDeviceConfigValues(device, sourceAttributes = null) {
+  const attributes = sourceAttributes || device?.attributes || {}
+  const rawCpuModel = pickAttribute(attributes, ['CPU型号', 'CPU Model', 'cpu_model', 'processor', 'Processor'])
+  const rawCpuCount = pickAttribute(attributes, ['CPU数量', 'CPU颗数', 'cpu_count'])
+  const rawCpuCores = pickAttribute(attributes, ['CPU核心数', 'CPU Cores', 'cpu_cores', 'cores'])
+  const rawCpuConfig = findConfigPart(device, (part) => /xeon|epyc|ryzen|intel|amd|cpu|颗|核|core|cores/i.test(part))
+  const parsedCpu = [rawCpuConfig, rawCpuModel, rawCpuCount, rawCpuCores].reduce((result, value) => {
+    const next = parseCpuBundle(value)
+    return {
+      cpuModel: result.cpuModel || next.cpuModel,
+      cpuCount: result.cpuCount || next.cpuCount,
+      cpuCores: result.cpuCores || next.cpuCores,
+    }
+  }, {})
+  const cpuModel = cleanCpuModel(rawCpuModel) || parsedCpu.cpuModel || cleanCpuModel(rawCpuConfig)
+  const cpuCount = cleanCpuCount(rawCpuCount) || parsedCpu.cpuCount || cleanCpuCount(rawCpuConfig)
+  const cpuCores = cleanCpuCores(rawCpuCores) || parsedCpu.cpuCores || cleanCpuCores(rawCpuConfig)
+  const memory = pickAttribute(attributes, ['内存总数', '内存容量', '内存大小', '内存', 'memory', 'Memory', 'ram', 'RAM'])
+    || findConfigPart(device, (part) => /内存|ram|memory|\d+\s*(g|gb|gib)\b/i.test(part))
+  const disk = pickAttribute(attributes, [
+    '磁盘总数',
+    '磁盘',
+    '硬盘',
+    '硬盘容量',
+    '磁盘容量',
+    '磁盘大小',
+    '硬盘大小',
+    'storage',
+    'Storage',
+    'disk',
+    'Disk',
+    'disk_size',
+    'disk_capacity',
+  ]) || findConfigPart(device, (part) => /盘|硬盘|disk|storage|ssd|hdd|nvme|raid|\d+\s*(t|tb)\b/i.test(part))
+  return { cpuModel, cpuCount, cpuCores, memory, disk }
+}
+
+function getDeviceConfigItems(device) {
+  const values = getDeviceConfigValues(device)
+  const items = [
+    { label: 'CPU型号', value: values.cpuModel },
+    { label: 'CPU数量', value: values.cpuCount },
+    { label: 'CPU核心数', value: values.cpuCores },
+    { label: '内存总数', value: values.memory },
+    { label: '磁盘总数', value: values.disk },
+  ].filter((item) => item.value)
+  return items.length ? items : [{ label: '配置', value: formatDeviceConfig(device) }]
 }
 
 function isFreeDevice(device) {
@@ -536,6 +656,39 @@ onMounted(loadData)
 
 .device-spec strong {
   font-size: 14px;
+}
+
+.device-config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.device-config-item {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  border: 1px solid #e5edf7;
+  border-radius: 6px;
+  background: #f8fafc;
+  padding: 8px 9px;
+}
+
+.device-config-item span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.device-config-item strong {
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.device-config-item:first-child {
+  grid-column: 1 / -1;
 }
 
 .device-card footer {

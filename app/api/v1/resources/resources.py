@@ -83,20 +83,60 @@ def normalize_attribute_dict(attributes: Any) -> dict:
     return {}
 
 
+DEVICE_CONFIG_ATTRIBUTE_ALIASES = {
+    "CPU型号": ("CPU Model", "cpu_model", "processor", "Processor"),
+    "CPU数量": ("CPU颗数", "cpu_count"),
+    "CPU核心数": ("CPU Cores", "cpu_cores", "cores"),
+    "内存总数": ("内存容量", "内存大小", "内存", "memory", "Memory", "ram", "RAM"),
+    "磁盘总数": (
+        "磁盘",
+        "硬盘",
+        "硬盘容量",
+        "磁盘容量",
+        "磁盘大小",
+        "硬盘大小",
+        "storage",
+        "Storage",
+        "disk",
+        "Disk",
+        "disk_size",
+        "disk_capacity",
+    ),
+}
+
+
+def normalize_device_config_attributes(attributes: Any) -> dict:
+    result = normalize_attribute_dict(attributes)
+    for standard_key, aliases in DEVICE_CONFIG_ATTRIBUTE_ALIASES.items():
+        standard_value = text(result.get(standard_key))
+        for alias in aliases:
+            alias_value = text(result.get(alias))
+            if not standard_value and alias_value:
+                standard_value = alias_value
+            result.pop(alias, None)
+        if standard_value:
+            result[standard_key] = standard_value
+        else:
+            result.pop(standard_key, None)
+    return result
+
+
 def format_device_config(attributes: dict) -> str:
-    attrs = normalize_attribute_dict(attributes)
+    attrs = normalize_device_config_attributes(attributes)
     cpu = pick(attrs, "CPU型号", "CPU Model", "cpu_model", "processor", "Processor")
-    cpu_count = pick(attrs, "CPU数量", "CPU颗数", "CPU核心数", "cpu_count", "cpu_cores")
-    memory = pick(attrs, "内存容量", "内存大小", "内存", "memory", "Memory")
-    disk = pick(attrs, "磁盘", "硬盘", "硬盘容量", "磁盘大小", "disk", "Disk", "disk_size", "disk_capacity")
-    disk_count = pick(attrs, "磁盘数量", "硬盘数量", "disk_count")
+    cpu_count = pick(attrs, "CPU数量", "CPU颗数", "cpu_count")
+    cpu_cores = pick(attrs, "CPU核心数", "cpu_cores")
+    memory = pick(attrs, "内存总数", "内存容量", "内存大小", "内存", "memory", "Memory")
+    disk = pick(attrs, "磁盘总数", "磁盘", "硬盘", "硬盘容量", "磁盘大小", "disk", "Disk", "disk_size", "disk_capacity")
     parts = []
     if cpu_count or cpu:
         parts.append(" / ".join(item for item in [text(cpu_count), text(cpu)] if item))
+    if cpu_cores:
+        parts.append(f"{text(cpu_cores)}核")
     if memory:
         parts.append(text(memory))
-    if disk_count or disk:
-        parts.append(" / ".join(item for item in [text(disk_count), text(disk)] if item))
+    if disk:
+        parts.append(text(disk))
     return " | ".join(parts)
 
 
@@ -158,7 +198,7 @@ def is_free_device_status(value: Any) -> bool:
 
 
 def device_to_card_row(device: AssetDevice) -> dict:
-    attrs = device.attributes if isinstance(device.attributes, dict) else {}
+    attrs = normalize_device_config_attributes(device.attributes)
     cabinet = device.cabinet
     location = device.location
     region = device.region

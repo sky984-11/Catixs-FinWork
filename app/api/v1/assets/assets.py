@@ -222,7 +222,7 @@ def redfish_attribute_rows(system: dict, processors: list[dict], memory_modules:
         "网卡MAC": " / ".join(macs[:8]),
         "BIOS版本": system.get("BiosVersion") or "",
         "CPU核心数": cpu_cores,
-        "内存容量": memory_total,
+        "内存总数": memory_total,
         "电源状态": system.get("PowerState") or "",
         "内存条数量": memory_count,
         "Redfish更新时间": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -568,7 +568,50 @@ def normalize_device_status_value(value, default: int = 0) -> int:
 
 
 def is_four_node_attributes(attributes: dict) -> bool:
-    return attributes.get("form_factor") == "four_node" or attributes.get("设备形态") == "四节点服务器"
+    return (
+        attributes.get("form_factor") == "four_node"
+        or attributes.get("设备形态") in {"四合一服务器", "四节点服务器"}
+    )
+
+
+DEVICE_CONFIG_ATTRIBUTE_ALIASES = {
+    "CPU型号": ("CPU Model", "cpu_model", "processor", "Processor"),
+    "CPU数量": ("CPU颗数", "cpu_count"),
+    "CPU核心数": ("CPU Cores", "cpu_cores", "cores"),
+    "内存总数": ("内存容量", "内存大小", "内存", "memory", "Memory", "ram", "RAM"),
+    "磁盘总数": (
+        "磁盘",
+        "硬盘",
+        "硬盘容量",
+        "磁盘容量",
+        "磁盘大小",
+        "硬盘大小",
+        "storage",
+        "Storage",
+        "disk",
+        "Disk",
+        "disk_size",
+        "disk_capacity",
+    ),
+}
+
+
+def normalize_device_config_attributes(attributes: dict | None) -> dict:
+    if not isinstance(attributes, dict):
+        return {}
+    result = dict(attributes)
+    for standard_key, aliases in DEVICE_CONFIG_ATTRIBUTE_ALIASES.items():
+        standard_value = str(result.get(standard_key) or "").strip()
+        for alias in aliases:
+            alias_value = str(result.get(alias) or "").strip()
+            if not standard_value and alias_value:
+                standard_value = alias_value
+            result.pop(alias, None)
+        if standard_value:
+            result[standard_key] = standard_value
+        else:
+            result.pop(standard_key, None)
+    return result
 
 
 def aggregate_four_node_status(nodes: list) -> int:
@@ -612,7 +655,7 @@ def normalize_four_node_status_for_save(device_in: AssetDeviceCreate | AssetDevi
 
 
 async def prepare_device_attributes_for_save(device_in: AssetDeviceCreate | AssetDeviceUpdate) -> None:
-    attributes = dict(device_in.attributes or {})
+    attributes = normalize_device_config_attributes(dict(device_in.attributes or {}))
     if await can_view_device_secrets():
         device_in.attributes = attributes
         return
@@ -635,8 +678,10 @@ async def prepare_device_attributes_for_save(device_in: AssetDeviceCreate | Asse
 async def device_to_dict(device: AssetDevice, can_view_secrets: bool = False) -> dict:
     data = await device.to_dict()
     raw_attributes = data.get("attributes") if isinstance(data.get("attributes"), dict) else {}
-    if is_four_node_attributes(raw_attributes):
-        nodes = raw_attributes.get("nodes") if isinstance(raw_attributes.get("nodes"), list) else []
+    normalized_attributes = normalize_device_config_attributes(raw_attributes)
+    data["attributes"] = normalized_attributes
+    if is_four_node_attributes(normalized_attributes):
+        nodes = normalized_attributes.get("nodes") if isinstance(normalized_attributes.get("nodes"), list) else []
         data["status"] = aggregate_four_node_status(nodes)
     if not can_view_secrets:
         data["attributes"] = mask_device_secret_attributes(data.get("attributes"))

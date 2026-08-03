@@ -697,8 +697,8 @@
                       <n-input-number v-model:value="node.cpu_count" size="small" placeholder="CPU数量" :min="0" />
                       <n-input v-model:value="node.cpu_model" size="small" placeholder="CPU型号" />
                       <n-input-number v-model:value="node.cpu_cores" size="small" placeholder="CPU核心数" :min="0" />
-                      <n-input v-model:value="node.memory" size="small" placeholder="内存" />
-                      <n-input v-model:value="node.disk" size="small" placeholder="磁盘" />
+                      <n-input v-model:value="node.memory" size="small" placeholder="内存总数" />
+                      <n-input v-model:value="node.disk" size="small" placeholder="磁盘总数" />
                       <n-input v-model:value="node.mgmt_ip" size="small" placeholder="管理地址" />
                       <n-input v-model:value="node.ipmi_user" size="small" placeholder="IPMI User" />
                       <n-input v-model:value="node.ipmi_password" size="small" placeholder="IPMI Password" type="password" show-password-on="click" />
@@ -1126,6 +1126,27 @@ const deviceFormFactorOptions = [
   { label: '四合一服务器', value: 'four_node' },
 ]
 
+const deviceConfigAttributeAliases = {
+  CPU型号: ['CPU Model', 'cpu_model', 'processor', 'Processor'],
+  CPU数量: ['CPU颗数', 'cpu_count'],
+  CPU核心数: ['CPU Cores', 'cpu_cores', 'cores'],
+  内存总数: ['内存容量', '内存大小', '内存', 'memory', 'Memory', 'ram', 'RAM'],
+  磁盘总数: [
+    '磁盘',
+    '硬盘',
+    '硬盘容量',
+    '磁盘容量',
+    '磁盘大小',
+    '硬盘大小',
+    'storage',
+    'Storage',
+    'disk',
+    'Disk',
+    'disk_size',
+    'disk_capacity',
+  ],
+}
+const deviceConfigAliasKeys = new Set(Object.values(deviceConfigAttributeAliases).flat())
 const deviceStructuredAttributeKeys = new Set(['nodes', 'form_factor', 'node_count', '节点数量', '设备形态'])
 
 const createOptions = [
@@ -1172,12 +1193,11 @@ const inventoryAttributeTemplateMap = {
 
 const deviceAttributeTemplateMap = {
   0: [
-    'CPU数量',
     'CPU型号',
-    '内存数量',
-    '内存大小',
-    '磁盘数量',
-    '磁盘大小',
+    'CPU数量',
+    'CPU核心数',
+    '内存总数',
+    '磁盘总数',
     'IPMI用户名',
     'IPMI密码',
   ],
@@ -2731,13 +2751,13 @@ function applyDeviceAttributeTemplate(type = deviceModal.form.type) {
 
 function syncDeviceAttributeTemplate(type = deviceModal.form.type) {
   const template = deviceAttributeTemplateMap[Number(type)] || []
-  const valueMap = deviceModal.form.attributeList.reduce((result, item) => {
+  const valueMap = normalizeDeviceConfigAttributes(deviceModal.form.attributeList.reduce((result, item) => {
     const key = String(item.key || '').trim()
     if (key && !(key in result)) result[key] = item.value
     return result
-  }, {})
+  }, {}))
   const customAttributes = deviceModal.form.attributeList.filter(
-    (item) => item.key && !deviceAttributeTemplateKeys.has(item.key)
+    (item) => item.key && !deviceAttributeTemplateKeys.has(item.key) && !deviceConfigAliasKeys.has(item.key)
   )
   deviceModal.form.attributeList = [
     ...template.map((key) => ({ key, value: valueMap[key] ?? '' })),
@@ -2746,8 +2766,8 @@ function syncDeviceAttributeTemplate(type = deviceModal.form.type) {
 }
 
 function attributesToList(attributes) {
-  if (!attributes || typeof attributes !== 'object') return []
-  return Object.entries(attributes)
+  const normalized = normalizeDeviceConfigAttributes(attributes)
+  return Object.entries(normalized)
     .filter(([key]) => !deviceStructuredAttributeKeys.has(key))
     .map(([key, value]) => ({ key, value: String(value ?? '') }))
 }
@@ -2769,7 +2789,8 @@ function handleDeviceFormFactorChange(value) {
 }
 
 function getAttributeValue(attributes, key) {
-  return String(attributes?.[key] ?? '')
+  const normalized = normalizeDeviceConfigAttributes(attributes)
+  return String(normalized?.[key] ?? '')
 }
 
 function getDeviceAttributeRows(attributes, type) {
@@ -2799,20 +2820,19 @@ function getDeviceAttributeRows(attributes, type) {
           items: [
             { label: '数量', value: getAttributeValue(attributes, 'CPU数量') },
             { label: '型号', value: getAttributeValue(attributes, 'CPU型号') },
+            { label: '核心数', value: getAttributeValue(attributes, 'CPU核心数') },
           ],
         },
         {
           label: '内存',
           items: [
-            { label: '数量', value: getAttributeValue(attributes, '内存数量') },
-            { label: '大小', value: getAttributeValue(attributes, '内存大小') },
+            { label: '总数', value: getAttributeValue(attributes, '内存总数') },
           ],
         },
         {
           label: '磁盘',
           items: [
-            { label: '数量', value: getAttributeValue(attributes, '磁盘数量') },
-            { label: '大小', value: getAttributeValue(attributes, '磁盘大小') },
+            { label: '总数', value: getAttributeValue(attributes, '磁盘总数') },
           ],
         },
         {
@@ -2854,11 +2874,27 @@ function getDeviceAttributeRows(attributes, type) {
 }
 
 function attributeListToObject(list) {
-  return (list || []).reduce((result, item) => {
+  const attributes = (list || []).reduce((result, item) => {
     const key = String(item.key || '').trim()
     if (key) result[key] = item.value
     return result
   }, {})
+  return normalizeDeviceConfigAttributes(attributes)
+}
+
+function normalizeDeviceConfigAttributes(attributes) {
+  const result = { ...(attributes || {}) }
+  Object.entries(deviceConfigAttributeAliases).forEach(([standardKey, aliases]) => {
+    let value = String(result[standardKey] ?? '').trim()
+    aliases.forEach((alias) => {
+      const aliasValue = String(result[alias] ?? '').trim()
+      if (!value && aliasValue) value = aliasValue
+      delete result[alias]
+    })
+    if (value) result[standardKey] = value
+    else delete result[standardKey]
+  })
+  return result
 }
 
 function getInventoryAttributeGroups(type, attributes) {

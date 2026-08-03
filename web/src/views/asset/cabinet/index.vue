@@ -320,8 +320,8 @@
                     <span><b>状态</b><em>{{ getDeviceStatus(node.status) }}</em></span>
                     <span><b>序列号</b><em>{{ node.serial_no || '-' }}</em></span>
                     <span class="wide"><b>CPU</b><em>{{ formatFourNodeCpu(node) }}</em></span>
-                    <span><b>内存</b><em>{{ node.memory || '-' }}</em></span>
-                    <span><b>磁盘</b><em>{{ node.disk || '-' }}</em></span>
+                    <span><b>内存总数</b><em>{{ node.memory || '-' }}</em></span>
+                    <span><b>磁盘总数</b><em>{{ node.disk || '-' }}</em></span>
                     <span><b>IPMI地址</b><em>{{ node.ipmi_host || '-' }}</em></span>
                     <span><b>IPMI用户</b><em>{{ node.ipmi_user || '-' }}</em></span>
                     <span><b>IPMI密码</b><em>{{ node.ipmi_password || '-' }}</em></span>
@@ -570,8 +570,8 @@
                   <n-input-number v-model:value="node.cpu_count" size="small" placeholder="CPU数量" :min="0" />
                   <n-input v-model:value="node.cpu_model" size="small" placeholder="CPU型号" />
                   <n-input-number v-model:value="node.cpu_cores" size="small" placeholder="CPU核心数" :min="0" />
-                  <n-input v-model:value="node.memory" size="small" placeholder="内存" />
-                  <n-input v-model:value="node.disk" size="small" placeholder="磁盘" />
+                  <n-input v-model:value="node.memory" size="small" placeholder="内存总数" />
+                  <n-input v-model:value="node.disk" size="small" placeholder="磁盘总数" />
                   <n-input v-model:value="node.ipmi_host" size="small" placeholder="IPMI 地址" />
                   <n-input v-model:value="node.ipmi_user" size="small" placeholder="IPMI User" />
                   <n-input v-model:value="node.ipmi_password" size="small" placeholder="IPMI Password" type="password" show-password-on="click" />
@@ -829,6 +829,27 @@ const structuredAttributeKeys = new Set([
   'IPMI用户',
   'IPMI密码',
 ])
+const deviceConfigAttributeAliases = {
+  CPU型号: ['CPU Model', 'cpu_model', 'processor', 'Processor'],
+  CPU数量: ['CPU颗数', 'cpu_count'],
+  CPU核心数: ['CPU Cores', 'cpu_cores', 'cores'],
+  内存总数: ['内存容量', '内存大小', '内存', 'memory', 'Memory', 'ram', 'RAM'],
+  磁盘总数: [
+    '磁盘',
+    '硬盘',
+    '硬盘容量',
+    '磁盘容量',
+    '磁盘大小',
+    '硬盘大小',
+    'storage',
+    'Storage',
+    'disk',
+    'Disk',
+    'disk_size',
+    'disk_capacity',
+  ],
+}
+const deviceConfigAliasKeys = new Set(Object.values(deviceConfigAttributeAliases).flat())
 const vncAttributeKeys = ['vnc_host', 'vnc_address', 'VNC地址', 'VNC主机', 'ipmi_host', 'IPMI地址']
 const webConsoleUrlKeys = [
   'ilo_console_url',
@@ -1005,8 +1026,8 @@ function serializeFourNodeList(nodes) {
 }
 
 function createAttributeList(attributes) {
-  if (!attributes || typeof attributes !== 'object') return []
-  return Object.entries(attributes)
+  const normalized = normalizeDeviceConfigAttributes(attributes)
+  return Object.entries(normalized)
     .filter(([key]) => !structuredAttributeKeys.has(key))
     .map(([key, value]) => ({
       key,
@@ -1037,12 +1058,28 @@ function normalizeDevicePlatformTree(value) {
 }
 
 function buildAttributesFromList(list) {
-  return (Array.isArray(list) ? list : []).reduce((result, item) => {
+  const attributes = (Array.isArray(list) ? list : []).reduce((result, item) => {
     const key = String(item?.key || '').trim()
-    if (!key || structuredAttributeKeys.has(key)) return result
+    if (!key || structuredAttributeKeys.has(key) || deviceConfigAliasKeys.has(key)) return result
     result[key] = item?.value === null || item?.value === undefined ? '' : String(item.value).trim()
     return result
   }, {})
+  return normalizeDeviceConfigAttributes(attributes)
+}
+
+function normalizeDeviceConfigAttributes(attributes) {
+  const result = { ...(attributes || {}) }
+  Object.entries(deviceConfigAttributeAliases).forEach(([standardKey, aliases]) => {
+    let value = String(result[standardKey] ?? '').trim()
+    aliases.forEach((alias) => {
+      const aliasValue = String(result[alias] ?? '').trim()
+      if (!value && aliasValue) value = aliasValue
+      delete result[alias]
+    })
+    if (value) result[standardKey] = value
+    else delete result[standardKey]
+  })
+  return result
 }
 
 function extractIpmiInfo(attributes = {}) {
@@ -1065,9 +1102,9 @@ function applyIpmiInfoToAttributes(attributes = {}) {
 
 function mergeAttributeRows(values = {}) {
   const current = new Map((deviceModal.form.attributeList || []).map((item) => [String(item.key || '').trim(), item]))
-  Object.entries(values || {}).forEach(([key, value]) => {
+  Object.entries(normalizeDeviceConfigAttributes(values) || {}).forEach(([key, value]) => {
     const attrKey = String(key || '').trim()
-    if (!attrKey || structuredAttributeKeys.has(attrKey) || value === null || value === undefined || value === '') return
+    if (!attrKey || structuredAttributeKeys.has(attrKey) || deviceConfigAliasKeys.has(attrKey) || value === null || value === undefined || value === '') return
     if (current.has(attrKey)) {
       current.get(attrKey).value = String(value)
     } else {
@@ -1853,8 +1890,8 @@ function getDeviceStatus(value) {
 }
 
 function attributesToList(attributes) {
-  if (!attributes || typeof attributes !== 'object') return []
-  return Object.entries(attributes).map(([key, value]) => ({ key, value }))
+  const normalized = normalizeDeviceConfigAttributes(attributes)
+  return Object.entries(normalized).map(([key, value]) => ({ key, value }))
 }
 
 function firstAttributeValue(attributes = {}, keys = []) {
