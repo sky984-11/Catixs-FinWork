@@ -291,8 +291,13 @@ async function loadProjectDetail(projectId) {
 
 async function openDetail(project) {
   const projectId = Number(project?.id || project)
+  if (!projectId) return
   detailVisible.value = true
   activeDetailTab.value = 'overview'
+  if (detailProject.value?.id === projectId) {
+    syncDetailRoute(projectId)
+    return
+  }
   await loadProjectDetail(projectId)
   syncDetailRoute(projectId)
 }
@@ -313,14 +318,21 @@ async function openDetailFromRoute() {
 }
 
 function syncDetailRoute(projectId, taskId = null) {
-  router.replace({
-    path: route.path,
-    query: {
-      ...route.query,
-      project_id: projectId,
-      task_id: taskId || undefined,
-    },
-  })
+  const url = new URL(window.location.href)
+  if (projectId) {
+    url.searchParams.set('project_id', projectId)
+  } else {
+    url.searchParams.delete('project_id')
+  }
+  if (taskId) {
+    url.searchParams.set('task_id', taskId)
+  } else {
+    url.searchParams.delete('task_id')
+  }
+  const nextUrl = `${url.pathname}${url.search}${url.hash}`
+  if (nextUrl !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
+    window.history.replaceState(window.history.state, '', nextUrl)
+  }
 }
 
 function resetForm() {
