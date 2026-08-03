@@ -211,9 +211,21 @@ function toggleRegion(key) {
 }
 
 function pickAttribute(attributes, keys) {
-  const source = attributes && typeof attributes === 'object' ? attributes : {}
+  let source = attributes && typeof attributes === 'object' ? attributes : {}
+  if (typeof attributes === 'string') {
+    try {
+      const parsed = JSON.parse(attributes)
+      source = parsed && typeof parsed === 'object' ? parsed : {}
+    } catch {
+      source = {}
+    }
+  }
+  const normalized = Object.entries(source).reduce((result, [key, value]) => {
+    result[String(key || '').trim()] = value
+    return result
+  }, {})
   for (const key of keys) {
-    const value = source[key]
+    const value = normalized[String(key || '').trim()]
     if (value !== undefined && value !== null && String(value).trim()) return String(value).trim()
   }
   return ''
@@ -240,6 +252,37 @@ function splitConfigText(value) {
 
 function findConfigPart(device, matcher) {
   return splitConfigText(device?.config).find(matcher) || ''
+}
+
+function findConfigParts(device, matcher) {
+  return splitConfigText(device?.config).filter(matcher)
+}
+
+const cpuModelCoreCounts = [
+  [/intel(?:\(r\))?\s+xeon(?:\(r\))?\s+gold\s+5118/i, '12'],
+  [/intel(?:\(r\))?\s+xeon(?:\(r\))?\s+gold\s+6138/i, '20'],
+  [/intel(?:\(r\))?\s+xeon(?:\(r\))?\s+gold\s+6148/i, '20'],
+  [/intel(?:\(r\))?\s+xeon(?:\(r\))?\s+platinum\s+8272cl/i, '26'],
+  [/intel(?:\(r\))?\s+xeon(?:\(r\))?\s+e5-2698\s+v3/i, '16'],
+  [/intel(?:\(r\))?\s+xeon(?:\(r\))?\s+e5-2680\s+v4/i, '14'],
+  [/intel(?:\(r\))?\s+xeon(?:\(r\))?\s+e5-2640(?:\s+v4)?/i, '10'],
+  [/amd\s+epyc\s+7542/i, '32'],
+]
+
+function inferCpuCoresFromModel(value) {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  const explicit = text.match(/\b(\d+)\s*[- ]?\s*core\b/i)
+  if (explicit) return explicit[1]
+  return cpuModelCoreCounts.find(([pattern]) => pattern.test(text))?.[1] || ''
+}
+
+function looksLikeDiskConfigPart(value) {
+  const text = String(value || '').trim()
+  if (!text) return false
+  if (/盘|硬盘|disk|storage|ssd|hdd|nvme|raid/i.test(text)) return true
+  if (/\d+(?:\.\d+)?\s*(t|tb|tib)\b/i.test(text)) return true
+  return /\d+(?:\.\d+)?\s*(g|gb|gib)\b\s*(?:[*x×]\s*\d+|.*\b(ssd|hdd|nvme)\b)/i.test(text)
 }
 
 function parseCpuBundle(value) {
@@ -297,7 +340,8 @@ function cleanCpuCores(value) {
   const parsed = parseCpuBundle(value)
   if (parsed.cpuCores) return parsed.cpuCores
   const text = String(value || '').trim()
-  return /^\d+\s*(核|core|cores)$/i.test(text) ? text : ''
+  if (/^\d+\s*(核|core|cores)$/i.test(text)) return text
+  return inferCpuCoresFromModel(text)
 }
 
 function getDeviceConfigValues(device, sourceAttributes = null) {
@@ -305,8 +349,9 @@ function getDeviceConfigValues(device, sourceAttributes = null) {
   const rawCpuModel = pickAttribute(attributes, ['CPU型号', 'CPU Model', 'cpu_model', 'processor', 'Processor'])
   const rawCpuCount = pickAttribute(attributes, ['CPU数量', 'CPU颗数', 'cpu_count'])
   const rawCpuCores = pickAttribute(attributes, ['CPU核心数', 'CPU Cores', 'cpu_cores', 'cores'])
-  const rawCpuConfig = findConfigPart(device, (part) => /xeon|epyc|ryzen|intel|amd|cpu|颗|核|core|cores/i.test(part))
-  const parsedCpu = [rawCpuConfig, rawCpuModel, rawCpuCount, rawCpuCores].reduce((result, value) => {
+  const rawCpuConfigParts = findConfigParts(device, (part) => /xeon|epyc|ryzen|intel|amd|cpu|颗|核|core|cores/i.test(part))
+  const rawCpuConfig = rawCpuConfigParts.find((part) => /xeon|epyc|ryzen|intel|amd|cpu/i.test(part)) || rawCpuConfigParts[0] || ''
+  const parsedCpu = [...rawCpuConfigParts, rawCpuModel, rawCpuCount, rawCpuCores].reduce((result, value) => {
     const next = parseCpuBundle(value)
     return {
       cpuModel: result.cpuModel || next.cpuModel,
@@ -316,7 +361,7 @@ function getDeviceConfigValues(device, sourceAttributes = null) {
   }, {})
   const cpuModel = cleanCpuModel(rawCpuModel) || parsedCpu.cpuModel || cleanCpuModel(rawCpuConfig)
   const cpuCount = cleanCpuCount(rawCpuCount) || parsedCpu.cpuCount || cleanCpuCount(rawCpuConfig)
-  const cpuCores = cleanCpuCores(rawCpuCores) || parsedCpu.cpuCores || cleanCpuCores(rawCpuConfig)
+  const cpuCores = cleanCpuCores(rawCpuCores) || parsedCpu.cpuCores || cleanCpuCores(rawCpuConfig) || inferCpuCoresFromModel(cpuModel)
   const memory = pickAttribute(attributes, ['内存总数', '内存容量', '内存大小', '内存', 'memory', 'Memory', 'ram', 'RAM'])
     || findConfigPart(device, (part) => /内存|ram|memory|\d+\s*(g|gb|gib)\b/i.test(part))
   const disk = pickAttribute(attributes, [
@@ -333,7 +378,16 @@ function getDeviceConfigValues(device, sourceAttributes = null) {
     'Disk',
     'disk_size',
     'disk_capacity',
-  ]) || findConfigPart(device, (part) => /盘|硬盘|disk|storage|ssd|hdd|nvme|raid|\d+\s*(t|tb)\b/i.test(part))
+    'disk_total',
+    'storage_total',
+    'drive',
+    'drives',
+    'hdd',
+    'ssd',
+    'nvme',
+    'raid',
+    'legacy_disk',
+  ]) || findConfigPart(device, looksLikeDiskConfigPart)
   return { cpuModel, cpuCount, cpuCores, memory, disk }
 }
 
@@ -342,10 +396,10 @@ function getDeviceConfigItems(device) {
   const items = [
     { label: 'CPU型号', value: values.cpuModel },
     { label: 'CPU数量', value: values.cpuCount },
-    { label: 'CPU核心数', value: values.cpuCores },
+    { label: 'CPU核心数', value: values.cpuCores || '待补充' },
     { label: '内存总数', value: values.memory },
-    { label: '磁盘总数', value: values.disk },
-  ].filter((item) => item.value)
+    { label: '磁盘总数', value: values.disk || '待补充' },
+  ].filter((item) => item.value || item.label === 'CPU核心数' || item.label === '磁盘总数')
   return items.length ? items : [{ label: '配置', value: formatDeviceConfig(device) }]
 }
 

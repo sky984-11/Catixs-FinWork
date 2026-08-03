@@ -73,13 +73,13 @@ def pick(data: dict, *keys: str, default: Any = "") -> Any:
 
 def normalize_attribute_dict(attributes: Any) -> dict:
     if isinstance(attributes, dict):
-        return attributes
+        return {text(key): value for key, value in attributes.items() if text(key)}
     if isinstance(attributes, str):
         try:
             data = json.loads(attributes)
         except json.JSONDecodeError:
             return {}
-        return data if isinstance(data, dict) else {}
+        return {text(key): value for key, value in data.items() if text(key)} if isinstance(data, dict) else {}
     return {}
 
 
@@ -105,6 +105,64 @@ DEVICE_CONFIG_ATTRIBUTE_ALIASES = {
 }
 
 
+DISK_CONFIG_KEYS = (
+    "磁盘总数",
+    "磁盘",
+    "硬盘",
+    "硬盘容量",
+    "磁盘容量",
+    "磁盘大小",
+    "硬盘大小",
+    "storage",
+    "Storage",
+    "disk",
+    "Disk",
+    "disk_size",
+    "disk_capacity",
+    "disk_total",
+    "storage_total",
+    "drive",
+    "drives",
+    "hdd",
+    "ssd",
+    "nvme",
+    "raid",
+    "legacy_disk",
+)
+
+
+CPU_MODEL_CORE_COUNTS = {
+    "intel xeon gold 5118": "12",
+    "intel xeon gold 6138": "20",
+    "intel(r) xeon(r) gold 6138": "20",
+    "intel xeon gold 6148": "20",
+    "intel(r) xeon(r) gold 6148": "20",
+    "intel xeon platinum 8272cl": "26",
+    "intel xeon e5-2698 v3": "16",
+    "intel xeon e5-2680 v4": "14",
+    "intel xeon e5-2640 v4": "10",
+    "intel xeon e5-2640": "10",
+    "amd epyc 7542": "32",
+}
+
+
+def infer_cpu_cores_from_model(value: Any) -> str:
+    model = text(value)
+    if not model:
+        return ""
+    import re
+
+    explicit = re.search(r"\b(\d+)\s*[- ]?\s*core\b", model, re.IGNORECASE)
+    if explicit:
+        return explicit.group(1)
+    normalized = " ".join(model.lower().replace("(r)", "").split())
+    for key, cores in CPU_MODEL_CORE_COUNTS.items():
+        normalized_key = " ".join(key.lower().replace("(r)", "").split())
+        if normalized_key in normalized:
+            return cores
+    return ""
+
+
 def normalize_device_config_attributes(attributes: Any) -> dict:
     result = normalize_attribute_dict(attributes)
     for standard_key, aliases in DEVICE_CONFIG_ATTRIBUTE_ALIASES.items():
@@ -125,9 +183,9 @@ def format_device_config(attributes: dict) -> str:
     attrs = normalize_device_config_attributes(attributes)
     cpu = pick(attrs, "CPU型号", "CPU Model", "cpu_model", "processor", "Processor")
     cpu_count = pick(attrs, "CPU数量", "CPU颗数", "cpu_count")
-    cpu_cores = pick(attrs, "CPU核心数", "cpu_cores")
+    cpu_cores = pick(attrs, "CPU核心数", "CPU Cores", "cpu_cores", "cores") or infer_cpu_cores_from_model(cpu)
     memory = pick(attrs, "内存总数", "内存容量", "内存大小", "内存", "memory", "Memory")
-    disk = pick(attrs, "磁盘总数", "磁盘", "硬盘", "硬盘容量", "磁盘大小", "disk", "Disk", "disk_size", "disk_capacity")
+    disk = pick(attrs, *DISK_CONFIG_KEYS)
     parts = []
     if cpu_count or cpu:
         parts.append(" / ".join(item for item in [text(cpu_count), text(cpu)] if item))
@@ -142,17 +200,41 @@ def format_device_config(attributes: dict) -> str:
 
 def format_four_node_config(node: dict) -> str:
     node_data = node if isinstance(node, dict) else {}
+    cpu_model = text(node_data.get("cpu_model") or node_data.get("cpuModel") or node_data.get("cpu"))
+    cpu_cores = node_data.get("cpu_cores") or node_data.get("cpuCores") or infer_cpu_cores_from_model(cpu_model)
+    memory = pick(node_data, "memory", "Memory", "ram", "RAM", "内存总数", "内存容量", "内存大小", "内存")
+    disk = pick(node_data, *DISK_CONFIG_KEYS)
     cpu_parts = [
         f"{node_data.get('cpu_count')}颗" if node_data.get("cpu_count") not in (None, "") else "",
-        text(node_data.get("cpu_model")),
-        f"{node_data.get('cpu_cores')}核" if node_data.get("cpu_cores") not in (None, "") else "",
+        cpu_model,
+        f"{cpu_cores}核" if cpu_cores not in (None, "") else "",
     ]
     parts = [" / ".join(item for item in cpu_parts if item)]
-    for key in ("memory", "disk"):
-        value = text(node_data.get(key))
-        if value:
-            parts.append(value)
+    for value in (memory, disk):
+        if text(value):
+            parts.append(text(value))
     return " | ".join(item for item in parts if item)
+
+
+def node_config_attributes(node: dict) -> dict:
+    node_data = node if isinstance(node, dict) else {}
+    cpu_model = text(node_data.get("cpu_model") or node_data.get("cpuModel") or node_data.get("cpu"))
+    cpu_count = node_data.get("cpu_count") or node_data.get("cpuCount")
+    cpu_cores = node_data.get("cpu_cores") or node_data.get("cpuCores") or infer_cpu_cores_from_model(cpu_model)
+    memory = pick(node_data, "memory", "Memory", "ram", "RAM", "内存总数", "内存容量", "内存大小", "内存")
+    disk = pick(node_data, *DISK_CONFIG_KEYS)
+    result = {}
+    if cpu_model:
+        result["CPU型号"] = cpu_model
+    if cpu_count not in (None, ""):
+        result["CPU数量"] = text(cpu_count)
+    if cpu_cores not in (None, ""):
+        result["CPU核心数"] = text(cpu_cores)
+    if text(memory):
+        result["内存总数"] = text(memory)
+    if text(disk):
+        result["磁盘总数"] = text(disk)
+    return result
 
 
 def is_four_node_device(attributes: dict) -> bool:
@@ -199,6 +281,10 @@ def is_free_device_status(value: Any) -> bool:
 
 def device_to_card_row(device: AssetDevice) -> dict:
     attrs = normalize_device_config_attributes(device.attributes)
+    if not text(attrs.get("CPU核心数")):
+        inferred_cpu_cores = infer_cpu_cores_from_model(attrs.get("CPU型号"))
+        if inferred_cpu_cores:
+            attrs = {**attrs, "CPU核心数": inferred_cpu_cores}
     cabinet = device.cabinet
     location = device.location
     region = device.region
@@ -237,6 +323,7 @@ def device_to_sales_rows(device: AssetDevice) -> list[dict]:
         node_status = normalize_device_status(node.get("status"), 0)
         node_name = text(node.get("name"), f"Node {index}")
         display_name = text(node.get("device_name"), f"{row['name']}-{node_name}")
+        node_attrs = node_config_attributes(node)
         rows.append(
             {
                 **row,
@@ -248,6 +335,7 @@ def device_to_sales_rows(device: AssetDevice) -> list[dict]:
                 "mgmt_ip": text(node.get("mgmt_ip") or node.get("ipmi_host"), row["mgmt_ip"]),
                 "business_ip": text(node.get("business_ip"), row["business_ip"]),
                 "config": format_four_node_config(node) or row["config"],
+                "attributes": {**row["attributes"], **node_attrs},
                 "remark": text(node.get("remark"), row["remark"]),
                 "status": node_status,
                 "node_name": node_name,
