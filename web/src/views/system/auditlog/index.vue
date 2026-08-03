@@ -189,10 +189,12 @@ const columns = [
     },
   },
   {
-    title: '响应时间(s)',
+    title: '响应时间(ms)',
     key: 'response_time',
+    columnKey: 'response_time',
     align: 'center',
-    width: 'auto',
+    width: 130,
+    sorter: true,
     ellipsis: { tooltip: true },
   },
   {

@@ -528,7 +528,10 @@
                 <span class="eyebrow">Device Config</span>
                 <h3>设备配置</h3>
               </div>
-              <n-button size="small" secondary @click="addDeviceAttribute">添加配置</n-button>
+              <n-space size="small">
+                <n-button size="small" secondary type="primary" @click="applyDeviceAttributeTemplate">添加模板</n-button>
+                <n-button size="small" secondary @click="addDeviceAttribute">添加配置</n-button>
+              </n-space>
             </div>
             <n-empty v-if="!deviceModal.form.attributeList.length" description="暂无配置" />
             <div v-else class="attribute-editor-list">
@@ -850,6 +853,13 @@ const deviceConfigAttributeAliases = {
   ],
 }
 const deviceConfigAliasKeys = new Set(Object.values(deviceConfigAttributeAliases).flat())
+const deviceAttributeTemplate = [
+  ['CPU型号', ''],
+  ['CPU数量', ''],
+  ['CPU核心数', ''],
+  ['内存总数', ''],
+  ['磁盘总数', ''],
+]
 const vncAttributeKeys = ['vnc_host', 'vnc_address', 'VNC地址', 'VNC主机', 'ipmi_host', 'IPMI地址']
 const webConsoleUrlKeys = [
   'ilo_console_url',
@@ -1100,13 +1110,16 @@ function applyIpmiInfoToAttributes(attributes = {}) {
   return result
 }
 
-function mergeAttributeRows(values = {}) {
+function mergeAttributeRows(values = {}, options = {}) {
+  const overwrite = options.overwrite !== false
   const current = new Map((deviceModal.form.attributeList || []).map((item) => [String(item.key || '').trim(), item]))
   Object.entries(normalizeDeviceConfigAttributes(values) || {}).forEach(([key, value]) => {
     const attrKey = String(key || '').trim()
-    if (!attrKey || structuredAttributeKeys.has(attrKey) || deviceConfigAliasKeys.has(attrKey) || value === null || value === undefined || value === '') return
+    if (!attrKey || structuredAttributeKeys.has(attrKey) || deviceConfigAliasKeys.has(attrKey) || value === null || value === undefined) return
     if (current.has(attrKey)) {
-      current.get(attrKey).value = String(value)
+      if (overwrite || !String(current.get(attrKey).value || '').trim()) {
+        current.get(attrKey).value = String(value)
+      }
     } else {
       const item = { key: attrKey, value: String(value) }
       deviceModal.form.attributeList.push(item)
@@ -1142,6 +1155,22 @@ async function probeDeviceRedfish() {
 
 function addDeviceAttribute() {
   deviceModal.form.attributeList.push({ key: '', value: '' })
+}
+
+function applyDeviceAttributeTemplate() {
+  const existingKeys = new Set(
+    (deviceModal.form.attributeList || [])
+      .map((item) => String(item.key || '').trim())
+      .filter(Boolean)
+  )
+  let addedCount = 0
+  deviceAttributeTemplate.forEach(([key, value]) => {
+    if (!key || existingKeys.has(key)) return
+    deviceModal.form.attributeList.push({ key, value })
+    existingKeys.add(key)
+    addedCount += 1
+  })
+  window.$message?.success(addedCount ? `已添加 ${addedCount} 个配置字段` : '配置模板字段已存在')
 }
 
 function removeDeviceAttribute(index) {

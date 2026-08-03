@@ -7,7 +7,7 @@
     <n-data-table
       :remote="remote"
       :loading="loading"
-      :columns="columns"
+      :columns="tableColumns"
       :data="tableData"
       :scroll-x="scrollX"
       :row-key="(row) => row[rowKey]"
@@ -78,6 +78,17 @@ const loading = ref(false)
 const initQuery = { ...props.queryItems }
 const tableData = ref([])
 const sorterParams = ref({})
+const tableColumns = computed(() =>
+  props.columns.map((column) => {
+    if (!column?.sorter) return column
+    const columnKey = column.columnKey || column.key
+    return {
+      ...column,
+      columnKey,
+      sortOrder: sorterParams.value.sort_field === columnKey ? sorterParams.value.sort_order : false,
+    }
+  })
+)
 const pagination = reactive({
   page: 1,
   page_size: 10,
@@ -152,8 +163,9 @@ function onSorterChange(sorter) {
   if (!activeSorter?.order) {
     sorterParams.value = {}
   } else {
+    const sortField = activeSorter.columnKey || activeSorter.key || activeSorter.column?.columnKey || activeSorter.column?.key
     sorterParams.value = {
-      sort_field: activeSorter.columnKey,
+      sort_field: sortField,
       sort_order: activeSorter.order,
     }
   }

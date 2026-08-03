@@ -1234,6 +1234,10 @@ async def update_region(region_in: AssetRegionUpdate):
 
 @router.delete("/region/delete", summary="删除区域")
 async def delete_region(region_id: int = Query(...)):
+    if await AssetLocation.filter(region_id=region_id).exists():
+        return Success(msg="该国家/城市下还有机房，不能删除", code=400)
+    if await AssetDevice.filter(region_id=region_id).exists():
+        return Success(msg="该国家/城市下还有设备，不能删除", code=400)
     await asset_region_controller.remove(id=region_id)
     return Success(msg="Deleted Successfully")
 
@@ -1267,14 +1271,45 @@ async def create_location(location_in: AssetLocationCreate):
     return Success(msg="Created Successfully", data=await obj.to_dict())
 
 
+async def sync_devices_for_location(location_id: int) -> None:
+    location = await AssetLocation.get_or_none(id=location_id)
+    if not location:
+        return
+    cabinet_ids = await AssetCabinet.filter(location_id=location_id).values_list("id", flat=True)
+    if not cabinet_ids:
+        return
+    await AssetDevice.filter(cabinet_id__in=cabinet_ids).update(
+        region_id=location.region_id,
+        location_id=location.id,
+    )
+
+
+async def sync_devices_for_cabinet(cabinet_id: int) -> None:
+    cabinet = await AssetCabinet.get_or_none(id=cabinet_id)
+    if not cabinet:
+        return
+    location = await AssetLocation.get_or_none(id=cabinet.location_id)
+    if not location:
+        return
+    await AssetDevice.filter(cabinet_id=cabinet.id).update(
+        region_id=location.region_id,
+        location_id=location.id,
+    )
+
+
 @router.post("/location/update", summary="更新位置")
 async def update_location(location_in: AssetLocationUpdate):
     obj = await asset_location_controller.update(id=location_in.id, obj_in=location_in)
+    await sync_devices_for_location(location_in.id)
     return Success(msg="Updated Successfully", data=await obj.to_dict())
 
 
 @router.delete("/location/delete", summary="删除位置")
 async def delete_location(location_id: int = Query(...)):
+    if await AssetCabinet.filter(location_id=location_id).exists():
+        return Success(msg="该机房下还有机柜，不能删除", code=400)
+    if await AssetDevice.filter(location_id=location_id).exists():
+        return Success(msg="该机房下还有设备，不能删除", code=400)
     await asset_location_controller.remove(id=location_id)
     return Success(msg="Deleted Successfully")
 
@@ -1377,6 +1412,7 @@ async def update_cabinet(cabinet_in: AssetCabinetUpdate):
         if start and (start < data["rental_start_u"] or end > data["rental_end_u"]):
             return Success(msg="已有设备超出租用U位范围，请先调整设备U位", code=400)
     obj = await asset_cabinet_controller.update(id=cabinet_in.id, obj_in=data)
+    await sync_devices_for_cabinet(cabinet_in.id)
     return Success(msg="Updated Successfully", data=await obj.to_dict())
 
 
@@ -1450,12 +1486,13 @@ async def list_device(
     status: int | None = Query(None),
 ):
     q = Q()
-    if region_id is not None:
-        q &= Q(region_id=region_id)
-    if location_id is not None:
-        q &= Q(location_id=location_id)
     if cabinet_id is not None:
         q &= Q(cabinet_id=cabinet_id)
+    else:
+        if region_id is not None:
+            q &= Q(region_id=region_id)
+        if location_id is not None:
+            q &= Q(location_id=location_id)
     if type is not None:
         q &= Q(type=type)
     if status is not None:
