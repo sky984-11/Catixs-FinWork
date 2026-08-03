@@ -345,7 +345,10 @@ function cleanCpuCores(value) {
 }
 
 function getDeviceConfigValues(device, sourceAttributes = null) {
-  const attributes = sourceAttributes || device?.attributes || {}
+  const attributes = {
+    ...(device?.node_attributes && typeof device.node_attributes === 'object' ? device.node_attributes : {}),
+    ...(sourceAttributes || device?.attributes || {}),
+  }
   const rawCpuModel = pickAttribute(attributes, ['CPU型号', 'CPU Model', 'cpu_model', 'processor', 'Processor'])
   const rawCpuCount = pickAttribute(attributes, ['CPU数量', 'CPU颗数', 'cpu_count'])
   const rawCpuCores = pickAttribute(attributes, ['CPU核心数', 'CPU Cores', 'cpu_cores', 'cores'])
@@ -366,6 +369,7 @@ function getDeviceConfigValues(device, sourceAttributes = null) {
     || findConfigPart(device, (part) => /内存|ram|memory|\d+\s*(g|gb|gib)\b/i.test(part))
   const disk = pickAttribute(attributes, [
     '磁盘总数',
+    '硬盘总数',
     '磁盘',
     '硬盘',
     '硬盘容量',
@@ -376,10 +380,16 @@ function getDeviceConfigValues(device, sourceAttributes = null) {
     'Storage',
     'disk',
     'Disk',
+    'disks',
+    'Disks',
     'disk_size',
     'disk_capacity',
     'disk_total',
+    'diskTotal',
     'storage_total',
+    'storageTotal',
+    'storage_size',
+    'storageSize',
     'drive',
     'drives',
     'hdd',
