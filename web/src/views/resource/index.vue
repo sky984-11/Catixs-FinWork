@@ -4,13 +4,13 @@
       <div>
         <span>Resource Desk</span>
         <h1>资源模块</h1>
-        <p>面向销售的可售资源视图，集中查看空闲设备、线路价格与 IP 资源。</p>
+        <p>面向销售的可售资源视图，集中查看可售服务器、线路价格与 IP 资源。</p>
       </div>
     </section>
     <div class="resource-home__grid">
       <RouterLink class="resource-home__card" to="/resource/free-devices">
         <TheIcon icon="mdi:server-plus-outline" :size="26" />
-        <strong>空闲设备</strong>
+        <strong>可售服务器</strong>
         <span>按地区查看机柜管理里的可售服务器</span>
       </RouterLink>
       <RouterLink class="resource-home__card" to="/resource/zenlayer-pricing">

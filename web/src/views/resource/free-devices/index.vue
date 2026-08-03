@@ -82,7 +82,7 @@
             </section>
           </div>
         </div>
-        <n-empty v-else description="暂无空闲设备" />
+        <n-empty v-else description="暂无可售服务器" />
       </n-spin>
     </div>
 

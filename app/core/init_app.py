@@ -327,7 +327,7 @@ async def ensure_resource_menu():
     )
     resource_menus = [
         {
-            "name": "空闲设备",
+            "name": "可售服务器",
             "path": "free-devices",
             "order": 1,
             "icon": "mdi:server-plus-outline",
