@@ -7,3 +7,4 @@ from .asset import *
 from .project import *
 from .finance import *
 from .remote_assistance import *
+from .device_maintenance import *

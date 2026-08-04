@@ -16,12 +16,60 @@
         </article>
         <article>
           <span class="summary-icon gray"><TheIcon icon="mdi:account-hard-hat-outline" :size="21" /></span>
-          <div><small>启用工程师</small><strong>{{ activeEngineerCount }}</strong></div>
+          <div><small>待执行计划</small><strong>{{ pendingPlanCount }}</strong></div>
         </article>
       </section>
 
       <section class="workspace-panel">
         <n-tabs v-model:value="activeTab" type="line" animated>
+          <n-tab-pane name="plans" tab="运维计划">
+            <div class="table-toolbar">
+              <div class="filter-row">
+                <n-select
+                  v-model:value="planFilters.assignee_id"
+                  clearable
+                  filterable
+                  placeholder="按负责人筛选"
+                  :options="planAssigneeOptions"
+                />
+                <n-select
+                  v-model:value="planFilters.site"
+                  clearable
+                  filterable
+                  placeholder="按机房筛选"
+                  :options="remoteSiteFilterOptions"
+                />
+                <n-select
+                  v-model:value="planFilters.status"
+                  clearable
+                  placeholder="计划状态"
+                  :options="planStatusOptions"
+                />
+              </div>
+              <n-space>
+                <n-button secondary circle :loading="loading" title="刷新" @click="fetchOverview">
+                  <template #icon><TheIcon icon="mdi:refresh" :size="18" /></template>
+                </n-button>
+                <n-button type="primary" round @click="openPlanEditor()">
+                  <template #icon><TheIcon icon="mdi:calendar-plus" :size="18" /></template>
+                  新增运维计划
+                </n-button>
+              </n-space>
+            </div>
+            <n-data-table
+              :loading="loading"
+              :columns="planColumns"
+              :data="filteredPlans"
+              :pagination="planPagination"
+              :row-key="(row) => row.id"
+              flex-height
+              :scroll-x="1600"
+              striped
+            >
+              <template #empty><n-empty description="暂无运维计划" /></template>
+            </n-data-table>
+          </n-tab-pane>
+
           <n-tab-pane name="remote" tab="运维记录">
             <div class="table-toolbar">
               <div class="filter-row">
@@ -49,10 +97,6 @@
               <n-space>
                 <n-button secondary circle :loading="loading" title="刷新" @click="fetchOverview">
                   <template #icon><TheIcon icon="mdi:refresh" :size="18" /></template>
-                </n-button>
-                <n-button type="primary" round @click="openRemoteEditor()">
-                  <template #icon><TheIcon icon="mdi:plus" :size="18" /></template>
-                  新增运维记录
                 </n-button>
               </n-space>
             </div>
@@ -199,6 +243,137 @@
       </n-modal>
 
       <n-modal
+        v-model:show="planEditor.show"
+        preset="card"
+        :title="planEditor.form.id ? '变更运维计划' : '新增运维计划'"
+        class="editor-modal remote-editor-modal"
+        style="width: min(680px, calc(100vw - 40px))"
+        :bordered="false"
+      >
+        <n-form class="remote-form" label-placement="left" label-width="90" size="small" :model="planEditor.form">
+          <div class="remote-form-grid">
+            <n-form-item label="客户" required>
+              <n-input v-model:value="planEditor.form.customer" placeholder="客户名称" />
+            </n-form-item>
+            <n-form-item label="工单号">
+              <n-input v-model:value="planEditor.form.ticket" placeholder="关联工单号" />
+            </n-form-item>
+            <n-form-item label="机房" required>
+              <n-cascader
+                v-model:value="planEditor.form.site_key"
+                filterable
+                clearable
+                show-path
+                :options="siteCascaderOptions"
+                placeholder="选择地区 / 机房"
+                @update:value="handlePlanSiteCascaderChange"
+              />
+            </n-form-item>
+            <n-form-item label="工程师">
+              <n-select
+                v-model:value="planEditor.form.engineer_id"
+                filterable
+                clearable
+                :options="assignablePlanEngineerOptions"
+                :disabled="!planEditor.form.region"
+                :placeholder="planEditor.form.region ? '选择启用工程师' : '请先选择地区'"
+                @update:value="handlePlanEngineerSelected"
+              />
+            </n-form-item>
+            <n-form-item label="计划时间" required>
+              <n-date-picker
+                v-model:formatted-value="planEditor.form.planned_at"
+                type="datetime"
+                format="yyyy-MM-dd HH:mm"
+                value-format="yyyy-MM-dd'T'HH:mm"
+                :actions="datePickerActions"
+                :time-picker-props="minuteTimePickerProps"
+                clearable
+                style="width: 100%"
+              />
+            </n-form-item>
+            <n-form-item label="通知负责人">
+              <n-select
+                v-model:value="planEditor.form.assignee_ids"
+                multiple
+                filterable
+                clearable
+                max-tag-count="responsive"
+                :options="userOptions"
+                placeholder="选择飞书通知接收人"
+              />
+            </n-form-item>
+          </div>
+          <n-form-item label="计划说明">
+            <n-input
+              v-model:value="planEditor.form.note"
+              type="textarea"
+              placeholder="计划内容、到场要求、交接信息"
+              :autosize="{ minRows: 3, maxRows: 6 }"
+            />
+          </n-form-item>
+          <n-checkbox v-model:checked="planEditor.form.notify">{{ planEditor.form.id ? '保存后发送飞书通知' : '创建后立即发送飞书通知' }}</n-checkbox>
+        </n-form>
+        <template #footer>
+          <div class="modal-actions compact-modal-actions">
+            <n-button round size="small" @click="planEditor.show = false">取消</n-button>
+            <n-button type="primary" round size="small" :loading="planEditor.saving" @click="savePlan">保存</n-button>
+          </div>
+        </template>
+      </n-modal>
+
+      <n-modal
+        v-model:show="completeEditor.show"
+        preset="card"
+        title="完成运维计划"
+        class="editor-modal engineer-editor-modal"
+        style="width: min(460px, calc(100vw - 40px))"
+        :bordered="false"
+      >
+        <n-form class="remote-form" label-placement="left" label-width="82" size="small" :model="completeEditor.form">
+          <n-form-item label="到场时间" required>
+            <n-date-picker
+              v-model:formatted-value="completeEditor.form.arrived_at"
+              type="datetime"
+              format="yyyy-MM-dd HH:mm"
+              value-format="yyyy-MM-dd'T'HH:mm"
+              :actions="datePickerActions"
+              :time-picker-props="minuteTimePickerProps"
+              @update:formatted-value="handleCompleteArrivedAtChange"
+              clearable
+              style="width: 100%"
+            />
+          </n-form-item>
+          <n-form-item label="离场时间" required>
+            <n-date-picker
+              v-model:formatted-value="completeEditor.form.left_at"
+              type="datetime"
+              format="yyyy-MM-dd HH:mm"
+              value-format="yyyy-MM-dd'T'HH:mm"
+              :actions="datePickerActions"
+              :time-picker-props="minuteTimePickerProps"
+              clearable
+              style="width: 100%"
+            />
+          </n-form-item>
+          <n-form-item label="备注">
+            <n-input
+              v-model:value="completeEditor.form.note"
+              type="textarea"
+              placeholder="完成情况、交接信息或其他说明"
+              :autosize="{ minRows: 3, maxRows: 5 }"
+            />
+          </n-form-item>
+        </n-form>
+        <template #footer>
+          <div class="modal-actions compact-modal-actions">
+            <n-button round size="small" @click="completeEditor.show = false">取消</n-button>
+            <n-button type="primary" round size="small" :loading="completeEditor.saving" @click="submitCompletePlan">完成</n-button>
+          </div>
+        </template>
+      </n-modal>
+
+      <n-modal
         v-model:show="engineerEditor.show"
         preset="card"
         :title="engineerEditor.form.id ? '编辑工程师' : '新增工程师'"
@@ -257,19 +432,23 @@
 
 <script setup>
 import { computed, h, onMounted, reactive, ref } from 'vue'
-import { NButton, NPopconfirm, NSpace, NTag, NTooltip, useMessage } from 'naive-ui'
+import { NButton, NPopconfirm, NSpace, NSelect, NTag, NTooltip, useMessage } from 'naive-ui'
 import api from '@/api'
 import { translateCity, translateCountry, translateLocationPath } from '@/utils/location-i18n'
 
 const message = useMessage()
 const loading = ref(false)
-const activeTab = ref('remote')
+const remoteSettlementSaving = ref(new Set())
+const activeTab = ref('plans')
 const remoteHands = ref([])
+const plans = ref([])
 const engineers = ref([])
+const users = ref([])
 const datacenters = ref([])
 const engineerKeyword = ref('')
 
 const remoteFilters = reactive({ engineer_id: null, site: null, status: null })
+const planFilters = reactive({ assignee_id: null, site: null, status: null })
 const datePickerActions = ['clear', 'now', 'confirm']
 const minuteTimePickerProps = { format: 'HH:mm' }
 const regionAliasMap = new Map([
@@ -289,6 +468,10 @@ const regionAliasMap = new Map([
   ['london', '伦敦'],
   ['lon', '伦敦'],
   ['ashburn', '阿什本'],
+  ['frankfurt', '法兰克福'],
+  ['frankfurtammain', '法兰克福'],
+  ['frankfurt am main', '法兰克福'],
+  ['fra', '法兰克福'],
   ['tokyo', '东京'],
   ['singapore', '新加坡'],
   ['taipei', '台北'],
@@ -305,6 +488,19 @@ const remotePagination = reactive({
   onUpdatePageSize: (pageSize) => {
     remotePagination.pageSize = pageSize
     remotePagination.page = 1
+  },
+})
+const planPagination = reactive({
+  page: 1,
+  pageSize: 10,
+  showSizePicker: true,
+  pageSizes: [10, 20, 50],
+  onUpdatePage: (page) => {
+    planPagination.page = page
+  },
+  onUpdatePageSize: (pageSize) => {
+    planPagination.pageSize = pageSize
+    planPagination.page = 1
   },
 })
 const engineerPagination = reactive({
@@ -339,7 +535,15 @@ const engineerStatusOptions = [
   { label: '停用', value: 0 },
 ]
 
+const planStatusOptions = [
+  { label: '待执行', value: 'pending' },
+  { label: '已完成', value: 'done' },
+  { label: '已取消', value: 'cancelled' },
+]
+
 const remoteEditor = reactive({ show: false, saving: false, form: createRemoteForm() })
+const planEditor = reactive({ show: false, saving: false, form: createPlanForm() })
+const completeEditor = reactive({ show: false, saving: false, form: createCompleteForm() })
 const engineerEditor = reactive({ show: false, saving: false, form: createEngineerForm() })
 
 const statusCount = computed(() => ({
@@ -351,6 +555,17 @@ const statusCount = computed(() => ({
 const activeEngineerCount = computed(
   () => engineers.value.filter((item) => Number(item.is_active) === 1).length
 )
+
+const pendingPlanCount = computed(
+  () => plans.value.filter((item) => item.status === 'pending').length
+)
+
+const userOptions = computed(() => users.value
+  .filter((item) => item.id && item.is_active !== false && Number(item.is_active) !== 0)
+  .map((item) => ({
+    label: item.label || item.nick_name || item.username || `用户 ${item.id}`,
+    value: item.id,
+  })))
 
 const regionOptions = computed(() => {
   const values = new Map()
@@ -430,6 +645,17 @@ const assignableEngineerOptions = computed(() => {
     }))
 })
 
+const assignablePlanEngineerOptions = computed(() => {
+  if (!planEditor.form.region) return []
+  return engineers.value
+    .filter((item) => Number(item.is_active) === 1)
+    .filter((item) => regionMatches(engineerRegions(item), planEditor.form.region))
+    .map((item) => ({
+      label: [item.name, item.wechat_id || item.contact].filter(Boolean).join(' · '),
+      value: item.id,
+    }))
+})
+
 const remoteEngineerOptions = computed(() => uniqueOptions(
   remoteHands.value
     .map((item) => ({
@@ -439,10 +665,13 @@ const remoteEngineerOptions = computed(() => uniqueOptions(
     .filter((item) => item.label && item.value)
 ))
 
+const planAssigneeOptions = computed(() => userOptions.value)
+
 const remoteSiteFilterOptions = computed(() => uniqueOptions(
   [
     ...datacenters.value.map((item) => ({ label: datacenterLabel(item), value: datacenterValue(item) })),
     ...remoteHands.value.map((item) => ({ label: fieldText(item.site), value: fieldText(item.site) })),
+    ...plans.value.map((item) => ({ label: fieldText(item.site), value: fieldText(item.site) })),
   ].filter((item) => item.value)
 ))
 
@@ -455,6 +684,18 @@ const filteredRemoteHands = computed(() => {
       if (currentEngineer !== selectedEngineer) return false
     }
     if (remoteFilters.site && !valuesMatch(item.site, remoteFilters.site)) return false
+    return true
+  })
+})
+
+const filteredPlans = computed(() => {
+  return plans.value.filter((item) => {
+    if (planFilters.status && item.status !== planFilters.status) return false
+    if (planFilters.site && !valuesMatch(item.site, planFilters.site)) return false
+    if (planFilters.assignee_id) {
+      const ids = Array.isArray(item.assignee_ids) ? item.assignee_ids.map(String) : []
+      if (!ids.includes(String(planFilters.assignee_id))) return false
+    }
     return true
   })
 })
@@ -496,33 +737,102 @@ const remoteColumns = [
       { default: () => statusLabel(row.status) }),
   },
   {
-    title: '运维结算', key: 'ops_settlement_status', width: 110,
-    render: (row) => renderSettlementTag(readSettlementStatus(row, 'ops')),
+    title: '运维结算', key: 'ops_settlement_status', width: 130,
+    render: (row) => renderSettlementSelect(row, 'ops'),
   },
   {
-    title: '客户结算', key: 'customer_settlement_status', width: 110,
-    render: (row) => renderSettlementTag(readSettlementStatus(row, 'customer')),
+    title: '客户结算', key: 'customer_settlement_status', width: 130,
+    render: (row) => renderSettlementSelect(row, 'customer'),
   },
   {
     title: '备注', key: 'note', width: 360,
     render: (row) => renderNoteCell(row.note),
   },
   {
-    title: '操作', key: 'actions', width: 290, fixed: 'right',
+    title: '操作', key: 'actions', width: 260, fixed: 'right',
     render: (row) => h(NSpace, { size: 6, wrap: false }, {
       default: () => [
         row.status === 'scheduled' && !row.left_at
-          ? h(NButton, { size: 'small', type: 'success', secondary: true, onClick: () => updateRemoteStatus(row, 'arrived') }, { default: () => '到场' })
+          ? h(NButton, { size: 'tiny', type: 'success', secondary: true, round: true, onClick: () => updateRemoteStatus(row, 'arrived') }, { default: () => '到场' })
           : null,
         row.status === 'arrived' && row.arrived_at && !row.left_at
-          ? h(NButton, { size: 'small', type: 'warning', secondary: true, onClick: () => updateRemoteStatus(row, 'done') }, { default: () => '离场' })
+          ? h(NButton, { size: 'tiny', type: 'warning', secondary: true, round: true, onClick: () => updateRemoteStatus(row, 'done') }, { default: () => '离场' })
           : null,
-        h(NButton, { size: 'small', type: 'primary', secondary: true, onClick: () => openRemoteEditor(row) }, { default: () => '编辑' }),
+        h(NButton, { size: 'tiny', type: 'primary', secondary: true, round: true, onClick: () => openRemoteEditor(row) }, { default: () => '编辑' }),
         renderDeleteConfirm({
           title: `确认删除 ${row.customer || row.ticket || '这条运维记录'}？`,
           actionText: '删除',
           onConfirm: () => deleteRemoteHands(row),
+          buttonProps: { size: 'tiny', round: true },
         }),
+      ].filter(Boolean),
+    }),
+  },
+]
+
+const planColumns = [
+  {
+    title: '客户 / 工单', key: 'customer', width: 180,
+    render: (row) => h('div', { class: 'primary-cell' }, [
+      h('strong', row.customer || '-'), h('small', row.ticket || '无工单号'),
+    ]),
+  },
+  {
+    title: '工程师', key: 'engineer_name', width: 180,
+    render: (row) => h('div', { class: 'primary-cell' }, [
+      h('strong', row.engineer_name || '-'),
+      h('small', row.engineer_wechat || row.engineer_contact || '-'),
+    ]),
+  },
+  {
+    title: '地区 / 机房', key: 'site', width: 190,
+    render: (row) => h('div', { class: 'primary-cell' }, [
+      h('strong', displayRegion(row.region) || '-'), h('small', row.site || '-'),
+    ]),
+  },
+  {
+    title: '计划时间', key: 'planned_at', width: 160, sorter: 'default',
+    render: (row) => formatDateTime(row.planned_at),
+  },
+  { title: '通知负责人', key: 'assignee_names', width: 180, ellipsis: { tooltip: true }, render: (row) => row.assignee_names || '-' },
+  {
+    title: '计划状态', key: 'status', width: 110,
+    render: (row) => h(NTag, { type: planStatusTagType(row.status), bordered: false, size: 'small' },
+      { default: () => planStatusLabel(row.status) }),
+  },
+  {
+    title: '通知状态', key: 'notify_status', width: 120,
+    render: (row) => h(NTag, { type: notifyStatusTagType(row.notify_status), bordered: false, size: 'small' },
+      { default: () => notifyStatusLabel(row.notify_status) }),
+  },
+  {
+    title: '备注', key: 'note', width: 320,
+    render: (row) => renderNoteCell(row.note),
+  },
+  {
+    title: '操作', key: 'actions', width: 310, fixed: 'right',
+    render: (row) => h(NSpace, { size: 6, wrap: false }, {
+      default: () => [
+        row.status === 'pending'
+          ? h(NButton, { size: 'tiny', type: 'success', secondary: true, round: true, onClick: () => openCompleteEditor(row) }, { default: () => '完成' })
+          : null,
+        row.status === 'pending'
+          ? h(NButton, { size: 'tiny', type: 'primary', secondary: true, round: true, onClick: () => openPlanEditor(row) }, { default: () => '变更' })
+          : null,
+        row.status === 'pending'
+          ? h(NButton, { size: 'tiny', type: 'warning', secondary: true, round: true, onClick: () => cancelPlan(row) }, { default: () => '取消' })
+          : null,
+        row.remote_hands_id
+          ? h(NButton, { size: 'tiny', secondary: true, round: true, onClick: () => { activeTab.value = 'remote' } }, { default: () => '查看记录' })
+          : null,
+        row.status === 'cancelled'
+          ? renderDeleteConfirm({
+            title: `确认删除 ${row.customer || row.ticket || '这条运维计划'}？`,
+            actionText: '删除',
+            buttonProps: { size: 'tiny', type: 'error', secondary: true, round: true },
+            onConfirm: () => deletePlan(row),
+          })
+          : null,
       ].filter(Boolean),
     }),
   },
@@ -583,6 +893,39 @@ function createRemoteForm(source = {}) {
     status: source.status || 'scheduled',
     ops_settlement_status: readSettlementStatus(source, 'ops'),
     customer_settlement_status: readSettlementStatus(source, 'customer'),
+    note: source.note || '',
+  }
+}
+
+function createPlanForm(source = {}) {
+  return {
+    id: source.id || null,
+    customer: source.customer || '',
+    ticket: source.ticket || '',
+    engineer_id: source.engineer_id || null,
+    engineer_name: source.engineer_name || '',
+    engineer_contact: source.engineer_contact || '',
+    engineer_wechat: source.engineer_wechat || '',
+    engineer_group: source.engineer_group || '',
+    assignee_ids: Array.isArray(source.assignee_ids) ? source.assignee_ids : [],
+    region: displayRegion(source.region),
+    site: source.site || '',
+    site_key: findSiteCascaderValue(source),
+    rack: source.rack || '',
+    timezone: source.timezone || 'Asia/Shanghai',
+    planned_at: normalizeDateTime(source.planned_at),
+    status: source.status || 'pending',
+    note: source.note || '',
+    notify: !source.id,
+  }
+}
+
+function createCompleteForm(source = {}) {
+  const arrivedAt = normalizeDateTime(source.planned_at) || localDateTime()
+  return {
+    id: source.id || null,
+    arrived_at: arrivedAt,
+    left_at: addHoursToDateTime(arrivedAt, 1),
     note: source.note || '',
   }
 }
@@ -722,13 +1065,36 @@ function datacenterMatchesRegion(item, region) {
 
 function regionMatches(regionValue, selectedRegion) {
   if (!selectedRegion) return false
-  return splitRegions(regionValue).some((value) => valuesMatch(value, selectedRegion))
+  const regions = splitRegions(regionValue)
+  return regions.some((value) => valuesMatch(value, selectedRegion))
 }
 
 function valuesMatch(left, right) {
   const normalizedLeft = normalizeRegion(displayRegion(left))
   const normalizedRight = normalizeRegion(displayRegion(right))
-  return Boolean(normalizedLeft && normalizedRight) && normalizedLeft === normalizedRight
+  if (!normalizedLeft || !normalizedRight) return false
+  if (normalizedLeft === normalizedRight) return true
+  const leftTokens = regionMatchTokens(left)
+  const rightTokens = regionMatchTokens(right)
+  return leftTokens.some((value) => rightTokens.includes(value))
+}
+
+function regionMatchTokens(value) {
+  const text = displayRegion(value)
+  const tokens = new Set()
+  const addToken = (source) => {
+    const translated = translateRegionAlias(source)
+    const normalized = normalizeRegion(translated || source)
+    if (normalized) tokens.add(normalized)
+  }
+  addToken(text)
+  addToken(canonicalRegion(text))
+  text
+    .split(/[,，、|;；/／\\]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .forEach(addToken)
+  return [...tokens]
 }
 
 function normalizeRegion(value) {
@@ -774,13 +1140,31 @@ function fieldText(value) {
 }
 
 function splitRegions(value) {
-  if (Array.isArray(value)) return value.filter(Boolean)
-  return String(value || '').split(/[,，;；|]+/).map((item) => item.trim()).filter(Boolean)
+  if (Array.isArray(value)) return value.flatMap(splitRegions)
+  const text = String(value || '').trim()
+  if (!text) return []
+  const normalized = /[\u4e00-\u9fa5]/.test(text)
+    ? text.replace(/[\s　]+/g, ',')
+    : text
+  return normalized
+    .split(/[,，、;；|\r\n\t]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
 }
 
 function openRemoteEditor(row = null) {
   remoteEditor.form = createRemoteForm(row || {})
   remoteEditor.show = true
+}
+
+function openPlanEditor(row = null) {
+  planEditor.form = createPlanForm(row || {})
+  planEditor.show = true
+}
+
+function openCompleteEditor(row) {
+  completeEditor.form = createCompleteForm(row || {})
+  completeEditor.show = true
 }
 
 function openEngineerEditor(row = null) {
@@ -817,14 +1201,55 @@ function handleEngineerSelected(value) {
   remoteEditor.form.engineer_group = engineer?.wechat_group || ''
 }
 
+function handlePlanSiteCascaderChange(value, option) {
+  if (!value) {
+    planEditor.form.region = ''
+    planEditor.form.site = ''
+    handlePlanEngineerSelected(null)
+    return
+  }
+  if (!option?.site) {
+    planEditor.form.region = displayRegion(option?.label)
+    planEditor.form.site = ''
+    handlePlanEngineerSelected(null)
+    return
+  }
+  planEditor.form.region = displayRegion(option.region)
+  planEditor.form.site = option.site
+  if (option.timezone) planEditor.form.timezone = option.timezone
+  const validEngineers = assignablePlanEngineerOptions.value.map((item) => item.value)
+  if (!validEngineers.includes(planEditor.form.engineer_id)) handlePlanEngineerSelected(null)
+}
+
+function handlePlanEngineerSelected(value) {
+  const engineer = engineers.value.find((item) => String(item.id) === String(value))
+  planEditor.form.engineer_id = engineer?.id || null
+  planEditor.form.engineer_name = engineer?.name || ''
+  planEditor.form.engineer_contact = engineer?.contact || ''
+  planEditor.form.engineer_wechat = engineer?.wechat_id || ''
+  planEditor.form.engineer_group = engineer?.wechat_group || ''
+}
+
 function updateWorkMinutes() {
   remoteEditor.form.work_minutes = minutesBetween(remoteEditor.form.arrived_at, remoteEditor.form.left_at)
+}
+
+function handleCompleteArrivedAtChange(value) {
+  const nextLeftAt = addHoursToDateTime(value, 1)
+  if (nextLeftAt) completeEditor.form.left_at = nextLeftAt
 }
 
 function minutesBetween(start, end) {
   if (!start || !end) return 0
   const value = Math.round((new Date(end).getTime() - new Date(start).getTime()) / 60000)
   return Number.isFinite(value) ? Math.max(0, value) : 0
+}
+
+function isEndBeforeStart(start, end) {
+  if (!start || !end) return false
+  const startTime = new Date(start).getTime()
+  const endTime = new Date(end).getTime()
+  return Number.isFinite(startTime) && Number.isFinite(endTime) && endTime < startTime
 }
 
 async function saveRemoteHands() {
@@ -845,6 +1270,28 @@ async function saveRemoteHands() {
     await fetchOverview()
   } finally {
     remoteEditor.saving = false
+  }
+}
+
+async function savePlan() {
+  const form = planEditor.form
+  if (!form.customer.trim()) return message.warning('请输入客户名称')
+  if (!fieldText(form.region)) return message.warning('请选择地区')
+  if (!form.site) return message.warning('请选择机房')
+  if (!form.planned_at) return message.warning('请选择计划时间')
+  planEditor.saving = true
+  try {
+    const payload = { ...form }
+    delete payload.id
+    delete payload.site_key
+    if (form.id) await api.remoteAssistanceApi.updatePlan(form.id, payload)
+    else await api.remoteAssistanceApi.createPlan(payload)
+    message.success(form.id ? '运维计划已变更' : '运维计划已创建')
+    planEditor.show = false
+    activeTab.value = 'plans'
+    await fetchOverview()
+  } finally {
+    planEditor.saving = false
   }
 }
 
@@ -869,6 +1316,45 @@ async function saveEngineer() {
     await fetchOverview()
   } finally {
     engineerEditor.saving = false
+  }
+}
+
+async function notifyPlan(row) {
+  await api.remoteAssistanceApi.notifyPlan(row.id)
+  message.success('运维计划通知已发送')
+  await fetchOverview()
+}
+
+async function cancelPlan(row) {
+  await api.remoteAssistanceApi.cancelPlan(row.id)
+  message.success('运维计划已取消')
+  await fetchOverview()
+}
+
+async function deletePlan(row) {
+  await api.remoteAssistanceApi.deletePlan(row.id)
+  message.success('运维计划已删除')
+  await fetchOverview()
+}
+
+async function submitCompletePlan() {
+  const form = completeEditor.form
+  if (!form.id) return
+  if (!form.arrived_at) return message.warning('请选择到场时间')
+  if (!form.left_at) return message.warning('请选择离场时间')
+  if (isEndBeforeStart(form.arrived_at, form.left_at)) return message.warning('离场时间不能早于到场时间')
+  completeEditor.saving = true
+  try {
+    await api.remoteAssistanceApi.completePlan(form.id, {
+      arrived_at: form.arrived_at,
+      left_at: form.left_at,
+      note: form.note,
+    })
+    message.success('运维计划已完成，并已写入运维记录')
+    completeEditor.show = false
+    await fetchOverview()
+  } finally {
+    completeEditor.saving = false
   }
 }
 
@@ -901,16 +1387,60 @@ async function updateRemoteStatus(row, nextStatus) {
   await fetchOverview()
 }
 
+async function updateRemoteSettlement(row, type, value) {
+  const normalized = normalizeSettlementStatus(value)
+  if (normalized === readSettlementStatus(row, type)) return
+  const key = `${row.id}:${type}`
+  remoteSettlementSaving.value = new Set([...remoteSettlementSaving.value, key])
+  try {
+    const payload = { ...createRemoteForm(row) }
+    delete payload.id
+    payload.ops_settlement_status = readSettlementStatus(row, 'ops')
+    payload.customer_settlement_status = readSettlementStatus(row, 'customer')
+    if (type === 'ops') payload.ops_settlement_status = normalized
+    else payload.customer_settlement_status = normalized
+    await api.remoteAssistanceApi.updateRemoteHands(row.id, payload)
+    message.success('结算状态已更新')
+    await fetchOverview()
+  } finally {
+    const next = new Set(remoteSettlementSaving.value)
+    next.delete(key)
+    remoteSettlementSaving.value = next
+  }
+}
+
 async function fetchOverview() {
   loading.value = true
   try {
-    const res = await api.remoteAssistanceApi.overview()
-    remoteHands.value = Array.isArray(res.data?.remote_hands) ? res.data.remote_hands : []
-    engineers.value = Array.isArray(res.data?.engineers) ? res.data.engineers : []
-    datacenters.value = Array.isArray(res.data?.datacenters) ? res.data.datacenters : []
+    const [overviewRes, userRes] = await Promise.all([
+      api.remoteAssistanceApi.overview(),
+      api.getUserList({ page: 1, page_size: 1000 }).catch(() => null),
+    ])
+    const data = overviewRes.data || {}
+    const listUsers = normalizeUserRows(userRes?.data)
+    remoteHands.value = Array.isArray(data.remote_hands) ? data.remote_hands : []
+    plans.value = Array.isArray(data.plans) ? data.plans : []
+    engineers.value = Array.isArray(data.engineers) ? data.engineers : []
+    users.value = listUsers.length ? listUsers : normalizeUserRows(data.users)
+    datacenters.value = Array.isArray(data.datacenters) ? data.datacenters : []
   } finally {
     loading.value = false
   }
+}
+
+function normalizeUserRows(rows) {
+  if (!Array.isArray(rows)) return []
+  return rows
+    .filter((item) => item?.id)
+    .map((item) => ({
+      id: item.id,
+      label: item.label || item.alias || item.username || `用户 ${item.id}`,
+      username: item.username || '',
+      alias: item.alias || '',
+      email: item.email || '',
+      phone: item.phone || '',
+      is_active: item.is_active,
+    }))
 }
 
 function normalizeDateTime(value) {
@@ -923,12 +1453,27 @@ function localDateTime() {
   return local.toISOString().slice(0, 16)
 }
 
+function addHoursToDateTime(value, hours = 1) {
+  if (!value) return null
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return null
+  date.setHours(date.getHours() + hours)
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+  return local.toISOString().slice(0, 16)
+}
+
 function formatDate(value) {
   return value ? String(value).slice(0, 10) : '-'
 }
 
 function formatTime(value) {
   return value ? String(value).slice(11, 16) || '-' : '-'
+}
+
+function formatDateTime(value) {
+  if (!value) return '-'
+  const text = String(value).replace('T', ' ')
+  return text.slice(0, 16)
 }
 
 function formatDuration(value) {
@@ -946,6 +1491,22 @@ function statusLabel(status) {
 
 function statusTagType(status) {
   return { scheduled: 'warning', arrived: 'info', done: 'success', cancelled: 'default' }[status] || 'default'
+}
+
+function planStatusLabel(status) {
+  return planStatusOptions.find((item) => item.value === status)?.label || status || '未知'
+}
+
+function planStatusTagType(status) {
+  return { pending: 'warning', done: 'success', cancelled: 'default' }[status] || 'default'
+}
+
+function notifyStatusLabel(status) {
+  return { pending: '待通知', sent: '已发送', failed: '发送失败' }[status] || status || '待通知'
+}
+
+function notifyStatusTagType(status) {
+  return { pending: 'default', sent: 'success', failed: 'error' }[status] || 'default'
 }
 
 function normalizeSettlementStatus(value) {
@@ -973,6 +1534,20 @@ function readSettlementStatus(source, type) {
   return normalizeSettlementStatus(value)
 }
 
+function renderSettlementSelect(row, type) {
+  const key = `${row.id}:${type}`
+  return h(NSelect, {
+    value: readSettlementStatus(row, type),
+    options: settlementOptions,
+    size: 'tiny',
+    consistentMenuWidth: false,
+    loading: remoteSettlementSaving.value.has(key),
+    disabled: remoteSettlementSaving.value.has(key),
+    style: { width: '108px' },
+    onUpdateValue: (value) => updateRemoteSettlement(row, type, value),
+  })
+}
+
 function renderSettlementTag(value) {
   const normalized = normalizeSettlementStatus(value)
   const type = { unbilled: 'warning', billed: 'info', settled: 'success' }[normalized]
@@ -980,13 +1555,13 @@ function renderSettlementTag(value) {
   return h(NTag, { type, bordered: false, size: 'small' }, { default: () => label })
 }
 
-function renderDeleteConfirm({ title, actionText, onConfirm }) {
+function renderDeleteConfirm({ title, actionText, onConfirm, buttonProps = {} }) {
   return h(NPopconfirm, {
     positiveText: '删除',
     negativeText: '取消',
     onPositiveClick: onConfirm,
   }, {
-    trigger: () => h(NButton, { size: 'small', type: 'error', secondary: true }, { default: () => actionText }),
+    trigger: () => h(NButton, { size: 'small', type: 'error', secondary: true, ...buttonProps }, { default: () => actionText }),
     default: () => title,
   })
 }

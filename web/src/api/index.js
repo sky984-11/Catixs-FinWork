@@ -216,6 +216,14 @@ export default {
     raw: (params = {}) => request.get('/syslog/raw', { params }),
   },
 
+  // device maintenance
+  deviceMaintenanceApi: {
+    overview: () => request.get('/device-maintenance/overview'),
+    createTask: (data = {}) => request.post('/device-maintenance/task', data),
+    notifyTask: (id) => request.post(`/device-maintenance/task/${id}/notify`),
+    updateTaskStatus: (id, data = {}) => request.post(`/device-maintenance/task/${id}/status`, data),
+  },
+
   // NetBox IPAM
   netboxApi: {
     ipamOverview: (params = {}) => request.get('/netbox/ipam/overview', { params }),
@@ -265,6 +273,12 @@ export default {
     createRemoteHands: (data = {}) => request.post('/remote-assistance/remote-hands', data),
     updateRemoteHands: (id, data = {}) => request.put(`/remote-assistance/remote-hands/${id}`, data),
     deleteRemoteHands: (id) => request.delete(`/remote-assistance/remote-hands/${id}`),
+    createPlan: (data = {}) => request.post('/remote-assistance/plans/create', data),
+    updatePlan: (id, data = {}) => request.put(`/remote-assistance/plans/${id}`, data),
+    notifyPlan: (id) => request.post(`/remote-assistance/plans/${id}/notify`),
+    completePlan: (id, data = {}) => request.post(`/remote-assistance/plans/${id}/complete`, data),
+    cancelPlan: (id) => request.post(`/remote-assistance/plans/${id}/cancel`),
+    deletePlan: (id) => request.delete(`/remote-assistance/plans/${id}`),
     createEngineer: (data = {}) => request.post('/remote-assistance/engineers', data),
     updateEngineer: (id, data = {}) => request.put(`/remote-assistance/engineers/${id}`, data),
     deleteEngineer: (id) => request.delete(`/remote-assistance/engineers/${id}`),

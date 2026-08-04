@@ -263,6 +263,7 @@ async def init_menus():
     await ensure_akvorado_menu()
     await ensure_ipam_menu()
     await ensure_remote_assistance_menu()
+    await ensure_device_maintenance_menu()
     await ensure_business_party_menu()
     await ensure_bill_menu()
     await ensure_finance_quote_menu()
@@ -699,6 +700,36 @@ async def ensure_remote_assistance_menu():
         "icon": "mdi:account-hard-hat-outline",
         "is_hidden": False,
         "component": "/ops/remote-assistance",
+        "keepalive": False,
+        "redirect": "",
+    }
+    if menu:
+        changed = False
+        for field, value in values.items():
+            if getattr(menu, field) != value:
+                setattr(menu, field, value)
+                changed = True
+        if menu.menu_type != MenuType.MENU:
+            menu.menu_type = MenuType.MENU
+            changed = True
+        if changed:
+            await menu.save()
+        return
+
+    await Menu.create(menu_type=MenuType.MENU, **values)
+
+
+async def ensure_device_maintenance_menu():
+    ops_menu = await get_service_module_menu("/ops")
+    menu = await Menu.filter(path="/ops/device-maintenance").first()
+    values = {
+        "name": "维护计划",
+        "path": "/ops/device-maintenance",
+        "order": 7,
+        "parent_id": ops_menu.id,
+        "icon": "mdi:wrench-clock-outline",
+        "is_hidden": False,
+        "component": "/ops/device-maintenance",
         "keepalive": False,
         "redirect": "",
     }
@@ -1316,6 +1347,39 @@ async def ensure_finance_quote_columns():
     )
 
 
+async def ensure_device_maintenance_columns():
+    if settings.DB_TYPE == "sqlite":
+        conn = Tortoise.get_connection("sqlite")
+        columns = [
+            ("device_maintenance_task", "device_ids", "TEXT NOT NULL DEFAULT '[]'"),
+            ("device_maintenance_task", "assignee_ids", "TEXT NOT NULL DEFAULT '[]'"),
+            ("device_maintenance_task", "assignee_names", "VARCHAR(500)"),
+            ("device_maintenance_task", "reminder_notified_at", "TIMESTAMP"),
+        ]
+        for table, column, column_type in columns:
+            try:
+                await conn.execute_script(f'ALTER TABLE "{table}" ADD COLUMN "{column}" {column_type};')
+            except OperationalError as exc:
+                message = str(exc).lower()
+                if "duplicate column" not in message and "no such table" not in message:
+                    raise
+        return
+
+    if settings.DB_TYPE != "postgres":
+        return
+
+    conn = Tortoise.get_connection("postgres")
+    await conn.execute_script(
+        """
+        ALTER TABLE IF EXISTS "device_maintenance_task"
+            ADD COLUMN IF NOT EXISTS "device_ids" JSONB NOT NULL DEFAULT '[]',
+            ADD COLUMN IF NOT EXISTS "assignee_ids" JSONB NOT NULL DEFAULT '[]',
+            ADD COLUMN IF NOT EXISTS "assignee_names" VARCHAR(500),
+            ADD COLUMN IF NOT EXISTS "reminder_notified_at" TIMESTAMP;
+        """
+    )
+
+
 async def ensure_company_columns():
     if settings.DB_TYPE != "postgres":
         return
@@ -1402,6 +1466,7 @@ async def init_db():
     await ensure_project_columns()
     await ensure_ticket_columns()
     await ensure_finance_quote_columns()
+    await ensure_device_maintenance_columns()
     await Tortoise.generate_schemas(safe=True)
     if os.getenv("AUTO_DB_MIGRATE", "false").lower() in {"1", "true", "yes", "on"}:
         try:

@@ -46,3 +46,38 @@ class RemoteHands(BaseModel, TimestampMixin):
 
     class Meta:
         table = "remote_hands"
+
+
+class RemoteHandsPlan(BaseModel, TimestampMixin):
+    customer = fields.CharField(max_length=200, description="客户名称", index=True)
+    ticket = fields.CharField(max_length=120, null=True, description="工单号", index=True)
+    engineer = fields.ForeignKeyField(
+        "models.RemoteEngineer",
+        related_name="remote_hands_plans",
+        null=True,
+        on_delete=fields.SET_NULL,
+        description="工程师",
+    )
+    engineer_name = fields.CharField(max_length=100, null=True, description="工程师姓名", index=True)
+    engineer_contact = fields.CharField(max_length=180, null=True, description="工程师联系方式")
+    engineer_wechat = fields.CharField(max_length=180, null=True, description="工程师微信")
+    engineer_group = fields.CharField(max_length=180, null=True, description="工程师联系群")
+    assignee_id = fields.BigIntField(null=True, description="通知负责人ID", index=True)
+    assignee_ids = fields.JSONField(default=list, description="通知负责人ID列表")
+    assignee_name = fields.CharField(max_length=100, null=True, description="通知负责人")
+    assignee_names = fields.CharField(max_length=500, null=True, description="通知负责人列表")
+    region = fields.CharField(max_length=180, null=True, description="地区", index=True)
+    site = fields.CharField(max_length=180, null=True, description="机房", index=True)
+    rack = fields.CharField(max_length=100, null=True, description="机柜")
+    timezone = fields.CharField(max_length=80, default="Asia/Shanghai", description="时区")
+    planned_at = fields.DatetimeField(null=True, description="计划时间", index=True)
+    status = fields.CharField(max_length=30, default="pending", description="计划状态", index=True)
+    notify_status = fields.CharField(max_length=20, default="pending", description="通知状态", index=True)
+    notify_message = fields.CharField(max_length=500, null=True, description="通知结果")
+    notified_at = fields.DatetimeField(null=True, description="飞书通知时间")
+    reminder_notified_at = fields.DatetimeField(null=True, description="计划前一天提醒时间", index=True)
+    remote_hands_id = fields.BigIntField(null=True, description="生成的运维记录ID", index=True)
+    note = fields.TextField(null=True, description="备注")
+
+    class Meta:
+        table = "remote_hands_plan"

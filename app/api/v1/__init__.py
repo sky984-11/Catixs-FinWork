@@ -11,6 +11,7 @@ from .bank_accounts import bank_accounts_router
 from .base import base_router
 from .bills import bills_router
 from .companies import companies_router
+from .device_maintenance import router as device_maintenance_router
 from .depts import depts_router
 from .finance_quotes import finance_quotes_router
 from .dashboard import router as dashboard_router
@@ -54,6 +55,12 @@ v1_router.include_router(
     prefix="/remote-assistance",
     dependencies=[DependPermission],
     tags=["运维记录模块"],
+)
+v1_router.include_router(
+    device_maintenance_router,
+    prefix="/device-maintenance",
+    dependencies=[DependPermission],
+    tags=["维护计划"],
 )
 v1_router.include_router(banks_router, prefix="/bank", dependencies=[DependPermission])
 v1_router.include_router(pve_grafana_router, prefix="/pve", tags=["PVE Grafana"])

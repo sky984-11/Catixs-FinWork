@@ -575,6 +575,8 @@ def normalize_datacenter(item: dict) -> dict:
     name = text(pick(item, "dcName", "name"), dc_id)
     city = text(pick(item, "cityName", "city"))
     area = text(pick(item, "areaName", "area"))
+    country = text(pick(item, "countryName", "country", "countryCode"))
+    address = text(pick(item, "dcAddress", "address", "location", "siteAddress"))
     display_parts = [value for value in [name if name != dc_id else "", city, area] if value]
     return {
         "dcId": dc_id,
@@ -582,6 +584,10 @@ def normalize_datacenter(item: dict) -> dict:
         "label": " / ".join(display_parts) or dc_id,
         "cityName": city,
         "areaName": area,
+        "countryName": country,
+        "address": address,
+        "status": text(pick(item, "status", "state")),
+        "provider": text(pick(item, "provider", "vendor"), "Zenlayer"),
         "serviceTypes": item.get("serviceTypes") or [],
         "raw": item,
     }
@@ -711,7 +717,7 @@ async def zenlayer_pricing():
     datacenters = []
     if text(settings.ZENLAYER_ACCESS_KEY_ID) and text(settings.ZENLAYER_ACCESS_KEY_PASSWORD):
         try:
-            status, data = await zenlayer_request(ZENLAYER_PRODUCT_SDN, "DescribeDatacenters", {})
+            status, data = await zenlayer_request(ZENLAYER_PRODUCT_SDN, "DescribeDatacenters", {"isPortAvailable": True})
         except Exception as exc:
             logger.exception("zenlayer datacenter request failed")
             errors.append({"action": "DescribeDatacenters", "error": str(exc)})

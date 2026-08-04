@@ -1,6 +1,7 @@
 <template>
   <CommonPage show-footer title="供应商比价">
     <template #action>
+      <n-button :disabled="loadingOptions" secondary @click="exportDatacentersExcel">导出Excel</n-button>
       <n-button :loading="loadingOptions" secondary @click="loadOptions">刷新</n-button>
     </template>
 
@@ -301,6 +302,80 @@ function money(value, currency = 'USD') {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`
+}
+
+function excelCell(value) {
+  const text = Array.isArray(value)
+    ? value.join('、')
+    : (value && typeof value === 'object' ? JSON.stringify(value) : String(value ?? ''))
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function dateStamp() {
+  const date = new Date()
+  const pad = (value) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`
+}
+
+function downloadExcel(filename, columns, rows) {
+  const headerHtml = columns.map((column) => `<th>${excelCell(column.title)}</th>`).join('')
+  const bodyHtml = rows
+    .map((row) => `<tr>${columns.map((column) => `<td>${excelCell(row[column.key])}</td>`).join('')}</tr>`)
+    .join('')
+  const html = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    table { border-collapse: collapse; }
+    th, td { border: 1px solid #999; padding: 6px 8px; mso-number-format: "\\@"; }
+    th { background: #eef3f8; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <table>
+    <thead><tr>${headerHtml}</tr></thead>
+    <tbody>${bodyHtml}</tbody>
+  </table>
+</body>
+</html>`
+  const blob = new Blob([`\ufeff${html}`], { type: 'application/vnd.ms-excel;charset=utf-8' })
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  URL.revokeObjectURL(link.href)
+  document.body.removeChild(link)
+}
+
+async function exportDatacentersExcel() {
+  if (!datacenters.value.length) {
+    await loadOptions()
+  }
+  if (!datacenters.value.length) {
+    message.warning('暂无可导出的POP点信息')
+    return
+  }
+
+  const rows = datacenters.value
+    .slice(0, 106)
+    .map((item) => ({
+      region: [item.areaName, item.countryName || item.raw?.countryName || item.raw?.country || item.raw?.countryCode, item.cityName]
+        .filter(Boolean)
+        .join(' / '),
+      dcAddress: item.raw?.dcAddress || item.address || item.raw?.address || item.raw?.siteAddress || item.raw?.location || '',
+    }))
+  const columns = [
+    { title: '地区', key: 'region' },
+    { title: 'dcAddress', key: 'dcAddress' },
+  ]
+  downloadExcel(`供应商比价_POP点详细信息_${dateStamp()}.xls`, columns, rows)
+  message.success(`已导出 ${rows.length} 条POP点信息`)
 }
 
 function resetResult() {
