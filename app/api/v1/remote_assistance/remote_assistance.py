@@ -453,8 +453,8 @@ async def delete_plan(plan_id: int):
         plan = await RemoteHandsPlan.get_or_none(id=plan_id)
         if not plan:
             return Fail(msg="运维计划不存在")
-        if plan.status != "cancelled":
-            return Fail(msg="只有已取消的运维计划才能删除")
+        if plan.status not in ["done", "cancelled"]:
+            return Fail(msg="只有已完成或已取消的运维计划才能删除")
         await plan.delete()
         return Success(msg="运维计划已删除")
     except Exception as exc:

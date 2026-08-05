@@ -825,7 +825,7 @@ const planColumns = [
         row.remote_hands_id
           ? h(NButton, { size: 'tiny', secondary: true, round: true, onClick: () => { activeTab.value = 'remote' } }, { default: () => '查看记录' })
           : null,
-        row.status === 'cancelled'
+        ['done', 'cancelled'].includes(row.status)
           ? renderDeleteConfirm({
             title: `确认删除 ${row.customer || row.ticket || '这条运维计划'}？`,
             actionText: '删除',
