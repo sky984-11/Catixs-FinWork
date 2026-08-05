@@ -38,6 +38,7 @@
                   filterable
                   placeholder="按机房筛选"
                   :options="remoteSiteFilterOptions"
+                  :filter="siteOptionFilter"
                 />
                 <n-select
                   v-model:value="planFilters.status"
@@ -86,6 +87,7 @@
                   filterable
                   placeholder="按机房筛选"
                   :options="remoteSiteFilterOptions"
+                  :filter="siteOptionFilter"
                 />
                 <n-select
                   v-model:value="remoteFilters.status"
@@ -169,6 +171,7 @@
                 clearable
                 show-path
                 :options="siteCascaderOptions"
+                :filter="siteCascaderFilter"
                 placeholder="选择地区 / 机房"
                 @update:value="handleRemoteSiteCascaderChange"
               />
@@ -265,6 +268,7 @@
                 clearable
                 show-path
                 :options="siteCascaderOptions"
+                :filter="siteCascaderFilter"
                 placeholder="选择地区 / 机房"
                 @update:value="handlePlanSiteCascaderChange"
               />
@@ -477,6 +481,15 @@ const regionAliasMap = new Map([
   ['taipei', '台北'],
   ['seoul', '首尔'],
 ])
+const pinyinCharMap = {
+  中: 'zhong', 国: 'guo', 香: 'xiang', 港: 'gang', 德: 'de', 法: 'fa', 兰: 'lan', 克: 'ke', 福: 'fu',
+  美: 'mei', 纽: 'niu', 约: 'yue', 洛: 'luo', 杉: 'shan', 矶: 'ji', 伦: 'lun', 敦: 'dun',
+  阿: 'a', 什: 'shi', 本: 'ben', 日: 'ri', 东: 'dong', 京: 'jing', 新: 'xin', 加: 'jia', 坡: 'po',
+  台: 'tai', 北: 'bei', 首: 'shou', 尔: 'er', 荷: 'he', 斯: 'si', 特: 'te', 丹: 'dan',
+  曼: 'man', 谷: 'gu', 迪: 'di', 拜: 'bai', 芝: 'zhi', 哥: 'ge', 达: 'da', 拉: 'la',
+  布: 'bu', 宜: 'yi', 诺: 'nuo', 艾: 'ai', 利: 'li', 塔: 'ta', 贝: 'bei', 卡: 'ka',
+  西: 'xi', 机: 'ji', 房: 'fang', 数: 'shu', 据: 'ju', 心: 'xin',
+}
 const remotePagination = reactive({
   page: 1,
   pageSize: 10,
@@ -586,7 +599,7 @@ const regionOptions = computed(() => {
 
 const siteCascaderOptions = computed(() => {
   const groups = new Map()
-  const addSite = ({ region, site, label, timezone }) => {
+  const addSite = ({ region, site, label, timezone, searchText }) => {
     const regionLabel = displayRegion(region)
     const siteValue = fieldText(site)
     if (!regionLabel || !siteValue) return
@@ -594,6 +607,7 @@ const siteCascaderOptions = computed(() => {
       groups.set(regionLabel, {
         label: regionLabel,
         value: siteCascaderRegionValue(regionLabel),
+        searchText: regionLabel,
         children: [],
       })
     }
@@ -606,6 +620,7 @@ const siteCascaderOptions = computed(() => {
       region: regionLabel,
       site: siteValue,
       timezone,
+      searchText: uniqueValues([regionLabel, siteValue, label, searchText]).join(' '),
     })
   }
 
@@ -617,6 +632,7 @@ const siteCascaderOptions = computed(() => {
       site: siteValue,
       label: siteName && siteName !== siteValue ? `${siteValue} / ${siteName}` : siteValue,
       timezone: item.timezone,
+      searchText: datacenterSearchText(item),
     })
   })
   remoteHands.value.forEach((item) => addSite({
@@ -624,6 +640,7 @@ const siteCascaderOptions = computed(() => {
     site: item.site,
     label: item.site,
     timezone: item.timezone,
+    searchText: [item.region, item.site].filter(Boolean).join(' '),
   }))
 
   return [...groups.values()]
@@ -669,9 +686,9 @@ const planAssigneeOptions = computed(() => userOptions.value)
 
 const remoteSiteFilterOptions = computed(() => uniqueOptions(
   [
-    ...datacenters.value.map((item) => ({ label: datacenterLabel(item), value: datacenterValue(item) })),
-    ...remoteHands.value.map((item) => ({ label: fieldText(item.site), value: fieldText(item.site) })),
-    ...plans.value.map((item) => ({ label: fieldText(item.site), value: fieldText(item.site) })),
+    ...datacenters.value.map((item) => ({ label: datacenterLabel(item), value: datacenterValue(item), searchText: datacenterSearchText(item) })),
+    ...remoteHands.value.map((item) => ({ label: fieldText(item.site), value: fieldText(item.site), searchText: [item.region, item.site].filter(Boolean).join(' ') })),
+    ...plans.value.map((item) => ({ label: fieldText(item.site), value: fieldText(item.site), searchText: [item.region, item.site].filter(Boolean).join(' ') })),
   ].filter((item) => item.value)
 ))
 
@@ -954,6 +971,24 @@ function datacenterLabel(item) {
   return region ? `${region} / ${name}` : name
 }
 
+function datacenterSearchText(item) {
+  return uniqueValues([
+    datacenterLabel(item),
+    datacenterValue(item),
+    item.code,
+    item.name,
+    item.location,
+    item.location_name,
+    item.region,
+    item.region_name,
+    item.country,
+    item.country_name,
+    item.city,
+    item.city_name,
+    datacenterRegion(item),
+  ]).join(' ')
+}
+
 function siteCascaderRegionValue(region) {
   return `region:${displayRegion(region)}`
 }
@@ -1126,9 +1161,65 @@ function uniqueOptions(options) {
   options.forEach((option) => {
     const value = fieldText(option?.value)
     const key = normalizeRegion(value)
-    if (value && key && !values.has(key)) values.set(key, { label: fieldText(option.label) || value, value })
+    if (!value || !key) return
+    const current = values.get(key)
+    const searchText = uniqueValues([current?.searchText, option.searchText, option.label, value]).join(' ')
+    if (current) {
+      current.searchText = searchText
+    } else {
+      values.set(key, { label: fieldText(option.label) || value, value, searchText })
+    }
   })
   return [...values.values()]
+}
+
+function siteOptionFilter(pattern, option) {
+  const keyword = normalizeSearchText(pattern)
+  if (!keyword) return true
+  return siteSearchTokens([option?.label, option?.value, option?.searchText].filter(Boolean).join(' '))
+    .some((token) => token.includes(keyword))
+}
+
+function siteCascaderFilter(pattern, option, path = []) {
+  const options = Array.isArray(path) && path.length ? path : [option]
+  const text = options
+    .flatMap((item) => [item?.label, item?.value, item?.region, item?.site, item?.searchText])
+    .filter(Boolean)
+    .join(' ')
+  return siteOptionFilter(pattern, { label: text, value: text, searchText: text })
+}
+
+function siteSearchTokens(value) {
+  const text = String(value || '')
+  const normalized = normalizeSearchText(text)
+  const pinyin = toPinyinText(text)
+  const normalizedPinyin = normalizeSearchText(pinyin)
+  const pinyinInitials = pinyin
+    .split(/\s+/)
+    .map((item) => item[0] || '')
+    .join('')
+  return uniqueValues([
+    normalized,
+    normalized.replace(/[\/,，、|;；.-]+/g, ''),
+    normalizedPinyin,
+    normalizedPinyin.replace(/[\/,，、|;；.-]+/g, ''),
+    normalizeSearchText(pinyinInitials),
+  ])
+}
+
+function normalizeSearchText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[\s　]+/g, '')
+    .replace(/[\/,，、|;；._-]+/g, '')
+    .trim()
+}
+
+function toPinyinText(value) {
+  return String(value || '')
+    .split('')
+    .map((char) => pinyinCharMap[char] || char)
+    .join(' ')
 }
 
 function fieldText(value) {
