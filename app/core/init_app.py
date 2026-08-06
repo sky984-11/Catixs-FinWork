@@ -1352,9 +1352,18 @@ async def ensure_device_maintenance_columns():
         conn = Tortoise.get_connection("sqlite")
         columns = [
             ("device_maintenance_task", "device_ids", "TEXT NOT NULL DEFAULT '[]'"),
+            ("device_maintenance_task", "title", "VARCHAR(200) NOT NULL DEFAULT ''"),
+            ("device_maintenance_task", "description", "TEXT"),
             ("device_maintenance_task", "assignee_ids", "TEXT NOT NULL DEFAULT '[]'"),
             ("device_maintenance_task", "assignee_names", "VARCHAR(500)"),
+            ("device_maintenance_task", "due_at", "TIMESTAMP"),
+            ("device_maintenance_task", "status", "VARCHAR(20) NOT NULL DEFAULT 'pending'"),
+            ("device_maintenance_task", "priority", "VARCHAR(20) NOT NULL DEFAULT 'medium'"),
+            ("device_maintenance_task", "notified_at", "TIMESTAMP"),
             ("device_maintenance_task", "reminder_notified_at", "TIMESTAMP"),
+            ("device_maintenance_task", "notify_status", "VARCHAR(20) NOT NULL DEFAULT 'pending'"),
+            ("device_maintenance_task", "notify_message", "VARCHAR(500)"),
+            ("device_maintenance_task", "remark", "VARCHAR(500)"),
         ]
         for table, column, column_type in columns:
             try:
@@ -1373,9 +1382,18 @@ async def ensure_device_maintenance_columns():
         """
         ALTER TABLE IF EXISTS "device_maintenance_task"
             ADD COLUMN IF NOT EXISTS "device_ids" JSONB NOT NULL DEFAULT '[]',
+            ADD COLUMN IF NOT EXISTS "title" VARCHAR(200) NOT NULL DEFAULT '',
+            ADD COLUMN IF NOT EXISTS "description" TEXT,
             ADD COLUMN IF NOT EXISTS "assignee_ids" JSONB NOT NULL DEFAULT '[]',
             ADD COLUMN IF NOT EXISTS "assignee_names" VARCHAR(500),
-            ADD COLUMN IF NOT EXISTS "reminder_notified_at" TIMESTAMP;
+            ADD COLUMN IF NOT EXISTS "due_at" TIMESTAMP,
+            ADD COLUMN IF NOT EXISTS "status" VARCHAR(20) NOT NULL DEFAULT 'pending',
+            ADD COLUMN IF NOT EXISTS "priority" VARCHAR(20) NOT NULL DEFAULT 'medium',
+            ADD COLUMN IF NOT EXISTS "notified_at" TIMESTAMP,
+            ADD COLUMN IF NOT EXISTS "reminder_notified_at" TIMESTAMP,
+            ADD COLUMN IF NOT EXISTS "notify_status" VARCHAR(20) NOT NULL DEFAULT 'pending',
+            ADD COLUMN IF NOT EXISTS "notify_message" VARCHAR(500),
+            ADD COLUMN IF NOT EXISTS "remark" VARCHAR(500);
         """
     )
 

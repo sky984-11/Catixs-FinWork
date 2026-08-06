@@ -6,6 +6,7 @@ from typing import Any, Literal
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
+from app.log import logger
 from app.models.admin import User
 from app.models.asset import AssetDevice
 from app.models.device_maintenance import DeviceMaintenanceTask
@@ -122,20 +123,27 @@ async def resolve_users(user_ids: list[int]) -> list[User]:
 
 @router.get("/overview", summary="维护计划")
 async def overview():
-    raw_devices = await AssetDevice.all().select_related("region", "location", "cabinet").order_by(
-        "region__name", "location__name", "cabinet__name", "u_position", "name"
-    )
-    devices = []
-    for device in raw_devices:
-        devices.extend(device_to_maintenance_rows(device))
-    tasks = await DeviceMaintenanceTask.all().order_by("-created_at")
-    return Success(
-        data={
-            "devices": devices,
-            "tasks": [await task_to_dict(task) for task in tasks],
-            "users": await user_options(),
-        }
-    )
+    try:
+        raw_devices = await AssetDevice.all().select_related("region", "location", "cabinet").order_by(
+            "region__name", "location__name", "cabinet__name", "u_position", "name"
+        )
+        devices = []
+        for device in raw_devices:
+            try:
+                devices.extend(device_to_maintenance_rows(device))
+            except Exception:
+                logger.exception("build maintenance device row failed: device_id=%s", getattr(device, "id", None))
+        tasks = await DeviceMaintenanceTask.all().order_by("-created_at")
+        return Success(
+            data={
+                "devices": devices,
+                "tasks": [await task_to_dict(task) for task in tasks],
+                "users": await user_options(),
+            }
+        )
+    except Exception as exc:
+        logger.exception("device maintenance overview failed")
+        return Fail(msg=f"读取维护计划数据失败: {exc}")
 
 
 @router.post("/task", summary="新增维护计划")
