@@ -99,6 +99,9 @@ export default {
     sellFreeDevice: (data = {}) => request.post('/resource/free-devices/sell', data),
     zenlayerPricing: () => request.get('/resource/zenlayer-pricing'),
     zenlayerQuote: (data = {}) => request.post('/resource/zenlayer-pricing/quote', data),
+    equinixReferenceData: () => request.get('/resource/equinix-pricing/reference-data'),
+    equinixMetros: () => request.get('/resource/equinix-pricing/metros'),
+    equinixQuote: (data = {}) => request.post('/resource/equinix-pricing/quote', data),
     ipxoResources: (params = {}) => request.get('/resource/ipxo/resources', { params }),
   },
 

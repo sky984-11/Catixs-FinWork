@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import os
 import time
 from collections import defaultdict
 from datetime import datetime
@@ -24,6 +25,7 @@ IPINFO_API_BASE = "https://ipinfo.io"
 IPINFO_BATCH_API_BASE = "https://api.ipinfo.io"
 ZENLAYER_PRODUCT_SDN = "sdn"
 IPXO_RESOURCES_CACHE_TTL = 300
+EQUINIX_DEFAULT_API_BASE = "https://api.equinix.com"
 
 
 class FreeDeviceSellRequest(BaseModel):
@@ -33,6 +35,8 @@ class FreeDeviceSellRequest(BaseModel):
 
 _ipxo_token = ""
 _ipxo_token_expire_at = 0.0
+_equinix_token = ""
+_equinix_token_expire_at = 0.0
 _ip_geo_cache: dict[str, dict] = {}
 _ipxo_resources_cache: dict[str, tuple[float, dict]] = {}
 
@@ -821,6 +825,425 @@ async def zenlayer_quote(payload: dict = Body(default_factory=dict)):
             "stock": pick(body, "stock", "endpointAPrice.stock", "endpointZPrice.stock", default=None),
             "costItems": cost_items,
             "totalCost": round_money(sum(item["quote_cost"] for item in cost_items)),
+            "currency": cost_items[0]["currency"] if cost_items else "USD",
+            "raw": data,
+        }
+    )
+
+
+EQUINIX_REFERENCE_DATA = {
+    "productTypes": [
+        {"code": "VIRTUAL_CONNECTION_PRODUCT", "name": "Virtual Connection"},
+        {"code": "VIRTUAL_PORT_PRODUCT", "name": "Virtual Port"},
+        {"code": "IP_BLOCK_PRODUCT", "name": "IP Block"},
+    ],
+    "connectionTypes": [
+        {"code": "EVPL_VC", "name": "EVPL Virtual Connection"},
+        {"code": "EPL_VC", "name": "EPL Virtual Connection"},
+        {"code": "EC_VC", "name": "EC Virtual Connection"},
+        {"code": "IP_VC", "name": "IP Virtual Connection"},
+        {"code": "ACCESS_EPL_VC", "name": "Access EPL Virtual Connection"},
+        {"code": "EIA_VC", "name": "Equinix Internet Access VC"},
+        {"code": "EVPLAN_VC", "name": "EVPLAN Virtual Connection"},
+        {"code": "EPLAN_VC", "name": "EPLAN Virtual Connection"},
+        {"code": "EVPTREE_VC", "name": "EVPTREE Virtual Connection"},
+        {"code": "EPTREE_VC", "name": "EPTREE Virtual Connection"},
+        {"code": "IPWAN_VC", "name": "IPWAN Virtual Connection"},
+        {"code": "IA_VC", "name": "Internet Access Virtual Connection"},
+        {"code": "MC_VC", "name": "Metro Connect Virtual Connection"},
+        {"code": "IX_PUBLIC_VC", "name": "IX Public Virtual Connection"},
+        {"code": "IX_PRIVATE_VC", "name": "IX Private Virtual Connection"},
+    ],
+    "sideTypes": [
+        {"code": "COLO", "name": "Colocation"},
+        {"code": "VD", "name": "Virtual Device"},
+        {"code": "VG", "name": "Virtual Gateway"},
+        {"code": "SP", "name": "Service Provider"},
+        {"code": "IGW", "name": "Internet Gateway"},
+        {"code": "SUBNET", "name": "Subnet"},
+        {"code": "CLOUD_ROUTER", "name": "Cloud Router"},
+        {"code": "NETWORK", "name": "Network"},
+        {"code": "METAL_NETWORK", "name": "Metal Network"},
+        {"code": "VPIC_INTERFACE", "name": "VPIC Interface"},
+        {"code": "APP_LINK", "name": "Application Link"},
+    ],
+    "connectionTypeRules": {
+        "EVPL_VC": {"aSides": ["COLO", "VD", "CLOUD_ROUTER", "NETWORK"], "zSides": ["COLO", "VD", "SP", "CLOUD_ROUTER", "NETWORK"]},
+        "EPL_VC": {"aSides": ["COLO"], "zSides": ["COLO"]},
+        "EC_VC": {"aSides": ["COLO", "VD", "CLOUD_ROUTER"], "zSides": ["COLO", "VD", "SP", "CLOUD_ROUTER"]},
+        "IP_VC": {"aSides": ["COLO", "VD", "CLOUD_ROUTER"], "zSides": ["SP", "IGW", "NETWORK"]},
+        "ACCESS_EPL_VC": {"aSides": ["COLO"], "zSides": ["COLO"]},
+        "EIA_VC": {"aSides": ["COLO", "VD", "CLOUD_ROUTER"], "zSides": ["IGW", "NETWORK"]},
+        "EVPLAN_VC": {"aSides": ["COLO", "VD", "CLOUD_ROUTER", "NETWORK"], "zSides": ["COLO", "VD", "CLOUD_ROUTER", "NETWORK"]},
+        "EPLAN_VC": {"aSides": ["COLO", "NETWORK"], "zSides": ["COLO", "NETWORK"]},
+        "EVPTREE_VC": {"aSides": ["COLO", "VD", "NETWORK"], "zSides": ["COLO", "VD", "NETWORK"]},
+        "EPTREE_VC": {"aSides": ["COLO", "NETWORK"], "zSides": ["COLO", "NETWORK"]},
+        "IPWAN_VC": {"aSides": ["COLO", "VD", "CLOUD_ROUTER"], "zSides": ["SP", "NETWORK"]},
+        "IA_VC": {"aSides": ["COLO", "VD", "CLOUD_ROUTER"], "zSides": ["IGW", "NETWORK"]},
+        "MC_VC": {"aSides": ["COLO", "NETWORK"], "zSides": ["COLO", "NETWORK"]},
+        "IX_PUBLIC_VC": {"aSides": ["COLO", "VD"], "zSides": ["SP"]},
+        "IX_PRIVATE_VC": {"aSides": ["COLO", "VD"], "zSides": ["SP"]},
+    },
+    "bandwidths": [50, 100, 200, 500, 1000, 2000, 5000, 10000],
+    "portOptions": {
+        "types": [{"code": "XF_PORT", "name": "Fabric Port (XF_PORT)"}],
+        "packages": [{"code": "STANDARD", "name": "Standard"}],
+        "serviceTypes": [{"code": "EPL", "name": "EPL"}, {"code": "EVPL", "name": "EVPL"}],
+        "connectivitySources": [{"code": "COLO", "name": "Colocation"}, {"code": "NETWORK_EDGE", "name": "Network Edge"}],
+        "lagOptions": [{"code": False, "name": "No"}, {"code": True, "name": "Yes"}],
+    },
+    "ipBlockOptions": {
+        "types": [{"code": "IPv4", "name": "IPv4"}],
+        "prefixLengths": [{"code": 29, "name": "/29"}],
+    },
+    "fallbackMetros": [
+        {"code": "SV", "name": "Silicon Valley"},
+        {"code": "HK", "name": "Hong Kong"},
+        {"code": "SG", "name": "Singapore"},
+        {"code": "TY", "name": "Tokyo"},
+        {"code": "LD", "name": "London"},
+        {"code": "FR", "name": "Frankfurt"},
+        {"code": "NY", "name": "New York"},
+        {"code": "DC", "name": "Washington DC"},
+    ],
+}
+
+
+def equinix_api_base() -> str:
+    return text(settings.EQUINIX_API_URL, EQUINIX_DEFAULT_API_BASE).rstrip("/")
+
+
+def read_dotenv_value(path: str, key: str) -> str:
+    if not os.path.isfile(path):
+        return ""
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            for line in file:
+                raw = line.strip()
+                if not raw or raw.startswith("#") or "=" not in raw:
+                    continue
+                name, value = raw.split("=", 1)
+                if name.strip() == key:
+                    return value.strip().strip('"').strip("'")
+    except OSError:
+        return ""
+    return ""
+
+
+def priceweb_env_value(key: str) -> str:
+    priceweb_env = os.path.abspath(os.path.join(settings.BASE_DIR, os.pardir, "PriceWeb", "backend", ".env"))
+    return read_dotenv_value(priceweb_env, key)
+
+
+def equinix_client_credentials() -> tuple[str, str]:
+    client_id = (
+        text(settings.EQUINIX_CLIENT_ID)
+        or text(settings.CLIENT_ID)
+        or text(os.getenv("CLIENT_ID"))
+        or priceweb_env_value("CLIENT_ID")
+    )
+    client_secret = (
+        text(settings.EQUINIX_CLIENT_SECRET)
+        or text(settings.CLIENT_SECRET)
+        or text(os.getenv("CLIENT_SECRET"))
+        or priceweb_env_value("CLIENT_SECRET")
+    )
+    return client_id, client_secret
+
+
+async def get_equinix_access_token() -> str:
+    global _equinix_token, _equinix_token_expire_at
+    now = time.time()
+    if _equinix_token and now < _equinix_token_expire_at - 60:
+        return _equinix_token
+
+    client_id, client_secret = equinix_client_credentials()
+    if not client_id or not client_secret:
+        raise ValueError("Equinix API credentials are not configured")
+
+    async with httpx.AsyncClient(timeout=20.0, trust_env=False) as client:
+        response = await client.post(
+            f"{equinix_api_base()}/oauth2/v1/token",
+            data={"grant_type": "client_credentials", "client_id": client_id, "client_secret": client_secret},
+        )
+    payload = response.json()
+    if response.status_code != 200 or not payload.get("access_token"):
+        logger.warning("equinix token failed: status=%s data=%s", response.status_code, payload)
+        raise ValueError("Failed to obtain Equinix access token")
+    _equinix_token = payload["access_token"]
+    _equinix_token_expire_at = now + int(payload.get("expires_in") or 3600)
+    return _equinix_token
+
+
+async def equinix_request(method: str, path: str, **kwargs) -> tuple[int, Any]:
+    token = await get_equinix_access_token()
+    headers = kwargs.pop("headers", {})
+    headers.update({"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+    async with httpx.AsyncClient(base_url=equinix_api_base(), timeout=30.0, trust_env=False) as client:
+        response = await client.request(method, path, headers=headers, **kwargs)
+    try:
+        return response.status_code, response.json()
+    except Exception:
+        return response.status_code, response.text
+
+
+def unique_code_options(values: list[Any], fallback: list[dict] | None = None) -> list[dict]:
+    options: list[dict] = []
+    seen = set()
+    for value in values:
+        if isinstance(value, dict):
+            code = value.get("code")
+            name = value.get("name") or code
+        else:
+            code = value
+            name = value
+        key = text(code)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        options.append({"code": code, "name": text(name, key)})
+    return options or list(fallback or [])
+
+
+def add_if_present(target: list, value: Any) -> None:
+    if value not in (None, ""):
+        target.append(value)
+
+
+def merge_equinix_port_reference(reference: dict, data: Any) -> dict:
+    if not isinstance(data, dict):
+        return reference
+    rows = [item for item in data.get("data", []) if isinstance(item, dict)]
+    if not rows:
+        return reference
+
+    port_types: list[Any] = []
+    packages: list[Any] = []
+    service_types: list[Any] = []
+    connectivity_sources: list[Any] = []
+    lag_options: list[Any] = []
+    bandwidths: list[int] = []
+
+    for row in rows:
+        add_if_present(port_types, pick(row, "type", "port.type", default=""))
+        add_if_present(packages, pick(row, "package.code", "port.package.code", default=""))
+        add_if_present(service_types, pick(row, "serviceType", "serviceCode", "port.serviceType", default=""))
+        add_if_present(connectivity_sources, pick(row, "connectivitySource.type", "port.connectivitySource.type", default=""))
+        if "lagEnabled" in row:
+            lag_options.append(bool(row.get("lagEnabled")))
+        add_if_present(bandwidths, int(number(pick(row, "bandwidth", "physicalPortsSpeed", default=0), 0)))
+
+    port_options = reference.get("portOptions") or {}
+    reference["portOptions"] = {
+        **port_options,
+        "types": unique_code_options(port_types, port_options.get("types")),
+        "packages": unique_code_options(packages, port_options.get("packages")),
+        "serviceTypes": unique_code_options(service_types, port_options.get("serviceTypes")),
+        "connectivitySources": unique_code_options(connectivity_sources, port_options.get("connectivitySources")),
+        "lagOptions": unique_code_options(
+            [{"code": value, "name": "Yes" if value else "No"} for value in lag_options],
+            port_options.get("lagOptions"),
+        ),
+    }
+    dynamic_bandwidths = sorted({value for value in bandwidths if value > 0})
+    if dynamic_bandwidths:
+        reference["bandwidths"] = dynamic_bandwidths
+    return reference
+
+
+def merge_equinix_price_reference(reference: dict, data: Any) -> dict:
+    rows = equinix_price_entries(data)
+    if not rows:
+        return reference
+
+    product_types: list[Any] = []
+    connection_types: list[Any] = []
+    bandwidths: list[int] = []
+    for row in rows:
+        add_if_present(product_types, pick(row, "type", default=""))
+        add_if_present(connection_types, pick(row, "connection.type", default=""))
+        add_if_present(bandwidths, int(number(pick(row, "connection.bandwidth", "port.bandwidth", default=0), 0)))
+
+    reference["productTypes"] = unique_code_options(product_types, reference.get("productTypes"))
+    reference["connectionTypes"] = unique_code_options(connection_types, reference.get("connectionTypes"))
+    dynamic_bandwidths = sorted({value for value in bandwidths if value > 0})
+    if dynamic_bandwidths:
+        reference["bandwidths"] = dynamic_bandwidths
+    return reference
+
+
+def equinix_filter_payload(payload: dict) -> dict:
+    filters = payload.get("filters")
+    if isinstance(filters, list) and filters:
+        return {"filter": {"and": filters}}
+
+    product_type = text(payload.get("type"), "VIRTUAL_CONNECTION_PRODUCT")
+    filters = [{"property": "/type", "operator": "=", "values": [product_type]}]
+    if product_type == "VIRTUAL_CONNECTION_PRODUCT":
+        filters.extend([
+            {"property": "/connection/type", "operator": "=", "values": [text(payload.get("connectionType"), "EVPL_VC")]},
+            {"property": "/connection/bandwidth", "operator": "=", "values": [int(number(payload.get("bandwidth"), 1000))]},
+            {"property": "/connection/aSide/accessPoint/type", "operator": "=", "values": [text(payload.get("aSideType"), "COLO")]},
+            {"property": "/connection/aSide/accessPoint/location/metroCode", "operator": "=", "values": [text(payload.get("originMetro"), "SV")]},
+            {"property": "/connection/zSide/accessPoint/type", "operator": "=", "values": [text(payload.get("zSideType"), "COLO")]},
+            {"property": "/connection/zSide/accessPoint/location/metroCode", "operator": "=", "values": [text(payload.get("destinationMetro"), "HK")]},
+        ])
+    elif product_type == "VIRTUAL_PORT_PRODUCT":
+        ibx = text(payload.get("ibx")) or f"{text(payload.get('originMetro'), 'SV')}{text(payload.get('ibxSuffix'), '1')}"
+        filters.extend([
+            {"property": "/port/location/ibx", "operator": "=", "values": [ibx]},
+            {"property": "/port/type", "operator": "=", "values": [text(payload.get("portType"), "XF_PORT")]},
+            {"property": "/port/bandwidth", "operator": "=", "values": [int(number(payload.get("bandwidth"), 1000))]},
+            {"property": "/port/package/code", "operator": "=", "values": [text(payload.get("portPackage"), "STANDARD")]},
+            {"property": "/port/serviceType", "operator": "=", "values": [text(payload.get("portServiceType"), "EPL")]},
+            {"property": "/port/connectivitySource/type", "operator": "=", "values": [text(payload.get("portConnectivitySource"), "COLO")]},
+            {"property": "/port/lag/enabled", "operator": "=", "values": [bool(payload.get("portLagEnabled"))]},
+        ])
+    elif product_type == "IP_BLOCK_PRODUCT":
+        filters.extend([
+            {"property": "/ipBlock/type", "operator": "=", "values": [text(payload.get("ipBlockType"), "IPv4")]},
+            {"property": "/ipBlock/prefixLength", "operator": "=", "values": [int(number(payload.get("ipBlockPrefixLength"), 29))]},
+            {"property": "/ipBlock/location/metroCode", "operator": "IN", "values": [text(payload.get("originMetro"), "SV")]},
+        ])
+    return {"filter": {"and": filters}}
+
+
+def equinix_price_entries(data: Any) -> list[dict]:
+    if isinstance(data, dict):
+        for key in ("data", "prices", "items"):
+            value = data.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+        return [data]
+    if isinstance(data, list):
+        return [item for item in data if isinstance(item, dict)]
+    return []
+
+
+def equinix_cost_item(entry: dict, charge: dict, index: int) -> dict:
+    price = number(pick(charge, "price", "amount", "value", default=0))
+    currency = text(pick(charge, "currency", "currencyCode", default="")) or text(pick(entry, "currency", "currencyCode", default="USD"))
+    name = text(pick(charge, "type", "name", "chargeType", default="")) or text(pick(entry, "type", "productType", default=f"price_{index}"))
+    unit = text(pick(charge, "frequency", "unit", "billingFrequency", default="")) or name
+    return {
+        "name": name,
+        "supplier_price": round_money(price),
+        "quote_cost": round_money(price),
+        "suggest_20": round_money(price * 1.2),
+        "suggest_30": round_money(price * 1.3),
+        "suggest_40": round_money(price * 1.4),
+        "margin_30": round_money(price / 0.7) if price else 0,
+        "unit": unit,
+        "currency": currency or "USD",
+        "raw": {"entry": entry, "charge": charge},
+    }
+
+
+def build_equinix_cost_items(data: Any) -> list[dict]:
+    items = []
+    for entry in equinix_price_entries(data):
+        charges = entry.get("charges")
+        if isinstance(charges, list) and charges:
+            for charge in charges:
+                if isinstance(charge, dict):
+                    item = equinix_cost_item(entry, charge, len(items) + 1)
+                    if item["supplier_price"] > 0 or item["name"]:
+                        items.append(item)
+        else:
+            item = equinix_cost_item(entry, entry, len(items) + 1)
+            if item["supplier_price"] > 0:
+                items.append(item)
+    return items
+
+
+@router.get("/equinix-pricing/reference-data", summary="Equinix Fabric报价参考数据")
+async def equinix_reference_data():
+    reference = json.loads(json.dumps(EQUINIX_REFERENCE_DATA))
+    reference["source"] = "fallback"
+    reference["errors"] = []
+
+    try:
+        status, ports = await equinix_request(
+            "POST",
+            "/fabric/v4/ports/search",
+            json={
+                "filter": {"property": "/state", "operator": "=", "values": ["PROVISIONED"]},
+                "pagination": {"limit": 100, "offset": 0},
+            },
+        )
+    except Exception as exc:
+        reference["errors"].append({"action": "ports/search", "error": str(exc)})
+    else:
+        if status < 400:
+            reference = merge_equinix_port_reference(reference, ports)
+            reference["source"] = "equinix_api"
+            reference["rawPorts"] = ports
+        else:
+            reference["errors"].append({"action": "ports/search", "status": status, "data": ports})
+
+    try:
+        price_product_types = [item["code"] for item in EQUINIX_REFERENCE_DATA["productTypes"]]
+        status, prices = await equinix_request(
+            "POST",
+            "/fabric/v4/prices/search",
+            json={
+                "filter": {"and": [{"property": "/type", "operator": "IN", "values": price_product_types}]},
+                "pagination": {"limit": 100, "offset": 0},
+            },
+        )
+    except Exception as exc:
+        reference["errors"].append({"action": "prices/search", "error": str(exc)})
+    else:
+        if status < 400:
+            reference = merge_equinix_price_reference(reference, prices)
+            reference["source"] = "equinix_api"
+            reference["rawPrices"] = prices
+        else:
+            reference["errors"].append({"action": "prices/search", "status": status, "data": prices})
+
+    return Success(data=reference)
+
+
+@router.get("/equinix-pricing/metros", summary="Equinix Fabric城市列表")
+async def equinix_metros():
+    try:
+        status, data = await equinix_request("GET", "/fabric/v4/metros", params={"limit": 100})
+    except Exception as exc:
+        logger.warning("equinix metros failed: %s", exc)
+        return Success(data={"source": "fallback", "metros": EQUINIX_REFERENCE_DATA["fallbackMetros"], "error": str(exc)})
+    if status >= 400:
+        return Success(data={"source": "fallback", "metros": EQUINIX_REFERENCE_DATA["fallbackMetros"], "raw": data})
+
+    metros = []
+    for metro in data.get("data", []) if isinstance(data, dict) else []:
+        code = text(metro.get("code"))
+        if code:
+            metros.append({"code": code, "name": text(metro.get("name"), code)})
+    metros = sorted(metros, key=lambda item: item["name"]) or EQUINIX_REFERENCE_DATA["fallbackMetros"]
+    return Success(data={"source": "equinix_api", "metros": metros, "raw": data})
+
+
+@router.post("/equinix-pricing/quote", summary="Equinix Fabric生成报价")
+async def equinix_quote(payload: dict = Body(default_factory=dict)):
+    request_payload = equinix_filter_payload(payload)
+    try:
+        status, data = await equinix_request("POST", "/fabric/v4/prices/search", json=request_payload)
+    except Exception as exc:
+        logger.exception("equinix quote request failed: payload=%s", request_payload)
+        return Success(code=400, msg=f"Equinix API请求失败: {exc}", data={"payload": request_payload})
+
+    if status >= 400:
+        logger.warning("equinix quote failed: status=%s data=%s", status, data)
+        return Success(code=400, msg="Equinix报价失败", data={"payload": request_payload, "status": status, "raw": data})
+
+    cost_items = build_equinix_cost_items(data)
+    total_cost = sum(item["quote_cost"] for item in cost_items)
+    return Success(
+        data={
+            "source": "equinix_api",
+            "payload": request_payload,
+            "costItems": cost_items,
+            "totalCost": round_money(total_cost),
             "currency": cost_items[0]["currency"] if cost_items else "USD",
             "raw": data,
         }
