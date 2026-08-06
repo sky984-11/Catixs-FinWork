@@ -163,9 +163,11 @@
 <script setup>
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import { NButton, NSpace, NTag, useMessage } from 'naive-ui'
+import { useRouter } from 'vue-router'
 import api from '@/api'
 
 const message = useMessage()
+const router = useRouter()
 const loading = ref(false)
 const saving = ref(false)
 const activeTab = ref('devices')
@@ -281,7 +283,16 @@ const filteredTasks = computed(() => {
 })
 
 const deviceColumns = [
-  { title: '设备名称', key: 'name', width: 170, ellipsis: { tooltip: true }, sorter: textSorter('name') },
+  {
+    title: '设备名称',
+    key: 'name',
+    width: 170,
+    ellipsis: { tooltip: true },
+    sorter: textSorter('name'),
+    render(row) {
+      return renderDeviceLink(row)
+    },
+  },
   { title: '管理IP', key: 'mgmt_ip', width: 150, ellipsis: { tooltip: true }, sorter: textSorter('mgmt_ip') },
   {
     title: '型号',
@@ -349,8 +360,11 @@ const taskColumns = [
     render(row) {
       const selectedDevices = row.devices || []
       if (!selectedDevices.length) return `#${row.device_id}`
-      const first = compactDeviceLabel(selectedDevices[0])
-      return selectedDevices.length > 1 ? `${first} 等 ${selectedDevices.length} 台` : first
+      const links = selectedDevices.slice(0, 3).map((device) => renderDeviceLink(device))
+      if (selectedDevices.length > 3) {
+        links.push(h('span', { class: 'device-more-count' }, `+${selectedDevices.length - 3}`))
+      }
+      return h(NSpace, { size: 6, wrap: false }, { default: () => links })
     },
   },
   {
@@ -452,6 +466,64 @@ function deviceLocation(device) {
 
 function compactDeviceLabel(device) {
   return [device?.name, device?.mgmt_ip].filter(Boolean).join(' / ') || `#${device?.id || ''}`
+}
+
+function deviceRouteId(device) {
+  return device?.device_db_id || device?.parent_id || device?.id
+}
+
+function normalizeDeviceDbId(device) {
+  const source = deviceRouteId(device)
+  const parsed = Number(String(source || '').split(':', 1)[0])
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
+function findDeviceLocation(device) {
+  const deviceId = normalizeDeviceDbId(device)
+  if (!deviceId) return device
+  return devices.value.find((item) => normalizeDeviceDbId(item) === deviceId && item.cabinet_id) || device
+}
+
+async function loadDeviceLocation(device) {
+  const deviceId = normalizeDeviceDbId(device)
+  if (!deviceId) return device
+  try {
+    const res = await api.assetApi.getDevice({ device_id: deviceId })
+    return { ...device, ...(res.data || {}) }
+  } catch (error) {
+    return device
+  }
+}
+
+async function openDeviceInCabinet(device) {
+  const localDevice = findDeviceLocation(device)
+  const targetDevice = localDevice?.cabinet_id ? localDevice : await loadDeviceLocation(localDevice)
+  const deviceId = normalizeDeviceDbId(targetDevice)
+  if (!targetDevice?.cabinet_id || !deviceId) {
+    message.warning('该设备缺少机柜定位信息')
+    return
+  }
+  const query = {
+    cabinet_id: String(targetDevice.cabinet_id),
+    device_id: String(deviceId),
+  }
+  if (targetDevice.region_id) query.region_id = String(targetDevice.region_id)
+  router.push({ path: '/asset/cabinet', query })
+}
+
+function renderDeviceLink(device) {
+  const label = compactDeviceLabel(device)
+  return h(
+    NButton,
+    {
+      text: true,
+      type: 'primary',
+      title: deviceLocation(device) || label,
+      class: 'device-link-button',
+      onClick: () => openDeviceInCabinet(device),
+    },
+    { default: () => label }
+  )
 }
 
 function deviceModelText(device) {
@@ -709,6 +781,22 @@ onMounted(fetchOverview)
   justify-content: space-between;
   gap: 12px;
   padding-top: 4px;
+}
+
+.device-link-button {
+  max-width: 100%;
+}
+
+.device-link-button :deep(.n-button__content) {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-more-count {
+  color: #667085;
 }
 
 @media (max-width: 900px) {

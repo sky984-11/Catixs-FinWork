@@ -1432,6 +1432,7 @@ function routeToCabinet(regionId, cabinetId = null) {
 function applyRouteSelection() {
   const queryRegionId = numberQueryValue(route.query.region_id)
   const queryCabinetId = numberQueryValue(route.query.cabinet_id)
+  const queryDeviceId = numberQueryValue(route.query.device_id)
   if (!queryRegionId && !queryCabinetId) {
     viewMode.value = 'map'
     rackDevices.value = []
@@ -1452,7 +1453,7 @@ function applyRouteSelection() {
     : firstCabinetIdInRegion(nextRegionId)
   selectedCabinetId.value = nextCabinetId
   viewMode.value = 'region'
-  if (nextCabinetId) loadCabinetDevices()
+  if (nextCabinetId) loadCabinetDevices(queryDeviceId)
   else rackDevices.value = []
 }
 
@@ -1470,7 +1471,7 @@ function selectCabinet(cabinetId) {
   routeToCabinet(regionId, cabinetId)
 }
 
-async function loadCabinetDevices() {
+async function loadCabinetDevices(focusDeviceId = null) {
   if (!selectedCabinetId.value) {
     rackDevices.value = []
     return
@@ -1484,6 +1485,9 @@ async function loadCabinetDevices() {
     })
     rackDevices.value = res.data || []
     updateCabinetDeviceCount(selectedCabinetId.value, rackDevices.value.length)
+    if (focusDeviceId) {
+      openRouteDeviceDetail(focusDeviceId)
+    }
   } finally {
     deviceLoading.value = false
   }
@@ -2144,12 +2148,18 @@ function openDeviceDetail(device) {
   deviceDrawer.show = true
 }
 
+function openRouteDeviceDetail(deviceId) {
+  const target = rackDevices.value.find((device) => Number(device.id) === Number(deviceId))
+  if (!target) return
+  nextTick(() => openDeviceDetail(target))
+}
+
 watch(mapRegionNodes, () => renderMapMarkers(true))
 watch(viewMode, (mode) => {
   if (mode === 'map') ensureMap()
 })
 watch(
-  () => [route.query.region_id, route.query.cabinet_id],
+  () => [route.query.region_id, route.query.cabinet_id, route.query.device_id],
   () => {
     applyRouteSelection()
   }

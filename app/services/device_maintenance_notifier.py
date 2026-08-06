@@ -145,6 +145,9 @@ def device_to_plain_row(device: AssetDevice) -> dict[str, Any]:
     return {
         "id": str(device.id),
         "device_db_id": device.id,
+        "region_id": region.id if region else None,
+        "location_id": location.id if location else None,
+        "cabinet_id": cabinet.id if cabinet else None,
         "asset_no": device.asset_no,
         "name": device.name,
         "brand": device.brand or "",
