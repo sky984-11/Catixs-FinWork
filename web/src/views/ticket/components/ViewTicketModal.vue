@@ -1,6 +1,6 @@
 <template>
   <n-modal :show="visible" preset="card" title="工单详情" style="width: min(720px, calc(100vw - 32px))" @update:show="$emit('update:visible', $event)">
-    <div v-if="ticket" class="detail-container" :class="{ 'theme-dark': isDark }">
+    <div v-if="ticket" class="detail-container">
       <!-- 基本信息卡片 -->
       <div class="info-card">
         <div class="info-card-header">
@@ -64,9 +64,6 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
-import { useAppStore } from '@/store'
-
 const emit = defineEmits(['update:visible'])
 
 const placeholderImg = 'https://07akioni.oss-cn-beijing.aliyuncs.com/07akioni.jpeg'
@@ -87,8 +84,6 @@ const props = defineProps({
     default: null
   }
 })
-
-const isDark = computed(() => useAppStore().isDark)
 
 function getStatusName(status) {
   const map = { 0: '已完成', 1: '进行中', 2: '未开始', 3: '已关闭' }

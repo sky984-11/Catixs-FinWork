@@ -3,7 +3,6 @@
     wh-full
     :locale="zhCN"
     :date-locale="dateZhCN"
-    :theme="appStore.isDark ? darkTheme : undefined"
     :theme-overrides="naiveThemeOverrides"
   >
     <n-loading-bar-provider>
@@ -24,7 +23,6 @@ import { defineComponent, h } from 'vue'
 import {
   zhCN,
   dateZhCN,
-  darkTheme,
   useLoadingBar,
   useDialog,
   useMessage,
@@ -34,9 +32,6 @@ import { useCssVar } from '@vueuse/core'
 import { kebabCase } from 'lodash-es'
 import { setupMessage, setupDialog } from '@/utils'
 import { naiveThemeOverrides } from '~/settings'
-import { useAppStore } from '@/store'
-
-const appStore = useAppStore()
 
 function setupCssVar() {
   const common = naiveThemeOverrides.common

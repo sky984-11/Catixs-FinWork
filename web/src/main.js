@@ -11,7 +11,14 @@ import { setupDirectives } from './directives'
 import { useResize } from '@/utils'
 import i18n from '~/i18n'
 
+function enforceLightTheme() {
+  document.documentElement.classList.remove('dark')
+  window.localStorage.setItem('vueuse-color-scheme', 'light')
+}
+
 async function setupApp() {
+  enforceLightTheme()
+
   const app = createApp(App)
 
   setupStore(app)
