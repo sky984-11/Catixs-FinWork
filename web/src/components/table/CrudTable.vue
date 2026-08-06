@@ -1,5 +1,5 @@
 <template>
-  <div v-bind="$attrs">
+  <div class="crud-table-wrap" v-bind="$attrs">
     <QueryBar v-if="$slots.queryBar" mb-30 @search="handleSearch" @reset="handleReset">
       <slot name="queryBar" />
     </QueryBar>
@@ -179,3 +179,19 @@ defineExpose({
   tableData,
 })
 </script>
+
+<style scoped>
+.crud-table-wrap {
+  min-width: 0;
+}
+
+.crud-table-wrap :deep(.n-data-table) {
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .crud-table-wrap :deep(.n-data-table) {
+    font-size: 13px;
+  }
+}
+</style>

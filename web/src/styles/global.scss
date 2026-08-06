@@ -11,6 +11,13 @@ html {
 
 body {
   font-size: 16px;
+  color: #111827;
+  background: #f3f6fa;
+}
+
+html.dark body {
+  color: #e5e7eb;
+  background: #0f1117;
 }
 
 #app {
@@ -70,5 +77,193 @@ body {
     &::-webkit-scrollbar-thumb:hover {
       background: var(--primary-color);
     }
+  }
+}
+
+/* Common responsive polish for menu pages */
+.n-card {
+  border-radius: 8px;
+}
+
+.n-button {
+  border-radius: 8px;
+}
+
+.n-button--round {
+  border-radius: 999px;
+}
+
+.n-button--circle {
+  border-radius: 50%;
+}
+
+.n-input,
+.n-input-number,
+.n-base-selection {
+  border-radius: 8px;
+}
+
+.n-data-table {
+  max-width: 100%;
+}
+
+.n-data-table .n-data-table-base-table {
+  min-width: 0;
+}
+
+.n-data-table .n-data-table-th {
+  font-weight: 650;
+}
+
+.n-pagination {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+.n-pagination .n-pagination-item {
+  border-radius: 8px;
+}
+
+.n-modal .n-card,
+.n-modal .n-dialog {
+  max-width: calc(100vw - 24px);
+  border-radius: 8px;
+}
+
+.n-modal .n-card > .n-card__content {
+  max-height: min(72vh, 720px);
+  overflow: auto;
+}
+
+.table-toolbar,
+.quote-toolbar,
+.filter-bar,
+.filter-card,
+.toolbar-panel,
+.query-bar,
+.pop-list-footer,
+.quote-page-actions,
+.modal-footer,
+.send-modal-footer,
+.reply-modal-footer,
+.modal-actions {
+  min-width: 0;
+}
+
+.table-toolbar,
+.quote-toolbar,
+.filter-card,
+.toolbar-panel {
+  border-radius: 8px;
+}
+
+@media (max-width: 900px) {
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .table-toolbar,
+  .quote-toolbar,
+  .filter-card,
+  .toolbar-panel,
+  .pop-list-footer,
+  .modal-footer,
+  .send-modal-footer,
+  .reply-modal-footer,
+  .modal-actions {
+    align-items: stretch !important;
+    flex-direction: column !important;
+    gap: 10px !important;
+  }
+
+  .table-toolbar > *,
+  .quote-toolbar > *,
+  .filter-card > *,
+  .toolbar-panel > *,
+  .modal-footer > *,
+  .send-modal-footer > *,
+  .reply-modal-footer > *,
+  .modal-actions > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .filter-row,
+  .task-filter,
+  .engineer-search,
+  .form-grid,
+  .remote-form-grid,
+  .filter-bar,
+  .quote-filter-grid,
+  .quote-metrics,
+  .scope-selects,
+  .attribute-row,
+  .device-attribute-row,
+  .price-currency-field {
+    grid-template-columns: 1fr !important;
+    width: 100%;
+  }
+
+  .n-grid {
+    --n-columns: 1 !important;
+  }
+
+  .n-form.n-form--inline {
+    flex-direction: column;
+  }
+
+  .n-form.n-form--inline .n-form-item {
+    width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  body {
+    font-size: 14px;
+  }
+
+  .summary-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .n-card > .n-card-header {
+    padding: 12px 14px 8px;
+  }
+
+  .n-card > .n-card__content,
+  .n-card > .n-card__footer,
+  .n-card > .n-card__action {
+    padding-inline: 12px;
+  }
+
+  .n-modal .n-card,
+  .n-modal .n-dialog {
+    max-width: calc(100vw - 16px);
+  }
+
+  .n-modal .n-card > .n-card__content {
+    max-height: 70vh;
+  }
+
+  .n-button:not(.n-button--circle) {
+    min-width: 0;
+    white-space: normal;
+  }
+
+  .n-space {
+    max-width: 100%;
+  }
+
+  .n-data-table {
+    font-size: 13px;
+  }
+
+  .n-data-table .n-data-table-th,
+  .n-data-table .n-data-table-td {
+    padding: 8px 10px;
+  }
+
+  .n-pagination {
+    justify-content: flex-start;
   }
 }

@@ -1,20 +1,20 @@
 <template>
   <AppPage :show-footer="true" bg-cover :style="{ backgroundImage: `url(${bgImg})` }">
     <!-- Using explicit flex and absolute positioning for centering if flex-1 fails -->
-    <div class="flex flex-col flex-1 items-center justify-center w-full min-h-0 relative">
+    <div class="login-screen flex flex-col flex-1 items-center justify-center w-full min-h-0 relative">
       <main class="login-container flex flex-col items-center justify-center">
         <div class="login-card-wrapper relative">
           <!-- Subtle decorative background elements -->
           <div
-            class="absolute -top-60px -left-60px w-200px h-200px bg-primary/10 rounded-full blur-3xl opacity-50 pointer-events-none">
+            class="login-decor login-decor--primary absolute -top-60px -left-60px w-200px h-200px bg-primary/10 rounded-full blur-3xl opacity-50 pointer-events-none">
           </div>
           <div
-            class="absolute -bottom-40px -right-40px w-160px h-160px bg-green-500/5 rounded-full blur-3xl opacity-30 pointer-events-none">
+            class="login-decor login-decor--accent absolute -bottom-40px -right-40px w-160px h-160px bg-green-500/5 rounded-full blur-3xl opacity-30 pointer-events-none">
           </div>
 
           <!-- Perfectly Centered Professional Login Card -->
           <div
-            class="login-card w-480px bg-white/75 dark:bg-dark/80 backdrop-blur-3xl border border-white/20 rounded-24px p-48px shadow-premium transition-all duration-300">
+            class="login-card bg-white/75 dark:bg-dark/80 backdrop-blur-3xl border border-white/20 rounded-24px shadow-premium transition-all duration-300">
             <header class="card-header flex flex-col items-center justify-center mb-40px">
               <!-- Branded Icon -->
               <div class="icon-wrap flex items-center justify-center mb-20px animate-float-slow">
@@ -208,8 +208,23 @@ async function handleLogin() {
   border-radius: 12px;
 }
 
+.login-screen {
+  min-height: calc(100vh - 72px);
+  padding: 24px 16px;
+}
+
 .login-container {
   width: 100%;
+}
+
+.login-card-wrapper {
+  width: min(480px, 100%);
+}
+
+.login-card {
+  width: 100%;
+  padding: 48px;
+  transition: all 0.3s ease;
 }
 
 .login-input :deep(.n-input-wrapper) {
@@ -224,14 +239,128 @@ async function handleLogin() {
   color: #34D399;
 }
 
-.login-card {
-  transition: all 0.3s ease;
-}
-
 .login-card:hover {
   transform: translateY(-4px);
   box-shadow:
     0 30px 60px -10px rgba(0, 0, 0, 0.15),
     0 10px 25px -5px rgba(0, 0, 0, 0.1);
+}
+
+@media (max-width: 640px) {
+  .login-screen {
+    justify-content: flex-start;
+    min-height: calc(100vh - 56px);
+    padding: 18px 0;
+  }
+
+  .login-container {
+    justify-content: flex-start;
+  }
+
+  .login-card-wrapper {
+    width: 100%;
+  }
+
+  .login-card {
+    padding: 28px 22px;
+    border-radius: 16px;
+  }
+
+  .card-header {
+    margin-bottom: 28px;
+  }
+
+  .icon-wrap {
+    margin-bottom: 14px;
+  }
+
+  .login-logo {
+    width: 68px;
+    height: 68px;
+  }
+
+  .branding-text h1 {
+    font-size: 26px;
+    line-height: 1.2;
+  }
+
+  .branding-text p {
+    margin-top: 6px;
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    margin-right: -0.22em;
+  }
+
+  .form-content {
+    gap: 18px;
+  }
+
+  .input-group.mt-20px {
+    margin-top: 16px;
+  }
+
+  .action-group.mt-40px {
+    margin-top: 28px;
+  }
+
+  .action-group :deep(.n-button) {
+    height: 48px;
+    font-size: 16px;
+  }
+
+  .login-card:hover {
+    transform: none;
+  }
+
+  .login-decor {
+    display: none;
+  }
+}
+
+@media (max-width: 380px) {
+  .login-card {
+    padding: 24px 16px;
+  }
+
+  .branding-text h1 {
+    font-size: 24px;
+  }
+
+  .login-logo {
+    width: 60px;
+    height: 60px;
+  }
+}
+
+@media (max-height: 620px) and (orientation: landscape) {
+  .login-screen {
+    justify-content: flex-start;
+    padding-block: 10px;
+  }
+
+  .login-card {
+    padding: 20px 28px;
+  }
+
+  .card-header {
+    margin-bottom: 18px;
+  }
+
+  .login-logo {
+    width: 54px;
+    height: 54px;
+  }
+
+  .branding-text h1 {
+    font-size: 24px;
+  }
+
+  .branding-text p {
+    display: none;
+  }
+
+  .action-group.mt-40px {
+    margin-top: 20px;
+  }
 }
 </style>

@@ -1,6 +1,6 @@
 <template>
   <transition name="fade-slide" mode="out-in" appear>
-    <section class="cus-scroll-y wh-full flex-col bg-[#f5f6fb] p-15 dark:bg-hex-121212">
+    <section class="app-page-shell cus-scroll-y wh-full flex-col">
       <slot />
       <AppFooter v-if="showFooter" mt-15 />
       <n-back-top :bottom="20" />
@@ -16,3 +16,21 @@ defineProps({
   },
 })
 </script>
+
+<style scoped>
+.app-page-shell {
+  min-height: 100%;
+  padding: 16px;
+  background: #f3f6fa;
+}
+
+html.dark .app-page-shell {
+  background: #0f1117;
+}
+
+@media (max-width: 768px) {
+  .app-page-shell {
+    padding: 10px;
+  }
+}
+</style>

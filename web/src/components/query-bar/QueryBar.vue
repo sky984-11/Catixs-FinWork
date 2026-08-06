@@ -1,5 +1,6 @@
 <template>
   <div
+    class="query-bar"
     bg="#fafafc"
     min-h-60
     flex
@@ -24,3 +25,32 @@
 <script setup>
 const emit = defineEmits(['search', 'reset'])
 </script>
+
+<style scoped>
+.query-bar {
+  min-width: 0;
+}
+
+.query-bar :deep(.n-space) {
+  max-width: 100%;
+}
+
+@media (max-width: 768px) {
+  .query-bar {
+    padding: 12px;
+  }
+
+  .query-bar :deep(.n-space) {
+    width: 100%;
+  }
+
+  .query-bar :deep(.n-space > *) {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .query-bar :deep(.n-button) {
+    width: auto;
+  }
+}
+</style>
