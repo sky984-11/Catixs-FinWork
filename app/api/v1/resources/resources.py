@@ -1108,6 +1108,44 @@ def equinix_filter_payload(payload: dict) -> dict:
     return {"filter": {"and": filters}}
 
 
+def equinix_connection_rule_error(payload: dict) -> str | None:
+    if text(payload.get("type"), "VIRTUAL_CONNECTION_PRODUCT") != "VIRTUAL_CONNECTION_PRODUCT":
+        return None
+
+    connection_type = text(payload.get("connectionType"), "EVPL_VC")
+    rule = EQUINIX_REFERENCE_DATA.get("connectionTypeRules", {}).get(connection_type)
+    if not rule:
+        return None
+
+    a_side_type = text(payload.get("aSideType"), "COLO")
+    z_side_type = text(payload.get("zSideType"), "COLO")
+    allowed_a_sides = rule.get("aSides") or []
+    allowed_z_sides = rule.get("zSides") or []
+    if allowed_a_sides and a_side_type not in allowed_a_sides:
+        return f"{connection_type} 的 A端类型不支持 {a_side_type}，可选：{', '.join(allowed_a_sides)}"
+    if allowed_z_sides and z_side_type not in allowed_z_sides:
+        return f"{connection_type} 的 Z端类型不支持 {z_side_type}，可选：{', '.join(allowed_z_sides)}"
+    return None
+
+
+def equinix_error_message(data: Any, default: str = "Equinix报价失败") -> str:
+    if isinstance(data, dict):
+        for key in ("message", "detail", "error", "errorMessage", "title"):
+            value = data.get(key)
+            if value:
+                return f"{default}: {value}"
+        errors = data.get("errors")
+        if isinstance(errors, list) and errors:
+            first = errors[0]
+            if isinstance(first, dict):
+                for key in ("message", "detail", "error", "title"):
+                    value = first.get(key)
+                    if value:
+                        return f"{default}: {value}"
+            return f"{default}: {first}"
+    return default
+
+
 def equinix_price_entries(data: Any) -> list[dict]:
     if isinstance(data, dict):
         for key in ("data", "prices", "items"):
@@ -1225,6 +1263,10 @@ async def equinix_metros():
 
 @router.post("/equinix-pricing/quote", summary="Equinix Fabric生成报价")
 async def equinix_quote(payload: dict = Body(default_factory=dict)):
+    rule_error = equinix_connection_rule_error(payload)
+    if rule_error:
+        return Success(code=400, msg=rule_error, data={"payload": payload})
+
     request_payload = equinix_filter_payload(payload)
     try:
         status, data = await equinix_request("POST", "/fabric/v4/prices/search", json=request_payload)
@@ -1234,7 +1276,7 @@ async def equinix_quote(payload: dict = Body(default_factory=dict)):
 
     if status >= 400:
         logger.warning("equinix quote failed: status=%s data=%s", status, data)
-        return Success(code=400, msg="Equinix报价失败", data={"payload": request_payload, "status": status, "raw": data})
+        return Success(code=400, msg=equinix_error_message(data), data={"payload": request_payload, "status": status, "raw": data})
 
     cost_items = build_equinix_cost_items(data)
     total_cost = sum(item["quote_cost"] for item in cost_items)

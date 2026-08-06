@@ -224,10 +224,10 @@
               </n-form-item>
               <div class="form-grid">
                 <n-form-item label="A 端类型">
-                  <n-select v-model:value="equinixForm.aSideType" :options="equinixSideOptions" />
+                  <n-select v-model:value="equinixForm.aSideType" :options="equinixASideOptions" />
                 </n-form-item>
                 <n-form-item label="Z 端类型">
-                  <n-select v-model:value="equinixForm.zSideType" :options="equinixSideOptions" />
+                  <n-select v-model:value="equinixForm.zSideType" :options="equinixZSideOptions" />
                 </n-form-item>
               </div>
               <div class="form-grid">
@@ -479,6 +479,12 @@ function optionFromCode(items = []) {
   }))
 }
 
+function filteredSideOptions(allowedCodes) {
+  if (!Array.isArray(allowedCodes) || !allowedCodes.length) return equinixSideOptions.value
+  const allowed = new Set(allowedCodes)
+  return equinixSideOptions.value.filter((item) => allowed.has(item.value))
+}
+
 const zenlayerServiceOptions = computed(() => {
   const options = zenlayerServices.value.length
     ? zenlayerServices.value.filter((item) => !item.disabled && item.value !== 'datacenter_lookup')
@@ -520,6 +526,9 @@ const zenlayerServiceLevelOptions = [
 const equinixProductOptions = computed(() => optionFromCode(equinixReference.value.productTypes))
 const equinixConnectionOptions = computed(() => optionFromCode(equinixReference.value.connectionTypes))
 const equinixSideOptions = computed(() => optionFromCode(equinixReference.value.sideTypes))
+const equinixConnectionRule = computed(() => equinixReference.value.connectionTypeRules?.[equinixForm.connectionType] || {})
+const equinixASideOptions = computed(() => filteredSideOptions(equinixConnectionRule.value.aSides))
+const equinixZSideOptions = computed(() => filteredSideOptions(equinixConnectionRule.value.zSides))
 const equinixMetroOptions = computed(() => optionFromCode(equinixMetros.value))
 const equinixBandwidthOptions = computed(() => (equinixReference.value.bandwidths || []).map((item) => ({ label: `${item} Mbps`, value: item })))
 const equinixIbxOptions = computed(() => ['1', '2', '3', '4', '5'].map((item) => ({ label: `${equinixForm.originMetro}${item}`, value: item })))
@@ -569,6 +578,21 @@ watch(() => shared.eqA, (value) => {
 watch(() => shared.eqZ, (value) => {
   equinixForm.destinationMetro = value || equinixForm.destinationMetro
 })
+watch(() => equinixForm.connectionType, () => {
+  normalizeEquinixSideTypes()
+  resetEquinixResult()
+})
+
+function normalizeEquinixSideTypes() {
+  const firstASide = equinixASideOptions.value[0]?.value
+  const firstZSide = equinixZSideOptions.value[0]?.value
+  if (firstASide && !equinixASideOptions.value.some((item) => item.value === equinixForm.aSideType)) {
+    equinixForm.aSideType = firstASide
+  }
+  if (firstZSide && !equinixZSideOptions.value.some((item) => item.value === equinixForm.zSideType)) {
+    equinixForm.zSideType = firstZSide
+  }
+}
 
 function syncScenario() {
   if (scenario.value === 'port') {
@@ -587,6 +611,7 @@ function syncScenario() {
     zenlayerForm.service = 'private_connect'
     equinixForm.type = 'VIRTUAL_CONNECTION_PRODUCT'
   }
+  normalizeEquinixSideTypes()
   resetZenlayerResult()
   resetEquinixResult()
 }
@@ -639,6 +664,7 @@ async function loadEquinixOptions() {
         ...(reference.ipBlockOptions || {}),
       },
     }
+    normalizeEquinixSideTypes()
   } catch (error) {
     equinixError.value = error?.message || 'Equinix 参数加载失败'
   }
@@ -698,6 +724,7 @@ async function generateEquinixQuote() {
   equinixError.value = ''
   equinixLoading.value = true
   try {
+    normalizeEquinixSideTypes()
     const res = await api.resourceApi.equinixQuote({ ...equinixForm })
     const data = res?.data || {}
     equinixQuote.costItems = data.costItems || []
