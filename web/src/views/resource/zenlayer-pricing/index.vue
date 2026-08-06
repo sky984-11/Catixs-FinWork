@@ -1,10 +1,5 @@
 <template>
-  <CommonPage show-footer title="供应商比价">
-    <template #action>
-      <n-button :disabled="loadingOptions" secondary @click="exportDatacentersExcel">导出 POP</n-button>
-      <n-button :loading="loadingOptions" secondary @click="loadAllOptions">刷新参数</n-button>
-    </template>
-
+  <CommonPage show-footer :show-header="false">
     <div class="pricing-page">
       <section class="pricing-hero">
         <div>
@@ -743,49 +738,6 @@ function money(value, currency = 'USD') {
   })}`
 }
 
-function excelCell(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
-
-function dateStamp() {
-  const date = new Date()
-  const pad = (value) => String(value).padStart(2, '0')
-  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`
-}
-
-function downloadExcel(filename, columns, rows) {
-  const headerHtml = columns.map((column) => `<th>${excelCell(column.title)}</th>`).join('')
-  const bodyHtml = rows.map((row) => `<tr>${columns.map((column) => `<td>${excelCell(row[column.key])}</td>`).join('')}</tr>`).join('')
-  const html = `<!doctype html><html><head><meta charset="utf-8"><style>table{border-collapse:collapse}th,td{border:1px solid #999;padding:6px 8px;mso-number-format:"\\@"}th{background:#eef3f8;font-weight:700}</style></head><body><table><thead><tr>${headerHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></body></html>`
-  const blob = new Blob([`\ufeff${html}`], { type: 'application/vnd.ms-excel;charset=utf-8' })
-  const link = document.createElement('a')
-  link.href = URL.createObjectURL(blob)
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  URL.revokeObjectURL(link.href)
-  document.body.removeChild(link)
-}
-
-async function exportDatacentersExcel() {
-  if (!zenlayerDatacenters.value.length) await loadZenlayerOptions()
-  const rows = zenlayerDatacenters.value.slice(0, 500).map((item) => ({
-    region: [item.areaName, item.countryName || item.raw?.countryName || item.raw?.country || item.raw?.countryCode, item.cityName].filter(Boolean).join(' / '),
-    dcName: item.dcName || item.label || item.dcId,
-    dcAddress: item.raw?.dcAddress || item.address || item.raw?.address || item.raw?.siteAddress || item.raw?.location || '',
-  }))
-  downloadExcel(`供应商比价_POP点_${dateStamp()}.xls`, [
-    { title: '地区', key: 'region' },
-    { title: '机房', key: 'dcName' },
-    { title: '地址', key: 'dcAddress' },
-  ], rows)
-  message.success(`已导出 ${rows.length} 条 POP 信息`)
-}
-
 const ResultPanel = defineComponent({
   name: 'ResultPanel',
   props: {
@@ -835,6 +787,19 @@ onMounted(loadAllOptions)
 .pricing-page {
   display: grid;
   gap: 18px;
+  padding-bottom: 8px;
+}
+
+:deep(.common-page-card) {
+  flex: none;
+  overflow: visible;
+}
+
+:deep(.common-page-card > .n-card__content) {
+  display: block;
+  min-height: auto;
+  overflow: visible;
+  padding-bottom: 24px;
 }
 
 .pricing-hero,
