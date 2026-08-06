@@ -54,7 +54,7 @@
         </n-infinite-scroll>
       </n-card>
 
-      <n-modal v-model:show="sendModalVisible" preset="card" title="发送通知" style="width: 600px">
+      <n-modal v-model:show="sendModalVisible" preset="card" title="发送通知" style="width: min(600px, calc(100vw - 32px))">
         <n-transfer
           v-model:value="sendSelectedUsers"
           :options="userOptions"
@@ -75,7 +75,7 @@
         </template>
       </n-modal>
 
-      <n-modal v-model:show="replyModalVisible" preset="card" title="回复工单" style="width: 560px">
+      <n-modal v-model:show="replyModalVisible" preset="card" title="回复工单" style="width: min(560px, calc(100vw - 32px))">
         <n-input
           v-model:value="replyContent"
           type="textarea"
@@ -84,15 +84,18 @@
         />
         <template #footer>
           <div class="reply-modal-footer">
-            <n-button @click="handleCancelReply">取消</n-button>
-            <n-button type="primary" :loading="replySubmitting" @click="handleConfirmReply">
-              发送回复
-            </n-button>
+            <CButton
+              show-cancel
+              show-send
+              :send-loading="replySubmitting"
+              @cancel="handleCancelReply"
+              @send="handleConfirmReply"
+            />
           </div>
         </template>
       </n-modal>
 
-      <n-modal v-model:show="completionModalVisible" preset="card" title="完成备注" style="width: 560px">
+      <n-modal v-model:show="completionModalVisible" preset="card" title="完成备注" style="width: min(560px, calc(100vw - 32px))">
         <n-input
           v-model:value="completionNote"
           type="textarea"
@@ -101,10 +104,14 @@
         />
         <template #footer>
           <div class="reply-modal-footer">
-            <n-button @click="handleCancelCompletion">取消</n-button>
-            <n-button type="primary" :loading="completionSubmitting" @click="handleConfirmCompletion">
-              确认完成
-            </n-button>
+            <CButton
+              show-cancel
+              show-save
+              save-text="确认完成"
+              :save-loading="completionSubmitting"
+              @cancel="handleCancelCompletion"
+              @save="handleConfirmCompletion"
+            />
           </div>
         </template>
       </n-modal>

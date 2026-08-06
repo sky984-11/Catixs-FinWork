@@ -477,7 +477,7 @@ const columns = [
 }
 
 .task-log-modal {
-  width: min(1100px, 94vw);
+  width: min(1100px, calc(100vw - 32px));
 }
 
 .log-detail {

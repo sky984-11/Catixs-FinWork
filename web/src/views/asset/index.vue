@@ -540,10 +540,14 @@
         </n-form>
         <template #footer>
           <div class="modal-footer">
-            <n-button round @click="saleModal.show = false">取消</n-button>
-            <n-button type="primary" round :loading="saleModal.submitting" @click="submitInventorySale">
-              确认售卖
-            </n-button>
+            <CButton
+              show-cancel
+              show-save
+              save-text="确认售卖"
+              :save-loading="saleModal.submitting"
+              @cancel="saleModal.show = false"
+              @save="submitInventorySale"
+            />
           </div>
         </template>
       </n-modal>
@@ -804,14 +808,13 @@
         </div>
         <template #footer>
           <div class="modal-footer">
-            <n-button round @click="deviceDetailModal.show = false">关闭</n-button>
-            <n-button
-              v-if="hasAssetPermission('device', 'update')"
-              type="primary"
-              round
-              @click="openDeviceModal(deviceDetailModal.row)"
-              >编辑</n-button
-            >
+            <CButton
+              show-cancel
+              :show-edit="hasAssetPermission('device', 'update')"
+              cancel-text="关闭"
+              @cancel="deviceDetailModal.show = false"
+              @edit="openDeviceModal(deviceDetailModal.row)"
+            />
           </div>
         </template>
       </n-modal>
@@ -881,14 +884,11 @@
         </n-form>
         <template #footer>
           <div class="modal-footer">
-            <n-button
+            <CButton
               v-if="simpleModal.form.id && canDeleteSimple"
-              type="error"
-              ghost
-              round
-              @click="deleteSimple"
-              >删除</n-button
-            >
+              show-delete
+              @delete="deleteSimple"
+            />
             <span></span>
             <CButton
               show-cancel
@@ -4120,11 +4120,11 @@ onMounted(refreshAll)
 }
 
 .asset-modal {
-  width: min(880px, 92vw);
+  width: min(880px, calc(100vw - 32px));
 }
 
 .simple-modal {
-  width: min(520px, 92vw);
+  width: min(520px, calc(100vw - 32px));
 }
 
 .category-editor {

@@ -169,8 +169,14 @@
         </main>
       </section>
 
-      <n-drawer v-model:show="deviceDrawer.show" :width="deviceDrawerWidth">
-        <n-drawer-content :title="deviceDrawer.row?.name || '设备详情'" closable>
+      <n-modal
+        v-model:show="deviceDrawer.show"
+        preset="card"
+        :title="deviceDrawer.row?.name || '设备详情'"
+        :style="{ width: deviceDrawerWidth }"
+        :bordered="false"
+        class="device-detail-modal"
+      >
           <template v-if="deviceDrawer.row">
             <n-descriptions bordered :column="1" label-placement="left" size="small">
               <n-descriptions-item label="设备类型">{{ getDeviceType(deviceDrawer.row.type) }}</n-descriptions-item>
@@ -344,13 +350,12 @@
               </div>
             </div>
           </template>
-        </n-drawer-content>
-      </n-drawer>
+      </n-modal>
 
       <n-modal
         v-model:show="vncModal.show"
         class="device-vnc-modal"
-        style="width: min(1180px, 94vw)"
+        style="width: min(1180px, calc(100vw - 32px))"
         @after-leave="resetDeviceVnc"
       >
         <div class="device-vnc-shell">
@@ -367,7 +372,7 @@
         </div>
       </n-modal>
 
-      <n-modal v-model:show="cabinetModal.show" preset="dialog" :title="cabinetModalTitle" style="width: 760px">
+      <n-modal v-model:show="cabinetModal.show" preset="dialog" :title="cabinetModalTitle" style="width: min(760px, calc(100vw - 32px))">
         <n-form label-placement="top">
           <n-form-item label="机房位置" required>
             <n-select
@@ -427,12 +432,17 @@
           </n-form-item>
         </n-form>
         <template #action>
-          <n-button @click="cabinetModal.show = false">取消</n-button>
-          <n-button type="primary" :loading="cabinetModal.submitting" @click="submitCabinet">保存</n-button>
+          <CButton
+            show-cancel
+            show-save
+            :save-loading="cabinetModal.submitting"
+            @cancel="cabinetModal.show = false"
+            @save="submitCabinet"
+          />
         </template>
       </n-modal>
 
-      <n-modal v-model:show="deviceModal.show" preset="dialog" :title="deviceModalTitle" style="width: 760px">
+      <n-modal v-model:show="deviceModal.show" preset="dialog" :title="deviceModalTitle" style="width: min(760px, calc(100vw - 32px))">
         <n-form label-placement="top">
           <n-grid :cols="2" :x-gap="12">
             <n-form-item-gi label="设备名称" required>
@@ -585,8 +595,13 @@
           </div>
         </n-form>
         <template #action>
-          <n-button @click="deviceModal.show = false">取消</n-button>
-          <n-button type="primary" :loading="deviceModal.submitting" @click="submitDevice">保存</n-button>
+          <CButton
+            show-cancel
+            show-save
+            :save-loading="deviceModal.submitting"
+            @cancel="deviceModal.show = false"
+            @save="submitDevice"
+          />
         </template>
       </n-modal>
 
@@ -600,6 +615,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useRoute, useRouter } from 'vue-router'
 import api from '@/api'
+import CButton from '@/components/public/CButton.vue'
 import { translateRegion } from '@/utils/location-i18n'
 import DeviceVncConsole from './DeviceVncConsole.vue'
 
@@ -888,7 +904,7 @@ const isFourNodeDrawerDevice = computed(() => isFourNodeAttributes(deviceDrawer.
 const fourNodeDetailNodes = computed(() =>
   isFourNodeDrawerDevice.value ? normalizeFourNodeList(deviceDrawer.row?.attributes?.nodes || []) : []
 )
-const deviceDrawerWidth = computed(() => (fourNodeDetailNodes.value.length ? 'min(920px, 92vw)' : 620))
+const deviceDrawerWidth = computed(() => (fourNodeDetailNodes.value.length ? 'min(920px, calc(100vw - 32px))' : 'min(620px, calc(100vw - 32px))'))
 
 function isFourNodeAttributes(attributes) {
   return attributes?.form_factor === 'four_node' || attributes?.设备形态 === '四节点服务器'
@@ -2193,6 +2209,11 @@ onBeforeUnmount(() => {
   background: transparent;
   padding: 0;
   box-shadow: none;
+}
+
+:deep(.device-detail-modal .n-card__content) {
+  max-height: min(72vh, 760px);
+  overflow: auto;
 }
 
 .device-vnc-shell {

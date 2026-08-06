@@ -2,12 +2,11 @@
 import { h, onMounted, ref, resolveDirective, withDirectives } from 'vue'
 import {
   NButton,
-  NDrawer,
-  NDrawerContent,
   NForm,
   NFormItem,
   NInput,
   NPopconfirm,
+  NModal,
   NSpace,
   NTag,
 } from 'naive-ui'
@@ -299,8 +298,13 @@ const columns = [
       </NForm>
     </CrudModal>
 
-    <NDrawer v-model:show="docsVisible" :width="720">
-      <NDrawerContent title="API文档" closable>
+    <NModal
+      v-model:show="docsVisible"
+      preset="card"
+      title="API文档"
+      class="api-doc-modal"
+      :bordered="false"
+    >
         <NSpace vertical size="large">
           <div class="api-doc-url">
             <span>{{ apiDocsUrl }}</span>
@@ -331,12 +335,20 @@ const columns = [
             </div>
           </div>
         </NSpace>
-      </NDrawerContent>
-    </NDrawer>
+    </NModal>
   </CommonPage>
 </template>
 
 <style scoped>
+.api-doc-modal {
+  width: min(760px, calc(100vw - 32px));
+}
+
+:deep(.api-doc-modal .n-card__content) {
+  max-height: min(72vh, 720px);
+  overflow: auto;
+}
+
 .api-doc-url {
   display: flex;
   align-items: center;

@@ -110,7 +110,7 @@
         </template>
       </n-result>
 
-      <n-modal v-model:show="replyModalVisible" preset="card" title="回复消息" style="width: 560px">
+      <n-modal v-model:show="replyModalVisible" preset="card" title="回复消息" style="width: min(560px, calc(100vw - 32px))">
         <div v-if="replyTarget" class="reply-target">
           回复 {{ replyTarget.userName }}：{{ replyTarget.content }}
         </div>
@@ -122,8 +122,13 @@
         />
         <template #footer>
           <div class="reply-modal-footer">
-            <n-button @click="closeReplyModal">取消</n-button>
-            <n-button type="primary" :loading="replySubmitting" @click="submitReply">发送回复</n-button>
+            <CButton
+              show-cancel
+              show-send
+              :send-loading="replySubmitting"
+              @cancel="closeReplyModal"
+              @send="submitReply"
+            />
           </div>
         </template>
       </n-modal>
@@ -137,6 +142,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
 import api from '@/api'
 import { useUserStore } from '@/store'
+import CButton from '@/components/public/CButton.vue'
 
 defineOptions({ name: 'TicketDetail' })
 

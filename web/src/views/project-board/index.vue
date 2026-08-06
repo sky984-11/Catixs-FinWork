@@ -4,8 +4,6 @@ import {
   NButton,
   NCheckbox,
   NDatePicker,
-  NDrawer,
-  NDrawerContent,
   NDropdown,
   NEmpty,
   NForm,
@@ -31,6 +29,7 @@ import {
 import CommonPage from '@/components/page/CommonPage.vue'
 import CrudModal from '@/components/table/CrudModal.vue'
 import TheIcon from '@/components/icon/TheIcon.vue'
+import CButton from '@/components/public/CButton.vue'
 import api from '@/api'
 import { useUserStore } from '@/store'
 import { useRoute, useRouter } from 'vue-router'
@@ -1227,8 +1226,13 @@ onMounted(async () => {
       </section>
     </div>
 
-    <NDrawer v-model:show="detailVisible" :width="900" placement="right">
-      <NDrawerContent :title="detailProject?.name || '项目详情'" closable>
+    <NModal
+      v-model:show="detailVisible"
+      preset="card"
+      :title="detailProject?.name || '项目详情'"
+      class="project-detail-modal"
+      :bordered="false"
+    >
         <template #header-extra>
           <NButton v-if="detailProject" secondary round size="small" @click="openEdit(detailProject)">
             <template #icon><TheIcon icon="material-symbols:edit" :size="16" /></template>
@@ -1555,8 +1559,7 @@ onMounted(async () => {
             </NTabPane>
           </NTabs>
         </div>
-      </NDrawerContent>
-    </NDrawer>
+    </NModal>
 
     <NDropdown
       placement="bottom-start"
@@ -1614,8 +1617,13 @@ onMounted(async () => {
       </NForm>
       <template #footer>
         <NSpace justify="end">
-          <NButton @click="taskEditVisible = false">取消</NButton>
-          <NButton type="primary" :loading="taskEditLoading" @click="submitTaskEdit">保存</NButton>
+          <CButton
+            show-cancel
+            show-save
+            :save-loading="taskEditLoading"
+            @cancel="taskEditVisible = false"
+            @save="submitTaskEdit"
+          />
         </NSpace>
       </template>
     </NModal>
@@ -1641,8 +1649,13 @@ onMounted(async () => {
       />
       <template #footer>
         <NSpace justify="end">
-          <NButton @click="shareVisible = false">取消</NButton>
-          <NButton type="primary" :loading="shareLoading" @click="submitShare">保存</NButton>
+          <CButton
+            show-cancel
+            show-save
+            :save-loading="shareLoading"
+            @cancel="shareVisible = false"
+            @save="submitShare"
+          />
         </NSpace>
       </template>
     </NModal>
@@ -1749,6 +1762,15 @@ onMounted(async () => {
 
 .task-edit-modal {
   width: min(640px, calc(100vw - 32px));
+}
+
+.project-detail-modal {
+  width: min(960px, calc(100vw - 32px));
+}
+
+:deep(.project-detail-modal .n-card__content) {
+  max-height: min(76vh, 820px);
+  overflow: auto;
 }
 
 .summary-strip {

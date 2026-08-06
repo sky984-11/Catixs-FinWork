@@ -326,14 +326,24 @@
         <template #footer>
           <div class="modal-footer">
             <span>{{ createModal.created ? '虚拟机已在目标 PVE 节点创建完成，请刷新列表查看。' : '创建时会通过 SSH 在目标节点执行 /root/create-vm.sh。' }}</span>
-            <n-space v-if="!createModal.created">
-              <n-button @click="createModal.show = false">取消</n-button>
-              <n-button type="primary" :loading="createModal.submitting" @click="submitCreateVm">创建</n-button>
-            </n-space>
-            <n-space v-else>
-              <n-button @click="createModal.show = false">关闭</n-button>
-              <n-button type="primary" @click="resetCreateModalForNext">继续创建</n-button>
-            </n-space>
+            <CButton
+              v-if="!createModal.created"
+              show-cancel
+              show-save
+              save-text="创建"
+              :save-loading="createModal.submitting"
+              @cancel="createModal.show = false"
+              @save="submitCreateVm"
+            />
+            <CButton
+              v-else
+              show-cancel
+              show-save
+              cancel-text="关闭"
+              save-text="继续创建"
+              @cancel="createModal.show = false"
+              @save="resetCreateModalForNext"
+            />
           </div>
         </template>
       </n-modal>
@@ -438,17 +448,31 @@
           <div class="modal-footer">
             <span>{{ addNodeFooterText }}</span>
             <n-space>
-              <n-button v-if="addNodeModal.step === 1" @click="addNodeModal.show = false">取消</n-button>
-              <n-button v-else @click="addNodeModal.step -= 1">返回</n-button>
-              <n-button
+              <CButton
+                v-if="addNodeModal.step === 1"
+                show-cancel
+                @cancel="addNodeModal.show = false"
+              />
+              <CButton
+                v-else
+                show-cancel
+                cancel-text="返回"
+                @cancel="addNodeModal.step -= 1"
+              />
+              <CButton
                 v-if="addNodeModal.step < 3"
-                type="primary"
-                :loading="addNodeModal.probing"
-                @click="nextAddNodeStep"
-              >
-                下一步
-              </n-button>
-              <n-button v-else type="primary" :loading="addNodeModal.submitting" @click="submitAddNode">添加</n-button>
+                show-save
+                save-text="下一步"
+                :save-loading="addNodeModal.probing"
+                @save="nextAddNodeStep"
+              />
+              <CButton
+                v-else
+                show-save
+                save-text="添加"
+                :save-loading="addNodeModal.submitting"
+                @save="submitAddNode"
+              />
             </n-space>
           </div>
         </template>
@@ -479,10 +503,14 @@
         <template #footer>
           <div class="modal-footer">
             <span>更新 PDM Remote 节点地址，并同步写入对应 PVE 节点备注。</span>
-            <n-space>
-              <n-button @click="editNodeModal.show = false">取消</n-button>
-              <n-button type="primary" :loading="editNodeModal.submitting" @click="submitEditNode">更新</n-button>
-            </n-space>
+            <CButton
+              show-cancel
+              show-save
+              save-text="更新"
+              :save-loading="editNodeModal.submitting"
+              @cancel="editNodeModal.show = false"
+              @save="submitEditNode"
+            />
           </div>
         </template>
       </n-modal>
@@ -545,10 +573,14 @@
         <template #footer>
           <div class="modal-footer">
             <span>存储和网络映射会按 PDM 文档的 FROM:TO 格式自动生成。</span>
-            <n-space>
-              <n-button @click="migrationModal.show = false">取消</n-button>
-              <n-button type="primary" :loading="migrationModal.submitting" @click="submitMigration">迁移</n-button>
-            </n-space>
+            <CButton
+              show-cancel
+              show-save
+              save-text="迁移"
+              :save-loading="migrationModal.submitting"
+              @cancel="migrationModal.show = false"
+              @save="submitMigration"
+            />
           </div>
         </template>
       </n-modal>
@@ -591,9 +623,9 @@
           <div class="modal-footer">
             <span>{{ taskFinished ? '任务已结束，可以关闭此提示。' : '正在迁移中，请不要重复提交迁移。' }}</span>
             <n-space>
-              <n-button :loading="taskModal.loading" @click="fetchTaskStatus({ silent: false })">刷新状态</n-button>
-              <n-button v-if="!taskFinished" @click="taskModal.show = false">最小化</n-button>
-              <n-button type="primary" @click="closeTaskModal">关闭</n-button>
+              <n-button round secondary :loading="taskModal.loading" @click="fetchTaskStatus({ silent: false })">刷新状态</n-button>
+              <n-button v-if="!taskFinished" round secondary @click="taskModal.show = false">最小化</n-button>
+              <CButton show-cancel cancel-text="关闭" @cancel="closeTaskModal" />
             </n-space>
           </div>
         </template>
@@ -634,6 +666,7 @@ import { useRouter } from 'vue-router'
 import { NButton, NSpace, NTag, useDialog, useMessage } from 'naive-ui'
 import api from '@/api'
 import TheIcon from '@/components/icon/TheIcon.vue'
+import CButton from '@/components/public/CButton.vue'
 import NoVncConsole from './NoVncConsole.vue'
 
 const message = useMessage()

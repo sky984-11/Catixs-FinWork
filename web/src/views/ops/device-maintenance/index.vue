@@ -149,10 +149,13 @@
           </n-form-item>
           <div class="modal-footer">
             <n-checkbox v-model:checked="taskEditor.form.notify">创建后立即发送飞书通知</n-checkbox>
-            <n-space>
-              <n-button @click="taskEditor.show = false">取消</n-button>
-              <n-button type="primary" :loading="saving" @click="submitTask">保存</n-button>
-            </n-space>
+            <CButton
+              show-cancel
+              show-save
+              :save-loading="saving"
+              @cancel="taskEditor.show = false"
+              @save="submitTask"
+            />
           </div>
         </n-form>
       </n-modal>
@@ -165,6 +168,7 @@ import { computed, h, onMounted, reactive, ref } from 'vue'
 import { NButton, NSpace, NTag, useMessage } from 'naive-ui'
 import { useRouter } from 'vue-router'
 import api from '@/api'
+import CButton from '@/components/public/CButton.vue'
 
 const message = useMessage()
 const router = useRouter()

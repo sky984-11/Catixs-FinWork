@@ -121,7 +121,8 @@
         v-model:show="regionEditor.show"
         preset="card"
         :title="regionEditor.form.id ? '编辑国家/城市' : '新增国家/城市'"
-        class="editor-modal"
+        class="editor-modal region-editor-modal"
+        style="width: min(460px, calc(100vw - 32px))"
         :bordered="false"
       >
         <n-form label-placement="top" :model="regionEditor.form">
@@ -145,8 +146,13 @@
         </n-form>
         <template #footer>
           <n-space justify="end">
-            <n-button @click="regionEditor.show = false">取消</n-button>
-            <n-button type="primary" :loading="regionEditor.submitting" @click="submitRegion">保存</n-button>
+            <CButton
+              show-cancel
+              show-save
+              :save-loading="regionEditor.submitting"
+              @cancel="regionEditor.show = false"
+              @save="submitRegion"
+            />
           </n-space>
         </template>
       </n-modal>
@@ -155,7 +161,8 @@
         v-model:show="locationEditor.show"
         preset="card"
         :title="locationEditor.form.id ? '编辑机房' : '新增机房'"
-        class="editor-modal"
+        class="editor-modal location-editor-modal"
+        style="width: min(520px, calc(100vw - 32px))"
         :bordered="false"
       >
         <n-form label-placement="top" :model="locationEditor.form">
@@ -187,8 +194,13 @@
         </n-form>
         <template #footer>
           <n-space justify="end">
-            <n-button @click="locationEditor.show = false">取消</n-button>
-            <n-button type="primary" :loading="locationEditor.submitting" @click="submitLocation">保存</n-button>
+            <CButton
+              show-cancel
+              show-save
+              :save-loading="locationEditor.submitting"
+              @cancel="locationEditor.show = false"
+              @save="submitLocation"
+            />
           </n-space>
         </template>
       </n-modal>
@@ -264,8 +276,13 @@
         </n-form>
         <template #footer>
           <n-space justify="end">
-            <n-button @click="cabinetEditor.show = false">取消</n-button>
-            <n-button type="primary" :loading="cabinetEditor.submitting" @click="submitCabinet">保存</n-button>
+            <CButton
+              show-cancel
+              show-save
+              :save-loading="cabinetEditor.submitting"
+              @cancel="cabinetEditor.show = false"
+              @save="submitCabinet"
+            />
           </n-space>
         </template>
       </n-modal>
@@ -277,6 +294,7 @@
 import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import { NButton, NPopconfirm, NSpace, NTag, useMessage } from 'naive-ui'
 import api from '@/api'
+import CButton from '@/components/public/CButton.vue'
 import { translateCity, translateCountry, translateRegion } from '@/utils/location-i18n'
 
 const message = useMessage()

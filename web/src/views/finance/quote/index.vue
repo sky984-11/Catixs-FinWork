@@ -22,6 +22,7 @@ import {
 
 import CommonPage from '@/components/page/CommonPage.vue'
 import TheIcon from '@/components/icon/TheIcon.vue'
+import CButton from '@/components/public/CButton.vue'
 import api from '@/api'
 import { renderIcon } from '@/utils'
 import { translateRegion } from '@/utils/location-i18n'
@@ -1249,8 +1250,13 @@ onMounted(() => {
       </NForm>
       <template #footer>
         <NSpace justify="end">
-          <NButton @click="quoteModal.show = false">取消</NButton>
-          <NButton type="primary" :loading="quoteModal.submitting" @click="submitQuote">保存</NButton>
+          <CButton
+            show-cancel
+            show-save
+            :save-loading="quoteModal.submitting"
+            @cancel="quoteModal.show = false"
+            @save="submitQuote"
+          />
         </NSpace>
       </template>
     </NModal>
@@ -1481,7 +1487,7 @@ onMounted(() => {
 }
 
 .quote-modal {
-  width: min(980px, 94vw);
+  width: min(980px, calc(100vw - 32px));
 }
 
 .full-input {

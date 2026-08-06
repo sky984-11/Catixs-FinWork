@@ -239,8 +239,14 @@
         </n-form>
         <template #footer>
           <div class="modal-actions compact-modal-actions">
-            <n-button round size="small" @click="remoteEditor.show = false">取消</n-button>
-            <n-button type="primary" round size="small" :loading="remoteEditor.saving" @click="saveRemoteHands">保存</n-button>
+            <CButton
+              show-cancel
+              show-save
+              size="small"
+              :save-loading="remoteEditor.saving"
+              @cancel="remoteEditor.show = false"
+              @save="saveRemoteHands"
+            />
           </div>
         </template>
       </n-modal>
@@ -320,8 +326,14 @@
         </n-form>
         <template #footer>
           <div class="modal-actions compact-modal-actions">
-            <n-button round size="small" @click="planEditor.show = false">取消</n-button>
-            <n-button type="primary" round size="small" :loading="planEditor.saving" @click="savePlan">保存</n-button>
+            <CButton
+              show-cancel
+              show-save
+              size="small"
+              :save-loading="planEditor.saving"
+              @cancel="planEditor.show = false"
+              @save="savePlan"
+            />
           </div>
         </template>
       </n-modal>
@@ -371,8 +383,15 @@
         </n-form>
         <template #footer>
           <div class="modal-actions compact-modal-actions">
-            <n-button round size="small" @click="completeEditor.show = false">取消</n-button>
-            <n-button type="primary" round size="small" :loading="completeEditor.saving" @click="submitCompletePlan">完成</n-button>
+            <CButton
+              show-cancel
+              show-save
+              size="small"
+              save-text="完成"
+              :save-loading="completeEditor.saving"
+              @cancel="completeEditor.show = false"
+              @save="submitCompletePlan"
+            />
           </div>
         </template>
       </n-modal>
@@ -411,7 +430,14 @@
               />
             </n-form-item>
             <n-form-item label="状态">
-              <n-select v-model:value="engineerEditor.form.is_active" :options="engineerStatusOptions" />
+              <n-switch
+                v-model:value="engineerEditor.form.is_active"
+                :checked-value="1"
+                :unchecked-value="0"
+              >
+                <template #checked>启用</template>
+                <template #unchecked>停用</template>
+              </n-switch>
             </n-form-item>
           </div>
           <n-form-item label="备注">
@@ -425,8 +451,14 @@
         </n-form>
         <template #footer>
           <div class="modal-actions engineer-modal-actions">
-            <n-button round size="small" @click="engineerEditor.show = false">取消</n-button>
-            <n-button type="primary" round size="small" :loading="engineerEditor.saving" @click="saveEngineer">保存</n-button>
+            <CButton
+              show-cancel
+              show-save
+              size="small"
+              :save-loading="engineerEditor.saving"
+              @cancel="engineerEditor.show = false"
+              @save="saveEngineer"
+            />
           </div>
         </template>
       </n-modal>
@@ -438,6 +470,7 @@
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import { NButton, NPopconfirm, NSpace, NSelect, NTag, NTooltip, useMessage } from 'naive-ui'
 import api from '@/api'
+import CButton from '@/components/public/CButton.vue'
 import { translateCity, translateCountry, translateLocationPath } from '@/utils/location-i18n'
 
 const message = useMessage()
@@ -541,11 +574,6 @@ const settlementOptions = [
   { label: '未计费', value: 'unbilled' },
   { label: '已计费', value: 'billed' },
   { label: '已结算', value: 'settled' },
-]
-
-const engineerStatusOptions = [
-  { label: '启用', value: 1 },
-  { label: '停用', value: 0 },
 ]
 
 const planStatusOptions = [

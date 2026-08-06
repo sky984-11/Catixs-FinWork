@@ -8,8 +8,7 @@ import {
   NPopconfirm,
   NTag,
   NTree,
-  NDrawer,
-  NDrawerContent,
+  NModal,
   NTabs,
   NTabPane,
   NGrid,
@@ -324,8 +323,13 @@ async function updateRoleAuthorized() {
       </NForm>
     </CrudModal>
 
-    <NDrawer v-model:show="active" placement="right" :width="500"
-      ><NDrawerContent>
+    <NModal
+      v-model:show="active"
+      preset="card"
+      title="设置权限"
+      class="permission-modal"
+      :bordered="false"
+    >
         <NGrid x-gap="24" cols="12">
           <NGi span="8">
             <NInput
@@ -379,8 +383,17 @@ async function updateRoleAuthorized() {
             />
           </NTabPane>
         </NTabs>
-        <template #header> 设置权限 </template>
-      </NDrawerContent>
-    </NDrawer>
+    </NModal>
   </CommonPage>
 </template>
+
+<style scoped>
+.permission-modal {
+  width: min(640px, calc(100vw - 32px));
+}
+
+:deep(.permission-modal .n-card__content) {
+  max-height: min(72vh, 720px);
+  overflow: auto;
+}
+</style>

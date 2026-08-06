@@ -3,7 +3,7 @@
     :show="visible"
     preset="card"
     title="创建工单"
-    style="width: 600px"
+    style="width: min(600px, calc(100vw - 32px))"
     @update:show="$emit('update:visible', $event)"
   >
     <n-form
@@ -76,8 +76,13 @@
     </n-form>
     <template #footer>
       <n-space justify="end">
-        <n-button @click="$emit('update:visible', false)">取消</n-button>
-        <n-button type="primary" @click="handleSubmit">提交</n-button>
+        <CButton
+          show-cancel
+          show-save
+          save-text="提交"
+          @cancel="$emit('update:visible', false)"
+          @save="handleSubmit"
+        />
       </n-space>
     </template>
   </n-modal>
@@ -87,6 +92,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { Icon } from '@iconify/vue'
 import TicketDescriptionInput from './TicketDescriptionInput.vue'
+import CButton from '@/components/public/CButton.vue'
 import { cleanupTicketDescriptionForSubmit } from '../utils/ticketDescriptionTemplates'
 
 const emit = defineEmits(['update:visible', 'submit'])

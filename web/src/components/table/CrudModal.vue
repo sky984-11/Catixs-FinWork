@@ -1,7 +1,7 @@
 <template>
   <n-modal
     v-model:show="show"
-    :style="{ width }"
+    :style="{ width: modalWidth }"
     preset="card"
     :title="title"
     size="huge"
@@ -12,8 +12,13 @@
     <template v-if="showFooter" #footer>
       <footer flex justify-end>
         <slot name="footer">
-          <n-button @click="show = false">取消</n-button>
-          <n-button :loading="loading" ml-20 type="primary" @click="emit('save')">保存</n-button>
+          <CButton
+            show-cancel
+            show-save
+            :save-loading="loading"
+            @cancel="show = false"
+            @save="emit('save')"
+          />
         </slot>
       </footer>
     </template>
@@ -21,6 +26,8 @@
 </template>
 
 <script setup>
+import CButton from '@/components/public/CButton.vue'
+
 const props = defineProps({
   width: {
     type: String,
@@ -45,6 +52,12 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:visible', 'onSave'])
+const modalWidth = computed(() => {
+  const value = String(props.width || '').trim()
+  if (!value) return 'min(600px, calc(100vw - 32px))'
+  if (value.startsWith('min(') || value.startsWith('clamp(')) return value
+  return `min(${value}, calc(100vw - 32px))`
+})
 const show = computed({
   get() {
     return props.visible

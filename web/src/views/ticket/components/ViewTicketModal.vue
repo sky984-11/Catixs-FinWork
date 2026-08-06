@@ -1,5 +1,5 @@
 <template>
-  <n-modal :show="visible" preset="card" title="工单详情" style="width: 720px" @update:show="$emit('update:visible', $event)">
+  <n-modal :show="visible" preset="card" title="工单详情" style="width: min(720px, calc(100vw - 32px))" @update:show="$emit('update:visible', $event)">
     <div v-if="ticket" class="detail-container" :class="{ 'theme-dark': isDark }">
       <!-- 基本信息卡片 -->
       <div class="info-card">

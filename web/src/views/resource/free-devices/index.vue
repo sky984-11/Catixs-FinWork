@@ -109,8 +109,13 @@
       </n-form>
       <template #footer>
         <n-space justify="end">
-          <n-button @click="sellModal.show = false">取消</n-button>
-          <n-button type="primary" :loading="sellModal.submitting" @click="submitSellDevice">保存</n-button>
+          <CButton
+            show-cancel
+            show-save
+            :save-loading="sellModal.submitting"
+            @cancel="sellModal.show = false"
+            @save="submitSellDevice"
+          />
         </n-space>
       </template>
     </n-modal>
@@ -122,6 +127,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { NButton, NEmpty, NForm, NFormItem, NInput, NModal, NSpace, NSpin, NTag } from 'naive-ui'
 
 import CommonPage from '@/components/page/CommonPage.vue'
+import CButton from '@/components/public/CButton.vue'
 import api from '@/api'
 
 defineOptions({ name: 'ResourceFreeDevices' })

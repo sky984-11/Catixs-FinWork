@@ -23,6 +23,7 @@ import {
 
 import CommonPage from '@/components/page/CommonPage.vue'
 import TheIcon from '@/components/icon/TheIcon.vue'
+import CButton from '@/components/public/CButton.vue'
 import api from '@/api'
 import { renderIcon } from '@/utils'
 
@@ -596,8 +597,14 @@ onMounted(async () => {
       </NForm>
       <template #footer>
         <div class="modal-footer">
-          <NButton round @click="saleModal.show = false">取消</NButton>
-          <NButton type="primary" round :loading="saleModal.submitting" @click="submitSale">确认售卖</NButton>
+          <CButton
+            show-cancel
+            show-save
+            save-text="确认售卖"
+            :save-loading="saleModal.submitting"
+            @cancel="saleModal.show = false"
+            @save="submitSale"
+          />
         </div>
       </template>
     </NModal>
@@ -789,11 +796,11 @@ onMounted(async () => {
 }
 
 .sale-modal {
-  width: min(720px, 92vw);
+  width: min(720px, calc(100vw - 32px));
 }
 
 .table-modal {
-  width: min(1180px, 94vw);
+  width: min(1180px, calc(100vw - 32px));
 }
 
 .modal-footer {

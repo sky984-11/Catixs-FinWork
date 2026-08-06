@@ -407,7 +407,7 @@ onMounted(fetchDevices)
 }
 
 .raw-modal {
-  width: min(1100px, 92vw);
+  width: min(1100px, calc(100vw - 32px));
 }
 
 .raw-content {

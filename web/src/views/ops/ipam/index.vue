@@ -143,8 +143,13 @@
         </n-form>
         <template #footer>
           <div class="modal-actions">
-            <n-button round @click="ipEditModal.show = false">取消</n-button>
-            <n-button type="primary" round :loading="ipEditModal.saving" @click="saveIpAddress">保存</n-button>
+            <CButton
+              show-cancel
+              show-save
+              :save-loading="ipEditModal.saving"
+              @cancel="ipEditModal.show = false"
+              @save="saveIpAddress"
+            />
           </div>
         </template>
       </n-modal>
@@ -226,8 +231,13 @@
         </n-form>
         <template #footer>
           <div class="modal-actions">
-            <n-button round @click="prefixEditModal.show = false">取消</n-button>
-            <n-button type="primary" round :loading="prefixEditModal.saving" @click="savePrefix">保存</n-button>
+            <CButton
+              show-cancel
+              show-save
+              :save-loading="prefixEditModal.saving"
+              @cancel="prefixEditModal.show = false"
+              @save="savePrefix"
+            />
           </div>
         </template>
       </n-modal>
@@ -326,8 +336,13 @@
         </n-form>
         <template #footer>
           <div class="modal-actions">
-            <n-button round @click="createModal.show = false">取消</n-button>
-            <n-button type="primary" round :loading="createModal.saving" @click="saveCreate">保存</n-button>
+            <CButton
+              show-cancel
+              show-save
+              :save-loading="createModal.saving"
+              @cancel="createModal.show = false"
+              @save="saveCreate"
+            />
           </div>
         </template>
       </n-modal>
@@ -340,6 +355,7 @@ import { computed, h, onMounted, reactive, ref } from 'vue'
 import { NButton, NPopconfirm, NProgress, NSpace, NTag, useMessage } from 'naive-ui'
 import api from '@/api'
 import TheIcon from '@/components/icon/TheIcon.vue'
+import CButton from '@/components/public/CButton.vue'
 
 defineOptions({ name: 'OpsIpam' })
 
