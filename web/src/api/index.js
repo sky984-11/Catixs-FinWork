@@ -268,9 +268,10 @@ export default {
     nodeRealms: (params = {}) => request.get('/pve/nodes/realms', { params }),
     createOptions: (params = {}) => request.get('/pve/vms/create-options', { params }),
     createVm: (data = {}) => request.post('/pve/vms/create', data, { timeout: 300000 }),
-    migrationOptions: (params = {}) => request.get('/pve/vms/migration-options', { params }),
-    migrationTargetOptions: (params = {}) => request.get('/pve/vms/migration-target-options', { params }),
-    migrateVm: (data = {}) => request.post('/pve/vms/migrate', data),
+    migrationOptions: (params = {}) => request.get('/pve/vms/migration-options', { params, timeout: 60000 }),
+    migrationTargetOptions: (params = {}) =>
+      request.get('/pve/vms/migration-target-options', { params, timeout: 60000 }),
+    migrateVm: (data = {}) => request.post('/pve/vms/migrate', data, { timeout: 300000 }),
     deleteVm: (data = {}) => request.post('/pve/vms/delete', data),
     powerVm: (data = {}) => request.post('/pve/vms/power', data),
     vmConfig: (params = {}) => request.get('/pve/vms/config', { params }),

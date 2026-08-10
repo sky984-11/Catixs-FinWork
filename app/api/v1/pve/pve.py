@@ -859,9 +859,9 @@ async def cached_pdm_remote_resources(remote: str) -> list[dict[str, Any]]:
     return resources
 
 
-async def pdm_post(path: str, payload: dict[str, Any]) -> Any:
+async def pdm_post(path: str, payload: dict[str, Any], timeout: float | None = None) -> Any:
     headers = {"Authorization": pdm_auth_header(), "Accept": "application/json"}
-    async with httpx.AsyncClient(timeout=settings.PDM_TIMEOUT, verify=False, trust_env=False) as client:
+    async with httpx.AsyncClient(timeout=timeout or settings.PDM_TIMEOUT, verify=False, trust_env=False) as client:
         response = await client.post(pdm_api_url(path), json=payload, headers=headers)
         try:
             response.raise_for_status()
@@ -2278,7 +2278,11 @@ async def migrate_vm(payload: VMMigrateRequest):
         if payload.target_endpoint:
             request_payload["target-endpoint"] = payload.target_endpoint
 
-        task_id = await pdm_post(f"/pve/remotes/{payload.remote}/{kind}/{payload.vmid}/remote-migrate", request_payload)
+        task_id = await pdm_post(
+            f"/pve/remotes/{payload.remote}/{kind}/{payload.vmid}/remote-migrate",
+            request_payload,
+            timeout=120,
+        )
     except Exception as exc:
         return Fail(msg=f"读取 PDM 数据失败: {error_detail(exc)}")
 
