@@ -1,5 +1,6 @@
 <script setup>
 import { computed, h, nextTick, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   NButton,
   NDatePicker,
@@ -29,10 +30,13 @@ import { renderIcon } from '@/utils'
 defineOptions({ name: '账单管理' })
 
 const $table = ref(null)
+const router = useRouter()
 const modalFormRef = ref(null)
 const modalVisible = ref(false)
 const detailVisible = ref(false)
+const generationVisible = ref(false)
 const modalLoading = ref(false)
+const generationLoading = ref(false)
 const modalAction = ref('add')
 const pendingVoucherFile = ref(null)
 const detailBill = ref(null)
@@ -41,17 +45,21 @@ const companyList = ref([])
 const issuerCompanyList = ref([])
 const issuerBankAccounts = ref({})
 const tableRows = ref([])
+const generationResult = ref(null)
 const summary = ref({
   count: 0,
   by_currency: [],
+  by_status: [],
 })
 
 const queryItems = ref({
   company_id: null,
   bill_month: null,
+  status: null,
 })
 
 const modalForm = reactive(createEmptyForm())
+const generationForm = reactive(createGenerationForm())
 
 const modalTitle = computed(() => (modalAction.value === 'add' ? '新增账单' : '编辑账单'))
 const companyOptions = computed(() =>
@@ -87,6 +95,16 @@ const owners = [
   { name: '常康玮', id: 'CHALI' },
 ]
 const ownerOptions = owners.map((item) => ({ label: item.name, value: item.id }))
+
+const billStatusOptions = [
+  { label: '已开具', value: 'issued' },
+  { label: '待审批', value: 'pending_approval' },
+  { label: '待发送', value: 'pending_send' },
+  { label: '已发送', value: 'sent' },
+  { label: '已付款', value: 'paid' },
+  { label: '未付款', value: 'overdue' },
+]
+
 
 const rules = {
   company_id: [{ required: true, type: 'number', message: '请选择客户或供应商', trigger: 'change' }],
@@ -129,6 +147,17 @@ const columns = [
         { type: row.is_settled ? 'success' : 'warning', bordered: false, round: true },
         { default: () => (row.is_settled ? '已结清' : '未结清') }
       )
+    },
+  },
+  {
+    title: '状态',
+    key: 'status',
+    width: 96,
+    align: 'center',
+    sorter: true,
+    render(row) {
+      const option = billStatusOptions.find((item) => item.value === (row.status || 'issued'))
+      return h(NTag, { type: getBillStatusTag(row.status), bordered: false, round: true }, { default: () => option?.label || row.status || '-' })
     },
   },
   {
@@ -208,13 +237,14 @@ const columns = [
   {
     title: '操作',
     key: 'actions',
-    width: 116,
+    width: 210,
     fixed: 'right',
     align: 'center',
     render(row) {
       return h(NSpace, { class: 'row-actions', justify: 'center', size: 8, wrap: false }, () => [
         renderIconButton('详情', 'mdi:receipt-text-outline', { onClick: () => openDetail(row) }),
         renderIconButton('编辑', 'material-symbols:edit', { type: 'primary', onClick: () => openEdit(row) }),
+        ...renderWorkflowButtons(row),
         h(
           NPopconfirm,
           { onPositiveClick: () => handleDelete(row) },
@@ -251,7 +281,26 @@ function createEmptyForm() {
     owner: '',
     remark: '',
     bill_type: 1,
+    status: 'issued',
+    term: 'Net 30',
+    approval_comment: '',
+    local_currency: '',
+    fx_rate: null,
+    local_amount: null,
     items: [],
+  }
+}
+
+function createGenerationForm() {
+  return {
+    bill_month: getPreviousMonthFirstDay(),
+    company_id: null,
+    owner: 'KYRA',
+    term: 'Net 30',
+    due_days: 30,
+    local_currency: '',
+    fx_rate: null,
+    dry_run: false,
   }
 }
 
@@ -413,6 +462,12 @@ function normalizeBill(row) {
     total_amount: Number(row.total_amount || 0),
     paid_amount: Number(row.paid_amount || 0),
     unpaid_amount: Number(row.unpaid_amount || 0),
+    status: row.status || 'issued',
+    term: row.term || 'Net 30',
+    approval_comment: row.approval_comment || '',
+    local_currency: row.local_currency || '',
+    fx_rate: row.fx_rate == null ? null : Number(row.fx_rate),
+    local_amount: row.local_amount == null ? null : Number(row.local_amount),
     items: (row.items || []).map((item) => ({
       ...item,
       nrc_amount: Number(item.nrc_amount || 0),
@@ -456,7 +511,57 @@ function handleBillDataChange(rows, extra = {}) {
   summary.value = {
     count: Number(extra.summary?.count ?? extra.total ?? tableRows.value.length),
     by_currency: extra.summary?.by_currency || [],
+    by_status: extra.summary?.by_status || [],
   }
+}
+
+async function openGenerationModal() {
+  Object.assign(generationForm, createGenerationForm())
+  generationResult.value = null
+  generationVisible.value = true
+}
+
+async function generateBills(dryRun = false) {
+  generationLoading.value = true
+  try {
+    const payload = { ...generationForm, dry_run: dryRun }
+    const res = await api.generateBills(payload)
+    generationResult.value = res?.data || null
+    const created = generationResult.value?.created?.length || 0
+    const previews = generationResult.value?.previews?.length || 0
+    window.$message?.success?.(dryRun ? `已生成 ${previews} 条预览` : `已生成 ${created} 张账单`)
+    if (!dryRun) {
+      generationVisible.value = false
+      await $table.value?.handleSearch()
+    }
+  } finally {
+    generationLoading.value = false
+  }
+}
+
+async function updateBillWorkflow(row, action) {
+  const actionLabel = {
+    submit: '已提交审批',
+    approve: '审批通过',
+    send: '已标记发送',
+    mark_paid: '已标记付款',
+    mark_overdue: '已标记逾期',
+  }[action] || '状态已更新'
+  await api.updateBillStatus(row.id, { action })
+  window.$message?.success?.(actionLabel)
+  await $table.value?.handleSearch()
+}
+
+function renderWorkflowButtons(row) {
+  const status = row.status || 'issued'
+  const buttons = []
+  if (status === 'issued') buttons.push(renderIconButton('提交审批', 'mdi:clipboard-arrow-right-outline', { type: 'warning', onClick: () => updateBillWorkflow(row, 'submit') }))
+  if (status === 'pending_approval') buttons.push(renderIconButton('审批通过', 'mdi:check-decagram-outline', { type: 'success', onClick: () => updateBillWorkflow(row, 'approve') }))
+  if (status === 'pending_send') buttons.push(renderIconButton('发送客户', 'mdi:send-check-outline', { type: 'info', onClick: () => updateBillWorkflow(row, 'send') }))
+  if (['issued', 'pending_approval', 'pending_send', 'sent', 'overdue'].includes(status)) {
+    buttons.push(renderIconButton('标记付款', 'mdi:cash-check', { type: 'success', onClick: () => updateBillWorkflow(row, 'mark_paid') }))
+  }
+  return buttons
 }
 
 function handleCompanyChange(companyId) {
@@ -726,6 +831,17 @@ function renderMoneyCell(value, currency = 'USD', tone = '') {
   ])
 }
 
+function getBillStatusTag(status) {
+  return {
+    issued: 'default',
+    pending_approval: 'warning',
+    pending_send: 'info',
+    sent: 'success',
+    paid: 'success',
+    overdue: 'error',
+  }[status || 'issued'] || 'default'
+}
+
 function renderIconButton(label, icon, props = {}) {
   const { type, ...buttonProps } = props
   return h(
@@ -836,6 +952,14 @@ onMounted(async () => {
 <template>
   <CommonPage show-footer title="账单管理">
     <template #action>
+      <NButton secondary round @click="router.push('/billing-subscription')">
+        <TheIcon icon="mdi:database-cog-outline" :size="18" class="mr-5" />
+        产品订阅
+      </NButton>
+      <NButton secondary type="info" round @click="openGenerationModal">
+        <TheIcon icon="mdi:auto-fix" :size="18" class="mr-5" />
+        自动生成账单
+      </NButton>
       <NButton type="primary" round @click="openAdd">
         <TheIcon icon="material-symbols:add" :size="18" class="mr-5" />
         新增账单
@@ -895,7 +1019,7 @@ onMounted(async () => {
       v-model:query-items="queryItems"
       :columns="columns"
       :get-data="api.getBillList"
-      :scroll-x="1900"
+      :scroll-x="2050"
       @on-data-change="handleBillDataChange"
     >
       <template #queryBar>
@@ -916,8 +1040,54 @@ onMounted(async () => {
             clearable
           />
         </QueryBarItem>
+        <QueryBarItem label="状态" :label-width="50">
+          <NSelect v-model:value="queryItems.status" clearable :options="billStatusOptions" />
+        </QueryBarItem>
       </template>
     </CrudTable>
+
+    <NModal
+      v-model:show="generationVisible"
+      preset="card"
+      title="自动生成账单"
+      style="width: min(760px, calc(100vw - 40px))"
+      :bordered="false"
+    >
+      <NForm label-placement="left" label-width="96" :model="generationForm">
+        <NGrid :cols="2" :x-gap="16">
+          <NFormItemGi label="账单月份">
+            <NDatePicker v-model:formatted-value="generationForm.bill_month" type="month" value-format="yyyy-MM-dd" clearable />
+          </NFormItemGi>
+          <NFormItemGi label="客户">
+            <NSelect v-model:value="generationForm.company_id" clearable filterable :options="companyOptions" :render-label="renderCompanyOptionLabel" />
+          </NFormItemGi>
+          <NFormItemGi label="负责人">
+            <NSelect v-model:value="generationForm.owner" clearable :options="ownerOptions" />
+          </NFormItemGi>
+          <NFormItemGi label="账期">
+            <NInput v-model:value="generationForm.term" placeholder="Net 30" />
+          </NFormItemGi>
+          <NFormItemGi label="到期天数">
+            <NInputNumber v-model:value="generationForm.due_days" :min="0" />
+          </NFormItemGi>
+          <NFormItemGi label="汇率快照">
+            <NInputNumber v-model:value="generationForm.fx_rate" :min="0" :precision="6" placeholder="可选" />
+          </NFormItemGi>
+        </NGrid>
+      </NForm>
+      <div v-if="generationResult" class="generation-result">
+        <span>预览 {{ generationResult.previews?.length || 0 }} 张</span>
+        <span>已生成 {{ generationResult.created?.length || 0 }} 张</span>
+        <span>跳过 {{ generationResult.skipped?.length || 0 }} 条订阅</span>
+      </div>
+      <template #footer>
+        <NSpace justify="end">
+          <NButton @click="generationVisible = false">取消</NButton>
+          <NButton :loading="generationLoading" secondary type="info" @click="generateBills(true)">生成预览</NButton>
+          <NButton :loading="generationLoading" type="primary" @click="generateBills(false)">确认生成</NButton>
+        </NSpace>
+      </template>
+    </NModal>
 
     <CrudModal
       v-model:visible="modalVisible"
@@ -1230,6 +1400,20 @@ onMounted(async () => {
 
 .summary-card.total strong {
   color: #1d4ed8;
+}
+
+.generation-result {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  color: #475569;
+  font-size: 13px;
+}
+
+.generation-result span {
+  border-radius: 4px;
+  background: #f1f5f9;
+  padding: 4px 8px;
 }
 
 :deep(.muted) {

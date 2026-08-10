@@ -38,6 +38,14 @@ class BaseBill(BaseModel):
     owner: Optional[str] = None
     remark: Optional[str] = None
     bill_type: int = 1
+    status: str = "issued"
+    term: Optional[str] = None
+    approved_at: Optional[datetime] = None
+    sent_at: Optional[datetime] = None
+    approval_comment: Optional[str] = None
+    local_currency: Optional[str] = None
+    fx_rate: Optional[float] = None
+    local_amount: Optional[float] = None
     items: list[BillItemIn] = []
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -63,8 +71,78 @@ class BillCreate(BaseModel):
     owner: str = Field("", example="林凯恩")
     remark: str = Field("", example="")
     bill_type: int = Field(1, example=1)
+    status: str = Field("issued", example="issued")
+    term: str = Field("Net 30", example="Net 30")
+    approval_comment: str = Field("", example="")
+    local_currency: str = Field("", example="CNY")
+    fx_rate: Optional[float] = Field(None, example=7.215)
+    local_amount: Optional[float] = Field(None, example=66180.0)
     items: list[BillItemIn] = Field(default_factory=list)
 
 
 class BillUpdate(BillCreate):
     id: int = Field(..., example=1)
+
+
+class BillingTemplatePayload(BaseModel):
+    id: Optional[int] = None
+    name: str = Field("", example="SG1-DIA-10G")
+    product_code: str = Field("", example="10G")
+    service_type: str = Field("", example="DIA")
+    billing_rule: str = Field("monthly", example="monthly")
+    unit_price: float = Field(0, example=1600)
+    currency: str = Field("USD", example="USD")
+    unit: str = Field("", example="Gbps·月")
+    default_contract_months: int = Field(12, example=12)
+    status: bool = Field(True, example=True)
+    remark: str = Field("", example="")
+
+
+class BillingSubscriptionPayload(BaseModel):
+    id: Optional[int] = None
+    company_id: int = Field(..., example=1)
+    template_id: Optional[int] = Field(None, example=1)
+    product_code: str = Field("", example="10G")
+    service_type: str = Field("", example="DIA")
+    service_name: str = Field("", example="SG1-DIA-10G")
+    service_location: str = Field("", example="Equinix SG1")
+    billing_start_date: Optional[date] = Field(None, example="2025-10-01")
+    billing_end_date: Optional[date] = Field(None, example="2025-10-31")
+    contract_months: int = Field(12, example=12)
+    unit_price: float = Field(0, example=1600)
+    quantity: float = Field(1, example=1)
+    currency: str = Field("USD", example="USD")
+    unit: str = Field("", example="Gbps·月")
+    vat_rate: float = Field(0, example=0)
+    is_active: bool = Field(True, example=True)
+    last_billed_month: Optional[date] = Field(None, example="2025-09-01")
+    remark: str = Field("", example="")
+
+
+class BillGeneratePayload(BaseModel):
+    bill_month: Optional[date] = Field(None, example="2025-10-01")
+    company_id: Optional[int] = Field(None, example=1)
+    subscription_ids: list[int] = Field(default_factory=list)
+    owner: str = Field("", example="KYRA")
+    term: str = Field("Net 30", example="Net 30")
+    due_days: int = Field(30, example=30)
+    local_currency: str = Field("", example="CNY")
+    fx_rate: Optional[float] = Field(None, example=7.215)
+    dry_run: bool = Field(False, example=False)
+
+
+class BillStatusPayload(BaseModel):
+    action: str = Field(..., example="submit")
+    comment: str = Field("", example="")
+    operator: str = Field("", example="finance")
+
+
+class BillPaymentPayload(BaseModel):
+    payment_id: str = Field("", example="PAY202510001")
+    payment_date: Optional[date] = Field(None, example="2025-10-10")
+    amount: float = Field(..., example=9175)
+    currency: str = Field("USD", example="USD")
+    method: str = Field("", example="Wire Transfer")
+    fx_rate: Optional[float] = Field(None, example=7.215)
+    voucher_url: str = Field("", example="/uploads/bills/voucher.png")
+    remark: str = Field("", example="")

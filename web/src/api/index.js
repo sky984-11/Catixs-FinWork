@@ -123,6 +123,16 @@ export default {
   createBill: (data = {}) => request.post('/bill/create', data),
   updateBill: (data = {}) => request.post('/bill/update', data),
   deleteBill: (params = {}) => request.delete('/bill/delete', { params }),
+  billAutomationOptions: () => request.get('/bill/automation/options'),
+  generateBills: (data = {}) => request.post('/bill/generate', data),
+  updateBillStatus: (billId, data = {}) => request.post(`/bill/${billId}/status`, data),
+  createBillPayment: (billId, data = {}) => request.post(`/bill/${billId}/payments`, data),
+  getBillingTemplates: (params = {}) => request.get('/bill/templates', { params }),
+  saveBillingTemplate: (data = {}) => request.post('/bill/templates', data),
+  deleteBillingTemplate: (templateId) => request.delete(`/bill/templates/${templateId}`),
+  getBillingSubscriptions: (params = {}) => request.get('/bill/subscriptions', { params }),
+  saveBillingSubscription: (data = {}) => request.post('/bill/subscriptions', data),
+  deleteBillingSubscription: (subscriptionId) => request.delete(`/bill/subscriptions/${subscriptionId}`),
   uploadBillVoucher: (params = {}, file) => {
     const formData = new FormData()
     formData.append('file', file)

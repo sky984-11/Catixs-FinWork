@@ -1502,6 +1502,7 @@ async function openCreateModal() {
     message.warning('请先选择节点')
     return
   }
+  const createTarget = createNodeTarget(selectedNode.value)
 
   createModal.show = true
   createModal.created = false
@@ -1511,14 +1512,14 @@ async function openCreateModal() {
   createModal.osOptions = []
   createModal.form = {
     ...createEmptyVmForm(),
-    region: selectedNode.value.value,
+    region: createTarget,
   }
   const cached = createOptionsCache.get(createModal.form.region)
   if (cached?.data) {
     applyCreateOptions(cached.data)
   } else if (cached?.promise) {
     cached.promise.then((options) => {
-      if (createModal.show && createModal.form.region === selectedNode.value?.value && options) {
+      if (createModal.show && createModal.form.region === createNodeTarget(selectedNode.value) && options) {
         applyCreateOptions(options)
       }
     })
@@ -1526,7 +1527,7 @@ async function openCreateModal() {
     createModal.loading = true
     try {
       const options = await preloadCreateOptions(createModal.form.region, { silent: false })
-      if (createModal.show && createModal.form.region === selectedNode.value?.value && options) {
+      if (createModal.show && createModal.form.region === createNodeTarget(selectedNode.value) && options) {
         applyCreateOptions(options)
       }
     } catch (error) {
@@ -2187,6 +2188,11 @@ function nodeVmCountTagType(node) {
 function nodeAddress(node) {
   if (!node) return '-'
   return node.ip || node.address || node.host || node.endpoint || node.remote || node.label || '-'
+}
+
+function createNodeTarget(node) {
+  if (!node) return ''
+  return node.ip || node.address || node.host || node.endpoint || node.server || node.value || node.remote || ''
 }
 
 function nodeCacheKey(node) {

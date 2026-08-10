@@ -71,12 +71,175 @@ def remote_nodes(data: list[dict[str, Any]], remote: str) -> list[str]:
     return []
 
 
+def list_data(data: Any, keys: tuple[str, ...] = ("data", "items", "remotes", "resources", "nodes")) -> list[Any]:
+    if isinstance(data, list):
+        return data
+    if not isinstance(data, dict):
+        return []
+    for key in keys:
+        value = data.get(key)
+        if isinstance(value, list):
+            return value
+        if isinstance(value, dict):
+            return list_data(value)
+    return []
+
+
+def remote_id(remote: Any) -> str:
+    if isinstance(remote, str):
+        return remote
+    if not isinstance(remote, dict):
+        return ""
+    for key in ("remote", "id", "name"):
+        value = remote.get(key)
+        if value:
+            return str(value)
+    return ""
+
+
+def resource_group_id(group: dict[str, Any]) -> str:
+    for key in ("remote", "id", "name", "node"):
+        value = group.get(key)
+        if value:
+            return str(value)
+    return ""
+
+
+def canonical_resource_type(value: Any) -> str:
+    item_type = str(value or "")
+    type_map = {
+        "node": "pve-node",
+        "qemu": "pve-qemu",
+        "vm": "pve-qemu",
+        "lxc": "pve-lxc",
+        "storage": "pve-storage",
+        "network": "pve-network",
+    }
+    return type_map.get(item_type, item_type)
+
+
+def normalize_resource_groups(data: Any) -> list[dict[str, Any]]:
+    if isinstance(data, dict):
+        for key in ("data", "items", "remotes"):
+            if key in data:
+                return normalize_resource_groups(data[key])
+        if isinstance(data.get("resources"), list):
+            remote = resource_group_id(data)
+            return [{"remote": remote, "resources": data["resources"]}] if remote else []
+        return []
+
+    if not isinstance(data, list):
+        return []
+
+    if all(isinstance(item, dict) and isinstance(item.get("resources"), list) for item in data):
+        return [
+            {"remote": resource_group_id(item), "resources": item.get("resources") or []}
+            for item in data
+            if resource_group_id(item)
+        ]
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        remote = str(item.get("remote") or item.get("id") or item.get("node") or "")
+        if remote:
+            grouped.setdefault(remote, []).append(item)
+    return [{"remote": remote, "resources": resources} for remote, resources in grouped.items()]
+
+
+def parse_remote_node_entry(value: Any) -> dict[str, str]:
+    text = str(value or "").strip()
+    if not text:
+        return {"host": "", "fingerprint": ""}
+    parts = [part.strip() for part in text.split(",") if part.strip()]
+    host = parts[0] if parts else text
+    fingerprint = ""
+    for part in parts[1:]:
+        if part.startswith("fingerprint="):
+            fingerprint = part.split("=", 1)[1].strip()
+            break
+    return {"host": host, "fingerprint": fingerprint}
+
+
+def remote_config_address(remote: Any) -> str:
+    if not isinstance(remote, dict):
+        return ""
+    for key in ("node", "address", "ip", "host", "hostname", "endpoint", "server"):
+        value = remote.get(key)
+        if value:
+            return str(value)
+    nodes = remote.get("nodes")
+    if isinstance(nodes, list) and nodes:
+        return parse_remote_node_entry(nodes[0]).get("host", "")
+    return ""
+
+
+async def pdm_remote_configs() -> list[dict[str, Any]]:
+    for path in ("/remotes/remote", "/config/remotes", "/pve/remotes", "/remotes"):
+        try:
+            data = await pdm_get(path, timeout=3)
+        except Exception:
+            continue
+        configs = [item for item in list_data(data) if isinstance(item, dict)]
+        if configs:
+            return configs
+    return []
+
+
+def network_address_from_items(items: list[dict[str, Any]]) -> str:
+    candidates: list[tuple[int, str]] = []
+    for item in items:
+        if canonical_resource_type(item.get("type")) not in {"pve-network", "network"}:
+            continue
+        address = item.get("address")
+        if not address or not is_ip_address(str(address)):
+            continue
+        iface = str(item.get("iface") or item.get("name") or "")
+        priority = 0 if iface == "vmbr10" else 1
+        candidates.append((priority, strip_cidr(str(address))))
+    if not candidates:
+        return ""
+    candidates.sort(key=lambda item: item[0])
+    return candidates[0][1]
+
+
+async def resolve_remote_network_address(remote: str, node: str = "", resources: list[dict[str, Any]] | None = None) -> str:
+    address = "" if node else network_address_from_items(resources or [])
+    if address:
+        return address
+
+    nodes = [node] if node else remote_nodes([{"remote": remote, "resources": resources or []}], remote)
+    candidates: list[tuple[int, str]] = []
+    for node_name in nodes:
+        try:
+            networks = await pdm_get(f"/pve/remotes/{remote}/nodes/{node_name}/network", timeout=4)
+        except Exception:
+            continue
+        for network in list_data(networks):
+            if not isinstance(network, dict):
+                continue
+            if network.get("type") != "bridge" or not network.get("address"):
+                continue
+            address = str(network.get("address") or "")
+            if not is_ip_address(address):
+                continue
+            iface = str(network.get("iface") or "")
+            priority = 0 if iface == "vmbr10" else 1
+            candidates.append((priority, strip_cidr(address)))
+    if not candidates:
+        return ""
+    candidates.sort(key=lambda item: item[0])
+    return candidates[0][1]
+
+
 def strip_cidr(address: str) -> str:
     return address.split("/", 1)[0].strip()
 
 
 def is_ip_address(value: str) -> bool:
-    host = value.rsplit(":", 1)[0] if ":" in value and value.count(":") == 1 else value
+    host = strip_cidr(value)
+    host = host.rsplit(":", 1)[0] if ":" in host and host.count(":") == 1 else host
     try:
         ipaddress.ip_address(host)
     except ValueError:
@@ -85,33 +248,53 @@ def is_ip_address(value: str) -> bool:
 
 
 async def resolve_create_host(remote_or_host: str) -> str:
-    if not remote_or_host:
-        return remote_or_host
+    value = str(remote_or_host or "").strip()
+    if not value:
+        return value
 
-    if is_ip_address(remote_or_host):
-        return remote_or_host
+    if is_ip_address(value):
+        return strip_cidr(value)
 
     try:
-        data = await pdm_get("/resources/list", timeout=3)
-        candidates: list[tuple[int, str]] = []
-        for node in remote_nodes(data, remote_or_host):
-            try:
-                networks = await pdm_get(f"/pve/remotes/{remote_or_host}/nodes/{node}/network", timeout=4)
-            except Exception:
-                continue
-            for network in networks:
-                if network.get("type") != "bridge" or not network.get("address"):
-                    continue
-                iface = str(network.get("iface") or "")
-                priority = 0 if iface == "vmbr10" else 1
-                candidates.append((priority, strip_cidr(str(network["address"]))))
-        if candidates:
-            candidates.sort(key=lambda item: item[0])
-            return candidates[0][1]
+        for config in await pdm_remote_configs():
+            item_id = remote_id(config)
+            address = strip_cidr(remote_config_address(config))
+            nodes = config.get("nodes") if isinstance(config.get("nodes"), list) else []
+            node_hosts = {parse_remote_node_entry(node).get("host", "") for node in nodes}
+            if value == item_id and address and is_ip_address(address):
+                return address
+            if value == address and is_ip_address(address):
+                return address
+            if value in node_hosts and address and is_ip_address(address):
+                return address
     except Exception:
         pass
 
-    return remote_or_host
+    try:
+        data = normalize_resource_groups(await pdm_get("/resources/list", timeout=3))
+        for group in data:
+            remote = str(group.get("remote") or "")
+            resources = [item for item in group.get("resources") or [] if isinstance(item, dict)]
+            if remote == value:
+                address = await resolve_remote_network_address(remote, resources=resources)
+                if address:
+                    return address
+            for item in resources:
+                if canonical_resource_type(item.get("type")) != "pve-node":
+                    continue
+                if str(item.get("node") or "") != value:
+                    continue
+                address = await resolve_remote_network_address(remote, value, resources)
+                if address:
+                    return address
+                for key in ("ip", "address", "host", "hostname", "endpoint", "server"):
+                    fallback = str(item.get(key) or "").strip()
+                    if fallback and is_ip_address(fallback):
+                        return strip_cidr(fallback)
+    except Exception:
+        pass
+
+    return value
 
 
 def ssh_execute(host: str, command: str) -> tuple[int, str, str]:
@@ -276,6 +459,39 @@ def parse_storage_output(stdout: str) -> list[dict[str, Any]]:
     return storages
 
 
+def storage_options_from_resources(resources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    storages: dict[str, dict[str, Any]] = {}
+    for item in resources:
+        if canonical_resource_type(item.get("type")) != "pve-storage":
+            continue
+        name = str(item.get("storage") or item.get("name") or "").strip()
+        if not name or item.get("status") == "unknown":
+            continue
+        storage_type = str(item.get("plugintype") or item.get("storage_type") or item.get("content") or "").strip()
+        label = f"{name} ({storage_type})" if storage_type else name
+        storages[name] = {"label": label, "value": name, "type": storage_type}
+    return sorted(storages.values(), key=lambda item: str(item["value"]))
+
+
+async def pdm_storage_options(remote_or_node: str) -> list[dict[str, Any]]:
+    value = str(remote_or_node or "").strip()
+    if not value:
+        return []
+    try:
+        data = normalize_resource_groups(await pdm_get("/resources/list", timeout=3))
+    except Exception:
+        return []
+
+    for group in data:
+        remote = str(group.get("remote") or "")
+        resources = [item for item in group.get("resources") or [] if isinstance(item, dict)]
+        if remote == value:
+            return storage_options_from_resources(resources)
+        if any(canonical_resource_type(item.get("type")) == "pve-node" and str(item.get("node") or "") == value for item in resources):
+            return storage_options_from_resources(resources)
+    return []
+
+
 def os_options() -> list[dict[str, Any]]:
     return [
         {
@@ -316,6 +532,9 @@ async def create_options(node_ip: str = Query(..., description="PVE node IP or P
         ssh_host = await resolve_create_host(node_ip)
         exit_status, stdout, stderr = await run_remote_script(ssh_host, "pvesm status --content images")
         if exit_status != 0:
+            storages = await pdm_storage_options(node_ip)
+            if storages:
+                return Success(data={"storages": storages, "os_options": os_options(), "ssh_host": ssh_host})
             return Fail(msg=fail_message("读取 PVE 存储列表失败", stdout, stderr))
         return Success(data={"storages": parse_storage_output(stdout), "os_options": os_options(), "ssh_host": ssh_host})
     except Exception as exc:

@@ -266,6 +266,7 @@ async def init_menus():
     await ensure_device_maintenance_menu()
     await ensure_business_party_menu()
     await ensure_bill_menu()
+    await ensure_billing_subscription_menu()
     await ensure_finance_quote_menu()
     await remove_inventory_sale_menu()
     await ensure_customer_project_menu()
@@ -795,7 +796,7 @@ async def ensure_finance_quote_menu():
     values = {
         "name": "报价系统",
         "path": "/finance-quote",
-        "order": 3,
+        "order": 4,
         "parent_id": finance_menu.id,
         "icon": "mdi:clipboard-text-clock-outline",
         "is_hidden": False,
@@ -859,6 +860,69 @@ async def ensure_customer_project_menu():
         return
 
     await Menu.create(menu_type=MenuType.MENU, **values)
+
+
+async def ensure_billing_subscription_menu():
+    finance_menu = await get_service_module_menu("/finance")
+    menu = await Menu.filter(path="/billing-subscription").first()
+    values = {
+        "name": "产品订阅",
+        "path": "/billing-subscription",
+        "order": 3,
+        "parent_id": finance_menu.id,
+        "icon": "mdi:database-cog-outline",
+        "is_hidden": False,
+        "component": "/finance/billing-subscription",
+        "keepalive": False,
+        "redirect": "",
+    }
+    if menu:
+        changed = False
+        for field, value in values.items():
+            if getattr(menu, field) != value:
+                setattr(menu, field, value)
+                changed = True
+        if menu.menu_type != MenuType.MENU:
+            menu.menu_type = MenuType.MENU
+            changed = True
+        if changed:
+            await menu.save()
+        return
+
+    await Menu.create(menu_type=MenuType.MENU, **values)
+
+
+async def ensure_billing_product_templates():
+    from app.models.company import BillingProductTemplate
+
+    defaults = [
+        {
+            "name": "SG1-DIA-10G",
+            "product_code": "10G",
+            "service_type": "DIA",
+            "billing_rule": "monthly",
+            "unit_price": 1600,
+            "currency": "USD",
+            "unit": "Gbps·月",
+            "default_contract_months": 12,
+            "status": True,
+        },
+        {
+            "name": "SG1-VM-16Core",
+            "product_code": "16*VM",
+            "service_type": "Cloud VM",
+            "billing_rule": "monthly",
+            "unit_price": 320,
+            "currency": "USD",
+            "unit": "VM·月",
+            "default_contract_months": 12,
+            "status": True,
+        },
+    ]
+    for item in defaults:
+        exists = await BillingProductTemplate.filter(name=item["name"]).exists()
+        if not exists:
+            await BillingProductTemplate.create(**item)
 
 
 async def ensure_task_menu():
@@ -1142,12 +1206,132 @@ async def ensure_bill_columns():
             ADD COLUMN IF NOT EXISTS "owner" VARCHAR(100),
             ADD COLUMN IF NOT EXISTS "remark" VARCHAR(500),
             ADD COLUMN IF NOT EXISTS "net_amount" DOUBLE PRECISION,
-            ADD COLUMN IF NOT EXISTS "vat_amount" DOUBLE PRECISION;
+            ADD COLUMN IF NOT EXISTS "vat_amount" DOUBLE PRECISION,
+            ADD COLUMN IF NOT EXISTS "status" VARCHAR(30) NOT NULL DEFAULT 'issued',
+            ADD COLUMN IF NOT EXISTS "term" VARCHAR(50),
+            ADD COLUMN IF NOT EXISTS "approved_at" TIMESTAMPTZ,
+            ADD COLUMN IF NOT EXISTS "sent_at" TIMESTAMPTZ,
+            ADD COLUMN IF NOT EXISTS "approval_comment" VARCHAR(500),
+            ADD COLUMN IF NOT EXISTS "local_currency" VARCHAR(10),
+            ADD COLUMN IF NOT EXISTS "fx_rate" DOUBLE PRECISION,
+            ADD COLUMN IF NOT EXISTS "local_amount" DOUBLE PRECISION;
 
         ALTER TABLE IF EXISTS "bill_item"
             ADD COLUMN IF NOT EXISTS "service_id" VARCHAR(100),
             ADD COLUMN IF NOT EXISTS "nrc_amount" DOUBLE PRECISION,
             ADD COLUMN IF NOT EXISTS "mrc_amount" DOUBLE PRECISION;
+
+        CREATE TABLE IF NOT EXISTS "billing_product_template" (
+            "id" BIGSERIAL PRIMARY KEY,
+            "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "updated_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "name" VARCHAR(100) NOT NULL UNIQUE,
+            "product_code" VARCHAR(100),
+            "service_type" VARCHAR(100),
+            "billing_rule" VARCHAR(50) NOT NULL DEFAULT 'monthly',
+            "unit_price" DOUBLE PRECISION NOT NULL DEFAULT 0,
+            "currency" VARCHAR(10) NOT NULL DEFAULT 'USD',
+            "unit" VARCHAR(50),
+            "default_contract_months" INT NOT NULL DEFAULT 12,
+            "status" BOOL NOT NULL DEFAULT TRUE,
+            "remark" VARCHAR(500)
+        );
+        CREATE INDEX IF NOT EXISTS "idx_billing_template_product_code" ON "billing_product_template" ("product_code");
+        CREATE INDEX IF NOT EXISTS "idx_billing_template_status" ON "billing_product_template" ("status");
+
+        CREATE TABLE IF NOT EXISTS "billing_subscription" (
+            "id" BIGSERIAL PRIMARY KEY,
+            "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "updated_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "company_id" BIGINT NOT NULL REFERENCES "company" ("id") ON DELETE CASCADE,
+            "template_id" BIGINT REFERENCES "billing_product_template" ("id") ON DELETE SET NULL,
+            "product_code" VARCHAR(100) NOT NULL,
+            "service_type" VARCHAR(100),
+            "service_name" VARCHAR(100),
+            "service_location" VARCHAR(100),
+            "billing_start_date" DATE,
+            "billing_end_date" DATE,
+            "contract_months" INT NOT NULL DEFAULT 12,
+            "unit_price" DOUBLE PRECISION NOT NULL DEFAULT 0,
+            "quantity" DOUBLE PRECISION NOT NULL DEFAULT 1,
+            "currency" VARCHAR(10) NOT NULL DEFAULT 'USD',
+            "unit" VARCHAR(50),
+            "vat_rate" DOUBLE PRECISION NOT NULL DEFAULT 0,
+            "is_active" BOOL NOT NULL DEFAULT TRUE,
+            "last_billed_month" DATE,
+            "remark" VARCHAR(500)
+        );
+        CREATE INDEX IF NOT EXISTS "idx_billing_subscription_company" ON "billing_subscription" ("company_id");
+        CREATE INDEX IF NOT EXISTS "idx_billing_subscription_product_code" ON "billing_subscription" ("product_code");
+        CREATE INDEX IF NOT EXISTS "idx_billing_subscription_active" ON "billing_subscription" ("is_active");
+
+        CREATE TABLE IF NOT EXISTS "bill_payment" (
+            "id" BIGSERIAL PRIMARY KEY,
+            "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "updated_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "bill_id" BIGINT NOT NULL REFERENCES "bill" ("id") ON DELETE CASCADE,
+            "payment_id" VARCHAR(100),
+            "payment_date" DATE,
+            "amount" DOUBLE PRECISION NOT NULL DEFAULT 0,
+            "currency" VARCHAR(10),
+            "method" VARCHAR(50),
+            "fx_rate" DOUBLE PRECISION,
+            "voucher_url" VARCHAR(255),
+            "remark" VARCHAR(500)
+        );
+        CREATE INDEX IF NOT EXISTS "idx_bill_payment_bill" ON "bill_payment" ("bill_id");
+        CREATE INDEX IF NOT EXISTS "idx_bill_payment_payment_id" ON "bill_payment" ("payment_id");
+
+        CREATE TABLE IF NOT EXISTS "bill_audit_log" (
+            "id" BIGSERIAL PRIMARY KEY,
+            "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "updated_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "bill_id" BIGINT NOT NULL REFERENCES "bill" ("id") ON DELETE CASCADE,
+            "action" VARCHAR(50) NOT NULL,
+            "operator" VARCHAR(100),
+            "comment" VARCHAR(500),
+            "before" JSONB NOT NULL DEFAULT '{}'::jsonb,
+            "after" JSONB NOT NULL DEFAULT '{}'::jsonb
+        );
+        CREATE INDEX IF NOT EXISTS "idx_bill_audit_log_bill" ON "bill_audit_log" ("bill_id");
+        CREATE INDEX IF NOT EXISTS "idx_bill_audit_log_action" ON "bill_audit_log" ("action");
+
+        DO $$
+        DECLARE
+            item RECORD;
+        BEGIN
+            FOR item IN
+                SELECT * FROM (VALUES
+                    ('bill', 'approved_at'),
+                    ('bill', 'sent_at'),
+                    ('billing_product_template', 'created_at'),
+                    ('billing_product_template', 'updated_at'),
+                    ('billing_subscription', 'created_at'),
+                    ('billing_subscription', 'updated_at'),
+                    ('bill_payment', 'created_at'),
+                    ('bill_payment', 'updated_at'),
+                    ('bill_audit_log', 'created_at'),
+                    ('bill_audit_log', 'updated_at')
+                ) AS columns(table_name, column_name)
+            LOOP
+                IF EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = item.table_name
+                      AND column_name = item.column_name
+                      AND data_type = 'timestamp without time zone'
+                ) THEN
+                    EXECUTE format(
+                        'ALTER TABLE %I ALTER COLUMN %I TYPE TIMESTAMPTZ USING %I AT TIME ZONE %L',
+                        item.table_name,
+                        item.column_name,
+                        item.column_name,
+                        'Asia/Shanghai'
+                    );
+                END IF;
+            END LOOP;
+        END $$;
         """
     )
 
@@ -1489,6 +1673,7 @@ async def init_db():
     await ensure_finance_quote_columns()
     await ensure_device_maintenance_columns()
     await Tortoise.generate_schemas(safe=True)
+    await ensure_billing_product_templates()
     if os.getenv("AUTO_DB_MIGRATE", "false").lower() in {"1", "true", "yes", "on"}:
         try:
             await command.migrate()

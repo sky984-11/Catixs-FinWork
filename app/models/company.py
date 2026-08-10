@@ -94,6 +94,14 @@ class Bill(BaseModel, TimestampMixin):
     remark = fields.CharField(max_length=500, null=True, description="备注")
     # 1=customer bill, 2=vendor bill
     bill_type = fields.IntField(default=1, description="账单类型", index=True)
+    status = fields.CharField(max_length=30, default="issued", description="账单状态", index=True)
+    term = fields.CharField(max_length=50, null=True, description="账期")
+    approved_at = fields.DatetimeField(null=True, description="审批时间")
+    sent_at = fields.DatetimeField(null=True, description="发送时间")
+    approval_comment = fields.CharField(max_length=500, null=True, description="审批备注")
+    local_currency = fields.CharField(max_length=10, null=True, description="本地记账币种")
+    fx_rate = fields.FloatField(null=True, description="账单汇率快照")
+    local_amount = fields.FloatField(null=True, description="本地币种金额")
 
     class Meta:
         table = "bill"
@@ -117,3 +125,86 @@ class BillItem(BaseModel, TimestampMixin):
 
     class Meta:
         table = "bill_item"
+
+
+class BillingProductTemplate(BaseModel, TimestampMixin):
+    name = fields.CharField(max_length=100, description="模板名", index=True, unique=True)
+    product_code = fields.CharField(max_length=100, null=True, description="产品Code", index=True)
+    service_type = fields.CharField(max_length=100, null=True, description="服务类型")
+    billing_rule = fields.CharField(max_length=50, default="monthly", description="计费规则")
+    unit_price = fields.FloatField(default=0, description="单价")
+    currency = fields.CharField(max_length=10, default="USD", description="币种")
+    unit = fields.CharField(max_length=50, null=True, description="计量单位")
+    default_contract_months = fields.IntField(default=12, description="默认合同月数")
+    status = fields.BooleanField(default=True, description="状态", index=True)
+    remark = fields.CharField(max_length=500, null=True, description="备注")
+
+    class Meta:
+        table = "billing_product_template"
+
+
+class BillingSubscription(BaseModel, TimestampMixin):
+    company = fields.ForeignKeyField(
+        "models.Company",
+        related_name="billing_subscriptions",
+        on_delete=fields.CASCADE,
+    )
+    template = fields.ForeignKeyField(
+        "models.BillingProductTemplate",
+        related_name="subscriptions",
+        null=True,
+        on_delete=fields.SET_NULL,
+    )
+    product_code = fields.CharField(max_length=100, description="产品Code", index=True)
+    service_type = fields.CharField(max_length=100, null=True, description="服务类型")
+    service_name = fields.CharField(max_length=100, null=True, description="服务名称")
+    service_location = fields.CharField(max_length=100, null=True, description="服务位置")
+    billing_start_date = fields.DateField(null=True, description="计费开始日")
+    billing_end_date = fields.DateField(null=True, description="计费结束日")
+    contract_months = fields.IntField(default=12, description="合同月数")
+    unit_price = fields.FloatField(default=0, description="单价")
+    quantity = fields.FloatField(default=1, description="数量")
+    currency = fields.CharField(max_length=10, default="USD", description="币种")
+    unit = fields.CharField(max_length=50, null=True, description="计量单位")
+    vat_rate = fields.FloatField(default=0, description="VAT税率")
+    is_active = fields.BooleanField(default=True, description="是否激活", index=True)
+    last_billed_month = fields.DateField(null=True, description="最后计费月份")
+    remark = fields.CharField(max_length=500, null=True, description="备注")
+
+    class Meta:
+        table = "billing_subscription"
+
+
+class BillPayment(BaseModel, TimestampMixin):
+    bill = fields.ForeignKeyField(
+        "models.Bill",
+        related_name="payments",
+        on_delete=fields.CASCADE,
+    )
+    payment_id = fields.CharField(max_length=100, null=True, description="Payment ID", index=True)
+    payment_date = fields.DateField(null=True, description="付款日期")
+    amount = fields.FloatField(default=0, description="实际到账金额")
+    currency = fields.CharField(max_length=10, null=True, description="币种")
+    method = fields.CharField(max_length=50, null=True, description="付款方式")
+    fx_rate = fields.FloatField(null=True, description="付款汇率")
+    voucher_url = fields.CharField(max_length=255, null=True, description="付款凭证")
+    remark = fields.CharField(max_length=500, null=True, description="备注")
+
+    class Meta:
+        table = "bill_payment"
+
+
+class BillAuditLog(BaseModel, TimestampMixin):
+    bill = fields.ForeignKeyField(
+        "models.Bill",
+        related_name="audit_logs",
+        on_delete=fields.CASCADE,
+    )
+    action = fields.CharField(max_length=50, description="操作", index=True)
+    operator = fields.CharField(max_length=100, null=True, description="操作人")
+    comment = fields.CharField(max_length=500, null=True, description="备注")
+    before = fields.JSONField(default=dict, description="修改前")
+    after = fields.JSONField(default=dict, description="修改后")
+
+    class Meta:
+        table = "bill_audit_log"
