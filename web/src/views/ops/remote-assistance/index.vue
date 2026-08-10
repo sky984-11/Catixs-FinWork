@@ -212,6 +212,7 @@
                 :time-picker-props="minuteTimePickerProps"
                 clearable
                 style="width: 100%"
+                @update:formatted-value="updateWorkMinutes"
               />
             </n-form-item>
             <n-form-item label="离场时间">
@@ -772,9 +773,9 @@ const remoteColumns = [
       h('strong', displayRegion(row.region) || '-'), h('small', row.site || '-'),
     ]),
   },
-  { title: '日期', key: 'date', width: 110, render: (row) => formatDate(row.arrived_at || row.left_at) },
+  { title: '日期', key: 'date', width: 135, render: (row) => formatRemoteDateRange(row) },
   { title: '到场', key: 'arrived_at', width: 105, render: (row) => formatTime(row.arrived_at) },
-  { title: '离场', key: 'left_at', width: 105, render: (row) => formatTime(row.left_at) },
+  { title: '离场', key: 'left_at', width: 125, render: (row) => formatRemoteEndTime(row) },
   { title: '工时', key: 'work_minutes', width: 95, render: (row) => formatDuration(row.work_minutes) },
   {
     title: '状态', key: 'status', width: 100,
@@ -1377,9 +1378,11 @@ async function saveRemoteHands() {
   if (!fieldText(form.region)) return message.warning('请选择或输入地区')
   if (!form.site) return message.warning('请选择机房')
   if (!form.engineer_id) return message.warning('请选择工程师')
+  if (isEndBeforeStart(form.arrived_at, form.left_at)) return message.warning('离场时间不能早于到场时间')
   remoteEditor.saving = true
   try {
     const payload = { ...form }
+    payload.work_minutes = minutesBetween(payload.arrived_at, payload.left_at)
     delete payload.id
     delete payload.site_key
     if (form.id) await api.remoteAssistanceApi.updateRemoteHands(form.id, payload)
@@ -1585,8 +1588,25 @@ function formatDate(value) {
   return value ? String(value).slice(0, 10) : '-'
 }
 
+function shortDate(value) {
+  return value ? String(value).slice(5, 10) : ''
+}
+
+function formatRemoteDateRange(row) {
+  const startDate = formatDate(row.arrived_at || row.left_at)
+  const endDate = formatDate(row.left_at)
+  if (startDate === '-' || endDate === '-' || startDate === endDate) return startDate
+  return `${shortDate(row.arrived_at)} ~ ${shortDate(row.left_at)}`
+}
+
 function formatTime(value) {
   return value ? String(value).slice(11, 16) || '-' : '-'
+}
+
+function formatRemoteEndTime(row) {
+  if (!row.left_at) return '-'
+  if (!row.arrived_at || formatDate(row.arrived_at) === formatDate(row.left_at)) return formatTime(row.left_at)
+  return formatDateTime(row.left_at).slice(5)
 }
 
 function formatDateTime(value) {

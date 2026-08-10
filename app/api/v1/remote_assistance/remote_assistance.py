@@ -110,7 +110,17 @@ def _clean_text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _work_minutes_between(start: datetime | None, end: datetime | None) -> int:
+    if not start or not end:
+        return 0
+    if end < start:
+        raise ValueError("离场时间不能早于到场时间")
+    return max(int((end - start).total_seconds() // 60), 0)
+
+
 def _remote_payload_data(payload: RemoteHandsPayload) -> dict[str, Any]:
+    arrived_at = _parse_datetime(payload.arrived_at)
+    left_at = _parse_datetime(payload.left_at)
     return {
         "customer": _clean_text(payload.customer),
         "ticket": _clean_text(payload.ticket) or None,
@@ -123,9 +133,9 @@ def _remote_payload_data(payload: RemoteHandsPayload) -> dict[str, Any]:
         "site": _clean_text(payload.site) or None,
         "rack": _clean_text(payload.rack) or None,
         "timezone": _clean_text(payload.timezone) or "Asia/Shanghai",
-        "arrived_at": _parse_datetime(payload.arrived_at),
-        "left_at": _parse_datetime(payload.left_at),
-        "work_minutes": int(payload.work_minutes or 0),
+        "arrived_at": arrived_at,
+        "left_at": left_at,
+        "work_minutes": _work_minutes_between(arrived_at, left_at),
         "status": payload.status,
         "ops_settlement_status": payload.ops_settlement_status,
         "customer_settlement_status": payload.customer_settlement_status,
@@ -399,8 +409,6 @@ async def complete_plan(plan_id: int, payload: RemoteHandsPlanCompletePayload):
             return Fail(msg="该运维计划已完成")
         arrived_at = _naive_datetime(_parse_datetime(payload.arrived_at) or plan.planned_at) or _now_naive()
         left_at = _naive_datetime(_parse_datetime(payload.left_at)) or _now_naive()
-        if left_at < arrived_at:
-            return Fail(msg="离场时间不能早于到场时间")
         note = _clean_text(payload.note) or plan.note
         remote = await RemoteHands.create(
             customer=plan.customer,
@@ -416,7 +424,7 @@ async def complete_plan(plan_id: int, payload: RemoteHandsPlanCompletePayload):
             timezone=plan.timezone or "Asia/Shanghai",
             arrived_at=arrived_at,
             left_at=left_at,
-            work_minutes=max(int((left_at - arrived_at).total_seconds() // 60), 0),
+            work_minutes=_work_minutes_between(arrived_at, left_at),
             status="done",
             ops_settlement_status="unbilled",
             customer_settlement_status="unbilled",
