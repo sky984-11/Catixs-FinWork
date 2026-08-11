@@ -1262,6 +1262,7 @@ async def ensure_bill_columns():
             "updated_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
             "name" VARCHAR(100) NOT NULL UNIQUE,
             "product_code" VARCHAR(100),
+            "region_id" BIGINT,
             "service_type" VARCHAR(100),
             "billing_rule" VARCHAR(50) NOT NULL DEFAULT 'monthly',
             "unit_price" DOUBLE PRECISION NOT NULL DEFAULT 0,
@@ -1271,7 +1272,10 @@ async def ensure_bill_columns():
             "status" BOOL NOT NULL DEFAULT TRUE,
             "remark" VARCHAR(500)
         );
+        ALTER TABLE IF EXISTS "billing_product_template"
+            ADD COLUMN IF NOT EXISTS "region_id" BIGINT;
         CREATE INDEX IF NOT EXISTS "idx_billing_template_product_code" ON "billing_product_template" ("product_code");
+        CREATE INDEX IF NOT EXISTS "idx_billing_template_region" ON "billing_product_template" ("region_id");
         CREATE INDEX IF NOT EXISTS "idx_billing_template_status" ON "billing_product_template" ("status");
 
         CREATE TABLE IF NOT EXISTS "billing_subscription" (

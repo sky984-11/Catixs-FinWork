@@ -58,6 +58,7 @@ const queryItems = ref({
   company_id: null,
   bill_month: null,
   status: null,
+  owner: null,
 })
 
 const modalForm = reactive(createEmptyForm())
@@ -1062,6 +1063,9 @@ onMounted(async () => {
               </QueryBarItem>
               <QueryBarItem label="状态" :label-width="50">
                 <NSelect v-model:value="queryItems.status" clearable :options="billStatusOptions" />
+              </QueryBarItem>
+              <QueryBarItem label="负责人" :label-width="60">
+                <NSelect v-model:value="queryItems.owner" clearable :options="ownerOptions" />
               </QueryBarItem>
             </template>
           </CrudTable>

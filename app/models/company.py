@@ -132,6 +132,13 @@ class BillItem(BaseModel, TimestampMixin):
 class BillingProductTemplate(BaseModel, TimestampMixin):
     name = fields.CharField(max_length=100, description="模板名", index=True, unique=True)
     product_code = fields.CharField(max_length=100, null=True, description="产品Code", index=True)
+    region = fields.ForeignKeyField(
+        "models.AssetRegion",
+        related_name="billing_product_templates",
+        null=True,
+        on_delete=fields.SET_NULL,
+        description="区域",
+    )
     service_type = fields.CharField(max_length=100, null=True, description="服务类型")
     billing_rule = fields.CharField(max_length=50, default="monthly", description="计费规则")
     unit_price = fields.FloatField(default=0, description="单价")

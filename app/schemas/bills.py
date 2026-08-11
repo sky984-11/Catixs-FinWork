@@ -88,6 +88,7 @@ class BillingTemplatePayload(BaseModel):
     id: Optional[int] = None
     name: str = Field("", example="SG1-DIA-10G")
     product_code: str = Field("", example="10G")
+    region_id: Optional[int] = Field(None, example=1)
     service_type: str = Field("", example="DIA")
     billing_rule: str = Field("monthly", example="monthly")
     unit_price: float = Field(0, example=1600)

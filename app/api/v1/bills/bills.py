@@ -13,6 +13,7 @@ from fastapi.encoders import jsonable_encoder
 from tortoise.expressions import Q
 
 from app.controllers.bill import bill_controller, bill_item_controller
+from app.models.asset import AssetRegion
 from app.models.company import BillAuditLog, BillPayment, BillingProductTemplate, BillingSubscription, Company
 from app.schemas.base import Success, SuccessExtra
 from app.schemas.bills import (
@@ -303,7 +304,13 @@ async def replace_bill_items(bill_id: int, items: list):
 
 
 async def template_to_dict(obj: BillingProductTemplate) -> dict[str, Any]:
-    return await obj.to_dict()
+    data = await obj.to_dict()
+    region = await AssetRegion.get_or_none(id=data.get("region_id")) if data.get("region_id") else None
+    data["region_name"] = region.name if region else ""
+    data["region_country"] = region.country if region else ""
+    data["region_city"] = region.city if region else ""
+    data["region_code"] = region.code if region else ""
+    return data
 
 
 async def subscription_to_dict(obj: BillingSubscription) -> dict[str, Any]:
@@ -319,6 +326,7 @@ def template_payload_data(payload: BillingTemplatePayload) -> dict[str, Any]:
     return {
         "name": payload.name.strip(),
         "product_code": payload.product_code.strip() or None,
+        "region_id": payload.region_id or None,
         "service_type": payload.service_type.strip() or None,
         "billing_rule": payload.billing_rule.strip() or "monthly",
         "unit_price": float(payload.unit_price or 0),
@@ -730,10 +738,18 @@ async def automation_options():
 
 
 @router.get("/templates", summary="产品配置模板列表")
-async def list_templates(status: bool | None = Query(None, description="状态")):
+async def list_templates(
+    status: bool | None = Query(None, description="状态"),
+    region_id: int | None = Query(None, description="区域ID"),
+    service_type: str = Query("", description="服务类型"),
+):
     q = Q()
     if status is not None:
         q &= Q(status=status)
+    if region_id is not None:
+        q &= Q(region_id=region_id)
+    if service_type:
+        q &= Q(service_type=service_type)
     rows = await BillingProductTemplate.filter(q).order_by("-status", "name")
     return Success(data=[await template_to_dict(item) for item in rows])
 
@@ -743,6 +759,8 @@ async def save_template(payload: BillingTemplatePayload):
     data = template_payload_data(payload)
     if not data["name"]:
         raise HTTPException(status_code=400, detail="请填写模板名")
+    if data.get("region_id") and not await AssetRegion.filter(id=data["region_id"]).exists():
+        raise HTTPException(status_code=400, detail="区域不存在")
     if payload.id:
         obj = await BillingProductTemplate.get_or_none(id=payload.id)
         if not obj:
@@ -980,6 +998,7 @@ async def list_bill(
     bill_month: date | None = Query(None, description="账单月份"),
     invoice_no: str = Query("", description="账单编号"),
     customer_name: str = Query("", description="客户/供应商名称"),
+    owner: str = Query("", description="负责人"),
     is_settled: bool | None = Query(None, description="是否结清"),
     status: str = Query("", description="账单状态"),
     sort_field: str = Query("", description="排序字段"),
@@ -996,6 +1015,8 @@ async def list_bill(
         q &= Q(invoice_no__contains=invoice_no)
     if customer_name:
         q &= Q(customer_name__contains=customer_name)
+    if owner:
+        q &= Q(owner=owner)
     if is_settled is not None:
         q &= Q(is_settled=is_settled)
     if status:
