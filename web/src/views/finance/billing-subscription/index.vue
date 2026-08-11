@@ -25,19 +25,16 @@ import TheIcon from '@/components/icon/TheIcon.vue'
 import api from '@/api'
 import { renderIcon } from '@/utils'
 
-defineOptions({ name: '产品订阅' })
+defineOptions({ name: '客户产品订阅' })
 
 const loading = ref(false)
 const modalVisible = ref(false)
 const modalLoading = ref(false)
-const templateModalVisible = ref(false)
-const templateLoading = ref(false)
 const rows = ref([])
 const companies = ref([])
 const templates = ref([])
 const query = reactive({ company_id: null, is_active: null })
 const form = reactive(createForm())
-const templateForm = reactive(createTemplateForm())
 
 const activeOptions = [
   { label: '激活', value: true },
@@ -103,41 +100,6 @@ const columns = [
   },
 ]
 
-const templateColumns = [
-  { title: '模板名', key: 'name', width: 180, fixed: 'left', ellipsis: { tooltip: true } },
-  { title: '产品Code', key: 'product_code', width: 120 },
-  { title: '服务类型', key: 'service_type', width: 120 },
-  { title: '计费规则', key: 'billing_rule', width: 100 },
-  { title: '单价', key: 'unit_price', width: 130, align: 'right', render: (row) => `${row.currency || ''} ${formatNumber(row.unit_price)}` },
-  { title: '计量单位', key: 'unit', width: 110 },
-  { title: '默认合同', key: 'default_contract_months', width: 100, render: (row) => `${row.default_contract_months || 12}个月` },
-  {
-    title: '状态',
-    key: 'status',
-    width: 90,
-    align: 'center',
-    render: (row) => h(NTag, { type: row.status ? 'success' : 'default', bordered: false, round: true }, { default: () => (row.status ? '启用' : '停用') }),
-  },
-  {
-    title: '操作',
-    key: 'actions',
-    width: 110,
-    fixed: 'right',
-    align: 'center',
-    render: (row) => h(NSpace, { size: 8, justify: 'center' }, () => [
-      iconButton('编辑模板', 'material-symbols:edit', { type: 'primary', onClick: () => openTemplateEdit(row) }),
-      h(
-        NPopconfirm,
-        { onPositiveClick: () => deleteTemplate(row) },
-        {
-          trigger: () => iconButton('删除模板', 'material-symbols:delete-outline', { type: 'error' }),
-          default: () => `确定删除模板「${row.name || ''}」吗？`,
-        }
-      ),
-    ]),
-  },
-]
-
 function createForm(source = {}) {
   return {
     id: source.id || null,
@@ -161,22 +123,6 @@ function createForm(source = {}) {
   }
 }
 
-function createTemplateForm(source = {}) {
-  return {
-    id: source.id || null,
-    name: source.name || '',
-    product_code: source.product_code || '',
-    service_type: source.service_type || '',
-    billing_rule: source.billing_rule || 'monthly',
-    unit_price: Number(source.unit_price || 0),
-    currency: source.currency || 'USD',
-    unit: source.unit || '',
-    default_contract_months: Number(source.default_contract_months || 12),
-    status: source.status ?? true,
-    remark: source.remark || '',
-  }
-}
-
 async function loadBaseData() {
   const [companyRes, templateRes] = await Promise.all([
     api.getCompanyList({ page: 1, page_size: 9999, business_only: true, status: true }),
@@ -184,11 +130,6 @@ async function loadBaseData() {
   ])
   companies.value = companyRes?.data || []
   templates.value = templateRes?.data || []
-}
-
-async function loadTemplates() {
-  const res = await api.getBillingTemplates({})
-  templates.value = res?.data || []
 }
 
 async function loadRows() {
@@ -243,35 +184,6 @@ async function deleteRow(row) {
   await loadRows()
 }
 
-function openTemplateManager() {
-  Object.assign(templateForm, createTemplateForm())
-  templateModalVisible.value = true
-  loadTemplates()
-}
-
-function openTemplateEdit(row) {
-  Object.assign(templateForm, createTemplateForm(row))
-}
-
-async function saveTemplate() {
-  if (!templateForm.name) return window.$message?.warning?.('请填写模板名')
-  templateLoading.value = true
-  try {
-    await api.saveBillingTemplate({ ...templateForm })
-    window.$message?.success?.('模板已保存')
-    Object.assign(templateForm, createTemplateForm())
-    await loadTemplates()
-  } finally {
-    templateLoading.value = false
-  }
-}
-
-async function deleteTemplate(row) {
-  await api.deleteBillingTemplate(row.id)
-  window.$message?.success?.('模板已删除')
-  await loadTemplates()
-}
-
 function formatDateValue(date) {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
@@ -307,12 +219,8 @@ onMounted(async () => {
 </script>
 
 <template>
-  <CommonPage show-footer title="产品订阅">
+  <CommonPage show-footer title="客户产品订阅">
     <template #action>
-      <NButton secondary round @click="openTemplateManager">
-        <TheIcon icon="mdi:shape-outline" :size="18" class="mr-5" />
-        模板管理
-      </NButton>
       <NButton type="primary" round @click="openAdd">
         <TheIcon icon="material-symbols:add" :size="18" class="mr-5" />
         新增订阅
@@ -341,7 +249,7 @@ onMounted(async () => {
     <NModal
       v-model:show="modalVisible"
       preset="card"
-      :title="form.id ? '编辑产品订阅' : '新增产品订阅'"
+      :title="form.id ? '编辑客户产品订阅' : '新增客户产品订阅'"
       style="width: min(980px, calc(100vw - 40px))"
       :bordered="false"
     >
@@ -435,79 +343,6 @@ onMounted(async () => {
       </template>
     </NModal>
 
-    <NModal
-      v-model:show="templateModalVisible"
-      preset="card"
-      title="模板管理"
-      style="width: min(1040px, calc(100vw - 40px))"
-      :bordered="false"
-    >
-      <NForm label-placement="left" label-width="86" :model="templateForm">
-        <NGrid :cols="4" :x-gap="12">
-          <NGridItem>
-            <NFormItem label="模板名" required>
-              <NInput v-model:value="templateForm.name" placeholder="SG1-DIA-10G" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="产品Code">
-              <NInput v-model:value="templateForm.product_code" placeholder="10G" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="服务类型">
-              <NInput v-model:value="templateForm.service_type" placeholder="DIA / Cloud VM" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="计费规则">
-              <NInput v-model:value="templateForm.billing_rule" placeholder="monthly" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="单价">
-              <NInputNumber v-model:value="templateForm.unit_price" :min="0" :precision="2" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="币种">
-              <NSelect v-model:value="templateForm.currency" filterable tag :options="currencyOptions" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="计量单位">
-              <NInput v-model:value="templateForm.unit" placeholder="Gbps·月 / VM·月" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="默认合同">
-              <NInputNumber v-model:value="templateForm.default_contract_months" :min="1" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="启用">
-              <NSwitch v-model:value="templateForm.status" />
-            </NFormItem>
-          </NGridItem>
-        </NGrid>
-        <NFormItem label="备注">
-          <NInput v-model:value="templateForm.remark" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" />
-        </NFormItem>
-        <NSpace justify="end">
-          <NButton secondary @click="Object.assign(templateForm, createTemplateForm())">清空</NButton>
-          <NButton type="primary" :loading="templateLoading" @click="saveTemplate">保存模板</NButton>
-        </NSpace>
-      </NForm>
-
-      <NDataTable
-        class="template-table"
-        size="small"
-        :columns="templateColumns"
-        :data="templates"
-        :pagination="{ pageSize: 8 }"
-        :scroll-x="1060"
-      />
-    </NModal>
   </CommonPage>
 </template>
 
@@ -519,7 +354,4 @@ onMounted(async () => {
   margin-bottom: 14px;
 }
 
-.template-table {
-  margin-top: 16px;
-}
 </style>

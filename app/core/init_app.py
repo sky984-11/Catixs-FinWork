@@ -267,6 +267,7 @@ async def init_menus():
     await ensure_business_party_menu()
     await ensure_bill_menu()
     await ensure_billing_subscription_menu()
+    await ensure_billing_template_menu()
     await ensure_finance_quote_menu()
     await remove_inventory_sale_menu()
     await ensure_customer_project_menu()
@@ -796,7 +797,7 @@ async def ensure_finance_quote_menu():
     values = {
         "name": "报价系统",
         "path": "/finance-quote",
-        "order": 4,
+        "order": 5,
         "parent_id": finance_menu.id,
         "icon": "mdi:clipboard-text-clock-outline",
         "is_hidden": False,
@@ -866,13 +867,43 @@ async def ensure_billing_subscription_menu():
     finance_menu = await get_service_module_menu("/finance")
     menu = await Menu.filter(path="/billing-subscription").first()
     values = {
-        "name": "产品订阅",
+        "name": "客户产品订阅",
         "path": "/billing-subscription",
         "order": 3,
         "parent_id": finance_menu.id,
         "icon": "mdi:database-cog-outline",
         "is_hidden": False,
         "component": "/finance/billing-subscription",
+        "keepalive": False,
+        "redirect": "",
+    }
+    if menu:
+        changed = False
+        for field, value in values.items():
+            if getattr(menu, field) != value:
+                setattr(menu, field, value)
+                changed = True
+        if menu.menu_type != MenuType.MENU:
+            menu.menu_type = MenuType.MENU
+            changed = True
+        if changed:
+            await menu.save()
+        return
+
+    await Menu.create(menu_type=MenuType.MENU, **values)
+
+
+async def ensure_billing_template_menu():
+    finance_menu = await get_service_module_menu("/finance")
+    menu = await Menu.filter(path="/billing-template").first()
+    values = {
+        "name": "产品模板",
+        "path": "/billing-template",
+        "order": 4,
+        "parent_id": finance_menu.id,
+        "icon": "mdi:shape-outline",
+        "is_hidden": False,
+        "component": "/finance/billing-template",
         "keepalive": False,
         "redirect": "",
     }

@@ -954,7 +954,7 @@ onMounted(async () => {
     <template #action>
       <NButton secondary round @click="router.push('/billing-subscription')">
         <TheIcon icon="mdi:database-cog-outline" :size="18" class="mr-5" />
-        产品订阅
+        客户产品订阅
       </NButton>
       <NButton secondary type="info" round @click="openGenerationModal">
         <TheIcon icon="mdi:auto-fix" :size="18" class="mr-5" />
