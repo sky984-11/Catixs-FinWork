@@ -1,6 +1,5 @@
 <script setup>
 import { computed, h, nextTick, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import {
   NButton,
   NCheckbox,
@@ -28,10 +27,9 @@ import TheIcon from '@/components/icon/TheIcon.vue'
 import api from '@/api'
 import { renderIcon } from '@/utils'
 
-defineOptions({ name: '账单管理' })
+defineOptions({ name: '账单记录' })
 
 const $table = ref(null)
-const router = useRouter()
 const modalFormRef = ref(null)
 const modalVisible = ref(false)
 const detailVisible = ref(false)
@@ -119,134 +117,103 @@ const rules = {
 
 const columns = [
   {
-    title: '客户名',
+    title: '客户 / 账单',
     key: 'customer_name',
-    width: 170,
+    width: 260,
     fixed: 'left',
     sorter: true,
     ellipsis: { tooltip: true },
     render(row) {
-      return h('div', { class: 'bill-customer-cell' }, [
+      return h('div', { class: 'bill-primary-cell' }, [
         h('strong', row.customer_name || '-'),
-        h('span', getCompanyLegalName(row.company_id, row.customer_name) || '-'),
+        h('span', { class: 'invoice-no-cell' }, row.invoice_no || '未填写账单编号'),
+        row.payment_voucher_url
+          ? h('button', { class: 'link-button', onClick: () => openFile(row.payment_voucher_url) }, '付款凭证')
+          : null,
       ])
     },
   },
   {
-    title: '月份',
+    title: '账期',
     key: 'bill_month',
-    width: 84,
+    width: 92,
     align: 'center',
     sorter: true,
     render: (row) => h('span', { class: 'date-pill' }, formatMonth(row.bill_month)),
   },
   {
-    title: '是否结清',
-    key: 'is_settled',
-    width: 84,
-    align: 'center',
-    sorter: true,
-    render(row) {
-      return h(
-        NTag,
-        { type: row.is_settled ? 'success' : 'warning', bordered: false, round: true },
-        { default: () => (row.is_settled ? '已结清' : '未结清') }
-      )
-    },
-  },
-  {
     title: '状态',
     key: 'status',
-    width: 90,
+    width: 108,
     align: 'center',
     sorter: true,
     render(row) {
       const option = billStatusOptions.find((item) => item.value === (row.status || 'issued'))
-      return h(NTag, { type: getBillStatusTag(row.status), bordered: false, round: true }, { default: () => option?.label || row.status || '-' })
+      return h(
+        'div',
+        { class: 'bill-status-cell' },
+        [
+          h(NTag, { type: getBillStatusTag(row.status), bordered: false, round: true }, { default: () => option?.label || row.status || '-' }),
+          h(NTag, { type: row.is_settled ? 'success' : 'warning', bordered: false, round: true }, { default: () => (row.is_settled ? '已结清' : '未结清') }),
+        ]
+      )
     },
   },
   {
-    title: '账单编号',
-    key: 'invoice_no',
-    width: 180,
-    sorter: true,
-    ellipsis: { tooltip: true },
-    render: (row) => h('span', { class: 'invoice-no-cell' }, row.invoice_no || '-'),
-  },
-  { title: '账单日期', key: 'invoice_date', width: 96, align: 'center', sorter: true, render: (row) => renderDateCell(row.invoice_date) },
-  { title: '截止日期', key: 'due_date', width: 96, align: 'center', sorter: true, render: (row) => renderDateCell(row.due_date) },
-  { title: '计费开始', key: 'billing_start_date', width: 96, align: 'center', sorter: true, render: (row) => renderDateCell(row.billing_start_date) },
-  { title: '计费结束', key: 'billing_end_date', width: 96, align: 'center', sorter: true, render: (row) => renderDateCell(row.billing_end_date) },
-  {
-    title: '币种',
-    key: 'currency',
-    width: 80,
-    align: 'center',
+    title: '开票 / 到期',
+    key: 'invoice_date',
+    width: 132,
     sorter: true,
     render(row) {
-      return row.currency
-        ? h(NTag, { type: 'info', round: true, bordered: false }, { default: () => row.currency })
-        : '-'
+      return h('div', { class: 'date-range-cell' }, [
+        h('span', row.invoice_date || '-'),
+        h('small', `到期 ${row.due_date || '-'}`),
+      ])
     },
   },
   {
-    title: '账单金额',
+    title: '服务期间',
+    key: 'billing_start_date',
+    width: 132,
+    render(row) {
+      return h('div', { class: 'date-range-cell' }, [
+        h('span', row.billing_start_date || '-'),
+        h('small', row.billing_end_date || '-'),
+      ])
+    },
+  },
+  {
+    title: '应收',
     key: 'total_amount',
-    width: 105,
+    width: 128,
     align: 'right',
     sorter: true,
     render: (row) => renderMoneyCell(row.total_amount, row.currency),
   },
   {
-    title: '已付金额',
+    title: '已收',
     key: 'paid_amount',
-    width: 105,
+    width: 128,
     align: 'right',
     sorter: true,
     render: (row) => renderMoneyCell(row.paid_amount, row.currency),
   },
   {
-    title: '欠费金额',
+    title: '未收',
     key: 'unpaid_amount',
-    width: 105,
+    width: 128,
     align: 'right',
     sorter: true,
     render: (row) => renderMoneyCell(row.unpaid_amount, row.currency, Number(row.unpaid_amount || 0) > 0 ? 'danger' : 'muted'),
   },
   {
-    title: '付款凭证',
-    key: 'payment_voucher_url',
-    width: 70,
-    align: 'center',
-    render(row) {
-      return row.payment_voucher_url
-        ? renderIconButton('查看凭证', 'mdi:paperclip', { onClick: () => openFile(row.payment_voucher_url) })
-        : h('span', { class: 'muted' }, '-')
-    },
-  },
-  {
-    title: '负责人',
-    key: 'owner',
-    width: 90,
-    sorter: true,
-    ellipsis: { tooltip: true },
-    render: (row) => h(NTag, { size: 'small', bordered: false, round: true }, { default: () => getOwnerName(row.owner) }),
-  },
-  {
-    title: '备注',
-    key: 'remark',
-    width: 120,
-    ellipsis: { tooltip: true },
-    render: (row) => h('span', { class: row.remark ? 'remark-cell' : 'muted' }, row.remark || '-'),
-  },
-  {
     title: '操作',
     key: 'actions',
-    width: 168,
+    width: 150,
     fixed: 'right',
     align: 'center',
     render(row) {
-      return h(NSpace, { class: 'row-actions', justify: 'center', size: 8, wrap: false }, () => [
+      return h(NSpace, { class: 'row-actions', justify: 'center', size: 6, wrap: false }, () => [
         renderIconButton('详情', 'mdi:receipt-text-outline', { onClick: () => openDetail(row) }),
         renderIconButton('编辑', 'material-symbols:edit', { type: 'primary', onClick: () => openEdit(row) }),
         ...renderWorkflowButtons(row),
@@ -1054,17 +1021,9 @@ onMounted(async () => {
             <span>{{ formatNumber(summary.count) }} 条</span>
           </div>
           <NSpace :wrap="false">
-            <NButton secondary @click="router.push('/billing-subscription')">
-              <template #icon><TheIcon icon="mdi:database-cog-outline" :size="18" /></template>
-              客户产品订阅
-            </NButton>
             <NButton secondary type="success" @click="openFeishuSyncModal">
               <template #icon><TheIcon icon="mdi:table-sync" :size="18" /></template>
               同步飞书账单
-            </NButton>
-            <NButton secondary type="info" @click="openGenerationModal">
-              <template #icon><TheIcon icon="mdi:auto-fix" :size="18" /></template>
-              自动生成账单
             </NButton>
             <NButton type="primary" @click="openAdd">
               <template #icon><TheIcon icon="material-symbols:add" :size="18" /></template>
@@ -1080,7 +1039,7 @@ onMounted(async () => {
             :columns="columns"
             :get-data="api.getBillList"
             flex-height
-            :scroll-x="1825"
+            :scroll-x="1260"
             @on-data-change="handleBillDataChange"
           >
             <template #queryBar>
@@ -1685,6 +1644,52 @@ onMounted(async () => {
   white-space: nowrap;
 }
 
+:deep(.bill-primary-cell) {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  line-height: 1.2;
+}
+
+:deep(.bill-primary-cell strong),
+:deep(.bill-primary-cell span) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:deep(.bill-primary-cell strong) {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+:deep(.bill-status-cell) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+:deep(.date-range-cell) {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  color: #334155;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+:deep(.date-range-cell small) {
+  overflow: hidden;
+  color: #94a3b8;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 :deep(.date-pill),
 :deep(.date-cell) {
   color: #475569;
@@ -1736,6 +1741,21 @@ onMounted(async () => {
 
 :deep(.remark-cell) {
   color: #64748b;
+}
+
+:deep(.link-button) {
+  width: fit-content;
+  border: 0;
+  background: transparent;
+  color: #2563eb;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+}
+
+:deep(.link-button:hover) {
+  color: #1d4ed8;
+  text-decoration: underline;
 }
 
 .items-editor {

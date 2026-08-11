@@ -115,6 +115,51 @@ FEISHU_STATUS_MAP = {
     "未收款": "overdue",
 }
 
+FEISHU_COMPANY_ALIASES = {
+    "263": "263 Global Communications Limited",
+    "AKILE": "AK",
+    "AOFEI奥飞": "Aofei",
+    "BACKWAVES": "BACK WAVES LIMITED",
+    "BACKWAVES HKD": "BACK WAVES LIMITED",
+    "BACKWAVES SG": "BACK WAVES LIMITED",
+    "CMI": "China Mobile International Limited",
+    "CMI UK": "China Mobile International Limited",
+    "CUG UK": "China Unicom (Europe) Operations Limited",
+    "CIELOCOM": "Cielocom Hongkong Limited",
+    "CORNSEED": "Cornseed Limited",
+    "DEEPINSIGHT强尼": "DeepInsight Inc.",
+    "DODO KK": "DODO K.K.",
+    "EONS": "Eons Data Communications Limited",
+    "FLARESPEED": "Flarespeed HK Co., Limited",
+    "FLARESPEED大姚": "Flarespeed HK Co., Limited",
+    "GCC 无忧云": "GCC CLOUD TECHNOLOGY LIMITED",
+    "GEELINX 安锐普世": "Geelinx",
+    "H POP 肖总": "H POP Technology Limited",
+    "HKBRI": "Hong Kong Bridge Info-tech Limited",
+    "LIASAIL": "Liasail Global HongKong Limited",
+    "LINKSPEED": "上海灵肃数据科技有限公司",
+    "MOECHUANG": "Moechuang",
+    "NETTOP": "NETTOP LTD",
+    "ONEESWORLD": "ONEESWORLD PTE.LTD",
+    "PBS": "Telstra PBS limited",
+    "QUICKFOX科臻赛": "Quickfox",
+    "XBXZ": "XIAOBAIXUEZHANG",
+    "XIYE": "Futurex investment company limited",
+    "飞牛": "Awesomecloud Limited",
+    "高诺": "GOALNOW NETWORK TECHNOLOGY COMPANY LIMITED",
+    "荔枝云": "CloudSDWan Limited",
+    "六六云": "CloudSDWan Limited",
+    "萌创网络": "Moechuang",
+    "南凌": "Nova",
+    "瑞技": "瑞技BBT",
+    "王菠萝": "Fountainhead Technologies Limited",
+    "心海": "STARCLOUD INFORMATION LIMITED",
+    "云端": "Cloud Hong Kong East Asia Telecom Co., Limited",
+    "智联": "Zhilian Technology CO., LTD.",
+    "智盈": "Guangzhou Tieren Intelligent Manufacturing Technology Co., Ltd. (广州铁刃智造技术有限公司)",
+    "紫电": "Gadgets Lab Ltd",
+}
+
 
 def build_invoice_no(customer_name: str | None, owner: str | None, bill_month) -> str:
     if not customer_name or not owner or not bill_month:
@@ -378,7 +423,20 @@ def parse_feishu_date(value: Any) -> date | None:
             return date(int(compact[:4]), int(compact[4:6]), 1)
         except ValueError:
             pass
-    for pattern in ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d", "%Y-%m", "%Y/%m", "%Y.%m"):
+    for pattern in (
+        "%Y-%m-%d",
+        "%Y/%m/%d",
+        "%Y.%m.%d",
+        "%Y-%m",
+        "%Y/%m",
+        "%Y.%m",
+        "%y-%m-%d",
+        "%y/%m/%d",
+        "%y.%m.%d",
+        "%y-%m",
+        "%y/%m",
+        "%y.%m",
+    ):
         try:
             parsed = datetime.strptime(text, pattern)
             return date(parsed.year, parsed.month, parsed.day)
@@ -419,7 +477,12 @@ async def get_or_create_billing_company(name: str, bill_type: int, create_missin
     name = clean(name)
     if not name:
         return None
-    company = await Company.filter(Q(name=name) | Q(legal_name=name)).first()
+    target_name = FEISHU_COMPANY_ALIASES.get(name.upper(), name)
+    company = await Company.filter(Q(name=target_name) | Q(legal_name=target_name)).first()
+    if not company and target_name != name:
+        company = await Company.filter(Q(name=name) | Q(legal_name=name)).first()
+    if not company:
+        company = await Company.filter(Q(name=name) | Q(legal_name=name)).first()
     if company or not create_missing:
         return company
     return await Company.create(role=2 if bill_type == 2 else 1, name=name, legal_name=name, status=True)
@@ -764,8 +827,7 @@ async def sync_feishu_bills(payload: FeishuBillSyncPayload):
             skipped.append({"record_id": record_id, "reason": "客户/供应商为空或不存在", "fields": fields})
             continue
         bill_data, items = feishu_record_to_bill_payload(record, company.id, payload.bill_type)
-        if not bill_data.get("customer_name"):
-            bill_data["customer_name"] = company.name or company.legal_name or ""
+        bill_data["customer_name"] = company.name or company.legal_name or company_name
         preview = {**bill_data, "items": items}
         if payload.dry_run:
             previews.append(preview)

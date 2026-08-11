@@ -245,7 +245,7 @@ async def init_menus():
         )
         await Menu.create(
             menu_type=MenuType.MENU,
-            name="账单管理",
+            name="账单记录",
             path="/bill",
             order=3,
             parent_id=0,
@@ -756,8 +756,8 @@ async def ensure_bill_menu():
     bill_menu = await Menu.filter(path="/bill").first()
     if bill_menu:
         changed = False
-        if bill_menu.name != "账单管理":
-            bill_menu.name = "账单管理"
+        if bill_menu.name != "账单记录":
+            bill_menu.name = "账单记录"
             changed = True
         if bill_menu.component != "/bill":
             bill_menu.component = "/bill"
@@ -779,7 +779,7 @@ async def ensure_bill_menu():
     else:
         bill_menu = await Menu.create(
             menu_type=MenuType.MENU,
-            name="账单管理",
+            name="账单记录",
             path="/bill",
             order=2,
             parent_id=finance_menu.id,
