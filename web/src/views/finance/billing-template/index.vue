@@ -171,7 +171,7 @@ const columns = [
     render: (row) =>
       h('div', { class: 'service-cell' }, [
         h(NTag, { type: serviceTagType(row.service_type), bordered: false, round: true }, { default: () => row.service_type || '-' }),
-        h('span', { class: 'region-text' }, row.region_name || regionOptionLabel(row)),
+        h('span', { class: 'region-text' }, displayRegionLabel(row)),
       ]),
   },
   {
@@ -182,8 +182,8 @@ const columns = [
     render: (row) =>
       h('div', { class: 'billing-cell' }, [
         h('div', { class: 'price-line' }, [
-          h('span', { class: 'currency' }, row.currency || ''),
           h('span', { class: 'price' }, formatNumber(row.unit_price)),
+          h('span', { class: 'currency' }, row.currency || ''),
         ]),
         h('div', { class: 'billing-sub' }, `${billingRuleText(row.billing_rule)} · ${row.unit || '-'}`),
       ]),
@@ -423,6 +423,12 @@ function regionOptionLabel(region = {}) {
   return code ? `${city || '-'} (${code})` : city || '-'
 }
 
+function displayRegionLabel(region = {}) {
+  const raw = region.region_name || regionOptionLabel(region)
+  const main = String(raw || '-').split('/').map((item) => item.trim()).filter(Boolean).pop() || '-'
+  return main
+}
+
 function iconButton(label, icon, props = {}) {
   const { type, ...buttonProps } = props
   return h(
@@ -457,7 +463,7 @@ onMounted(async () => {
             clearable
             filterable
             check-strategy="child"
-            :show-path="true"
+            :show-path="false"
             placeholder="从 POP 区域选择"
             :options="regionOptions"
             :filter="regionFilter"
@@ -523,7 +529,7 @@ onMounted(async () => {
                 clearable
                 filterable
                 check-strategy="child"
-                :show-path="true"
+                :show-path="false"
                 placeholder="从 POP 区域选择"
                 :options="regionOptions"
                 :filter="regionFilter"
