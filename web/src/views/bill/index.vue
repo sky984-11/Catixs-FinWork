@@ -3,6 +3,7 @@ import { computed, h, nextTick, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   NButton,
+  NCheckbox,
   NDatePicker,
   NForm,
   NFormItem,
@@ -19,7 +20,7 @@ import {
   NUpload,
 } from 'naive-ui'
 
-import CommonPage from '@/components/page/CommonPage.vue'
+import AppPage from '@/components/page/AppPage.vue'
 import QueryBarItem from '@/components/query-bar/QueryBarItem.vue'
 import CrudModal from '@/components/table/CrudModal.vue'
 import CrudTable from '@/components/table/CrudTable.vue'
@@ -35,8 +36,10 @@ const modalFormRef = ref(null)
 const modalVisible = ref(false)
 const detailVisible = ref(false)
 const generationVisible = ref(false)
+const feishuSyncVisible = ref(false)
 const modalLoading = ref(false)
 const generationLoading = ref(false)
+const feishuSyncLoading = ref(false)
 const modalAction = ref('add')
 const pendingVoucherFile = ref(null)
 const detailBill = ref(null)
@@ -46,6 +49,7 @@ const issuerCompanyList = ref([])
 const issuerBankAccounts = ref({})
 const tableRows = ref([])
 const generationResult = ref(null)
+const feishuSyncResult = ref(null)
 const summary = ref({
   count: 0,
   by_currency: [],
@@ -60,6 +64,7 @@ const queryItems = ref({
 
 const modalForm = reactive(createEmptyForm())
 const generationForm = reactive(createGenerationForm())
+const feishuSyncForm = reactive(createFeishuSyncForm())
 
 const modalTitle = computed(() => (modalAction.value === 'add' ? '新增账单' : '编辑账单'))
 const companyOptions = computed(() =>
@@ -116,7 +121,7 @@ const columns = [
   {
     title: '客户名',
     key: 'customer_name',
-    width: 190,
+    width: 170,
     fixed: 'left',
     sorter: true,
     ellipsis: { tooltip: true },
@@ -130,7 +135,7 @@ const columns = [
   {
     title: '月份',
     key: 'bill_month',
-    width: 92,
+    width: 84,
     align: 'center',
     sorter: true,
     render: (row) => h('span', { class: 'date-pill' }, formatMonth(row.bill_month)),
@@ -138,7 +143,7 @@ const columns = [
   {
     title: '是否结清',
     key: 'is_settled',
-    width: 92,
+    width: 84,
     align: 'center',
     sorter: true,
     render(row) {
@@ -152,7 +157,7 @@ const columns = [
   {
     title: '状态',
     key: 'status',
-    width: 96,
+    width: 90,
     align: 'center',
     sorter: true,
     render(row) {
@@ -163,15 +168,15 @@ const columns = [
   {
     title: '账单编号',
     key: 'invoice_no',
-    width: 220,
+    width: 180,
     sorter: true,
     ellipsis: { tooltip: true },
     render: (row) => h('span', { class: 'invoice-no-cell' }, row.invoice_no || '-'),
   },
-  { title: '账单日期', key: 'invoice_date', width: 112, align: 'center', sorter: true, render: (row) => renderDateCell(row.invoice_date) },
-  { title: '截止日期', key: 'due_date', width: 112, align: 'center', sorter: true, render: (row) => renderDateCell(row.due_date) },
-  { title: '计费开始', key: 'billing_start_date', width: 112, align: 'center', sorter: true, render: (row) => renderDateCell(row.billing_start_date) },
-  { title: '计费结束', key: 'billing_end_date', width: 112, align: 'center', sorter: true, render: (row) => renderDateCell(row.billing_end_date) },
+  { title: '账单日期', key: 'invoice_date', width: 96, align: 'center', sorter: true, render: (row) => renderDateCell(row.invoice_date) },
+  { title: '截止日期', key: 'due_date', width: 96, align: 'center', sorter: true, render: (row) => renderDateCell(row.due_date) },
+  { title: '计费开始', key: 'billing_start_date', width: 96, align: 'center', sorter: true, render: (row) => renderDateCell(row.billing_start_date) },
+  { title: '计费结束', key: 'billing_end_date', width: 96, align: 'center', sorter: true, render: (row) => renderDateCell(row.billing_end_date) },
   {
     title: '币种',
     key: 'currency',
@@ -187,7 +192,7 @@ const columns = [
   {
     title: '账单金额',
     key: 'total_amount',
-    width: 116,
+    width: 105,
     align: 'right',
     sorter: true,
     render: (row) => renderMoneyCell(row.total_amount, row.currency),
@@ -195,7 +200,7 @@ const columns = [
   {
     title: '已付金额',
     key: 'paid_amount',
-    width: 116,
+    width: 105,
     align: 'right',
     sorter: true,
     render: (row) => renderMoneyCell(row.paid_amount, row.currency),
@@ -203,7 +208,7 @@ const columns = [
   {
     title: '欠费金额',
     key: 'unpaid_amount',
-    width: 116,
+    width: 105,
     align: 'right',
     sorter: true,
     render: (row) => renderMoneyCell(row.unpaid_amount, row.currency, Number(row.unpaid_amount || 0) > 0 ? 'danger' : 'muted'),
@@ -211,7 +216,7 @@ const columns = [
   {
     title: '付款凭证',
     key: 'payment_voucher_url',
-    width: 84,
+    width: 70,
     align: 'center',
     render(row) {
       return row.payment_voucher_url
@@ -222,7 +227,7 @@ const columns = [
   {
     title: '负责人',
     key: 'owner',
-    width: 110,
+    width: 90,
     sorter: true,
     ellipsis: { tooltip: true },
     render: (row) => h(NTag, { size: 'small', bordered: false, round: true }, { default: () => getOwnerName(row.owner) }),
@@ -230,14 +235,14 @@ const columns = [
   {
     title: '备注',
     key: 'remark',
-    width: 150,
+    width: 120,
     ellipsis: { tooltip: true },
     render: (row) => h('span', { class: row.remark ? 'remark-cell' : 'muted' }, row.remark || '-'),
   },
   {
     title: '操作',
     key: 'actions',
-    width: 210,
+    width: 168,
     fixed: 'right',
     align: 'center',
     render(row) {
@@ -304,6 +309,19 @@ function createGenerationForm() {
   }
 }
 
+function createFeishuSyncForm() {
+  return {
+    url: 'https://coretiers.feishu.cn/base/TbyPbBZJWafmcgsIyEocRorTnxh?table=tblaU90ppqwjOfta&view=vew8xyI8DE',
+    app_token: '',
+    table_id: '',
+    view_id: '',
+    bill_type: 1,
+    dry_run: false,
+    update_existing: true,
+    create_missing_companies: true,
+  }
+}
+
 function resetForm() {
   Object.assign(modalForm, createEmptyForm())
   pendingVoucherFile.value = null
@@ -312,6 +330,9 @@ function resetForm() {
 async function loadCompanies() {
   const res = await api.getCompanyList({ page: 1, page_size: 9999, business_only: true, status: true })
   companyList.value = res?.data || []
+  if (!queryItems.value.company_id && companyList.value.length) {
+    queryItems.value.company_id = companyList.value[0].id
+  }
 }
 
 async function loadIssuerCompanies() {
@@ -536,6 +557,32 @@ async function generateBills(dryRun = false) {
     }
   } finally {
     generationLoading.value = false
+  }
+}
+
+function openFeishuSyncModal() {
+  Object.assign(feishuSyncForm, createFeishuSyncForm())
+  feishuSyncResult.value = null
+  feishuSyncVisible.value = true
+}
+
+async function syncFeishuBills(dryRun = false) {
+  feishuSyncLoading.value = true
+  try {
+    const res = await api.syncFeishuBills({ ...feishuSyncForm, dry_run: dryRun })
+    feishuSyncResult.value = res?.data || null
+    const previews = feishuSyncResult.value?.previews?.length || 0
+    const created = feishuSyncResult.value?.created?.length || 0
+    const updated = feishuSyncResult.value?.updated?.length || 0
+    window.$message?.success?.(
+      dryRun ? `已读取 ${previews} 条预览` : `已导入 ${created} 条，更新 ${updated} 条`
+    )
+    if (!dryRun) {
+      feishuSyncVisible.value = false
+      await Promise.all([loadCompanies(), $table.value?.handleSearch()])
+    }
+  } finally {
+    feishuSyncLoading.value = false
   }
 }
 
@@ -950,22 +997,8 @@ onMounted(async () => {
 </script>
 
 <template>
-  <CommonPage show-footer title="账单管理">
-    <template #action>
-      <NButton secondary round @click="router.push('/billing-subscription')">
-        <TheIcon icon="mdi:database-cog-outline" :size="18" class="mr-5" />
-        客户产品订阅
-      </NButton>
-      <NButton secondary type="info" round @click="openGenerationModal">
-        <TheIcon icon="mdi:auto-fix" :size="18" class="mr-5" />
-        自动生成账单
-      </NButton>
-      <NButton type="primary" round @click="openAdd">
-        <TheIcon icon="material-symbols:add" :size="18" class="mr-5" />
-        新增账单
-      </NButton>
-    </template>
-
+  <AppPage :show-footer="false">
+    <div class="bill-page">
     <div class="summary-strip">
       <div class="summary-card">
         <span>账单</span>
@@ -1014,37 +1047,67 @@ onMounted(async () => {
       </div>
     </div>
 
-    <CrudTable
-      ref="$table"
-      v-model:query-items="queryItems"
-      :columns="columns"
-      :get-data="api.getBillList"
-      :scroll-x="2050"
-      @on-data-change="handleBillDataChange"
-    >
-      <template #queryBar>
-        <QueryBarItem label="客户" :label-width="50">
-          <NSelect
-            v-model:value="queryItems.company_id"
-            clearable
-            filterable
-            :options="companyOptions"
-            :render-label="renderCompanyOptionLabel"
-          />
-        </QueryBarItem>
-        <QueryBarItem label="月份" :label-width="50">
-          <NDatePicker
-            v-model:formatted-value="queryItems.bill_month"
-            type="month"
-            value-format="yyyy-MM-dd"
-            clearable
-          />
-        </QueryBarItem>
-        <QueryBarItem label="状态" :label-width="50">
-          <NSelect v-model:value="queryItems.status" clearable :options="billStatusOptions" />
-        </QueryBarItem>
-      </template>
-    </CrudTable>
+      <section class="bill-panel">
+        <div class="table-toolbar">
+          <div class="panel-heading">
+            <strong>账单记录</strong>
+            <span>{{ formatNumber(summary.count) }} 条</span>
+          </div>
+          <NSpace :wrap="false">
+            <NButton secondary @click="router.push('/billing-subscription')">
+              <template #icon><TheIcon icon="mdi:database-cog-outline" :size="18" /></template>
+              客户产品订阅
+            </NButton>
+            <NButton secondary type="success" @click="openFeishuSyncModal">
+              <template #icon><TheIcon icon="mdi:table-sync" :size="18" /></template>
+              同步飞书账单
+            </NButton>
+            <NButton secondary type="info" @click="openGenerationModal">
+              <template #icon><TheIcon icon="mdi:auto-fix" :size="18" /></template>
+              自动生成账单
+            </NButton>
+            <NButton type="primary" @click="openAdd">
+              <template #icon><TheIcon icon="material-symbols:add" :size="18" /></template>
+              新增账单
+            </NButton>
+          </NSpace>
+        </div>
+
+        <div class="bill-table-wrap">
+          <CrudTable
+            ref="$table"
+            v-model:query-items="queryItems"
+            :columns="columns"
+            :get-data="api.getBillList"
+            flex-height
+            :scroll-x="1825"
+            @on-data-change="handleBillDataChange"
+          >
+            <template #queryBar>
+              <QueryBarItem label="客户" :label-width="50">
+                <NSelect
+                  v-model:value="queryItems.company_id"
+                  clearable
+                  filterable
+                  :options="companyOptions"
+                  :render-label="renderCompanyOptionLabel"
+                />
+              </QueryBarItem>
+              <QueryBarItem label="月份" :label-width="50">
+                <NDatePicker
+                  v-model:formatted-value="queryItems.bill_month"
+                  type="month"
+                  value-format="yyyy-MM-dd"
+                  clearable
+                />
+              </QueryBarItem>
+              <QueryBarItem label="状态" :label-width="50">
+                <NSelect v-model:value="queryItems.status" clearable :options="billStatusOptions" />
+              </QueryBarItem>
+            </template>
+          </CrudTable>
+        </div>
+      </section>
 
     <NModal
       v-model:show="generationVisible"
@@ -1085,6 +1148,58 @@ onMounted(async () => {
           <NButton @click="generationVisible = false">取消</NButton>
           <NButton :loading="generationLoading" secondary type="info" @click="generateBills(true)">生成预览</NButton>
           <NButton :loading="generationLoading" type="primary" @click="generateBills(false)">确认生成</NButton>
+        </NSpace>
+      </template>
+    </NModal>
+
+    <NModal
+      v-model:show="feishuSyncVisible"
+      preset="card"
+      title="同步飞书账单"
+      style="width: min(760px, calc(100vw - 40px))"
+      :bordered="false"
+    >
+      <NForm label-placement="left" label-width="110" :model="feishuSyncForm">
+        <NFormItem label="多维表链接">
+          <NInput
+            v-model:value="feishuSyncForm.url"
+            clearable
+            placeholder="粘贴飞书多维表链接"
+          />
+        </NFormItem>
+        <NGrid :cols="2" :x-gap="16">
+          <NFormItemGi label="账单类型">
+            <NSelect v-model:value="feishuSyncForm.bill_type" :options="billTypeOptions" />
+          </NFormItemGi>
+          <NFormItemGi label="App Token">
+            <NInput v-model:value="feishuSyncForm.app_token" clearable placeholder="链接可自动解析" />
+          </NFormItemGi>
+          <NFormItemGi label="Table ID">
+            <NInput v-model:value="feishuSyncForm.table_id" clearable placeholder="链接可自动解析" />
+          </NFormItemGi>
+          <NFormItemGi label="View ID">
+            <NInput v-model:value="feishuSyncForm.view_id" clearable placeholder="链接可自动解析" />
+          </NFormItemGi>
+          <NFormItemGi label="更新已有">
+            <NCheckbox v-model:checked="feishuSyncForm.update_existing">按来源记录或账单编号更新</NCheckbox>
+          </NFormItemGi>
+          <NFormItemGi label="自动建客户">
+            <NCheckbox v-model:checked="feishuSyncForm.create_missing_companies">客户/供应商不存在时创建</NCheckbox>
+          </NFormItemGi>
+        </NGrid>
+      </NForm>
+      <div v-if="feishuSyncResult" class="generation-result">
+        <span>读取 {{ feishuSyncResult.total || 0 }} 条</span>
+        <span>预览 {{ feishuSyncResult.previews?.length || 0 }} 条</span>
+        <span>新增 {{ feishuSyncResult.created?.length || 0 }} 条</span>
+        <span>更新 {{ feishuSyncResult.updated?.length || 0 }} 条</span>
+        <span>跳过 {{ feishuSyncResult.skipped?.length || 0 }} 条</span>
+      </div>
+      <template #footer>
+        <NSpace justify="end">
+          <NButton @click="feishuSyncVisible = false">取消</NButton>
+          <NButton :loading="feishuSyncLoading" secondary type="info" @click="syncFeishuBills(true)">读取预览</NButton>
+          <NButton :loading="feishuSyncLoading" type="primary" @click="syncFeishuBills(false)">确认导入</NButton>
         </NSpace>
       </template>
     </NModal>
@@ -1335,24 +1450,36 @@ onMounted(async () => {
         </div>
       </div>
     </NModal>
-  </CommonPage>
+    </div>
+  </AppPage>
 </template>
 
 <style scoped>
+.bill-page {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+  background: #f5f7fb;
+  padding: 10px;
+}
+
 .summary-strip {
   display: grid;
   grid-template-columns: 0.8fr repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 14px;
+  flex-shrink: 0;
+  gap: 10px;
 }
 
 .summary-card {
   display: grid;
   min-height: 72px;
   align-content: center;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  background: linear-gradient(180deg, #fff, #f8fafc);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  background: #fff;
   padding: 12px 14px;
 }
 
@@ -1400,6 +1527,120 @@ onMounted(async () => {
 
 .summary-card.total strong {
   color: #1d4ed8;
+}
+
+.bill-panel {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px;
+}
+
+.table-toolbar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.panel-heading {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.panel-heading strong {
+  color: #0f172a;
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.panel-heading span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.bill-table-wrap {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  width: 100%;
+  overflow: hidden;
+}
+
+.bill-table-wrap :deep(.crud-table-wrap) {
+  display: flex;
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.bill-table-wrap :deep(.query-bar) {
+  min-height: auto;
+  flex-shrink: 0;
+  align-items: center;
+  border-color: rgba(148, 163, 184, 0.22);
+  background: #f8fafc;
+  margin-bottom: 10px;
+  padding: 10px;
+}
+
+.bill-table-wrap :deep(.query-bar[mb-30]) {
+  margin-bottom: 10px;
+}
+
+.bill-table-wrap :deep(.query-bar .n-space) {
+  gap: 8px 12px !important;
+}
+
+.bill-table-wrap :deep(.n-data-table) {
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.bill-table-wrap :deep(.n-data-table .n-data-table-base-table) {
+  min-height: 0;
+}
+
+.bill-table-wrap :deep(.n-data-table-base-table-body) {
+  overflow: auto;
+}
+
+.bill-table-wrap :deep(.n-data-table-wrapper) {
+  min-width: 0;
+  min-height: 0;
+}
+
+.bill-table-wrap :deep(.n-data-table-th) {
+  background: #f8fafc;
+  color: #334155;
+  font-weight: 600;
+}
+
+.bill-table-wrap :deep(.n-data-table-td) {
+  color: #334155;
+}
+
+.bill-table-wrap :deep(.n-data-table .n-data-table-tr:hover .n-data-table-td) {
+  background: #f8fafc;
+}
+
+.bill-table-wrap :deep(.n-pagination) {
+  flex-shrink: 0;
+  justify-content: flex-end;
+  padding-top: 12px;
 }
 
 .generation-result {
@@ -1740,6 +1981,11 @@ onMounted(async () => {
 @media (max-width: 960px) {
   .summary-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .table-toolbar {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .item-row,

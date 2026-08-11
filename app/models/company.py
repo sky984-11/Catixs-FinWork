@@ -102,6 +102,8 @@ class Bill(BaseModel, TimestampMixin):
     local_currency = fields.CharField(max_length=10, null=True, description="本地记账币种")
     fx_rate = fields.FloatField(null=True, description="账单汇率快照")
     local_amount = fields.FloatField(null=True, description="本地币种金额")
+    source = fields.CharField(max_length=50, null=True, description="账单来源", index=True)
+    source_record_id = fields.CharField(max_length=100, null=True, description="来源记录ID", index=True)
 
     class Meta:
         table = "bill"

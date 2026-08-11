@@ -125,6 +125,7 @@ export default {
   deleteBill: (params = {}) => request.delete('/bill/delete', { params }),
   billAutomationOptions: () => request.get('/bill/automation/options'),
   generateBills: (data = {}) => request.post('/bill/generate', data),
+  syncFeishuBills: (data = {}) => request.post('/bill/feishu/sync', data, { timeout: 120000 }),
   updateBillStatus: (billId, data = {}) => request.post(`/bill/${billId}/status`, data),
   createBillPayment: (billId, data = {}) => request.post(`/bill/${billId}/payments`, data),
   getBillingTemplates: (params = {}) => request.get('/bill/templates', { params }),

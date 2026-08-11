@@ -1245,7 +1245,11 @@ async def ensure_bill_columns():
             ADD COLUMN IF NOT EXISTS "approval_comment" VARCHAR(500),
             ADD COLUMN IF NOT EXISTS "local_currency" VARCHAR(10),
             ADD COLUMN IF NOT EXISTS "fx_rate" DOUBLE PRECISION,
-            ADD COLUMN IF NOT EXISTS "local_amount" DOUBLE PRECISION;
+            ADD COLUMN IF NOT EXISTS "local_amount" DOUBLE PRECISION,
+            ADD COLUMN IF NOT EXISTS "source" VARCHAR(50),
+            ADD COLUMN IF NOT EXISTS "source_record_id" VARCHAR(100);
+        CREATE INDEX IF NOT EXISTS "idx_bill_source" ON "bill" ("source");
+        CREATE INDEX IF NOT EXISTS "idx_bill_source_record_id" ON "bill" ("source_record_id");
 
         ALTER TABLE IF EXISTS "bill_item"
             ADD COLUMN IF NOT EXISTS "service_id" VARCHAR(100),

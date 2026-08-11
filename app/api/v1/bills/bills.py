@@ -1,11 +1,15 @@
 import logging
 import os
+import re
 import uuid
 from calendar import monthrange
 from datetime import date, datetime, timedelta
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
+import httpx
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi.encoders import jsonable_encoder
 from tortoise.expressions import Q
 
 from app.controllers.bill import bill_controller, bill_item_controller
@@ -19,7 +23,9 @@ from app.schemas.bills import (
     BillUpdate,
     BillingSubscriptionPayload,
     BillingTemplatePayload,
+    FeishuBillSyncPayload,
 )
+from app.utils.feishu_app import FEISHU_API_BASE, get_tenant_access_token
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +68,51 @@ BILL_TRANSITIONS = {
     "send": {"from": {"pending_send"}, "to": "sent"},
     "mark_paid": {"from": {"issued", "pending_approval", "pending_send", "sent", "overdue"}, "to": "paid"},
     "mark_overdue": {"from": {"issued", "pending_approval", "pending_send", "sent"}, "to": "overdue"},
+}
+
+FEISHU_BILL_FIELD_ALIASES = {
+    "company_name": ["客户", "客户名称", "客户名", "供应商", "供应商名称", "公司", "公司名称", "Customer", "Vendor", "Company"],
+    "invoice_no": ["账单编号", "发票编号", "Invoice ID", "Invoice No", "Invoice Number", "Bill No", "编号"],
+    "bill_month": ["账单月份", "月份", "计费月份", "Billing Month", "Month"],
+    "invoice_date": ["账单日期", "开票日期", "发票日期", "Invoice Date", "Bill Date"],
+    "due_date": ["到期日", "截止日期", "付款截止日", "Due Date"],
+    "billing_start_date": ["计费开始", "计费开始日期", "服务开始", "Billing Start Date", "Start Date"],
+    "billing_end_date": ["计费结束", "计费结束日期", "服务结束", "Billing End Date", "End Date"],
+    "currency": ["币种", "Currency"],
+    "net_amount": ["Net Amount", "净额", "不含税金额", "小计"],
+    "vat_amount": ["VAT Amount", "VAT", "税额", "增值税"],
+    "total_amount": ["Total Amount", "总金额", "账单金额", "应收金额", "Amount"],
+    "paid_amount": ["Paid Amount", "已付金额", "已收金额", "已付款", "已收款"],
+    "unpaid_amount": ["Unpaid Amount", "未付金额", "未收金额", "欠费金额", "欠款"],
+    "owner": ["负责人", "Owner", "Sales", "AM"],
+    "term": ["账期", "付款账期", "Payment Term", "Term"],
+    "status": ["状态", "账单状态", "Status"],
+    "remark": ["备注", "说明", "Remark", "Notes"],
+    "bill_link": ["账单链接", "账单文件", "账单附件", "Invoice Link", "Bill Link"],
+    "payment_voucher_url": ["付款凭证", "支付凭证", "Payment Voucher", "Voucher"],
+    "local_currency": ["本地币种", "记账币种", "Local Currency"],
+    "fx_rate": ["汇率", "FX Rate", "Exchange Rate"],
+    "local_amount": ["本地金额", "记账金额", "Local Amount"],
+    "service_id": ["服务ID", "Service ID", "Circuit ID", "资源ID"],
+    "service": ["服务", "服务类型", "Service", "Service Type"],
+    "item": ["项目", "产品", "产品名称", "Item", "Product"],
+    "location": ["位置", "POP", "机房", "Location"],
+    "nrc_amount": ["NRC", "NRC Amount", "一次性费用"],
+    "mrc_amount": ["MRC", "MRC Amount", "月费"],
+}
+
+FEISHU_STATUS_MAP = {
+    "已开具": "issued",
+    "已开票": "issued",
+    "待审批": "pending_approval",
+    "待发送": "pending_send",
+    "已发送": "sent",
+    "已付款": "paid",
+    "已收款": "paid",
+    "已结清": "paid",
+    "逾期": "overdue",
+    "未付款": "overdue",
+    "未收款": "overdue",
 }
 
 
@@ -236,6 +287,251 @@ def template_payload_data(payload: BillingTemplatePayload) -> dict[str, Any]:
 
 def clean(value: Any) -> str:
     return str(value or "").strip()
+
+
+def parse_feishu_bitable_url(url: str) -> dict[str, str]:
+    parsed = urlparse(clean(url))
+    params = parse_qs(parsed.query)
+    parts = [part for part in parsed.path.split("/") if part]
+    app_token = ""
+    if "base" in parts:
+        index = parts.index("base")
+        if len(parts) > index + 1:
+            app_token = parts[index + 1]
+    return {
+        "app_token": app_token,
+        "table_id": (params.get("table") or [""])[0],
+        "view_id": (params.get("view") or [""])[0],
+    }
+
+
+def feishu_plain_value(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, list):
+        parts = [feishu_plain_value(item) for item in value]
+        parts = [str(item) for item in parts if item not in (None, "")]
+        return ", ".join(parts)
+    if isinstance(value, dict):
+        for key in ("text", "name", "en_name", "email", "link", "url"):
+            if value.get(key):
+                return value.get(key)
+        if "value" in value:
+            return feishu_plain_value(value.get("value"))
+        return ", ".join(str(item) for item in value.values() if item not in (None, ""))
+    return value
+
+
+def feishu_url_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        for item in value:
+            link = feishu_url_value(item)
+            if link:
+                return link
+        return clean(feishu_plain_value(value))
+    if isinstance(value, dict):
+        for key in ("tmp_url", "url", "link"):
+            if value.get(key):
+                return clean(value.get(key))
+        return clean(feishu_plain_value(value))
+    return clean(value)
+
+
+def pick_feishu_field(fields: dict[str, Any], key: str) -> Any:
+    normalized = {name.strip().lower(): value for name, value in fields.items()}
+    for alias in FEISHU_BILL_FIELD_ALIASES.get(key, []):
+        if alias.strip().lower() in normalized:
+            return feishu_plain_value(normalized[alias.strip().lower()])
+    return None
+
+
+def pick_feishu_url_field(fields: dict[str, Any], key: str) -> str:
+    normalized = {name.strip().lower(): value for name, value in fields.items()}
+    for alias in FEISHU_BILL_FIELD_ALIASES.get(key, []):
+        if alias.strip().lower() in normalized:
+            return feishu_url_value(normalized[alias.strip().lower()])
+    return ""
+
+
+def parse_feishu_date(value: Any) -> date | None:
+    value = feishu_plain_value(value)
+    if value in (None, ""):
+        return None
+    if isinstance(value, (int, float)):
+        timestamp = float(value)
+        if timestamp > 10_000_000_000:
+            timestamp = timestamp / 1000
+        return datetime.fromtimestamp(timestamp).date()
+    text = clean(value)
+    if not text:
+        return None
+    compact = re.sub(r"\D", "", text)
+    if len(compact) == 8:
+        try:
+            return date(int(compact[:4]), int(compact[4:6]), int(compact[6:8]))
+        except ValueError:
+            pass
+    if len(compact) == 6:
+        try:
+            return date(int(compact[:4]), int(compact[4:6]), 1)
+        except ValueError:
+            pass
+    for pattern in ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d", "%Y-%m", "%Y/%m", "%Y.%m"):
+        try:
+            parsed = datetime.strptime(text, pattern)
+            return date(parsed.year, parsed.month, parsed.day)
+        except ValueError:
+            continue
+    match = re.search(r"(\d{4})[-/.年](\d{1,2})(?:[-/.月](\d{1,2}))?", text)
+    if match:
+        try:
+            return date(int(match.group(1)), int(match.group(2)), int(match.group(3) or 1))
+        except ValueError:
+            return None
+    return None
+
+
+def parse_feishu_float(value: Any) -> float | None:
+    value = feishu_plain_value(value)
+    if value in (None, ""):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = clean(value).replace(",", "")
+    match = re.search(r"-?\d+(?:\.\d+)?", text)
+    return float(match.group(0)) if match else None
+
+
+def normalize_feishu_status(value: Any, unpaid_amount: float | None = None) -> str:
+    text = clean(feishu_plain_value(value))
+    if text in BILL_STATUS_LABELS:
+        return text
+    if text in FEISHU_STATUS_MAP:
+        return FEISHU_STATUS_MAP[text]
+    if unpaid_amount is not None and unpaid_amount <= 0:
+        return "paid"
+    return "issued"
+
+
+async def get_or_create_billing_company(name: str, bill_type: int, create_missing: bool) -> Company | None:
+    name = clean(name)
+    if not name:
+        return None
+    company = await Company.filter(Q(name=name) | Q(legal_name=name)).first()
+    if company or not create_missing:
+        return company
+    return await Company.create(role=2 if bill_type == 2 else 1, name=name, legal_name=name, status=True)
+
+
+def feishu_record_to_bill_payload(record: dict[str, Any], company_id: int, bill_type: int) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    fields = record.get("fields") or {}
+    total_amount = parse_feishu_float(pick_feishu_field(fields, "total_amount"))
+    net_amount = parse_feishu_float(pick_feishu_field(fields, "net_amount"))
+    vat_amount = parse_feishu_float(pick_feishu_field(fields, "vat_amount")) or 0
+    paid_amount = parse_feishu_float(pick_feishu_field(fields, "paid_amount")) or 0
+    unpaid_amount = parse_feishu_float(pick_feishu_field(fields, "unpaid_amount"))
+    if net_amount is None:
+        net_amount = total_amount if total_amount is not None else 0
+    if total_amount is None:
+        total_amount = float(net_amount or 0) + float(vat_amount or 0)
+    if unpaid_amount is None:
+        unpaid_amount = max(float(total_amount or 0) - float(paid_amount or 0), 0)
+
+    bill_month = parse_feishu_date(pick_feishu_field(fields, "bill_month"))
+    if bill_month:
+        bill_month = month_start(bill_month)
+    invoice_date = parse_feishu_date(pick_feishu_field(fields, "invoice_date"))
+    billing_start = parse_feishu_date(pick_feishu_field(fields, "billing_start_date")) or bill_month
+    billing_end = parse_feishu_date(pick_feishu_field(fields, "billing_end_date")) or (month_end(bill_month) if bill_month else None)
+    customer_name = clean(pick_feishu_field(fields, "company_name"))
+    currency = clean(pick_feishu_field(fields, "currency")) or "USD"
+    status = normalize_feishu_status(pick_feishu_field(fields, "status"), unpaid_amount)
+    bill_link = pick_feishu_url_field(fields, "bill_link")
+    payment_voucher_url = pick_feishu_url_field(fields, "payment_voucher_url")
+    remark = clean(pick_feishu_field(fields, "remark"))
+    if bill_link:
+        remark = f"{remark}\n账单链接: {bill_link}".strip()
+    item = {
+        "service_id": clean(pick_feishu_field(fields, "service_id")) or record.get("record_id") or "",
+        "service": clean(pick_feishu_field(fields, "service")) or "Billing",
+        "item": clean(pick_feishu_field(fields, "item")) or clean(pick_feishu_field(fields, "invoice_no")) or "Billing record",
+        "location": clean(pick_feishu_field(fields, "location")),
+        "start_date": billing_start,
+        "end_date": billing_end,
+        "nrc_amount": parse_feishu_float(pick_feishu_field(fields, "nrc_amount")) or 0,
+        "mrc_amount": parse_feishu_float(pick_feishu_field(fields, "mrc_amount")) or float(net_amount or 0),
+    }
+    item["amount"] = float(item["nrc_amount"] or 0) + float(item["mrc_amount"] or 0)
+    payload = {
+        "company_id": company_id,
+        "invoice_no": clean(pick_feishu_field(fields, "invoice_no")),
+        "customer_name": customer_name,
+        "bill_month": bill_month,
+        "invoice_date": invoice_date,
+        "due_date": parse_feishu_date(pick_feishu_field(fields, "due_date")),
+        "billing_start_date": billing_start,
+        "billing_end_date": billing_end,
+        "currency": currency,
+        "net_amount": float(item["amount"] or 0),
+        "vat_amount": vat_amount,
+        "total_amount": float(item["amount"] or 0) + float(vat_amount or 0),
+        "paid_amount": paid_amount,
+        "unpaid_amount": max(float(item["amount"] or 0) + float(vat_amount or 0) - float(paid_amount or 0), 0),
+        "is_settled": status == "paid",
+        "payment_voucher_url": payment_voucher_url or "",
+        "owner": clean(pick_feishu_field(fields, "owner")),
+        "remark": remark,
+        "bill_type": bill_type,
+        "status": status,
+        "term": clean(pick_feishu_field(fields, "term")),
+        "approval_comment": "",
+        "local_currency": clean(pick_feishu_field(fields, "local_currency")) or None,
+        "fx_rate": parse_feishu_float(pick_feishu_field(fields, "fx_rate")),
+        "local_amount": parse_feishu_float(pick_feishu_field(fields, "local_amount")),
+        "source": "feishu_bitable",
+        "source_record_id": record.get("record_id"),
+    }
+    if not payload["invoice_no"]:
+        payload["invoice_no"] = build_invoice_no(customer_name, payload["owner"], bill_month)
+    if not payload["local_amount"]:
+        sync_local_amount(payload)
+    return payload, [item]
+
+
+async def fetch_feishu_bitable_records(app_token: str, table_id: str, view_id: str = "") -> list[dict[str, Any]]:
+    token = await get_tenant_access_token()
+    if not token:
+        raise HTTPException(status_code=400, detail="飞书应用凭证未配置或获取 tenant_access_token 失败")
+    records = []
+    page_token = ""
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        while True:
+            params = {"page_size": 500}
+            if view_id:
+                params["view_id"] = view_id
+            if page_token:
+                params["page_token"] = page_token
+            response = await client.get(
+                f"{FEISHU_API_BASE}/bitable/v1/apps/{app_token}/tables/{table_id}/records",
+                params=params,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            try:
+                data = response.json()
+            except ValueError:
+                raise HTTPException(status_code=502, detail=f"飞书多维表返回非 JSON：{response.text[:200]}")
+            if response.status_code != 200 or data.get("code") != 0:
+                raise HTTPException(status_code=502, detail=f"读取飞书多维表失败：{data.get('msg') or data}")
+            payload = data.get("data") or {}
+            records.extend(payload.get("items") or [])
+            if not payload.get("has_more"):
+                break
+            page_token = payload.get("page_token") or ""
+            if not page_token:
+                break
+    return records
 
 
 async def subscription_payload_data(payload: BillingSubscriptionPayload) -> dict[str, Any]:
@@ -443,6 +739,73 @@ async def delete_subscription(subscription_id: int):
     if not deleted:
         raise HTTPException(status_code=404, detail="产品订阅不存在")
     return Success(msg="Deleted Successfully")
+
+
+@router.post("/feishu/sync", summary="同步飞书多维表账单记录")
+async def sync_feishu_bills(payload: FeishuBillSyncPayload):
+    parsed = parse_feishu_bitable_url(payload.url)
+    app_token = clean(payload.app_token) or parsed["app_token"]
+    table_id = clean(payload.table_id) or parsed["table_id"]
+    view_id = clean(payload.view_id) or parsed["view_id"]
+    if not app_token or not table_id:
+        raise HTTPException(status_code=400, detail="请填写飞书多维表链接，或提供 app_token/table_id")
+
+    records = await fetch_feishu_bitable_records(app_token, table_id, view_id)
+    previews = []
+    created = []
+    updated = []
+    skipped = []
+    for record in records:
+        record_id = record.get("record_id") or ""
+        fields = record.get("fields") or {}
+        company_name = clean(pick_feishu_field(fields, "company_name"))
+        company = await get_or_create_billing_company(company_name, payload.bill_type, payload.create_missing_companies)
+        if not company:
+            skipped.append({"record_id": record_id, "reason": "客户/供应商为空或不存在", "fields": fields})
+            continue
+        bill_data, items = feishu_record_to_bill_payload(record, company.id, payload.bill_type)
+        if not bill_data.get("customer_name"):
+            bill_data["customer_name"] = company.name or company.legal_name or ""
+        preview = {**bill_data, "items": items}
+        if payload.dry_run:
+            previews.append(preview)
+            continue
+
+        existing = None
+        if record_id:
+            existing = await bill_controller.model.filter(source="feishu_bitable", source_record_id=record_id).first()
+        if not existing and not record_id and bill_data.get("invoice_no"):
+            existing = await bill_controller.model.filter(invoice_no=bill_data["invoice_no"]).first()
+
+        if existing:
+            if not payload.update_existing:
+                skipped.append({"record_id": record_id, "invoice_no": bill_data.get("invoice_no"), "reason": "账单已存在"})
+                continue
+            before = await bill_to_dict(existing, include_items=True)
+            for key, value in bill_data.items():
+                setattr(existing, key, value)
+            await existing.save()
+            await bill_item_controller.model.filter(bill_id=existing.id).delete()
+            await create_bill_items_from_dicts(existing.id, items)
+            after = await bill_to_dict(existing, include_items=True)
+            await write_bill_audit(existing.id, "feishu_sync_update", before=before, after=after, comment=f"飞书记录 {record_id}")
+            updated.append(after)
+        else:
+            obj = await bill_controller.model.create(**bill_data)
+            await create_bill_items_from_dicts(obj.id, items)
+            after = await bill_to_dict(obj, include_items=True)
+            await write_bill_audit(obj.id, "feishu_sync_create", after=after, comment=f"飞书记录 {record_id}")
+            created.append(after)
+
+    return Success(
+        data=jsonable_encoder({
+            "total": len(records),
+            "created": created,
+            "updated": updated,
+            "previews": previews,
+            "skipped": skipped,
+        })
+    )
 
 
 @router.post("/generate", summary="自动生成账单")

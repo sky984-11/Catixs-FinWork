@@ -6,6 +6,7 @@
 
     <n-data-table
       :remote="remote"
+      :flex-height="flexHeight"
       :loading="loading"
       :columns="tableColumns"
       :data="tableData"
@@ -38,6 +39,10 @@ const props = defineProps({
   scrollX: {
     type: Number,
     default: 450,
+  },
+  flexHeight: {
+    type: Boolean,
+    default: false,
   },
   rowKey: {
     type: String,

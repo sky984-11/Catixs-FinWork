@@ -146,3 +146,14 @@ class BillPaymentPayload(BaseModel):
     fx_rate: Optional[float] = Field(None, example=7.215)
     voucher_url: str = Field("", example="/uploads/bills/voucher.png")
     remark: str = Field("", example="")
+
+
+class FeishuBillSyncPayload(BaseModel):
+    url: str = Field("", example="https://coretiers.feishu.cn/base/TbyPbBZJWafmcgsIyEocRorTnxh?table=tblaU90ppqwjOfta&view=vew8xyI8DE")
+    app_token: str = Field("", example="TbyPbBZJWafmcgsIyEocRorTnxh")
+    table_id: str = Field("", example="tblaU90ppqwjOfta")
+    view_id: str = Field("", example="vew8xyI8DE")
+    bill_type: int = Field(1, example=1)
+    dry_run: bool = Field(False, example=False)
+    update_existing: bool = Field(True, example=True)
+    create_missing_companies: bool = Field(True, example=True)
