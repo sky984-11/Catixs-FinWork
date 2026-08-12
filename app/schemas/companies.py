@@ -23,6 +23,7 @@ class BaseCompany(BaseModel):
     contact_person: Optional[str] = None
     company_phone: Optional[str] = None
     registration_no: Optional[str] = None
+    default_contract_months: int = 12
     contract_company_id: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -45,6 +46,7 @@ class CompanyCreate(BaseModel):
     contact_person: Optional[str] = Field("", example="", description="财务联系人")
     company_phone: Optional[str] = Field("", example="")
     registration_no: Optional[str] = Field("", example="")
+    default_contract_months: int = Field(12, example=12, description="默认合同月数")
     contract_company_id: Optional[int] = Field(None, description="签约主体公司ID")
     status: bool = Field(True, example=True)
 
@@ -67,5 +69,6 @@ class CompanyUpdate(BaseModel):
     contact_person: Optional[str] = Field("", example="", description="财务联系人")
     company_phone: Optional[str] = Field("", example="")
     registration_no: Optional[str] = Field("", example="")
+    default_contract_months: int = Field(12, example=12, description="默认合同月数")
     contract_company_id: Optional[int] = Field(None, description="签约主体公司ID")
     status: bool = Field(True, example=True)

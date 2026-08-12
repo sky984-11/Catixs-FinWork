@@ -7,6 +7,7 @@ import {
   NGrid,
   NFormItemGi,
   NInput,
+  NInputNumber,
   NPagination,
   NPopconfirm,
   NSelect,
@@ -193,6 +194,7 @@ function createEmptyForm() {
     noc_phone: '',
     registration_no: '',
     tax_no: '',
+    default_contract_months: 12,
     contract_company_id: null,
     remark: '',
     status: true,
@@ -572,6 +574,9 @@ onMounted(async () => {
             </NFormItemGi>
             <NFormItemGi label="注册号" path="registration_no">
               <NInput v-model:value="modalForm.registration_no" clearable />
+            </NFormItemGi>
+            <NFormItemGi label="默认合同" path="default_contract_months">
+              <NInputNumber v-model:value="modalForm.default_contract_months" :min="1" :precision="0" />
             </NFormItemGi>
             <NFormItemGi :span="2" label="地址" path="address">
               <NInput

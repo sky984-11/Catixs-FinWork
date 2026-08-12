@@ -19,6 +19,10 @@ def normalize_company_payload(payload: dict) -> dict:
         payload["role"] = int(payload.get("role") or 0)
     except (TypeError, ValueError):
         payload["role"] = 0
+    try:
+        payload["default_contract_months"] = max(1, int(payload.get("default_contract_months") or 12))
+    except (TypeError, ValueError):
+        payload["default_contract_months"] = 12
     return payload
 
 

@@ -56,6 +56,16 @@ const billingRuleOptions = [
   { label: '一次性', value: 'one_time' },
 ]
 
+const priceModelOptions = [
+  { label: '固定月费', value: 'fixed' },
+  { label: '按数量计费', value: 'quantity' },
+  { label: '带宽 Commit/Burst', value: 'commit_burst' },
+  { label: '95th 带宽', value: 'p95' },
+  { label: 'IP 数量计费', value: 'ip_quantity' },
+  { label: '一次性服务', value: 'one_time' },
+  { label: '服务抵扣 / 调账', value: 'credit' },
+]
+
 const serviceTypeCodeMap = {
   机柜: 'RACK',
   机位: 'U',
@@ -202,25 +212,20 @@ const columns = [
       ]),
   },
   {
-    title: '计费',
+    title: '标准价格',
     key: 'billing',
-    minWidth: 220,
+    minWidth: 260,
     align: 'right',
     render: (row) =>
       h('div', { class: 'billing-cell' }, [
-        h('div', { class: 'price-line' }, [
-          h('span', { class: 'price' }, formatNumber(row.unit_price)),
-          h('span', { class: 'currency' }, row.currency || ''),
-        ]),
-        h('div', { class: 'billing-sub' }, `${billingRuleText(row.billing_rule)} · ${row.unit || '-'}`),
+        h('div', { class: 'price-line' }, formatPriceParts(row)),
+        h('div', { class: 'billing-sub' }, [
+          priceModelText(row.price_model),
+          billingRuleText(row.billing_rule),
+          row.unit || '-',
+        ].filter(Boolean).join(' · ')),
+        priceExtraSummary(row) ? h('div', { class: 'billing-extra' }, priceExtraSummary(row)) : null,
       ]),
-  },
-  {
-    title: '默认合同',
-    key: 'contract',
-    width: 120,
-    align: 'center',
-    render: (row) => h('span', { class: 'contract-pill' }, `${row.default_contract_months || 12}个月`),
   },
   {
     title: '状态',
@@ -264,10 +269,16 @@ function createForm(source = {}) {
     target_region_id: source.target_region_id || null,
     service_type: source.service_type || '',
     billing_rule: source.billing_rule || 'monthly',
-    unit_price: Number(source.unit_price || 0),
+    price_model: source.price_model || inferPriceModel(source.service_type, source.unit),
+    nrc_price: Number(source.nrc_price || 0),
+    mrc_price: Number(source.mrc_price ?? source.unit_price ?? 0),
+    unit_price: Number(source.mrc_price ?? source.unit_price ?? 0),
     currency: source.currency || 'USD',
     unit: source.unit || '',
-    default_contract_months: Number(source.default_contract_months || 12),
+    default_quantity: Number(source.default_quantity || 1),
+    included_ip_quantity: Number(source.included_ip_quantity || 0),
+    ip_unit_price: Number(source.ip_unit_price || 0),
+    default_tax_rate: Number(source.default_tax_rate || 0),
     status: source.status ?? true,
     remark: source.remark || '',
   }
@@ -370,6 +381,7 @@ function handleServiceTypeChange(value, option) {
   if (!unitOptions.value.some((item) => item.value === form.unit)) {
     form.unit = option.unit || ''
   }
+  form.price_model = inferPriceModel(form.service_type, form.unit)
   if (!productCodeOptions.value.some((item) => item.value === form.product_code)) {
     form.product_code = ''
   }
@@ -398,6 +410,7 @@ function handleIeplSpecChange() {
 
 function handleUnitChange(value) {
   form.unit = value || ''
+  form.price_model = inferPriceModel(form.service_type, form.unit)
   if (form.service_type === 'IEPL') form.product_code = buildIeplProductCode()
   syncTemplateName()
 }
@@ -482,6 +495,9 @@ async function saveRow() {
     return window.$message?.warning?.('IEPL 目标区域不能和源区域相同')
   }
   if (!form.name) return window.$message?.warning?.('模板名称生成失败，请检查服务类型、区域和参数规格')
+  form.mrc_price = Number(form.mrc_price || 0)
+  form.nrc_price = Number(form.nrc_price || 0)
+  form.unit_price = form.mrc_price
   modalLoading.value = true
   try {
     const { guaranteed, burst, ...payload } = form
@@ -502,6 +518,42 @@ async function deleteRow(row) {
 
 function billingRuleText(value) {
   return billingRuleOptions.find((item) => item.value === value)?.label || value || '-'
+}
+
+function priceModelText(value) {
+  return priceModelOptions.find((item) => item.value === value)?.label || value || '固定月费'
+}
+
+function inferPriceModel(serviceType, unit) {
+  if (serviceType === 'IEPL') return 'commit_burst'
+  if (String(unit || '').toLowerCase().includes('95th')) return 'p95'
+  if (['IPv4 段', 'IPv4 个', 'IPv6'].includes(serviceType)) return 'ip_quantity'
+  if (['Remote Hands', 'Cross Connect'].includes(serviceType)) return 'one_time'
+  if (['机位', 'kW', 'kWh', 'A', '物理服务器', '云主机'].includes(serviceType)) return 'quantity'
+  return 'fixed'
+}
+
+function formatPriceParts(row = {}) {
+  const currency = row.currency || ''
+  const nrc = Number(row.nrc_price || 0)
+  const mrc = Number(row.mrc_price ?? row.unit_price ?? 0)
+  const parts = []
+  if (nrc) parts.push(h('span', { class: 'price-chip nrc' }, `NRC ${formatNumber(nrc)}${currency}`))
+  parts.push(h('span', { class: 'price-chip mrc' }, `MRC ${formatNumber(mrc)}${currency}`))
+  return parts
+}
+
+function priceExtraSummary(row = {}) {
+  const parts = []
+  const quantity = Number(row.default_quantity || 1)
+  const includedIp = Number(row.included_ip_quantity || 0)
+  const ipPrice = Number(row.ip_unit_price || 0)
+  const taxRate = Number(row.default_tax_rate || 0)
+  if (quantity !== 1) parts.push(`默认数量 ${formatNumber(quantity)}`)
+  if (includedIp) parts.push(`含 IP ${formatNumber(includedIp)}`)
+  if (ipPrice) parts.push(`IP ${formatNumber(ipPrice)}${row.currency || ''}/个`)
+  if (taxRate) parts.push(`税率 ${formatNumber(taxRate * 100)}%`)
+  return parts.join(' · ')
 }
 
 function serviceTagType(serviceType = '') {
@@ -838,7 +890,7 @@ onMounted(async () => {
         :columns="columns"
         :data="rows"
         :pagination="{ pageSize: 20, showSizePicker: true, pageSizes: [10, 20, 50] }"
-        :scroll-x="1180"
+        :scroll-x="1420"
       />
     </div>
 
@@ -952,8 +1004,18 @@ onMounted(async () => {
             </NFormItem>
           </NGridItem>
           <NGridItem>
-            <NFormItem label="单价">
-              <NInputNumber v-model:value="form.unit_price" :min="0" :precision="2" />
+            <NFormItem label="计价模型">
+              <NSelect v-model:value="form.price_model" filterable tag :options="priceModelOptions" />
+            </NFormItem>
+          </NGridItem>
+          <NGridItem>
+            <NFormItem label="NRC">
+              <NInputNumber v-model:value="form.nrc_price" :precision="2" placeholder="一次性费用" />
+            </NFormItem>
+          </NGridItem>
+          <NGridItem>
+            <NFormItem label="MRC">
+              <NInputNumber v-model:value="form.mrc_price" :precision="2" placeholder="月度循环费用" />
             </NFormItem>
           </NGridItem>
           <NGridItem>
@@ -962,8 +1024,23 @@ onMounted(async () => {
             </NFormItem>
           </NGridItem>
           <NGridItem>
-            <NFormItem label="默认合同">
-              <NInputNumber v-model:value="form.default_contract_months" :min="1" />
+            <NFormItem label="默认数量">
+              <NInputNumber v-model:value="form.default_quantity" :min="0" :precision="4" />
+            </NFormItem>
+          </NGridItem>
+          <NGridItem>
+            <NFormItem label="包含 IP">
+              <NInputNumber v-model:value="form.included_ip_quantity" :min="0" :precision="0" />
+            </NFormItem>
+          </NGridItem>
+          <NGridItem>
+            <NFormItem label="IP 单价">
+              <NInputNumber v-model:value="form.ip_unit_price" :min="0" :precision="2" />
+            </NFormItem>
+          </NGridItem>
+          <NGridItem>
+            <NFormItem label="默认税率">
+              <NInputNumber v-model:value="form.default_tax_rate" :min="0" :max="1" :precision="4" placeholder="如 0.2" />
             </NFormItem>
           </NGridItem>
           <NGridItem>
@@ -1073,31 +1150,11 @@ onMounted(async () => {
   white-space: nowrap;
 }
 
-.contract-pill {
-  display: inline-flex;
-  align-items: center;
-  max-width: 126px;
-  height: 24px;
-  padding: 0 10px;
-  overflow: hidden;
-  color: #31557a;
-  font-size: 12px;
-  line-height: 24px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  background: #eef5fb;
-  border-radius: 999px;
-}
-
-.contract-pill {
-  color: #5f6470;
-  background: #f2f4f7;
-}
-
 .meta-text,
 .template-remark,
 .region-text,
-.billing-sub {
+.billing-sub,
+.billing-extra {
   overflow: hidden;
   color: #64748b;
   font-size: 12px;
@@ -1128,20 +1185,37 @@ onMounted(async () => {
 
 .price-line {
   display: inline-flex;
-  align-items: baseline;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
   gap: 6px;
   color: #0f172a;
 }
 
-.currency {
-  color: #64748b;
+.price-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
   font-size: 12px;
   font-weight: 600;
+  line-height: 24px;
+  border-radius: 999px;
 }
 
-.price {
-  font-size: 15px;
-  font-weight: 700;
+.price-chip.mrc {
+  color: #0f4f9f;
+  background: #eaf3ff;
+}
+
+.price-chip.nrc {
+  color: #9a4b00;
+  background: #fff3df;
+}
+
+.billing-extra {
+  max-width: 260px;
+  color: #8a95a6;
 }
 
 @media (max-width: 900px) {

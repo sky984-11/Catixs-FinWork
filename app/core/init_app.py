@@ -1237,16 +1237,32 @@ async def ensure_bill_columns():
             "target_region_id" BIGINT,
             "service_type" VARCHAR(100),
             "billing_rule" VARCHAR(50) NOT NULL DEFAULT 'monthly',
+            "price_model" VARCHAR(50) NOT NULL DEFAULT 'fixed',
+            "nrc_price" DOUBLE PRECISION NOT NULL DEFAULT 0,
+            "mrc_price" DOUBLE PRECISION NOT NULL DEFAULT 0,
             "unit_price" DOUBLE PRECISION NOT NULL DEFAULT 0,
             "currency" VARCHAR(10) NOT NULL DEFAULT 'USD',
             "unit" VARCHAR(50),
-            "default_contract_months" INT NOT NULL DEFAULT 12,
+            "default_quantity" DOUBLE PRECISION NOT NULL DEFAULT 1,
+            "included_ip_quantity" DOUBLE PRECISION NOT NULL DEFAULT 0,
+            "ip_unit_price" DOUBLE PRECISION NOT NULL DEFAULT 0,
+            "default_tax_rate" DOUBLE PRECISION NOT NULL DEFAULT 0,
             "status" BOOL NOT NULL DEFAULT TRUE,
             "remark" VARCHAR(500)
         );
         ALTER TABLE IF EXISTS "billing_product_template"
             ADD COLUMN IF NOT EXISTS "region_id" BIGINT,
-            ADD COLUMN IF NOT EXISTS "target_region_id" BIGINT;
+            ADD COLUMN IF NOT EXISTS "target_region_id" BIGINT,
+            ADD COLUMN IF NOT EXISTS "price_model" VARCHAR(50) NOT NULL DEFAULT 'fixed',
+            ADD COLUMN IF NOT EXISTS "nrc_price" DOUBLE PRECISION NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS "mrc_price" DOUBLE PRECISION NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS "default_quantity" DOUBLE PRECISION NOT NULL DEFAULT 1,
+            ADD COLUMN IF NOT EXISTS "included_ip_quantity" DOUBLE PRECISION NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS "ip_unit_price" DOUBLE PRECISION NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS "default_tax_rate" DOUBLE PRECISION NOT NULL DEFAULT 0;
+        UPDATE "billing_product_template"
+            SET "mrc_price" = "unit_price"
+            WHERE COALESCE("mrc_price", 0) = 0 AND COALESCE("unit_price", 0) <> 0;
         CREATE INDEX IF NOT EXISTS "idx_billing_template_product_code" ON "billing_product_template" ("product_code");
         CREATE INDEX IF NOT EXISTS "idx_billing_template_region" ON "billing_product_template" ("region_id");
         CREATE INDEX IF NOT EXISTS "idx_billing_template_target_region" ON "billing_product_template" ("target_region_id");
@@ -1609,7 +1625,8 @@ async def ensure_company_columns():
             ADD COLUMN IF NOT EXISTS "legal_name" VARCHAR(200),
             ADD COLUMN IF NOT EXISTS "logo_url" VARCHAR(255),
             ADD COLUMN IF NOT EXISTS "bill_email" VARCHAR(100),
-            ADD COLUMN IF NOT EXISTS "contact_person" VARCHAR(100);
+            ADD COLUMN IF NOT EXISTS "contact_person" VARCHAR(100),
+            ADD COLUMN IF NOT EXISTS "default_contract_months" INT NOT NULL DEFAULT 12;
         """
     )
 

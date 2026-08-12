@@ -152,6 +152,13 @@ function openEdit(row) {
   modalVisible.value = true
 }
 
+function handleCompanyChange(companyId) {
+  form.company_id = companyId
+  if (!form.id) {
+    form.contract_months = getCompanyDefaultContractMonths(companyId)
+  }
+}
+
 function handleTemplateChange(templateId) {
   const template = templates.value.find((item) => item.id === templateId)
   if (!template) return
@@ -161,7 +168,11 @@ function handleTemplateChange(templateId) {
   form.unit_price = Number(template.unit_price || 0)
   form.currency = template.currency || 'USD'
   form.unit = template.unit || ''
-  form.contract_months = Number(template.default_contract_months || 12)
+}
+
+function getCompanyDefaultContractMonths(companyId) {
+  const company = companies.value.find((item) => item.id === companyId)
+  return Number(company?.default_contract_months || 12)
 }
 
 async function saveRow() {
@@ -257,7 +268,7 @@ onMounted(async () => {
         <NGrid :cols="3" :x-gap="14">
           <NGridItem>
             <NFormItem label="客户" required>
-              <NSelect v-model:value="form.company_id" filterable :options="companyOptions" />
+              <NSelect v-model:value="form.company_id" filterable :options="companyOptions" @update:value="handleCompanyChange" />
             </NFormItem>
           </NGridItem>
           <NGridItem>

@@ -328,6 +328,7 @@ async def subscription_to_dict(obj: BillingSubscription) -> dict[str, Any]:
 
 
 def template_payload_data(payload: BillingTemplatePayload) -> dict[str, Any]:
+    mrc_price = float(payload.mrc_price or payload.unit_price or 0)
     return {
         "name": payload.name.strip(),
         "product_code": payload.product_code.strip() or None,
@@ -335,10 +336,16 @@ def template_payload_data(payload: BillingTemplatePayload) -> dict[str, Any]:
         "target_region_id": payload.target_region_id or None,
         "service_type": payload.service_type.strip() or None,
         "billing_rule": payload.billing_rule.strip() or "monthly",
-        "unit_price": float(payload.unit_price or 0),
+        "price_model": payload.price_model.strip() or "fixed",
+        "nrc_price": float(payload.nrc_price or 0),
+        "mrc_price": mrc_price,
+        "unit_price": mrc_price,
         "currency": payload.currency.strip() or "USD",
         "unit": payload.unit.strip() or None,
-        "default_contract_months": int(payload.default_contract_months or 12),
+        "default_quantity": float(payload.default_quantity or 1),
+        "included_ip_quantity": float(payload.included_ip_quantity or 0),
+        "ip_unit_price": float(payload.ip_unit_price or 0),
+        "default_tax_rate": float(payload.default_tax_rate or 0),
         "status": bool(payload.status),
         "remark": payload.remark.strip() or None,
     }
@@ -613,6 +620,8 @@ async def fetch_feishu_bitable_records(app_token: str, table_id: str, view_id: s
 
 async def subscription_payload_data(payload: BillingSubscriptionPayload) -> dict[str, Any]:
     template = await BillingProductTemplate.get_or_none(id=payload.template_id) if payload.template_id else None
+    company = await Company.get_or_none(id=payload.company_id)
+    default_contract_months = getattr(company, "default_contract_months", 12) or 12
     return {
         "company_id": payload.company_id,
         "template_id": template.id if template else None,
@@ -622,7 +631,7 @@ async def subscription_payload_data(payload: BillingSubscriptionPayload) -> dict
         "service_location": clean(payload.service_location) or None,
         "billing_start_date": payload.billing_start_date,
         "billing_end_date": payload.billing_end_date,
-        "contract_months": int(payload.contract_months or (template.default_contract_months if template else 12)),
+        "contract_months": int(payload.contract_months or default_contract_months),
         "unit_price": float(payload.unit_price or (template.unit_price if template else 0)),
         "quantity": float(payload.quantity or 1),
         "currency": clean((payload.currency or template.currency) if template else payload.currency) or "USD",

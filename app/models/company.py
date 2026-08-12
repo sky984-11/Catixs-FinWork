@@ -22,6 +22,7 @@ class Company(BaseModel, TimestampMixin):
     contact_person = fields.CharField(max_length=100, null=True, description="财务联系人")
     company_phone = fields.CharField(max_length=50, null=True, description="公司电话")
     registration_no = fields.CharField(max_length=50, null=True, description="公司注册号")
+    default_contract_months = fields.IntField(default=12, description="默认合同月数")
     contract_company = fields.ForeignKeyField(
         "models.Company",
         related_name="contract_companies",
@@ -148,10 +149,16 @@ class BillingProductTemplate(BaseModel, TimestampMixin):
     )
     service_type = fields.CharField(max_length=100, null=True, description="服务类型")
     billing_rule = fields.CharField(max_length=50, default="monthly", description="计费规则")
+    price_model = fields.CharField(max_length=50, default="fixed", description="计价模型")
+    nrc_price = fields.FloatField(default=0, description="标准NRC")
+    mrc_price = fields.FloatField(default=0, description="标准MRC")
     unit_price = fields.FloatField(default=0, description="单价")
     currency = fields.CharField(max_length=10, default="USD", description="币种")
     unit = fields.CharField(max_length=50, null=True, description="计量单位")
-    default_contract_months = fields.IntField(default=12, description="默认合同月数")
+    default_quantity = fields.FloatField(default=1, description="默认数量")
+    included_ip_quantity = fields.FloatField(default=0, description="包含IP数量")
+    ip_unit_price = fields.FloatField(default=0, description="IP单价")
+    default_tax_rate = fields.FloatField(default=0, description="默认税率")
     status = fields.BooleanField(default=True, description="状态", index=True)
     remark = fields.CharField(max_length=500, null=True, description="备注")
 
