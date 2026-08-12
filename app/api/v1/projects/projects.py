@@ -138,25 +138,15 @@ async def get_current_project_user() -> User | None:
     return await User.get_or_none(id=user_id) if user_id else None
 
 
-async def can_view_all_projects(user: User | None) -> bool:
-    if not user:
-        return False
-    return bool(user.is_superuser or str(user.username or "").strip().lower() == "admin")
-
-
 def can_manage_project_share(project: CustomerProject, user: User | None) -> bool:
     if not user:
         return False
-    if bool(user.is_superuser or str(user.username or "").strip().lower() == "admin"):
-        return True
     owner = str(project.owner or "").strip()
     return owner in get_project_owner_names(user)
 
 
 async def ensure_project_access(project: CustomerProject) -> None:
     current_user = await get_current_project_user()
-    if await can_view_all_projects(current_user):
-        return
     owner_names = get_project_owner_names(current_user)
     if str(project.owner or "").strip() in owner_names:
         return
@@ -223,15 +213,14 @@ async def list_project(
 ):
     q = Q()
     current_user = await get_current_project_user()
-    if not await can_view_all_projects(current_user):
-        owner_names = get_project_owner_names(current_user)
-        if owner_names:
-            shared_q = Q()
-            for name in owner_names:
-                shared_q |= Q(shared_users__contains=[name])
-            q &= Q(owner__in=owner_names) | shared_q
-        else:
-            q &= Q(id=0)
+    owner_names = get_project_owner_names(current_user)
+    if owner_names:
+        shared_q = Q()
+        for name in owner_names:
+            shared_q |= Q(shared_users__contains=[name])
+        q &= Q(owner__in=owner_names) | shared_q
+    else:
+        q &= Q(id=0)
     if keyword:
         q &= (
             Q(name__contains=keyword)
@@ -301,6 +290,7 @@ async def update_project(project_in: CustomerProjectUpdate):
     except Exception as exc:
         logger.exception("project update load failed: project_id=%s", project_in.id)
         return Success(msg=f"项目读取失败：{exc}", code=500)
+    await ensure_project_access(existing_project)
     current_user = await get_current_project_user()
     if "shared_users" in payload and not can_manage_project_share(existing_project, current_user):
         raise HTTPException(status_code=403, detail="Only project owner or admin can share project")
@@ -335,6 +325,8 @@ async def update_project(project_in: CustomerProjectUpdate):
 
 @router.post("/status", summary="更新客户项目看板状态")
 async def update_project_status(project_in: CustomerProjectStatusUpdate):
+    project_obj = await customer_project_controller.get(id=project_in.id)
+    await ensure_project_access(project_obj)
     await CustomerProject.filter(id=project_in.id).update(
         status=project_in.status,
         sort_order=project_in.sort_order,
@@ -346,6 +338,8 @@ async def update_project_status(project_in: CustomerProjectStatusUpdate):
 
 @router.delete("/delete", summary="删除客户项目")
 async def delete_project(project_id: int = Query(..., description="项目ID")):
+    project_obj = await customer_project_controller.get(id=project_id)
+    await ensure_project_access(project_obj)
     await customer_project_controller.remove(id=project_id)
     return Success(msg="Deleted Successfully")
 
@@ -353,6 +347,7 @@ async def delete_project(project_id: int = Query(..., description="项目ID")):
 @router.post("/discussion/create", summary="新增项目讨论")
 async def create_project_discussion(discussion_in: ProjectDiscussionCreate):
     project_obj = await customer_project_controller.get(id=discussion_in.project_id)
+    await ensure_project_access(project_obj)
     task = None
     attachment = None
     if discussion_in.task_id:
@@ -375,6 +370,8 @@ async def create_project_discussion(discussion_in: ProjectDiscussionCreate):
 @router.delete("/discussion/delete", summary="删除项目讨论")
 async def delete_project_discussion(discussion_id: int = Query(..., description="讨论ID")):
     discussion = await CustomerProjectDiscussion.get(id=discussion_id)
+    project_obj = await customer_project_controller.get(id=discussion.project_id)
+    await ensure_project_access(project_obj)
     await discussion.delete()
     return Success(msg="Deleted Successfully")
 
@@ -382,6 +379,7 @@ async def delete_project_discussion(discussion_id: int = Query(..., description=
 @router.post("/task/create", summary="创建项目任务")
 async def create_project_task(task_in: ProjectTaskCreate):
     project_obj = await customer_project_controller.get(id=task_in.project_id)
+    await ensure_project_access(project_obj)
     payload = task_in.model_dump(exclude={"project_id"})
     payload["title"] = str(payload.get("title") or "").strip()
     payload["assignee"] = str(payload.get("assignee") or "").strip()
@@ -400,6 +398,8 @@ async def create_project_task(task_in: ProjectTaskCreate):
 @router.post("/task/update", summary="更新项目任务")
 async def update_project_task(task_in: ProjectTaskUpdate):
     task = await CustomerProjectTask.get(id=task_in.id)
+    project_obj = await customer_project_controller.get(id=task.project_id)
+    await ensure_project_access(project_obj)
     payload = task_in.model_dump(exclude={"id", "project_id"}, exclude_unset=True)
     if "due_date" in payload and payload["due_date"] != task.due_date:
         payload["due_soon_notified_at"] = None
@@ -413,6 +413,8 @@ async def update_project_task(task_in: ProjectTaskUpdate):
 @router.delete("/task/delete", summary="删除项目任务")
 async def delete_project_task(task_id: int = Query(..., description="任务ID")):
     task = await CustomerProjectTask.get(id=task_id)
+    project_obj = await customer_project_controller.get(id=task.project_id)
+    await ensure_project_access(project_obj)
     await task.delete()
     return Success(msg="Deleted Successfully")
 
@@ -420,6 +422,7 @@ async def delete_project_task(task_id: int = Query(..., description="任务ID"))
 @router.post("/attachment/upload", summary="上传项目截图资料")
 async def upload_project_attachment(upload: ProjectAttachmentUpload):
     project_obj = await customer_project_controller.get(id=upload.project_id)
+    await ensure_project_access(project_obj)
     task = None
     if upload.task_id:
         task = await CustomerProjectTask.get(id=upload.task_id, project_id=project_obj.id)
@@ -471,6 +474,8 @@ async def upload_project_attachment(upload: ProjectAttachmentUpload):
 @router.delete("/attachment/delete", summary="删除项目截图资料")
 async def delete_project_attachment(attachment_id: int = Query(..., description="附件ID")):
     attachment = await CustomerProjectAttachment.get(id=attachment_id)
+    project_obj = await customer_project_controller.get(id=attachment.project_id)
+    await ensure_project_access(project_obj)
     await attachment.delete()
     return Success(msg="Deleted Successfully")
 

@@ -327,30 +327,41 @@ def build_project_daily_summary_card(*, summary_date: str, sections: list[dict],
             elements.append({"tag": "note", "elements": [{"tag": "plain_text", "content": "暂无项目"}]})
             continue
 
-        content_lines = []
-        for project in projects[:8]:
+        for project in projects:
             project_name = markdown_link(project.get("name"), project.get("url"))
-            project_index = project.get("index") or len(content_lines) + 1
+            project_index = project.get("index") or 1
             owners = project.get("owners") or "未设置负责人"
             due_date = project.get("due_date") or "无截止日期"
             progress = project.get("progress", 0)
-            task_parts = []
-            for task in (project.get("tasks") or [])[:3]:
+            elements.append(
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "lark_md",
+                        "content": (
+                            f"**{project_index}. {project_name}**\n"
+                            f"进度：{progress}%    负责人：{owners}    ETA：{due_date}"
+                        ),
+                    },
+                }
+            )
+
+            task_lines = []
+            for task in project.get("tasks") or []:
                 task_title = markdown_link(task.get("title"), task.get("url"))
-                task_index = task.get("index") or len(task_parts) + 1
+                task_index = task.get("index") or len(task_lines) + 1
                 task_due = task.get("due_date") or "未设置"
                 task_assignee = task.get("assignee") or "未设置负责人"
-                task_parts.append(f"{project_index}.{task_index} {task_title}（{task_assignee} / ETA {task_due}）")
-            task_text = "；".join(task_parts) if task_parts else "暂无未完成子任务"
-            if len(project.get("tasks") or []) > 3:
-                task_text += f"；另有 {len(project.get('tasks') or []) - 3} 项"
-            content_lines.append(
-                f"- {project_index}. {project_name} | {progress}% | {owners} | ETA {due_date}\n"
-                f"  子任务：{task_text}"
+                task_lines.append(f"- {project_index}.{task_index} {task_title}\n  负责人：{task_assignee}    ETA：{task_due}")
+            elements.append(
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "lark_md",
+                        "content": "**子任务**\n" + ("\n".join(task_lines) if task_lines else "- 暂无未完成子任务"),
+                    },
+                }
             )
-        if len(projects) > 8:
-            content_lines.append(f"- 还有 {len(projects) - 8} 个项目未展示")
-        elements.append({"tag": "div", "text": {"tag": "lark_md", "content": "\n".join(content_lines)}})
 
     return {
         "header": {
