@@ -1631,6 +1631,19 @@ async def ensure_company_columns():
     )
 
 
+async def ensure_pre_schema_columns():
+    if settings.DB_TYPE != "postgres":
+        return
+
+    conn = Tortoise.get_connection("postgres")
+    await conn.execute_script(
+        """
+        ALTER TABLE IF EXISTS "company"
+            ADD COLUMN IF NOT EXISTS "default_contract_months" INT NOT NULL DEFAULT 12;
+        """
+    )
+
+
 async def ensure_company_branding():
     companies = [
         ("Catixs Ltd", {"logo_url": "/logos/catixs.png", "legal_name": "Catixs Ltd"}),
@@ -1688,12 +1701,13 @@ def is_ignorable_asset_migration_error(exc: Exception) -> bool:
 
 async def init_db():
     command = Command(tortoise_config=settings.TORTOISE_ORM)
+    await command.init()
+    await ensure_pre_schema_columns()
     try:
         await command.init_db(safe=True)
     except FileExistsError:
         pass
 
-    await command.init()
     await ensure_user_columns()
     await ensure_company_columns()
     await ensure_asset_columns()
