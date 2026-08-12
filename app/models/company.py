@@ -139,6 +139,13 @@ class BillingProductTemplate(BaseModel, TimestampMixin):
         on_delete=fields.SET_NULL,
         description="区域",
     )
+    target_region = fields.ForeignKeyField(
+        "models.AssetRegion",
+        related_name="target_billing_product_templates",
+        null=True,
+        on_delete=fields.SET_NULL,
+        description="目标区域",
+    )
     service_type = fields.CharField(max_length=100, null=True, description="服务类型")
     billing_rule = fields.CharField(max_length=50, default="monthly", description="计费规则")
     unit_price = fields.FloatField(default=0, description="单价")

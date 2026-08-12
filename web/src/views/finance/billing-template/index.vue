@@ -24,6 +24,7 @@ import QueryBarItem from '@/components/query-bar/QueryBarItem.vue'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import api from '@/api'
 import { renderIcon } from '@/utils'
+import { translateCity, translateCountry, translateLocationPath } from '@/utils/location-i18n'
 
 defineOptions({ name: '产品模板' })
 
@@ -36,6 +37,8 @@ const query = reactive({ region_id: null, service_type: null, status: null })
 const form = reactive(createForm())
 const unitOptions = ref([])
 const productCodeOptions = computed(() => buildProductCodeOptions(form.service_type, form.unit, form.product_code))
+const isIeplTemplate = computed(() => form.service_type === 'IEPL')
+const bandwidthUnitLabel = computed(() => bandwidthUnitFromBillingUnit(form.unit))
 
 const statusOptions = [
   { label: '启用', value: true },
@@ -52,6 +55,31 @@ const billingRuleOptions = [
   { label: '年付', value: 'yearly' },
   { label: '一次性', value: 'one_time' },
 ]
+
+const serviceTypeCodeMap = {
+  机柜: 'RACK',
+  机位: 'U',
+  kW: 'POWER-KW',
+  kWh: 'POWER-KWH',
+  A: 'POWER-A',
+  物理服务器: 'SERVER',
+  云主机: 'VM',
+  'IPv4 段': 'IPV4',
+  'IPv4 个': 'IPV4',
+  IPv6: 'IPV6',
+  ASN: 'ASN',
+  Prefix: 'PREFIX',
+  'Cross Connect': 'CROSS-CONNECT',
+  IX: 'IX',
+  Peering: 'PEERING',
+  'Cloud Connect': 'CLOUD-CONNECT',
+  'IP Transit': 'IPT',
+  DIA: 'DIA',
+  CN2: 'CN2',
+  IEPL: 'IEPL',
+  EPL: 'EPL',
+  'Remote Hands': 'REMOTE-HANDS',
+}
 
 const serviceTypeOptions = [
   {
@@ -131,47 +159,46 @@ const serviceTypeOptions = [
 ]
 
 const regionOptions = computed(() => {
-  const grouped = new Map()
-  regions.value.forEach((region) => {
-    const country = String(region.country || '未分组').trim() || '未分组'
-    if (!grouped.has(country)) {
-      grouped.set(country, { label: country, value: `country:${country}`, children: [] })
-    }
-    grouped.get(country).children.push({
-      label: regionOptionLabel(region),
-      value: region.id,
-      country: region.country || '',
-      city: region.city || '',
-      name: region.name || '',
-      code: region.code || '',
-    })
-  })
-  return Array.from(grouped.values())
+  const roots = []
+  regions.value.forEach((region) => ensureRegionPath(roots, popRegionPathParts(region), region))
+  return sortCascaderTree(roots)
 })
 
 const columns = [
   {
-    title: '模板信息',
-    key: 'template',
-    minWidth: 260,
+    title: '模板名称',
+    key: 'name',
+    minWidth: 300,
     fixed: 'left',
     render: (row) =>
-      h('div', { class: 'template-cell' }, [
-        h('div', { class: 'template-name' }, row.name || '-'),
-        h('div', { class: 'template-meta' }, [
-          h('span', { class: 'spec-pill' }, row.product_code || '未设置规格'),
-          row.remark ? h('span', { class: 'meta-text' }, row.remark) : null,
+      h(NTooltip, { trigger: 'hover', placement: 'top' }, {
+        trigger: () => h('div', { class: 'template-name-cell' }, [
+          h('div', { class: 'template-code-text' }, row.name || '-'),
         ]),
+        default: () => row.name || '-',
+      }),
+  },
+  {
+    title: '参数规格',
+    key: 'spec',
+    minWidth: 280,
+    render: (row) =>
+      h('div', { class: 'template-spec-cell' }, [
+        h(NTooltip, { trigger: 'hover', placement: 'top' }, {
+          trigger: () => h('div', { class: 'template-spec-text' }, templateSpecSummary(row)),
+          default: () => templateSpecSummary(row),
+        }),
+        row.remark ? h('div', { class: 'template-remark' }, row.remark) : null,
       ]),
   },
   {
     title: '服务 / 区域',
     key: 'service',
-    minWidth: 230,
+    minWidth: 240,
     render: (row) =>
       h('div', { class: 'service-cell' }, [
         h(NTag, { type: serviceTagType(row.service_type), bordered: false, round: true }, { default: () => row.service_type || '-' }),
-        h('span', { class: 'region-text' }, displayRegionLabel(row)),
+        h('span', { class: 'region-text' }, displayRouteRegionLabel(row)),
       ]),
   },
   {
@@ -231,7 +258,10 @@ function createForm(source = {}) {
     id: source.id || null,
     name: source.name || '',
     product_code: source.product_code || '',
+    guaranteed: parseIeplSpec(source.product_code).guaranteed,
+    burst: parseIeplSpec(source.product_code).burst,
     region_id: source.region_id || null,
+    target_region_id: source.target_region_id || null,
     service_type: source.service_type || '',
     billing_rule: source.billing_rule || 'monthly',
     unit_price: Number(source.unit_price || 0),
@@ -281,7 +311,10 @@ const productCodePresetMap = {
 
 function buildProductCodeOptions(serviceType, unit, currentValue) {
   const baseValues = productCodePresetMap[serviceType] || []
-  const values = baseValues.map((item) => {
+  const expandedValues = ['DIA', 'IEPL'].includes(serviceType)
+    ? [...baseValues, ...buildCommitBurstPresets(baseValues)]
+    : baseValues
+  const values = expandedValues.map((item) => {
     if (!unit || !unit.includes('95th') || !/^\d/.test(item) || item.includes('95th')) return item
     return `${item} 95th`
   })
@@ -289,6 +322,24 @@ function buildProductCodeOptions(serviceType, unit, currentValue) {
     values.unshift(currentValue)
   }
   return values.map((item) => ({ label: item, value: item }))
+}
+
+function buildCommitBurstPresets(values = []) {
+  const pairs = [
+    ['10M', '100M'],
+    ['20M', '200M'],
+    ['50M', '500M'],
+    ['100M', '1G'],
+    ['200M', '1G'],
+    ['500M', '2G'],
+    ['1G', '10G'],
+    ['2G', '10G'],
+    ['5G', '10G'],
+  ]
+  const available = new Set(values)
+  return pairs
+    .filter(([commit, burst]) => available.has(commit) && available.has(burst))
+    .map(([commit, burst]) => `${commit} Commit / ${burst} Burst`)
 }
 
 function getServiceTypeValue() {
@@ -302,9 +353,19 @@ function handleServiceTypeChange(value, option) {
     form.service_type = ''
     form.unit = ''
     unitOptions.value = []
+    syncTemplateName()
     return
   }
   form.service_type = option.serviceType || ''
+  if (form.service_type === 'IEPL') {
+    const parsed = parseIeplSpec(form.product_code)
+    form.guaranteed = parsed.guaranteed || form.guaranteed || ''
+    form.burst = parsed.burst || form.burst || ''
+  } else {
+    form.target_region_id = null
+    form.guaranteed = ''
+    form.burst = ''
+  }
   syncUnitOptions(option)
   if (!unitOptions.value.some((item) => item.value === form.unit)) {
     form.unit = option.unit || ''
@@ -312,6 +373,33 @@ function handleServiceTypeChange(value, option) {
   if (!productCodeOptions.value.some((item) => item.value === form.product_code)) {
     form.product_code = ''
   }
+  syncTemplateName()
+}
+
+function handleRegionChange(value) {
+  form.region_id = value
+  syncTemplateName()
+}
+
+function handleTargetRegionChange(value) {
+  form.target_region_id = value
+  syncTemplateName()
+}
+
+function handleProductCodeChange(value) {
+  form.product_code = value || ''
+  syncTemplateName()
+}
+
+function handleIeplSpecChange() {
+  form.product_code = buildIeplProductCode()
+  syncTemplateName()
+}
+
+function handleUnitChange(value) {
+  form.unit = value || ''
+  if (form.service_type === 'IEPL') form.product_code = buildIeplProductCode()
+  syncTemplateName()
 }
 
 function serviceTypeFilter(pattern, option, path = []) {
@@ -323,18 +411,12 @@ function serviceTypeFilter(pattern, option, path = []) {
 }
 
 function regionFilter(pattern, option, path = []) {
-  const text = [
-    option.label,
-    option.country,
-    option.city,
-    option.name,
-    option.code,
-    ...path.map((item) => item.label),
-  ]
+  const options = Array.isArray(path) && path.length ? path : [option]
+  const text = options
+    .flatMap((item) => [item?.label, item?.value, item?.region, item?.searchText])
     .filter(Boolean)
     .join(' ')
-    .toLowerCase()
-  return text.includes(String(pattern || '').trim().toLowerCase())
+  return normalizeSearchText(text).includes(normalizeSearchText(pattern))
 }
 
 function findServiceTypeOptionByType(serviceType, options = serviceTypeOptions) {
@@ -368,25 +450,42 @@ async function loadRows() {
 async function loadRegions() {
   const res = await api.assetApi.regions({ page: 1, page_size: 1000, status: true })
   regions.value = res?.data || []
+  syncTemplateName()
 }
 
 function openAdd() {
   Object.assign(form, createForm())
   syncUnitOptions()
+  syncTemplateName()
   modalVisible.value = true
 }
 
 function openEdit(row) {
   Object.assign(form, createForm(row))
   syncUnitOptions()
+  syncTemplateName()
   modalVisible.value = true
 }
 
 async function saveRow() {
-  if (!form.name) return window.$message?.warning?.('请填写模板名')
+  if (form.service_type !== 'IEPL') form.target_region_id = null
+  else form.product_code = buildIeplProductCode()
+  syncTemplateName()
+  if (!form.service_type) return window.$message?.warning?.('请选择服务类型')
+  if (!form.region_id) return window.$message?.warning?.('请选择区域')
+  if (form.service_type === 'IEPL') {
+    if (!form.unit) return window.$message?.warning?.('请选择计量单位')
+    if (!form.guaranteed) return window.$message?.warning?.('请填写 Guaranteed')
+    if (!form.burst) return window.$message?.warning?.('请填写 Burst')
+  } else if (!form.product_code) return window.$message?.warning?.('请选择参数规格')
+  if (form.service_type === 'IEPL' && form.target_region_id && form.target_region_id === form.region_id) {
+    return window.$message?.warning?.('IEPL 目标区域不能和源区域相同')
+  }
+  if (!form.name) return window.$message?.warning?.('模板名称生成失败，请检查服务类型、区域和参数规格')
   modalLoading.value = true
   try {
-    await api.saveBillingTemplate({ ...form })
+    const { guaranteed, burst, ...payload } = form
+    await api.saveBillingTemplate(payload)
     window.$message?.success?.('保存成功')
     modalVisible.value = false
     await loadRows()
@@ -417,16 +516,260 @@ function formatNumber(value) {
   return Number(value || 0).toLocaleString('zh-CN', { maximumFractionDigits: 4 })
 }
 
-function regionOptionLabel(region = {}) {
-  const city = region.region_city || region.city || region.name || ''
-  const code = region.region_code || region.code || ''
-  return code ? `${city || '-'} (${code})` : city || '-'
+function templateSpecSummary(row = {}) {
+  if (row.service_type === 'IEPL') {
+    const parsed = parseIeplSpec(row.product_code)
+    const parts = [
+      parsed.guaranteed ? `Guaranteed ${parsed.guaranteed}` : '',
+      parsed.burst ? `Burst ${parsed.burst}` : '',
+    ].filter(Boolean)
+    if (parts.length) return parts.join(' / ')
+  }
+  return row.product_code || '未设置规格'
+}
+
+function syncTemplateName() {
+  form.name = buildTemplateName()
+}
+
+function buildTemplateName() {
+  return [
+    templateRegionCode(),
+    serviceTypeCode(form.service_type),
+    specCode(form.product_code, form.unit),
+  ].filter(Boolean).join('-')
+}
+
+function templateRegionCode() {
+  const source = regionCode(form.region_id)
+  const target = form.service_type === 'IEPL' ? regionCode(form.target_region_id) : ''
+  return [source, target].filter(Boolean).join('-')
+}
+
+function regionCode(regionId) {
+  const region = regions.value.find((item) => item.id === regionId)
+  return regionCodeFromRegion(region)
+}
+
+function regionCodeFromRegion(region) {
+  if (!region) return ''
+  const code = fieldText(region.region_code || region.code)
+  if (code) return normalizeTemplateCode(code)
+  return normalizeTemplateCode(translateCity(region.region_city || region.city) || region.name || region.region_name)
+}
+
+function serviceTypeCode(serviceType) {
+  return serviceTypeCodeMap[serviceType] || normalizeTemplateCode(serviceType)
+}
+
+function specCode(value, unit) {
+  const base = normalizeTemplateCode(value)
+  if (!base) return ''
+  if (String(unit || '').toLowerCase().includes('95th') && !base.includes('95TH')) return `${base}-95TH`
+  return base
+}
+
+function buildIeplProductCode() {
+  const guaranteed = bandwidthValueWithUnit(form.guaranteed, form.unit)
+  const burst = bandwidthValueWithUnit(form.burst, form.unit)
+  return [guaranteed ? `Guaranteed ${guaranteed}` : '', burst ? `Burst ${burst}` : '']
+    .filter(Boolean)
+    .join(' / ')
+}
+
+function parseIeplSpec(value) {
+  const text = String(value || '').trim()
+  if (!text) return { guaranteed: '', burst: '' }
+  const guaranteedMatch = text.match(/(?:guaranteed|commit)\s*[:：-]?\s*([^/]+?)(?=\s*(?:\/|burst|$))/i)
+  const burstMatch = text.match(/burst\s*[:：-]?\s*([^/]+)$/i)
+  const legacyParts = text
+    .split('/')
+    .map((item) => item.trim())
+    .filter(Boolean)
+  return {
+    guaranteed: cleanBandwidthValue(guaranteedMatch?.[1] || legacyParts[0]?.replace(/commit|guaranteed/ig, '') || ''),
+    burst: cleanBandwidthValue(burstMatch?.[1] || legacyParts[1]?.replace(/burst/ig, '') || ''),
+  }
+}
+
+function cleanBandwidthValue(value) {
+  return String(value || '')
+    .replace(/\b(commit|guaranteed|burst)\b/ig, '')
+    .trim()
+}
+
+function bandwidthValueWithUnit(value, unit) {
+  const text = cleanBandwidthValue(value)
+  if (!text) return ''
+  if (/[a-zA-Z]/.test(text)) return text.replace(/\s+/g, '')
+  const unitLabel = bandwidthUnitFromBillingUnit(unit)
+  return unitLabel ? `${text}${unitLabel}` : text
+}
+
+function bandwidthUnitFromBillingUnit(unit) {
+  const text = String(unit || '').split('/')[0].trim()
+  if (!text) return ''
+  return text.replace(/\s+/g, '')
+}
+
+function normalizeTemplateCode(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\s+\/\s+/g, '-')
+    .replace(/\s+／\s+/g, '-')
+    .replace(/分钟/g, 'MIN')
+    .replace(/小时/g, 'H')
+    .replace(/半天/g, 'HALF-DAY')
+    .replace(/全天/g, 'FULL-DAY')
+    .replace(/按实际用量/g, 'USAGE')
+    .replace(/保底电量/g, 'COMMIT')
+    .replace(/超额电量/g, 'OVERAGE')
+    .replace(/整柜/g, 'FULL-RACK')
+    .replace(/半柜/g, 'HALF-RACK')
+    .replace(/柜/g, 'RACK')
+    .replace(/台/g, 'SERVER')
+    .replace(/\s+/g, '-')
+    .replace(/[^a-zA-Z0-9/.-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .toUpperCase()
+}
+
+function popRegionPathParts(item = {}) {
+  const country = translateCountry(fieldText(item.country) || fieldText(item.country_name))
+  const city = translateCity(fieldText(item.city) || fieldText(item.city_name))
+  const regionParts = regionPathParts(fieldText(item.name) || fieldText(item.region_name))
+  const values = [country, city]
+  if (!city) {
+    regionParts.forEach((part) => {
+      const label = translateRegionAlias(part) || fieldText(part)
+      if (!label) return
+      const key = normalizeRegion(label)
+      if (!key || values.some((value) => normalizeRegion(value) === key)) return
+      values.push(label)
+    })
+  }
+  const parts = []
+  values.forEach((value) => {
+    const label = translateRegionAlias(value) || fieldText(value)
+    if (!label) return
+    const key = normalizeRegion(label)
+    if (!key || parts.some((part) => normalizeRegion(part) === key)) return
+    parts.push(label)
+  })
+  return parts
+}
+
+function ensureRegionPath(roots, parts, region = {}) {
+  let children = roots
+  let current = null
+  const path = []
+  parts.forEach((part, index) => {
+    const label = translateRegionAlias(part) || part
+    const key = normalizeRegion(label)
+    if (!key) return
+    path.push(label)
+    const isLeaf = index === parts.length - 1
+    const value = isLeaf ? region.id : `region:${path.join('/')}`
+    let node = children.find((item) => normalizeRegion(item.label) === key)
+    if (!node) {
+      node = {
+        label,
+        value,
+        region: label,
+        searchText: uniqueValues([path.join(' '), label, region.name, region.code]).join(' '),
+        children: [],
+      }
+      children.push(node)
+    } else {
+      node.searchText = uniqueValues([node.searchText, path.join(' '), label, region.name, region.code]).join(' ')
+      if (isLeaf && !regions.value.some((item) => item.id === node.value)) node.value = value
+    }
+    current = node
+    children = node.children
+  })
+  return current
+}
+
+function sortCascaderTree(nodes) {
+  return nodes
+    .sort((left, right) => String(left.label || '').localeCompare(String(right.label || ''), 'zh-Hans-CN'))
+    .map((node) => ({
+      ...node,
+      children: node.children?.length ? sortCascaderTree(node.children) : undefined,
+    }))
+}
+
+function regionPathParts(value) {
+  const parts = displayRegionText(value)
+    .split(/[\/／\\]+/)
+    .map((item) => translateRegionAlias(item.trim()) || item.trim())
+    .filter(Boolean)
+  return parts.length ? parts : [canonicalRegion(value)].filter(Boolean)
+}
+
+function displayRegionText(value) {
+  const text = fieldText(value)
+  if (!text) return ''
+  return translateLocationPath(text) || translateCountry(text) || translateCity(text) || text
+}
+
+function translateRegionAlias(value) {
+  const text = fieldText(value)
+  if (!text) return ''
+  return translateCity(text) || translateCountry(text) || text
+}
+
+function canonicalRegion(value) {
+  const text = displayRegionText(value)
+  if (!text) return ''
+  return text
+    .split(/[\/／\\]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .pop() || text
+}
+
+function normalizeRegion(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[\s　]+/g, '')
+    .replace(/[，、|]+/g, ',')
+    .replace(/[／\\]+/g, '/')
+    .replace(/\/+/g, '/')
+    .trim()
+}
+
+function normalizeSearchText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[\s　]+/g, '')
+    .trim()
+}
+
+function fieldText(value) {
+  return String(value ?? '').trim()
+}
+
+function uniqueValues(values) {
+  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))]
 }
 
 function displayRegionLabel(region = {}) {
-  const raw = region.region_name || regionOptionLabel(region)
+  const raw = region.region_name || translateCity(region.region_city || region.city) || region.name || ''
   const main = String(raw || '-').split('/').map((item) => item.trim()).filter(Boolean).pop() || '-'
   return main
+}
+
+function displayTargetRegionLabel(region = {}) {
+  const raw = region.target_region_name || translateCity(region.target_region_city) || ''
+  return String(raw || '').split('/').map((item) => item.trim()).filter(Boolean).pop() || ''
+}
+
+function displayRouteRegionLabel(row = {}) {
+  const source = displayRegionLabel(row)
+  const target = displayTargetRegionLabel(row)
+  return target ? `${source} -> ${target}` : source
 }
 
 function iconButton(label, icon, props = {}) {
@@ -487,13 +830,15 @@ onMounted(async () => {
       </div>
 
       <NDataTable
+        class="template-table"
         size="small"
+        flex-height
         striped
         :loading="loading"
         :columns="columns"
         :data="rows"
         :pagination="{ pageSize: 20, showSizePicker: true, pageSizes: [10, 20, 50] }"
-        :scroll-x="1040"
+        :scroll-x="1180"
       />
     </div>
 
@@ -507,37 +852,7 @@ onMounted(async () => {
       <NForm label-placement="left" label-width="86" :model="form">
         <NGrid :cols="3" :x-gap="14">
           <NGridItem>
-            <NFormItem label="模板名" required>
-              <NInput v-model:value="form.name" placeholder="SG1-DIA-10G" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="参数规格">
-              <NSelect
-                v-model:value="form.product_code"
-                clearable
-                filterable
-                placeholder="根据服务类型选择参数规格"
-                :options="productCodeOptions"
-              />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="区域">
-              <NCascader
-                v-model:value="form.region_id"
-                clearable
-                filterable
-                check-strategy="child"
-                :show-path="false"
-                placeholder="从 POP 区域选择"
-                :options="regionOptions"
-                :filter="regionFilter"
-              />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="服务类型">
+            <NFormItem label="服务类型" required>
               <NCascader
                 :value="getServiceTypeValue()"
                 clearable
@@ -547,6 +862,87 @@ onMounted(async () => {
                 :options="serviceTypeOptions"
                 :filter="serviceTypeFilter"
                 @update:value="handleServiceTypeChange"
+              />
+            </NFormItem>
+          </NGridItem>
+          <NGridItem>
+            <NFormItem label="区域" required>
+              <NCascader
+                v-model:value="form.region_id"
+                clearable
+                filterable
+                check-strategy="child"
+                :show-path="false"
+                placeholder="从 POP 区域选择"
+                :options="regionOptions"
+                :filter="regionFilter"
+                @update:value="handleRegionChange"
+              />
+            </NFormItem>
+          </NGridItem>
+          <NGridItem v-if="isIeplTemplate">
+            <NFormItem label="目标区域">
+              <NCascader
+                v-model:value="form.target_region_id"
+                clearable
+                filterable
+                check-strategy="child"
+                :show-path="false"
+                placeholder="选择目标 POP 区域"
+                :options="regionOptions"
+                :filter="regionFilter"
+                @update:value="handleTargetRegionChange"
+              />
+            </NFormItem>
+          </NGridItem>
+          <NGridItem>
+            <NFormItem label="计量单位">
+              <NSelect
+                v-model:value="form.unit"
+                clearable
+                filterable
+                tag
+                placeholder="请选择计量单位"
+                :options="unitOptions"
+                @update:value="handleUnitChange"
+              />
+            </NFormItem>
+          </NGridItem>
+          <NGridItem v-if="isIeplTemplate">
+            <NFormItem label="Guaranteed" required>
+              <NInput
+                v-model:value="form.guaranteed"
+                clearable
+                placeholder="如 100 或 100M"
+                @update:value="handleIeplSpecChange"
+              >
+                <template v-if="bandwidthUnitLabel" #suffix>{{ bandwidthUnitLabel }}</template>
+              </NInput>
+            </NFormItem>
+          </NGridItem>
+          <NGridItem v-if="isIeplTemplate">
+            <NFormItem label="Burst" required>
+              <NInput
+                v-model:value="form.burst"
+                clearable
+                placeholder="如 500 或 1G"
+                @update:value="handleIeplSpecChange"
+              >
+                <template v-if="bandwidthUnitLabel" #suffix>{{ bandwidthUnitLabel }}</template>
+              </NInput>
+            </NFormItem>
+          </NGridItem>
+          <NGridItem v-else>
+            <NFormItem label="参数规格" required>
+              <NSelect
+                v-model:value="form.product_code"
+                clearable
+                filterable
+                tag
+                placeholder="根据服务类型选择参数规格"
+                :options="productCodeOptions"
+                :disabled="!form.service_type"
+                @update:value="handleProductCodeChange"
               />
             </NFormItem>
           </NGridItem>
@@ -563,18 +959,6 @@ onMounted(async () => {
           <NGridItem>
             <NFormItem label="币种">
               <NSelect v-model:value="form.currency" filterable tag :options="currencyOptions" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="计量单位">
-              <NSelect
-                v-model:value="form.unit"
-                clearable
-                filterable
-                tag
-                placeholder="请选择计量单位"
-                :options="unitOptions"
-              />
             </NFormItem>
           </NGridItem>
           <NGridItem>
@@ -604,9 +988,13 @@ onMounted(async () => {
 
 <style scoped>
 .template-panel {
-  min-height: calc(100vh - 176px);
+  display: flex;
+  height: calc(100vh - 204px);
+  max-height: calc(100vh - 204px);
+  min-height: 420px;
   padding: 16px;
   overflow: hidden;
+  flex-direction: column;
   background: #fff;
   border: 1px solid #e9edf3;
   border-radius: 8px;
@@ -633,7 +1021,13 @@ onMounted(async () => {
 }
 
 :deep(.n-data-table) {
+  min-height: 0;
   margin-top: 14px;
+}
+
+.template-table {
+  flex: 1;
+  min-height: 0;
 }
 
 :deep(.n-data-table .n-data-table-th) {
@@ -644,35 +1038,41 @@ onMounted(async () => {
 }
 
 :deep(.n-data-table .n-data-table-td) {
-  height: 58px;
+  height: 82px;
   vertical-align: middle;
 }
 
-.template-cell {
+.template-name-cell,
+.template-spec-cell {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 6px;
   min-width: 0;
 }
 
-.template-name {
+.template-spec-text {
+  min-width: 0;
   overflow: hidden;
   color: #0f172a;
-  font-size: 14px;
-  font-weight: 650;
-  line-height: 1.25;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.template-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.template-code-text {
   min-width: 0;
+  overflow: hidden;
+  color: #0f172a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.spec-pill,
 .contract-pill {
   display: inline-flex;
   align-items: center;
@@ -695,6 +1095,7 @@ onMounted(async () => {
 }
 
 .meta-text,
+.template-remark,
 .region-text,
 .billing-sub {
   overflow: hidden;
@@ -703,6 +1104,11 @@ onMounted(async () => {
   line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.template-remark {
+  max-width: 520px;
+  color: #94a3b8;
 }
 
 .service-cell {

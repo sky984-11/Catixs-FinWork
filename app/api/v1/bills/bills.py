@@ -306,10 +306,15 @@ async def replace_bill_items(bill_id: int, items: list):
 async def template_to_dict(obj: BillingProductTemplate) -> dict[str, Any]:
     data = await obj.to_dict()
     region = await AssetRegion.get_or_none(id=data.get("region_id")) if data.get("region_id") else None
+    target_region = await AssetRegion.get_or_none(id=data.get("target_region_id")) if data.get("target_region_id") else None
     data["region_name"] = region.name if region else ""
     data["region_country"] = region.country if region else ""
     data["region_city"] = region.city if region else ""
     data["region_code"] = region.code if region else ""
+    data["target_region_name"] = target_region.name if target_region else ""
+    data["target_region_country"] = target_region.country if target_region else ""
+    data["target_region_city"] = target_region.city if target_region else ""
+    data["target_region_code"] = target_region.code if target_region else ""
     return data
 
 
@@ -327,6 +332,7 @@ def template_payload_data(payload: BillingTemplatePayload) -> dict[str, Any]:
         "name": payload.name.strip(),
         "product_code": payload.product_code.strip() or None,
         "region_id": payload.region_id or None,
+        "target_region_id": payload.target_region_id or None,
         "service_type": payload.service_type.strip() or None,
         "billing_rule": payload.billing_rule.strip() or "monthly",
         "unit_price": float(payload.unit_price or 0),
@@ -747,7 +753,7 @@ async def list_templates(
     if status is not None:
         q &= Q(status=status)
     if region_id is not None:
-        q &= Q(region_id=region_id)
+        q &= Q(region_id=region_id) | Q(target_region_id=region_id)
     if service_type:
         q &= Q(service_type=service_type)
     rows = await BillingProductTemplate.filter(q).order_by("-status", "name")
@@ -761,6 +767,8 @@ async def save_template(payload: BillingTemplatePayload):
         raise HTTPException(status_code=400, detail="请填写模板名")
     if data.get("region_id") and not await AssetRegion.filter(id=data["region_id"]).exists():
         raise HTTPException(status_code=400, detail="区域不存在")
+    if data.get("target_region_id") and not await AssetRegion.filter(id=data["target_region_id"]).exists():
+        raise HTTPException(status_code=400, detail="目标区域不存在")
     if payload.id:
         obj = await BillingProductTemplate.get_or_none(id=payload.id)
         if not obj:

@@ -924,36 +924,7 @@ async def ensure_billing_template_menu():
 
 
 async def ensure_billing_product_templates():
-    from app.models.company import BillingProductTemplate
-
-    defaults = [
-        {
-            "name": "SG1-DIA-10G",
-            "product_code": "10G",
-            "service_type": "DIA",
-            "billing_rule": "monthly",
-            "unit_price": 1600,
-            "currency": "USD",
-            "unit": "Gbps·月",
-            "default_contract_months": 12,
-            "status": True,
-        },
-        {
-            "name": "SG1-VM-16Core",
-            "product_code": "16*VM",
-            "service_type": "Cloud VM",
-            "billing_rule": "monthly",
-            "unit_price": 320,
-            "currency": "USD",
-            "unit": "VM·月",
-            "default_contract_months": 12,
-            "status": True,
-        },
-    ]
-    for item in defaults:
-        exists = await BillingProductTemplate.filter(name=item["name"]).exists()
-        if not exists:
-            await BillingProductTemplate.create(**item)
+    return
 
 
 async def ensure_task_menu():
@@ -1263,6 +1234,7 @@ async def ensure_bill_columns():
             "name" VARCHAR(100) NOT NULL UNIQUE,
             "product_code" VARCHAR(100),
             "region_id" BIGINT,
+            "target_region_id" BIGINT,
             "service_type" VARCHAR(100),
             "billing_rule" VARCHAR(50) NOT NULL DEFAULT 'monthly',
             "unit_price" DOUBLE PRECISION NOT NULL DEFAULT 0,
@@ -1273,9 +1245,11 @@ async def ensure_bill_columns():
             "remark" VARCHAR(500)
         );
         ALTER TABLE IF EXISTS "billing_product_template"
-            ADD COLUMN IF NOT EXISTS "region_id" BIGINT;
+            ADD COLUMN IF NOT EXISTS "region_id" BIGINT,
+            ADD COLUMN IF NOT EXISTS "target_region_id" BIGINT;
         CREATE INDEX IF NOT EXISTS "idx_billing_template_product_code" ON "billing_product_template" ("product_code");
         CREATE INDEX IF NOT EXISTS "idx_billing_template_region" ON "billing_product_template" ("region_id");
+        CREATE INDEX IF NOT EXISTS "idx_billing_template_target_region" ON "billing_product_template" ("target_region_id");
         CREATE INDEX IF NOT EXISTS "idx_billing_template_status" ON "billing_product_template" ("status");
 
         CREATE TABLE IF NOT EXISTS "billing_subscription" (

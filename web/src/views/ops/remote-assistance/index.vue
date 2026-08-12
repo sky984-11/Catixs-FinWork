@@ -32,13 +32,16 @@
                   placeholder="按负责人筛选"
                   :options="planAssigneeOptions"
                 />
-                <n-select
-                  v-model:value="planFilters.site"
+                <n-cascader
+                  v-model:value="planFilters.site_key"
                   clearable
                   filterable
-                  placeholder="按机房筛选"
-                  :options="remoteSiteFilterOptions"
-                  :filter="siteOptionFilter"
+                  show-path
+                  check-strategy="child"
+                  placeholder="按地区 / 机房筛选"
+                  :options="siteCascaderOptions"
+                  :filter="siteCascaderFilter"
+                  @update:value="handlePlanFilterSiteChange"
                 />
                 <n-select
                   v-model:value="planFilters.status"
@@ -81,13 +84,16 @@
                   placeholder="按工程师筛选"
                   :options="remoteEngineerOptions"
                 />
-                <n-select
-                  v-model:value="remoteFilters.site"
+                <n-cascader
+                  v-model:value="remoteFilters.site_key"
                   clearable
                   filterable
-                  placeholder="按机房筛选"
-                  :options="remoteSiteFilterOptions"
-                  :filter="siteOptionFilter"
+                  show-path
+                  check-strategy="child"
+                  placeholder="按地区 / 机房筛选"
+                  :options="siteCascaderOptions"
+                  :filter="siteCascaderFilter"
+                  @update:value="handleRemoteFilterSiteChange"
                 />
                 <n-select
                   v-model:value="remoteFilters.status"
@@ -420,13 +426,16 @@
               <n-input v-model:value="engineerEditor.form.wechat_group" placeholder="微信群或工作群" />
             </n-form-item>
             <n-form-item label="负责地区">
-              <n-select
+              <n-cascader
                 v-model:value="engineerEditor.form.regions"
                 multiple
                 filterable
-                tag
+                clearable
+                :show-path="false"
+                check-strategy="child"
                 max-tag-count="responsive"
-                :options="regionOptions"
+                :options="regionCascaderOptions"
+                :filter="regionCascaderFilter"
                 placeholder="选择一个或多个地区"
               />
             </n-form-item>
@@ -483,10 +492,11 @@ const plans = ref([])
 const engineers = ref([])
 const users = ref([])
 const datacenters = ref([])
+const popRegions = ref([])
 const engineerKeyword = ref('')
 
-const remoteFilters = reactive({ engineer_id: null, site: null, status: null })
-const planFilters = reactive({ assignee_id: null, site: null, status: null })
+const remoteFilters = reactive({ engineer_id: null, site: null, site_key: null, status: null })
+const planFilters = reactive({ assignee_id: null, site: null, site_key: null, status: null })
 const datePickerActions = ['clear', 'now', 'confirm']
 const minuteTimePickerProps = { format: 'HH:mm' }
 const regionAliasMap = new Map([
@@ -609,41 +619,22 @@ const userOptions = computed(() => users.value
     value: item.id,
   })))
 
-const regionOptions = computed(() => {
-  const values = new Map()
-  const addRegion = (source) => {
-    const value = canonicalRegion(source)
-    const key = normalizeRegion(value)
-    if (value && key && !values.has(key)) values.set(key, value)
-  }
-  datacenters.value.forEach((item) => {
-    addRegion(datacenterRegion(item))
-  })
-  engineers.value.forEach((item) => engineerRegions(item).forEach(addRegion))
-  remoteHands.value.forEach((item) => {
-    addRegion(item.region)
-  })
-  return [...values.values()].sort().map((value) => ({ label: value, value }))
+const regionCascaderOptions = computed(() => {
+  const roots = []
+  popRegions.value.forEach((item) => ensureRegionPath(roots, popRegionPathParts(item)))
+  return sortCascaderTree(roots)
 })
 
 const siteCascaderOptions = computed(() => {
-  const groups = new Map()
+  const roots = []
   const addSite = ({ region, site, label, timezone, searchText }) => {
     const regionLabel = displayRegion(region)
     const siteValue = fieldText(site)
     if (!regionLabel || !siteValue) return
-    if (!groups.has(regionLabel)) {
-      groups.set(regionLabel, {
-        label: regionLabel,
-        value: siteCascaderRegionValue(regionLabel),
-        searchText: regionLabel,
-        children: [],
-      })
-    }
-    const group = groups.get(regionLabel)
     const value = siteCascaderValue(regionLabel, siteValue)
-    if (group.children.some((item) => item.value === value)) return
-    group.children.push({
+    const parent = ensureCascaderPath(roots, regionPathParts(regionLabel), 'region')
+    if (parent.children.some((item) => item.value === value)) return
+    parent.children.push({
       label: fieldText(label) || siteValue,
       value,
       region: regionLabel,
@@ -672,12 +663,7 @@ const siteCascaderOptions = computed(() => {
     searchText: [item.region, item.site].filter(Boolean).join(' '),
   }))
 
-  return [...groups.values()]
-    .sort((left, right) => left.label.localeCompare(right.label, 'zh-Hans-CN'))
-    .map((group) => ({
-      ...group,
-      children: group.children.sort((left, right) => left.label.localeCompare(right.label, 'zh-Hans-CN')),
-    }))
+  return sortCascaderTree(roots)
 })
 
 const assignableEngineerOptions = computed(() => {
@@ -712,14 +698,6 @@ const remoteEngineerOptions = computed(() => uniqueOptions(
 ))
 
 const planAssigneeOptions = computed(() => userOptions.value)
-
-const remoteSiteFilterOptions = computed(() => uniqueOptions(
-  [
-    ...datacenters.value.map((item) => ({ label: datacenterLabel(item), value: datacenterValue(item), searchText: datacenterSearchText(item) })),
-    ...remoteHands.value.map((item) => ({ label: fieldText(item.site), value: fieldText(item.site), searchText: [item.region, item.site].filter(Boolean).join(' ') })),
-    ...plans.value.map((item) => ({ label: fieldText(item.site), value: fieldText(item.site), searchText: [item.region, item.site].filter(Boolean).join(' ') })),
-  ].filter((item) => item.value)
-))
 
 const filteredRemoteHands = computed(() => {
   return remoteHands.value.filter((item) => {
@@ -893,7 +871,12 @@ const engineerColumns = [
       h('strong', row.wechat_id || '-'), h('small', row.wechat_group || '无联系群'),
     ]),
   },
-  { title: '负责地区', key: 'region', minWidth: 220, ellipsis: { tooltip: true } },
+  {
+    title: '负责地区',
+    key: 'region',
+    minWidth: 240,
+    render: (row) => renderRegionTags(row.region),
+  },
   {
     title: '状态', key: 'is_active', width: 100,
     render: (row) => h(NTag, { type: Number(row.is_active) === 1 ? 'success' : 'default', bordered: false, size: 'small' },
@@ -1016,6 +999,101 @@ function datacenterSearchText(item) {
     item.city_name,
     datacenterRegion(item),
   ]).join(' ')
+}
+
+function regionPathParts(value) {
+  const parts = displayRegion(value)
+    .split(/[\/／\\]+/)
+    .map((item) => translateRegionAlias(item.trim()) || item.trim())
+    .filter(Boolean)
+  return parts.length ? parts : [canonicalRegion(value)].filter(Boolean)
+}
+
+function popRegionPathParts(item = {}) {
+  const country = translateCountry(fieldText(item.country) || fieldText(item.country_name))
+  const city = translateCity(fieldText(item.city) || fieldText(item.city_name))
+  const regionParts = regionPathParts(fieldText(item.name) || fieldText(item.region_name))
+  const values = [country, city]
+  if (!city) {
+    regionParts.forEach((part) => {
+      const label = translateRegionAlias(part) || fieldText(part)
+      if (!label) return
+      const key = normalizeRegion(label)
+      if (!key || values.some((value) => normalizeRegion(value) === key)) return
+      values.push(label)
+    })
+  }
+  const parts = []
+  values.forEach((value) => {
+    const label = translateRegionAlias(value) || fieldText(value)
+    if (!label) return
+    const key = normalizeRegion(label)
+    if (!key || parts.some((part) => normalizeRegion(part) === key)) return
+    parts.push(label)
+  })
+  return parts
+}
+
+function ensureCascaderPath(roots, parts, valuePrefix) {
+  let children = roots
+  let current = null
+  const path = []
+  parts.forEach((part) => {
+    path.push(part)
+    const value = `${valuePrefix}:${path.join('/')}`
+    let node = children.find((item) => item.value === value)
+    if (!node) {
+      node = {
+        label: part,
+        value,
+        searchText: path.join(' '),
+        children: [],
+      }
+      children.push(node)
+    }
+    current = node
+    children = node.children
+  })
+  return current || { children: roots }
+}
+
+function ensureRegionPath(roots, parts) {
+  let children = roots
+  let current = null
+  const path = []
+  parts.forEach((part) => {
+    const label = translateRegionAlias(part) || part
+    const key = normalizeRegion(label)
+    if (!key) return
+    path.push(label)
+    const value = canonicalRegion(path.join(' / ')) || label
+    let node = children.find((item) => normalizeRegion(item.label) === key || normalizeRegion(item.value) === normalizeRegion(value))
+    if (!node) {
+      node = {
+        label,
+        value,
+        region: value,
+        searchText: uniqueValues([path.join(' '), value, displayRegion(value)]).join(' '),
+        children: [],
+      }
+      children.push(node)
+    } else {
+      node.searchText = uniqueValues([node.searchText, path.join(' '), value, displayRegion(value)]).join(' ')
+      if (!node.region) node.region = value
+    }
+    current = node
+    children = node.children
+  })
+  return current
+}
+
+function sortCascaderTree(nodes) {
+  return nodes
+    .sort((left, right) => String(left.label || '').localeCompare(String(right.label || ''), 'zh-Hans-CN'))
+    .map((node) => ({
+      ...node,
+      children: node.children?.length ? sortCascaderTree(node.children) : undefined,
+    }))
 }
 
 function siteCascaderRegionValue(region) {
@@ -1218,6 +1296,15 @@ function siteCascaderFilter(pattern, option, path = []) {
   return siteOptionFilter(pattern, { label: text, value: text, searchText: text })
 }
 
+function regionCascaderFilter(pattern, option, path = []) {
+  const options = Array.isArray(path) && path.length ? path : [option]
+  const text = options
+    .flatMap((item) => [item?.label, item?.value, item?.region, item?.searchText])
+    .filter(Boolean)
+    .join(' ')
+  return siteOptionFilter(pattern, { label: text, value: text, searchText: text })
+}
+
 function siteSearchTokens(value) {
   const text = String(value || '')
   const normalized = normalizeSearchText(text)
@@ -1312,6 +1399,10 @@ function handleRemoteSiteCascaderChange(value, option) {
   if (!validEngineers.includes(remoteEditor.form.engineer_id)) handleEngineerSelected(null)
 }
 
+function handleRemoteFilterSiteChange(value, option) {
+  remoteFilters.site = value && option?.site ? option.site : null
+}
+
 function handleEngineerSelected(value) {
   const engineer = engineers.value.find((item) => String(item.id) === String(value))
   remoteEditor.form.engineer_id = engineer?.id || null
@@ -1339,6 +1430,10 @@ function handlePlanSiteCascaderChange(value, option) {
   if (option.timezone) planEditor.form.timezone = option.timezone
   const validEngineers = assignablePlanEngineerOptions.value.map((item) => item.value)
   if (!validEngineers.includes(planEditor.form.engineer_id)) handlePlanEngineerSelected(null)
+}
+
+function handlePlanFilterSiteChange(value, option) {
+  planFilters.site = value && option?.site ? option.site : null
 }
 
 function handlePlanEngineerSelected(value) {
@@ -1534,9 +1629,10 @@ async function updateRemoteSettlement(row, type, value) {
 async function fetchOverview() {
   loading.value = true
   try {
-    const [overviewRes, userRes] = await Promise.all([
+    const [overviewRes, userRes, regionRes] = await Promise.all([
       api.remoteAssistanceApi.overview(),
       api.getUserList({ page: 1, page_size: 1000 }).catch(() => null),
+      api.assetApi.regions({ page: 1, page_size: 1000, status: true }).catch(() => null),
     ])
     const data = overviewRes.data || {}
     const listUsers = normalizeUserRows(userRes?.data)
@@ -1545,6 +1641,7 @@ async function fetchOverview() {
     engineers.value = Array.isArray(data.engineers) ? data.engineers : []
     users.value = listUsers.length ? listUsers : normalizeUserRows(data.users)
     datacenters.value = Array.isArray(data.datacenters) ? data.datacenters : []
+    popRegions.value = Array.isArray(regionRes?.data) ? regionRes.data : []
   } finally {
     loading.value = false
   }
@@ -1718,6 +1815,24 @@ function renderNoteCell(note) {
   })
 }
 
+function renderRegionTags(value) {
+  const regions = uniqueRegionValues(splitRegions(value))
+  if (!regions.length) return h('span', { class: 'muted-text' }, '未设置')
+  const visible = regions.slice(0, 4)
+  const hiddenCount = regions.length - visible.length
+  return h('div', { class: 'region-tags' }, [
+    ...visible.map((region) =>
+      h(NTag, { size: 'small', type: 'info', bordered: false, round: true }, { default: () => region })
+    ),
+    hiddenCount > 0
+      ? h(NTooltip, { trigger: 'hover' }, {
+        trigger: () => h(NTag, { size: 'small', bordered: false, round: true }, { default: () => `+${hiddenCount}` }),
+        default: () => regions.slice(4).join('、'),
+      })
+      : null,
+  ].filter(Boolean))
+}
+
 onMounted(fetchOverview)
 </script>
 
@@ -1855,6 +1970,14 @@ onMounted(fetchOverview)
   -webkit-line-clamp: 2;
 }
 :deep(.muted-text) { color: #9ca3af; }
+:deep(.region-tags) {
+  display: flex;
+  max-width: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+}
 
 .editor-modal { width: min(900px, calc(100vw - 32px)); }
 .engineer-editor-modal { width: min(560px, calc(100vw - 32px)); }
