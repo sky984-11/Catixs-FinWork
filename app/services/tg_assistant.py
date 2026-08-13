@@ -3,6 +3,7 @@ import hmac
 import json
 import re
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlencode
 
@@ -192,6 +193,25 @@ def escape_md(value: Any) -> str:
     return text.replace("\\", "\\\\").replace("*", "\\*").replace("`", "\\`")
 
 
+def format_beijing_time(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text or text == "-":
+        return "-"
+    try:
+        if text.isdigit():
+            timestamp = int(text)
+            if timestamp > 10_000_000_000:
+                timestamp = timestamp / 1000
+            dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+        else:
+            dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return text
+
+
 def match_config(config: TGAssistantConfig, payload: dict[str, Any], context: dict[str, str], event: str, message_type: str) -> tuple[bool, str]:
     if not config.is_enabled:
         return False, "disabled"
@@ -276,38 +296,14 @@ def build_tg_assistant_card(
             "tag": "div",
             "text": {
                 "tag": "lark_md",
-                "content": (
-                    f"**发送人：** {escape_md(sender_name)}\n"
-                    f"**客户：** {escape_md(context.get('contact_name'))}\n"
-                    f"**时间：** {escape_md(context.get('created_at'))}\n"
-                    f"**收件箱：** {escape_md(context.get('inbox_name'))}\n"
-                    f"**会话 ID：** {escape_md(context.get('conversation_id'))}\n"
-                    f"**消息类型：** {escape_md(message_type)} / {escape_md(context.get('content_type'))}"
-                ),
+                "content": f"**时间：** {escape_md(format_beijing_time(context.get('created_at')))}",
             },
         }
     )
-    if context.get("conversation_url"):
-        elements.extend(
-            [
-                {"tag": "hr"},
-                {
-                    "tag": "action",
-                    "actions": [
-                        {
-                            "tag": "button",
-                            "text": {"tag": "plain_text", "content": "打开会话"},
-                            "type": "primary",
-                            "url": context["conversation_url"],
-                        }
-                    ],
-                },
-            ]
-        )
     return {
         "header": {
             "template": "blue" if event == "message_created" else "orange",
-            "title": {"tag": "plain_text", "content": f"{sender_name} 发来消息"},
+            "title": {"tag": "plain_text", "content": f"TG助手 ： {sender_name} 发来消息"},
         },
         "elements": elements,
     }

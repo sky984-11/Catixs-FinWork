@@ -48,27 +48,7 @@
             <span>启用后如果过滤都不填写，则推送全部符合事件和消息类型的消息。</span>
           </div>
 
-          <div class="tg-grid">
-            <n-form-item label="Chatwoot 事件">
-              <n-select v-model:value="tgForm.event_types" multiple :options="eventOptions" />
-            </n-form-item>
-            <n-form-item label="消息类型">
-              <n-select v-model:value="tgForm.message_types" multiple :options="messageTypeOptions" />
-            </n-form-item>
-          </div>
-
         </n-form>
-
-        <section>
-          <div class="tg-section-title">最近记录</div>
-          <n-data-table
-            size="small"
-            :columns="logColumns"
-            :data="tgLogs"
-            :pagination="false"
-            :bordered="false"
-          />
-        </section>
       </div>
     </n-spin>
   </n-modal>
@@ -78,8 +58,7 @@
 import { useUserStore } from '@/store'
 import api from '@/api'
 import { renderIcon } from '@/utils'
-import { h, reactive, ref } from 'vue'
-import { NTag } from 'naive-ui'
+import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
@@ -91,36 +70,7 @@ const userStore = useUserStore()
 const tgVisible = ref(false)
 const tgLoading = ref(false)
 const tgSaving = ref(false)
-const tgLogs = ref([])
 const tgForm = reactive(createTgForm())
-
-const eventOptions = [
-  { label: '新消息', value: 'message_created' },
-  { label: '消息更新', value: 'message_updated' },
-]
-
-const messageTypeOptions = [
-  { label: '客户消息 incoming', value: 'incoming' },
-  { label: '客服回复 outgoing', value: 'outgoing' },
-  { label: '系统活动 activity', value: 'activity' },
-  { label: '模板 template', value: 'template' },
-]
-
-const logColumns = [
-  { title: '时间', key: 'created_at', width: 150 },
-  {
-    title: '状态',
-    key: 'status',
-    width: 80,
-    render(row) {
-      const type = row.status === 'sent' ? 'success' : row.status === 'failed' ? 'error' : 'default'
-      return h(NTag, { type, size: 'small' }, { default: () => statusLabel(row.status) })
-    },
-  },
-  { title: '客户', key: 'contact_name', ellipsis: { tooltip: true } },
-  { title: '发送人', key: 'sender_name', ellipsis: { tooltip: true } },
-  { title: '原因', key: 'reason', ellipsis: { tooltip: true } },
-]
 
 const options = [
   {
@@ -200,12 +150,8 @@ async function openTgAssistant() {
   tgVisible.value = true
   tgLoading.value = true
   try {
-    const [configRes, logsRes] = await Promise.all([
-      api.getTgAssistantConfig(),
-      api.getTgAssistantLogs({ limit: 20 }),
-    ])
+    const configRes = await api.getTgAssistantConfig()
     fillTgForm(configRes?.data || {})
-    tgLogs.value = logsRes?.data || []
   } finally {
     tgLoading.value = false
   }
@@ -222,9 +168,6 @@ async function saveTgAssistant() {
   }
 }
 
-function statusLabel(status) {
-  return { sent: '已推送', failed: '失败', skipped: '跳过' }[status] || status || '-'
-}
 </script>
 
 <style scoped>
@@ -256,11 +199,6 @@ function statusLabel(status) {
   color: #5c6878;
   font-size: 13px;
   line-height: 1.6;
-}
-
-.tg-section-title {
-  margin-bottom: 10px;
-  font-weight: 600;
 }
 
 @media (max-width: 720px) {
