@@ -157,6 +157,8 @@ def extract_user_name_from_content(content: Any) -> str:
     for separator in ("：", ":"):
         if separator in text:
             name = text.split(separator, 1)[0].strip()
+            if name.startswith("↪") or name.lower().startswith("reply "):
+                continue
             if name:
                 return name
     return ""
@@ -255,6 +257,9 @@ def match_config(config: TGAssistantConfig, payload: dict[str, Any], context: di
         group_text = "\n".join(
             [
                 context.get("inbox_name", ""),
+                context.get("sender_name", ""),
+                context.get("contact_name", ""),
+                context.get("content", ""),
                 extract_group_name(context.get("sender_name")),
                 extract_group_name(context.get("contact_name")),
                 extract_group_name(context.get("content")),
@@ -265,7 +270,7 @@ def match_config(config: TGAssistantConfig, payload: dict[str, Any], context: di
             return False, "group_not_matched"
         matched.append(f"group={keyword}")
 
-    source_text = "\n".join([context.get("sender_name", ""), context.get("contact_name", ""), context.get("content", "")])
+    source_text = "\n".join([context.get("sender_name", ""), context.get("contact_name", "")])
     exclude_user_keywords = as_list(getattr(config, "exclude_user_keywords", []))
     ignored_user = contains_any(source_text, exclude_user_keywords)
     if ignored_user:
