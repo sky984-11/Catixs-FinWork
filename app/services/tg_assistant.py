@@ -35,6 +35,9 @@ EVENT_TITLE_MAP = {
 def default_config_payload() -> dict[str, Any]:
     return {
         "is_enabled": False,
+        "group_keywords": [],
+        "include_user_keywords": [],
+        "exclude_user_keywords": [],
         "source_user_keywords": [],
         "content_keywords": [],
         "mention_keywords": [],
@@ -61,7 +64,9 @@ async def verify_chatwoot_signature(request: Request, raw_body: bytes) -> None:
     signature = request.headers.get("X-Chatwoot-Signature", "")
     timestamp = request.headers.get("X-Chatwoot-Timestamp", "")
     if not signature or not timestamp:
-        raise ValueError("missing Chatwoot signature headers")
+        if verify_chatwoot_body_signature(secret, raw_body, signature):
+            return
+        raise ValueError("missing or invalid Chatwoot signature headers")
     try:
         signed_at = int(timestamp)
     except ValueError as exc:
@@ -74,7 +79,17 @@ async def verify_chatwoot_signature(request: Request, raw_body: bytes) -> None:
     signed_payload = timestamp.encode("utf-8") + b"." + raw_body
     expected = "sha256=" + hmac.new(secret.encode("utf-8"), signed_payload, hashlib.sha256).hexdigest()
     if not hmac.compare_digest(expected, signature):
+        if verify_chatwoot_body_signature(secret, raw_body, signature):
+            return
         raise ValueError("invalid Chatwoot webhook signature")
+
+
+def verify_chatwoot_body_signature(secret: str, raw_body: bytes, signature: str) -> bool:
+    signature = str(signature or "").strip()
+    if not signature:
+        return False
+    digest = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+    return any(hmac.compare_digest(candidate, signature) for candidate in (digest, f"sha256={digest}"))
 
 
 def normalize_message_type(value: Any) -> str:
@@ -102,6 +117,14 @@ def contains_any(text: str, keywords: list[str]) -> str:
         if keyword.lower() in lower_text:
             return keyword
     return ""
+
+
+def first_list(*values: Any) -> list[str]:
+    for value in values:
+        items = as_list(value)
+        if items:
+            return items
+    return []
 
 
 def extract_message_context(payload: dict[str, Any]) -> dict[str, str]:
@@ -195,20 +218,26 @@ def match_config(config: TGAssistantConfig, payload: dict[str, Any], context: di
         return False, f"ignored_keyword:{ignored}"
 
     matched = []
-    source_keywords = as_list(config.source_user_keywords)
+    group_keywords = as_list(getattr(config, "group_keywords", []))
+    if group_keywords:
+        group_text = "\n".join([context.get("inbox_name", ""), context.get("account_name", "")])
+        keyword = contains_any(group_text, group_keywords)
+        if not keyword:
+            return False, "group_not_matched"
+        matched.append(f"group={keyword}")
+
+    source_text = "\n".join([context.get("sender_name", ""), context.get("contact_name", ""), context.get("content", "")])
+    exclude_user_keywords = as_list(getattr(config, "exclude_user_keywords", []))
+    ignored_user = contains_any(source_text, exclude_user_keywords)
+    if ignored_user:
+        return False, f"ignored_user:{ignored_user}"
+
+    source_keywords = first_list(getattr(config, "include_user_keywords", []), config.source_user_keywords)
     if source_keywords:
-        source_text = "\n".join([context.get("sender_name", ""), context.get("contact_name", ""), context.get("content", "")])
         keyword = contains_any(source_text, source_keywords)
         if not keyword:
             return False, "source_user_not_matched"
-        matched.append(f"source={keyword}")
-
-    content_keywords = as_list(config.content_keywords)
-    if content_keywords:
-        keyword = contains_any(context.get("content", ""), content_keywords)
-        if not keyword:
-            return False, "content_not_matched"
-        matched.append(f"content={keyword}")
+        matched.append(f"user={keyword}")
 
     mention_keywords = as_list(config.mention_keywords)
     if mention_keywords:

@@ -6,6 +6,9 @@ from .base import BaseModel, TimestampMixin
 class TGAssistantConfig(BaseModel, TimestampMixin):
     user = fields.ForeignKeyField("models.User", related_name="tg_assistant_configs", on_delete=fields.CASCADE)
     is_enabled = fields.BooleanField(default=False, description="是否启用", index=True)
+    group_keywords = fields.JSONField(default=list, description="群组关键词")
+    include_user_keywords = fields.JSONField(default=list, description="仅接收用户关键词")
+    exclude_user_keywords = fields.JSONField(default=list, description="忽略用户关键词")
     source_user_keywords = fields.JSONField(default=list, description="通知用户/发送人关键词")
     content_keywords = fields.JSONField(default=list, description="内容关键词")
     mention_keywords = fields.JSONField(default=list, description="@关键词")

@@ -36,3 +36,16 @@
 2026-08-13 10:44:39.786 | DEBUG    | app.core.init_app:init_companies:1921 - 签约主体公司已存在，跳过初始化
 2026-08-13 10:44:39.874 | INFO     | app.services.project_task_notifier:notify_project_daily_summary:135 - project daily summary skipped: already_sent summary_date=%s
 2026-08-13 10:45:39.869 | INFO     | app.services.project_task_notifier:notify_project_daily_summary:135 - project daily summary skipped: already_sent summary_date=%s
+2026-08-13 10:46:39.904 | INFO     | app.services.project_task_notifier:notify_project_daily_summary:135 - project daily summary skipped: already_sent summary_date=%s
+2026-08-13 10:47:39.925 | INFO     | app.services.project_task_notifier:notify_project_daily_summary:135 - project daily summary skipped: already_sent summary_date=%s
+2026-08-13 10:48:39.942 | INFO     | app.services.project_task_notifier:notify_project_daily_summary:135 - project daily summary skipped: already_sent summary_date=%s
+2026-08-13 10:49:39.965 | INFO     | app.services.project_task_notifier:notify_project_daily_summary:135 - project daily summary skipped: already_sent summary_date=%s
+2026-08-13 10:50:39.980 | INFO     | app.services.project_task_notifier:notify_project_daily_summary:135 - project daily summary skipped: already_sent summary_date=%s
+2026-08-13 10:51:40.136 | INFO     | app.services.project_task_notifier:notify_project_daily_summary:135 - project daily summary skipped: already_sent summary_date=%s
+2026-08-13 10:52:40.171 | INFO     | app.services.project_task_notifier:notify_project_daily_summary:135 - project daily summary skipped: already_sent summary_date=%s
+2026-08-13 10:53:40.187 | INFO     | app.services.project_task_notifier:notify_project_daily_summary:135 - project daily summary skipped: already_sent summary_date=%s
+2026-08-13 10:54:40.257 | INFO     | app.services.project_task_notifier:notify_project_daily_summary:135 - project daily summary skipped: already_sent summary_date=%s
+2026-08-13 10:55:40.253 | INFO     | app.services.project_task_notifier:notify_project_daily_summary:135 - project daily summary skipped: already_sent summary_date=%s
+2026-08-13 10:56:40.273 | INFO     | app.services.project_task_notifier:notify_project_daily_summary:135 - project daily summary skipped: already_sent summary_date=%s
+2026-08-13 10:57:40.328 | INFO     | app.services.project_task_notifier:notify_project_daily_summary:135 - project daily summary skipped: already_sent summary_date=%s
+2026-08-13 10:58:40.316 | INFO     | app.services.project_task_notifier:notify_project_daily_summary:135 - project daily summary skipped: already_sent summary_date=%s

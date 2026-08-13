@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request
 
 from app.core.ctx import CTX_USER_ID
 from app.core.dependency import DependAuth
+from app.log import logger
 from app.models.tg_assistant import TGAssistantDeliveryLog
 from app.schemas import Fail, Success
 from app.schemas.tg_assistant import TGAssistantConfigUpdate
@@ -54,6 +55,8 @@ async def chatwoot_webhook(request: Request):
         result = await process_chatwoot_payload(payload)
         return Success(data=result)
     except ValueError as exc:
+        logger.warning("tg assistant webhook rejected: %s", exc)
         return Fail(code=401, msg=str(exc))
     except Exception as exc:
+        logger.exception("tg assistant webhook failed")
         return Fail(code=500, msg=str(exc))

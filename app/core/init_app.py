@@ -1681,6 +1681,9 @@ async def ensure_tg_assistant_tables():
                 "updated_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 "user_id" BIGINT NOT NULL,
                 "is_enabled" BOOL NOT NULL DEFAULT 0,
+                "group_keywords" JSON NOT NULL DEFAULT '[]',
+                "include_user_keywords" JSON NOT NULL DEFAULT '[]',
+                "exclude_user_keywords" JSON NOT NULL DEFAULT '[]',
                 "source_user_keywords" JSON NOT NULL DEFAULT '[]',
                 "content_keywords" JSON NOT NULL DEFAULT '[]',
                 "mention_keywords" JSON NOT NULL DEFAULT '[]',
@@ -1716,6 +1719,13 @@ async def ensure_tg_assistant_tables():
                 ON "tg_assistant_delivery_log" ("status");
             """
         )
+        for column_name in ("group_keywords", "include_user_keywords", "exclude_user_keywords"):
+            try:
+                await conn.execute_query(
+                    f"""ALTER TABLE "tg_assistant_config" ADD COLUMN "{column_name}" JSON NOT NULL DEFAULT '[]';"""
+                )
+            except OperationalError:
+                pass
         return
 
     if settings.DB_TYPE != "postgres":
@@ -1729,6 +1739,9 @@ async def ensure_tg_assistant_tables():
             "updated_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
             "user_id" BIGINT NOT NULL REFERENCES "user" ("id") ON DELETE CASCADE,
             "is_enabled" BOOL NOT NULL DEFAULT FALSE,
+            "group_keywords" JSONB NOT NULL DEFAULT '[]',
+            "include_user_keywords" JSONB NOT NULL DEFAULT '[]',
+            "exclude_user_keywords" JSONB NOT NULL DEFAULT '[]',
             "source_user_keywords" JSONB NOT NULL DEFAULT '[]',
             "content_keywords" JSONB NOT NULL DEFAULT '[]',
             "mention_keywords" JSONB NOT NULL DEFAULT '[]',
@@ -1742,6 +1755,10 @@ async def ensure_tg_assistant_tables():
             ON "tg_assistant_config" ("user_id");
         CREATE INDEX IF NOT EXISTS "idx_tg_assistant_config_enabled"
             ON "tg_assistant_config" ("is_enabled");
+        ALTER TABLE IF EXISTS "tg_assistant_config"
+            ADD COLUMN IF NOT EXISTS "group_keywords" JSONB NOT NULL DEFAULT '[]',
+            ADD COLUMN IF NOT EXISTS "include_user_keywords" JSONB NOT NULL DEFAULT '[]',
+            ADD COLUMN IF NOT EXISTS "exclude_user_keywords" JSONB NOT NULL DEFAULT '[]';
 
         CREATE TABLE IF NOT EXISTS "tg_assistant_delivery_log" (
             "id" BIGSERIAL NOT NULL PRIMARY KEY,

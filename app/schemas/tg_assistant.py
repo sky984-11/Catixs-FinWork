@@ -3,6 +3,9 @@ from pydantic import BaseModel, Field
 
 class TGAssistantConfigUpdate(BaseModel):
     is_enabled: bool = Field(False, description="是否启用")
+    group_keywords: list[str] = Field(default_factory=list, description="群组关键词")
+    include_user_keywords: list[str] = Field(default_factory=list, description="仅接收用户关键词")
+    exclude_user_keywords: list[str] = Field(default_factory=list, description="忽略用户关键词")
     source_user_keywords: list[str] = Field(default_factory=list, description="通知用户/发送人关键词")
     content_keywords: list[str] = Field(default_factory=list, description="内容关键词")
     mention_keywords: list[str] = Field(default_factory=list, description="@关键词")

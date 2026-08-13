@@ -24,14 +24,17 @@
           </div>
 
           <div class="tg-grid">
-            <n-form-item label="通知用户/发送人关键词（组内 OR）">
-              <n-dynamic-tags v-model:value="tgForm.source_user_keywords" />
+            <n-form-item label="群组关键词">
+              <n-dynamic-tags v-model:value="tgForm.group_keywords" />
             </n-form-item>
-            <n-form-item label="内容包含关键词（组内 OR）">
-              <n-dynamic-tags v-model:value="tgForm.content_keywords" />
-            </n-form-item>
-            <n-form-item label="@某人关键词（组内 OR）">
+            <n-form-item label="@某人关键词">
               <n-dynamic-tags v-model:value="tgForm.mention_keywords" />
+            </n-form-item>
+            <n-form-item label="仅接收用户">
+              <n-dynamic-tags v-model:value="tgForm.include_user_keywords" />
+            </n-form-item>
+            <n-form-item label="忽略用户">
+              <n-dynamic-tags v-model:value="tgForm.exclude_user_keywords" />
             </n-form-item>
             <n-form-item label="忽略关键词（任意命中即跳过）">
               <n-dynamic-tags v-model:value="tgForm.ignored_keywords" />
@@ -40,9 +43,9 @@
 
           <div class="tg-rule-note">
             <n-tag size="small" type="info">匹配关系</n-tag>
-            <span>发送人、内容、@某人三组：填写了几组就必须同时满足几组；每组内部命中任意关键词即可。</span>
-            <span>启用后如果三组都不填写，则推送全部符合事件和消息类型的消息。</span>
-            <span>忽略关键词优先级最高，任意命中就不推送。</span>
+            <span>群组、@某人、仅接收用户：填写了几项就必须同时满足几项；每项内部命中任意关键词即可。</span>
+            <span>仅接收用户为空表示不限制发送人；忽略用户和忽略关键词优先级最高，命中即不推送。</span>
+            <span>启用后如果过滤都不填写，则推送全部符合事件和消息类型的消息。</span>
           </div>
 
           <div class="tg-grid">
@@ -158,6 +161,9 @@ function handleSelect(key) {
 function createTgForm() {
   return {
     is_enabled: false,
+    group_keywords: [],
+    include_user_keywords: [],
+    exclude_user_keywords: [],
     source_user_keywords: [],
     content_keywords: [],
     mention_keywords: [],
@@ -174,10 +180,15 @@ function normalizeList(value) {
 }
 
 function fillTgForm(data = {}) {
+  const includeUserKeywords = normalizeList(data.include_user_keywords)
+  const legacySourceUserKeywords = normalizeList(data.source_user_keywords)
   Object.assign(tgForm, createTgForm(), {
     ...data,
-    source_user_keywords: normalizeList(data.source_user_keywords),
-    content_keywords: normalizeList(data.content_keywords),
+    group_keywords: normalizeList(data.group_keywords),
+    include_user_keywords: includeUserKeywords.length ? includeUserKeywords : legacySourceUserKeywords,
+    exclude_user_keywords: normalizeList(data.exclude_user_keywords),
+    source_user_keywords: [],
+    content_keywords: [],
     mention_keywords: normalizeList(data.mention_keywords),
     ignored_keywords: normalizeList(data.ignored_keywords),
     event_types: normalizeList(data.event_types).length ? normalizeList(data.event_types) : ['message_created', 'message_updated'],
