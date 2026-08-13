@@ -2,6 +2,9 @@
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import {
   NButton,
+  NCascader,
+  NCollapse,
+  NCollapseItem,
   NDataTable,
   NDatePicker,
   NForm,
@@ -35,6 +38,8 @@ const rows = ref([])
 const customerList = ref([])
 const projectList = ref([])
 const userList = ref([])
+const popRegionList = ref([])
+const popLocationList = ref([])
 const activeView = ref('board')
 
 const query = reactive({
@@ -49,6 +54,16 @@ const query = reactive({
 })
 
 const form = reactive(createEmptyForm())
+const targetPriceValue = computed({
+  get: () => {
+    if (form.target_price === '' || form.target_price === null || form.target_price === undefined) return null
+    const value = Number(form.target_price)
+    return Number.isFinite(value) ? value : null
+  },
+  set: (value) => {
+    form.target_price = value === null || value === undefined ? '' : String(value)
+  },
+})
 
 const statusOptions = [
   { label: '新线索', value: 'lead', icon: 'mdi:radar', tone: 'slate' },
@@ -75,7 +90,6 @@ const sourceOptions = [
   { label: '运维转入', value: 'ops' },
   { label: '市场活动', value: 'market' },
   { label: '内部转介', value: 'internal' },
-  { label: '飞书表格', value: 'feishu' },
   { label: '其他', value: 'other' },
 ]
 
@@ -86,7 +100,6 @@ const serviceTypeOptions = [
   { label: 'IP资源', value: 'ip' },
   { label: '云资源', value: 'cloud' },
   { label: '托管运维', value: 'managed' },
-  { label: '安全/高防', value: 'security' },
   { label: '其他', value: 'other' },
 ]
 
@@ -137,13 +150,7 @@ const userOptions = computed(() =>
   })
 )
 
-const regionOptions = computed(() => {
-  const values = new Set(['Hong Kong', 'Singapore', 'Tokyo', 'Los Angeles', 'London', 'Frankfurt', 'China'])
-  rows.value.forEach((item) => {
-    if (item.region) values.add(item.region)
-  })
-  return Array.from(values).map((value) => ({ label: value, value }))
-})
+const regionOptions = computed(() => buildRegionCascaderOptions())
 
 const summary = computed(() => {
   const openRows = rows.value.filter((item) => !['won', 'lost', 'shelved'].includes(item.status))
@@ -168,6 +175,26 @@ const boardRows = computed(() =>
     rows: rows.value.filter((item) => item.status === status.value),
   }))
 )
+
+const specFieldVisibility = computed(() => {
+  const type = form.requirement_type
+  const isColocation = type === 'colocation'
+  const isServer = type === 'server'
+  const isBandwidth = type === 'bandwidth'
+  const isIp = type === 'ip'
+  const isCloud = type === 'cloud'
+  const isManaged = type === 'managed'
+  const isOther = type === 'other'
+  return {
+    circuit: isBandwidth || isManaged || isOther,
+    location: isColocation || isServer || isCloud || isManaged || isBandwidth || isOther,
+    datacenter: isColocation || isServer || isCloud || isManaged || isBandwidth || isOther,
+    bandwidth: isBandwidth || isColocation || isManaged || isOther,
+    ip: isIp || isColocation || isServer || isCloud || isOther,
+    cabinet: isColocation,
+    server: isServer || isCloud || isManaged,
+  }
+})
 
 const columns = computed(() => [
   {
@@ -311,14 +338,100 @@ async function loadRows() {
 }
 
 async function loadOptions() {
-  const [customers, projects, users] = await Promise.all([
+  const [customers, projects, users, regions, locations] = await Promise.all([
     api.getCompanyList({ page: 1, page_size: 9999, role: 1 }),
     api.projectApi.list({ page: 1, page_size: 9999 }),
     api.getUserList({ page: 1, page_size: 9999 }),
+    api.assetApi.regions({ page: 1, page_size: 9999, status: true }),
+    api.assetApi.locations({ page: 1, page_size: 9999, type: 1, status: true }),
   ])
   customerList.value = customers.data || []
   projectList.value = projects.data || []
   userList.value = users.data || []
+  popRegionList.value = regions.data || []
+  popLocationList.value = locations.data || []
+}
+
+function compactParts(parts) {
+  const seen = new Set()
+  return parts
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .filter((item) => {
+      const key = item.toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+}
+
+function getBranch(children, label, value, searchParts = []) {
+  let node = children.find((item) => item.value === value)
+  if (!node) {
+    node = {
+      label,
+      value,
+      children: [],
+      searchText: buildPinyinSearchText([label, value, ...searchParts]),
+    }
+    children.push(node)
+  }
+  return node
+}
+
+function makeRegionDisplay(region = {}) {
+  const name = region.name || region.city || region.code || `POP-${region.id}`
+  const code = region.code && region.code !== name ? region.code : ''
+  return compactParts([code, name]).join(' - ') || '-'
+}
+
+function makeRegionValue(region = {}) {
+  return compactParts([region.country, region.city, region.name || region.code]).join(' / ') || makeRegionDisplay(region)
+}
+
+function buildRegionCascaderOptions() {
+  const roots = []
+  const locationsByRegion = new Map()
+  popLocationList.value.forEach((location) => {
+    if (!location.region_id) return
+    const list = locationsByRegion.get(location.region_id) || []
+    list.push(location)
+    locationsByRegion.set(location.region_id, list)
+  })
+
+  popRegionList.value.forEach((region) => {
+    const country = String(region.country || '未设置国家').trim()
+    const city = String(region.city || region.name || '未设置城市').trim()
+    const countryNode = getBranch(roots, country, `country:${country}`, [region.code, region.name])
+    const cityNode = getBranch(countryNode.children, city, `city:${country}:${city}`, [region.code, region.name])
+    const regionLabel = makeRegionDisplay(region)
+    const regionNode = getBranch(cityNode.children, regionLabel, `region:${region.id}`, [region.country, region.city, region.name, region.code])
+    const regionValue = makeRegionValue(region)
+    const locations = locationsByRegion.get(region.id) || []
+    regionNode.children = [
+      {
+        label: '全部',
+        value: regionValue,
+        searchText: buildPinyinSearchText([regionValue, regionLabel, region.country, region.city, region.code]),
+      },
+      ...locations.map((location) => ({
+        label: location.name || `机房-${location.id}`,
+        value: compactParts([regionValue, location.name]).join(' / '),
+        searchText: buildPinyinSearchText([regionValue, regionLabel, location.name, location.address, location.remark]),
+      })),
+    ]
+  })
+
+  return sortCascaderOptions(roots)
+}
+
+function sortCascaderOptions(options) {
+  return options
+    .sort((left, right) => String(left.label || '').localeCompare(String(right.label || ''), 'zh-Hans-CN'))
+    .map((item) => ({
+      ...item,
+      children: item.children?.length ? sortCascaderOptions(item.children) : undefined,
+    }))
 }
 
 function openAdd() {
@@ -506,7 +619,13 @@ onMounted(async () => {
         />
         <NSelect v-model:value="query.status" clearable placeholder="销售阶段" :options="statusOptions" />
         <NSelect v-model:value="query.service_type" clearable placeholder="服务类型" :options="serviceTypeOptions" />
-        <NSelect v-model:value="query.region" clearable filterable tag placeholder="区域 / 机房" :options="regionOptions" />
+        <NCascader
+          v-model:value="query.region"
+          clearable
+          filterable
+          placeholder="POP区域"
+          :options="regionOptions"
+        />
         <NSelect v-model:value="query.owner" clearable filterable placeholder="负责人" :options="userOptions" />
         <NButton type="primary" secondary @click="loadRows">查询</NButton>
       </div>
@@ -601,173 +720,228 @@ onMounted(async () => {
     <NModal
       v-model:show="modalVisible"
       preset="card"
-      :title="modalAction === 'add' ? '新增IDC需求' : '编辑IDC需求'"
-      style="width: min(1080px, calc(100vw - 40px))"
+      :title="modalAction === 'add' ? '新增需求' : '编辑需求'"
+      class="requirement-modal"
+      style="width: min(1120px, calc(100vw - 40px))"
       :bordered="false"
     >
-      <NForm label-placement="left" label-width="96" :model="form">
-        <NGrid :cols="3" :x-gap="14">
-          <NGridItem :span="2">
-            <NFormItem label="客户需求" required>
-              <NInput v-model:value="form.title" placeholder="例如：香港 10G 带宽 + /24 IPv4 资源" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem v-if="modalAction === 'edit'">
-            <NFormItem label="需求编号">
-              <NInput v-model:value="form.code" disabled placeholder="保存后自动生成" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="客户">
-              <NSelect
-                v-model:value="form.customer_id"
-                clearable
-                filterable
-                :options="customerOptions"
-                :filter="pinyinOptionFilter"
-                :render-label="renderCustomerOptionLabel"
-              />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="关联项目">
-              <NSelect v-model:value="form.project_id" clearable filterable :options="filteredProjectOptions" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="销售">
-              <NSelect v-model:value="form.owner" clearable filterable tag :options="userOptions" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="服务类型">
-              <NSelect v-model:value="form.requirement_type" :options="serviceTypeOptions" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="销售阶段">
-              <NSelect v-model:value="form.status" :options="statusOptions" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="优先级">
-              <NSelect v-model:value="form.priority" :options="priorityOptions" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="来源">
-              <NSelect v-model:value="form.source" :options="sourceOptions" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="客户联系人">
-              <NInput v-model:value="form.requester" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="区域">
-              <NSelect v-model:value="form.region" clearable filterable tag :options="regionOptions" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="A端">
-              <NInput v-model:value="form.a_end" placeholder="例如 Equinix HK2" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="Z端">
-              <NInput v-model:value="form.z_end" placeholder="例如 Global Switch AMS" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="机房/POP">
-              <NInput v-model:value="form.datacenter" placeholder="例如 HK2 / SG1 / LA" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="带宽">
-              <NInput v-model:value="form.bandwidth" placeholder="例如 10G commit / 95th" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="IP数量">
-              <NInputNumber v-model:value="form.ip_count" :min="0" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="机柜数">
-              <NInputNumber v-model:value="form.cabinet_count" :min="0" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="服务器数">
-              <NInputNumber v-model:value="form.server_count" :min="0" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="合同周期">
-              <NInput v-model:value="form.contract_term" placeholder="例如 12个月" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="预算">
-              <NInputNumber v-model:value="form.budget_amount" :min="0" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="币种">
-              <NSelect v-model:value="form.budget_currency" filterable tag :options="currencyOptions" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="预计MRR">
-              <NInputNumber v-model:value="form.expected_mrr" :min="0" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="预计NRC">
-              <NInputNumber v-model:value="form.nrc_amount" :min="0" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="成交概率">
-              <NInputNumber v-model:value="form.probability" :min="0" :max="100" />
-            </NFormItem>
-          </NGridItem>
-          <NGridItem>
-            <NFormItem label="期望交付">
-              <NDatePicker v-model:formatted-value="form.expected_at" clearable type="date" value-format="yyyy-MM-dd" />
-            </NFormItem>
-          </NGridItem>
-        </NGrid>
+      <NForm class="requirement-form" label-placement="top" :model="form">
+        <section class="requirement-form-section primary">
+          <div class="section-heading">
+            <strong>需求概览</strong>
+            <span>先记录销售能识别的客户诉求和归属关系</span>
+          </div>
+          <NGrid :cols="3" :x-gap="14" :y-gap="4" responsive="screen">
+            <NGridItem :span="modalAction === 'edit' ? 2 : 3">
+              <NFormItem label="客户需求" required>
+                <NInput v-model:value="form.title" placeholder="例如：香港 10G 带宽 + /24 IPv4 资源" />
+              </NFormItem>
+            </NGridItem>
+            <NGridItem v-if="modalAction === 'edit'">
+              <NFormItem label="需求编号">
+                <NInput v-model:value="form.code" disabled placeholder="保存后自动生成" />
+              </NFormItem>
+            </NGridItem>
+            <NGridItem>
+              <NFormItem label="客户">
+                <NSelect
+                  v-model:value="form.customer_id"
+                  clearable
+                  filterable
+                  placeholder="客户 / 签约主体"
+                  :options="customerOptions"
+                  :filter="pinyinOptionFilter"
+                  :render-label="renderCustomerOptionLabel"
+                />
+              </NFormItem>
+            </NGridItem>
+            <NGridItem>
+              <NFormItem label="关联项目">
+                <NSelect v-model:value="form.project_id" clearable filterable placeholder="选择关联项目" :options="filteredProjectOptions" />
+              </NFormItem>
+            </NGridItem>
+            <NGridItem>
+              <NFormItem label="客户联系人">
+                <NInput v-model:value="form.requester" placeholder="客户侧联系人" />
+              </NFormItem>
+            </NGridItem>
+          </NGrid>
+        </section>
 
-        <NFormItem label="竞争对手">
-          <NInput v-model:value="form.competitor" placeholder="例如 Equinix / Zenlayer / Cogent" />
-        </NFormItem>
-        <NFormItem label="目标价">
-          <NInput v-model:value="form.target_price" placeholder="客户目标价、竞品价格或供应商目标成本" />
-        </NFormItem>
-        <NFormItem label="下一步">
-          <NInput v-model:value="form.next_action" placeholder="例如：本周五前给客户 HK 10G 方案和报价" />
-        </NFormItem>
-        <NFormItem label="来源说明">
-          <NInput v-model:value="form.source_detail" placeholder="例如：飞书表格、客户会议、WhatsApp、工单编号" />
-        </NFormItem>
-        <NFormItem label="标签">
-          <NSelect v-model:value="form.tags" multiple filterable tag placeholder="客户等级、区域、资源类型、竞品等" :options="[]" />
-        </NFormItem>
-        <NFormItem label="相关链接">
-          <NSelect v-model:value="form.related_links" multiple filterable tag placeholder="飞书文档、报价单、工单或客户沟通记录" :options="[]" />
-        </NFormItem>
-        <NFormItem label="需求描述">
-          <NInput v-model:value="form.description" type="textarea" :autosize="{ minRows: 3, maxRows: 6 }" />
-        </NFormItem>
-        <NFormItem label="交付/验收">
-          <NInput v-model:value="form.acceptance_criteria" type="textarea" :autosize="{ minRows: 2, maxRows: 5 }" />
-        </NFormItem>
-        <NFormItem label="方案备注">
-          <NInput v-model:value="form.solution" type="textarea" :autosize="{ minRows: 2, maxRows: 5 }" />
-        </NFormItem>
+        <section class="requirement-form-section">
+          <div class="section-heading">
+            <strong>销售跟进</strong>
+            <span>阶段、来源和负责人决定看板流转</span>
+          </div>
+          <NGrid :cols="4" :x-gap="14" :y-gap="4" responsive="screen">
+            <NGridItem>
+              <NFormItem label="销售">
+                <NSelect v-model:value="form.owner" clearable filterable tag placeholder="负责人" :options="userOptions" />
+              </NFormItem>
+            </NGridItem>
+            <NGridItem>
+              <NFormItem label="销售阶段">
+                <NSelect v-model:value="form.status" :options="statusOptions" />
+              </NFormItem>
+            </NGridItem>
+            <NGridItem>
+              <NFormItem label="优先级">
+                <NSelect v-model:value="form.priority" :options="priorityOptions" />
+              </NFormItem>
+            </NGridItem>
+            <NGridItem>
+              <NFormItem label="来源">
+                <NSelect v-model:value="form.source" :options="sourceOptions" />
+              </NFormItem>
+            </NGridItem>
+          </NGrid>
+        </section>
+
+        <section class="requirement-form-section">
+          <div class="section-heading">
+            <strong>资源规格</strong>
+            <span>按服务类型展示相关 IDC 字段</span>
+          </div>
+          <NGrid :cols="3" :x-gap="14" :y-gap="4" responsive="screen">
+            <NGridItem>
+              <NFormItem label="服务类型">
+                <NSelect v-model:value="form.requirement_type" :options="serviceTypeOptions" />
+              </NFormItem>
+            </NGridItem>
+            <NGridItem v-if="specFieldVisibility.location">
+              <NFormItem label="区域 / POP">
+                <NCascader
+                  v-model:value="form.region"
+                  clearable
+                  filterable
+                  placeholder="国家 / 城市 / POP点"
+                  :options="regionOptions"
+                />
+              </NFormItem>
+            </NGridItem>
+            <NGridItem v-if="specFieldVisibility.datacenter">
+              <NFormItem label="机房/POP">
+                <NInput v-model:value="form.datacenter" placeholder="例如 HK2 / SG1 / LA" />
+              </NFormItem>
+            </NGridItem>
+            <NGridItem v-if="specFieldVisibility.circuit">
+              <NFormItem label="A端">
+                <NInput v-model:value="form.a_end" placeholder="例如 Equinix HK2" />
+              </NFormItem>
+            </NGridItem>
+            <NGridItem v-if="specFieldVisibility.circuit">
+              <NFormItem label="Z端">
+                <NInput v-model:value="form.z_end" placeholder="例如 Global Switch AMS" />
+              </NFormItem>
+            </NGridItem>
+            <NGridItem v-if="specFieldVisibility.bandwidth">
+              <NFormItem label="带宽">
+                <NInput v-model:value="form.bandwidth" placeholder="例如 10G commit / 95th" />
+              </NFormItem>
+            </NGridItem>
+            <NGridItem v-if="specFieldVisibility.ip">
+              <NFormItem label="IP数量">
+                <NInputNumber v-model:value="form.ip_count" :min="0" />
+              </NFormItem>
+            </NGridItem>
+            <NGridItem v-if="specFieldVisibility.cabinet">
+              <NFormItem label="机柜数">
+                <NInputNumber v-model:value="form.cabinet_count" :min="0" />
+              </NFormItem>
+            </NGridItem>
+            <NGridItem v-if="specFieldVisibility.server">
+              <NFormItem label="服务器数">
+                <NInputNumber v-model:value="form.server_count" :min="0" />
+              </NFormItem>
+            </NGridItem>
+          </NGrid>
+        </section>
+
+        <section class="requirement-form-section">
+          <div class="section-heading">
+            <strong>商务测算</strong>
+            <span>用于销售预测、报价和后续成交复盘</span>
+          </div>
+          <NGrid :cols="4" :x-gap="14" :y-gap="4" responsive="screen">
+            <NGridItem>
+              <NFormItem label="币种">
+                <NSelect v-model:value="form.budget_currency" filterable tag :options="currencyOptions" />
+              </NFormItem>
+            </NGridItem>
+            <NGridItem>
+              <NFormItem label="预算">
+                <NInputNumber v-model:value="form.budget_amount" :min="0" />
+              </NFormItem>
+            </NGridItem>
+            <NGridItem>
+              <NFormItem label="目标价">
+                <NInputNumber v-model:value="targetPriceValue" :min="0" clearable placeholder="请输入目标价格">
+                  <template #prefix>{{ form.budget_currency || 'USD' }}</template>
+                </NInputNumber>
+              </NFormItem>
+            </NGridItem>
+            <NGridItem>
+              <NFormItem label="合同周期">
+                <NInput v-model:value="form.contract_term" placeholder="例如 12个月" />
+              </NFormItem>
+            </NGridItem>
+            <NGridItem>
+              <NFormItem label="预计MRR">
+                <NInputNumber v-model:value="form.expected_mrr" :min="0" />
+              </NFormItem>
+            </NGridItem>
+            <NGridItem>
+              <NFormItem label="预计NRC">
+                <NInputNumber v-model:value="form.nrc_amount" :min="0" />
+              </NFormItem>
+            </NGridItem>
+            <NGridItem>
+              <NFormItem label="成交概率">
+                <NInputNumber v-model:value="form.probability" :min="0" :max="100" />
+              </NFormItem>
+            </NGridItem>
+            <NGridItem>
+              <NFormItem label="期望交付">
+                <NDatePicker v-model:formatted-value="form.expected_at" clearable type="date" value-format="yyyy-MM-dd" />
+              </NFormItem>
+            </NGridItem>
+            <NGridItem :span="2">
+              <NFormItem label="竞争对手">
+                <NInput v-model:value="form.competitor" placeholder="例如 Equinix / Zenlayer / Cogent" />
+              </NFormItem>
+            </NGridItem>
+            <NGridItem :span="2">
+              <NFormItem label="下一步">
+                <NInput v-model:value="form.next_action" placeholder="例如：本周五前给客户 HK 10G 方案和报价" />
+              </NFormItem>
+            </NGridItem>
+          </NGrid>
+        </section>
+
+        <section class="requirement-form-section muted">
+          <NCollapse class="requirement-extra" arrow-placement="right">
+            <NCollapseItem title="更多信息" name="extra">
+            <NFormItem label="来源说明">
+              <NInput v-model:value="form.source_detail" placeholder="例如：飞书表格、客户会议、WhatsApp、工单编号" />
+            </NFormItem>
+            <NFormItem label="标签">
+              <NSelect v-model:value="form.tags" multiple filterable tag placeholder="客户等级、区域、资源类型、竞品等" :options="[]" />
+            </NFormItem>
+            <NFormItem label="相关链接">
+              <NSelect v-model:value="form.related_links" multiple filterable tag placeholder="飞书文档、报价单、工单或客户沟通记录" :options="[]" />
+            </NFormItem>
+            <NFormItem label="需求描述">
+              <NInput v-model:value="form.description" type="textarea" :autosize="{ minRows: 3, maxRows: 6 }" />
+            </NFormItem>
+            <NFormItem label="交付/验收">
+              <NInput v-model:value="form.acceptance_criteria" type="textarea" :autosize="{ minRows: 2, maxRows: 5 }" />
+            </NFormItem>
+            <NFormItem label="方案备注">
+              <NInput v-model:value="form.solution" type="textarea" :autosize="{ minRows: 2, maxRows: 5 }" />
+            </NFormItem>
+            </NCollapseItem>
+          </NCollapse>
+        </section>
       </NForm>
 
       <template #footer>
@@ -831,6 +1005,64 @@ onMounted(async () => {
 .summary-item strong {
   font-size: 21px;
   color: #0f172a;
+}
+
+.requirement-extra {
+  padding: 0 2px;
+}
+
+.requirement-form {
+  display: grid;
+  gap: 12px;
+}
+
+.requirement-form-section {
+  padding: 14px 14px 4px;
+  border: 1px solid #e6edf6;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.requirement-form-section.primary {
+  background: #f8fbff;
+  border-color: #dce9fb;
+}
+
+.requirement-form-section.muted {
+  padding-bottom: 10px;
+  background: #fff;
+}
+
+.section-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.section-heading strong {
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.section-heading span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.requirement-form :deep(.n-input-number),
+.requirement-form :deep(.n-date-picker),
+.requirement-form :deep(.n-cascader) {
+  width: 100%;
+}
+
+.requirement-modal :deep(.n-card-header) {
+  padding-bottom: 8px;
+}
+
+.requirement-modal :deep(.n-card__content) {
+  max-height: min(76vh, 760px);
+  overflow-y: auto;
 }
 
 .requirement-board {

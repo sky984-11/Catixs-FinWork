@@ -90,6 +90,7 @@ class CustomerRequirementCreate(BaseModel):
     @field_validator("status")
     @classmethod
     def validate_status(cls, value):
+        value = str(value or "").strip()
         if value not in REQUIREMENT_STATUSES:
             raise ValueError("invalid requirement status")
         return value
@@ -97,6 +98,7 @@ class CustomerRequirementCreate(BaseModel):
     @field_validator("priority")
     @classmethod
     def validate_priority(cls, value):
+        value = str(value or "").strip()
         if value not in REQUIREMENT_PRIORITIES:
             raise ValueError("invalid requirement priority")
         return value
@@ -104,6 +106,7 @@ class CustomerRequirementCreate(BaseModel):
     @field_validator("source")
     @classmethod
     def validate_source(cls, value):
+        value = str(value or "").strip()
         if value not in REQUIREMENT_SOURCES:
             raise ValueError("invalid requirement source")
         return value
@@ -111,6 +114,7 @@ class CustomerRequirementCreate(BaseModel):
     @field_validator("requirement_type")
     @classmethod
     def validate_type(cls, value):
+        value = str(value or "").strip()
         if value not in REQUIREMENT_TYPES:
             raise ValueError("invalid requirement type")
         return value
@@ -136,6 +140,7 @@ class CustomerRequirementStatusUpdate(BaseModel):
     @field_validator("status")
     @classmethod
     def validate_status(cls, value):
+        value = str(value or "").strip()
         if value not in REQUIREMENT_STATUSES:
             raise ValueError("invalid requirement status")
         return value
