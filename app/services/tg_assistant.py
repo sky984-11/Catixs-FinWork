@@ -162,6 +162,18 @@ def extract_user_name_from_content(content: Any) -> str:
     return ""
 
 
+def extract_group_name(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    for separator in (" - ", "：", ":"):
+        if separator in text:
+            name = text.split(separator, 1)[0].strip()
+            if name:
+                return name
+    return text
+
+
 def normalize_content(payload: dict[str, Any]) -> str:
     content = str(payload.get("content") or "").strip()
     if content:
@@ -240,7 +252,14 @@ def match_config(config: TGAssistantConfig, payload: dict[str, Any], context: di
     matched = []
     group_keywords = as_list(getattr(config, "group_keywords", []))
     if group_keywords:
-        group_text = "\n".join([context.get("inbox_name", ""), context.get("account_name", "")])
+        group_text = "\n".join(
+            [
+                context.get("inbox_name", ""),
+                extract_group_name(context.get("sender_name")),
+                extract_group_name(context.get("contact_name")),
+                extract_group_name(context.get("content")),
+            ]
+        )
         keyword = contains_any(group_text, group_keywords)
         if not keyword:
             return False, "group_not_matched"
