@@ -459,17 +459,30 @@ function openShare(project) {
 
 function canShareProject(project) {
   if (!project) return false
+  if (typeof project.can_share === 'boolean') return project.can_share
+  if (isSharedProjectForCurrentUser(project)) return false
   if (userStore.isSuperUser || String(userStore.name || '').toLowerCase() === 'admin') return true
   const owner = String(project.owner || '').trim().toLowerCase()
   if (!owner) return false
-  const currentNames = [
+  const currentNames = getCurrentUserNames()
+  return currentNames.includes(owner)
+}
+
+function isSharedProjectForCurrentUser(project) {
+  const sharedUsers = (project?.shared_users || []).map((item) => String(item || '').trim().toLowerCase()).filter(Boolean)
+  if (!sharedUsers.length) return false
+  return getCurrentUserNames().some((name) => sharedUsers.includes(name))
+}
+
+function getCurrentUserNames() {
+  return [
     userStore.name,
     userStore.email,
+    userStore.alias,
     userStore.userInfo?.alias,
   ]
     .map((item) => String(item || '').trim().toLowerCase())
     .filter(Boolean)
-  return currentNames.includes(owner)
 }
 
 async function submitShare() {

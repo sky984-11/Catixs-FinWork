@@ -44,6 +44,7 @@ async def serialize_project(project: CustomerProject) -> dict:
     data = await project.to_dict()
     data.pop("next_action", None)
     data["shared_users"] = normalize_shared_users(data.get("shared_users"))
+    data["can_share"] = can_manage_project_share(project, await get_current_project_user())
     if data.get("status") == "blocked":
         data["status"] = "active"
     customer = await project.customer if data.get("customer_id") else None
@@ -141,6 +142,8 @@ async def get_current_project_user() -> User | None:
 def can_manage_project_share(project: CustomerProject, user: User | None) -> bool:
     if not user:
         return False
+    if user.is_superuser or str(user.username or "").strip().lower() == "admin":
+        return True
     owner = str(project.owner or "").strip()
     return owner in get_project_owner_names(user)
 
