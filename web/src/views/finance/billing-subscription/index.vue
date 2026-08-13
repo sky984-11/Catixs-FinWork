@@ -62,15 +62,45 @@ const templateOptions = computed(() =>
 )
 
 const columns = [
-  { title: '客户', key: 'company_name', width: 180, fixed: 'left', ellipsis: { tooltip: true } },
-  { title: '产品Code', key: 'product_code', width: 120 },
-  { title: '服务类型', key: 'service_type', width: 110 },
-  { title: '服务名称', key: 'service_name', width: 180, ellipsis: { tooltip: true } },
+  {
+    title: '客户 / 服务',
+    key: 'company_name',
+    minWidth: 260,
+    fixed: 'left',
+    render: (row) => h('div', { class: 'sub-main' }, [
+      h('strong', row.company_name || '-'),
+      h('span', row.service_name || row.product_code || '-'),
+    ]),
+  },
+  {
+    title: '模板 / 类型',
+    key: 'template',
+    minWidth: 220,
+    render: (row) => h('div', { class: 'sub-meta' }, [
+      h(NTag, { type: 'info', bordered: false, round: true }, { default: () => row.service_type || '-' }),
+      h('span', row.template_name || '未绑定模板'),
+    ]),
+  },
   { title: '服务位置', key: 'service_location', width: 160, ellipsis: { tooltip: true } },
   { title: '计费周期', key: 'billing_start_date', width: 210, render: (row) => `${row.billing_start_date || '-'} ~ ${row.billing_end_date || '长期'}` },
-  { title: '单价', key: 'unit_price', width: 130, align: 'right', render: (row) => `${row.currency || ''} ${formatNumber(row.unit_price)}` },
-  { title: '数量', key: 'quantity', width: 90, align: 'right' },
-  { title: '计量单位', key: 'unit', width: 100 },
+  {
+    title: '实际价格',
+    key: 'unit_price',
+    width: 180,
+    align: 'right',
+    render: (row) => h('div', { class: 'price-cell' }, [
+      h('strong', `${row.currency || ''} ${formatNumber(row.unit_price)}`),
+      h('span', `${formatNumber(row.quantity)} × ${row.unit || '-'}`),
+    ]),
+  },
+  {
+    title: '模板价',
+    key: 'template_mrc_price',
+    width: 150,
+    align: 'right',
+    render: (row) => row.template_mrc_price === null || row.template_mrc_price === undefined ? '-' : `${row.currency || ''} ${formatNumber(row.template_mrc_price)}`,
+  },
+  { title: '合同', key: 'contract_months', width: 90, align: 'center', render: (row) => `${row.contract_months || 12}月` },
   { title: 'VAT', key: 'vat_rate', width: 90, align: 'right', render: (row) => `${formatNumber(Number(row.vat_rate || 0) * 100)}%` },
   { title: '最后计费', key: 'last_billed_month', width: 120, render: (row) => row.last_billed_month ? String(row.last_billed_month).slice(0, 7) : '-' },
   {
@@ -165,7 +195,7 @@ function handleTemplateChange(templateId) {
   form.product_code = template.product_code || form.product_code
   form.service_type = template.service_type || form.service_type
   form.service_name = template.name || form.service_name
-  form.unit_price = Number(template.unit_price || 0)
+  form.unit_price = Number(template.mrc_price ?? template.unit_price ?? 0)
   form.currency = template.currency || 'USD'
   form.unit = template.unit || ''
 }
@@ -363,6 +393,34 @@ onMounted(async () => {
   align-items: center;
   gap: 12px;
   margin-bottom: 14px;
+}
+
+.sub-main,
+.sub-meta,
+.price-cell {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.sub-main strong,
+.price-cell strong {
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sub-main span,
+.sub-meta span,
+.price-cell span {
+  overflow: hidden;
+  color: #64748b;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 </style>

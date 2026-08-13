@@ -127,6 +127,23 @@ class BillingSubscriptionPayload(BaseModel):
     remark: str = Field("", example="")
 
 
+class BillingPriceAdjustmentPayload(BaseModel):
+    id: Optional[int] = None
+    company_id: int = Field(..., example=1)
+    template_id: Optional[int] = Field(None, example=1)
+    service_type: str = Field("", example="DIA")
+    region_id: Optional[int] = Field(None, example=1)
+    adjustment_type: str = Field("fixed_price", example="discount")
+    target_field: str = Field("mrc", example="mrc")
+    adjustment_value: float = Field(0, example=0.9)
+    currency: str = Field("USD", example="USD")
+    priority: int = Field(100, example=100)
+    effective_date: Optional[date] = Field(None, example="2026-08-01")
+    expiry_date: Optional[date] = Field(None, example="2026-12-31")
+    status: bool = Field(True, example=True)
+    remark: str = Field("", example="")
+
+
 class BillGeneratePayload(BaseModel):
     bill_month: Optional[date] = Field(None, example="2025-10-01")
     company_id: Optional[int] = Field(None, example=1)

@@ -268,6 +268,7 @@ async def init_menus():
     await ensure_bill_menu()
     await ensure_billing_subscription_menu()
     await ensure_billing_template_menu()
+    await ensure_billing_price_adjustment_menu()
     await ensure_finance_quote_menu()
     await remove_inventory_sale_menu()
     await ensure_customer_project_menu()
@@ -899,11 +900,41 @@ async def ensure_billing_template_menu():
     values = {
         "name": "产品模板",
         "path": "/billing-template",
-        "order": 4,
+        "order": 5,
         "parent_id": finance_menu.id,
         "icon": "mdi:shape-outline",
         "is_hidden": False,
         "component": "/finance/billing-template",
+        "keepalive": False,
+        "redirect": "",
+    }
+    if menu:
+        changed = False
+        for field, value in values.items():
+            if getattr(menu, field) != value:
+                setattr(menu, field, value)
+                changed = True
+        if menu.menu_type != MenuType.MENU:
+            menu.menu_type = MenuType.MENU
+            changed = True
+        if changed:
+            await menu.save()
+        return
+
+    await Menu.create(menu_type=MenuType.MENU, **values)
+
+
+async def ensure_billing_price_adjustment_menu():
+    finance_menu = await get_service_module_menu("/finance")
+    menu = await Menu.filter(path="/billing-price-adjustment").first()
+    values = {
+        "name": "客户价格微调",
+        "path": "/billing-price-adjustment",
+        "order": 4,
+        "parent_id": finance_menu.id,
+        "icon": "mdi:tune-variant",
+        "is_hidden": False,
+        "component": "/finance/billing-price-adjustment",
         "keepalive": False,
         "redirect": "",
     }
@@ -1294,6 +1325,29 @@ async def ensure_bill_columns():
         CREATE INDEX IF NOT EXISTS "idx_billing_subscription_product_code" ON "billing_subscription" ("product_code");
         CREATE INDEX IF NOT EXISTS "idx_billing_subscription_active" ON "billing_subscription" ("is_active");
 
+        CREATE TABLE IF NOT EXISTS "billing_price_adjustment" (
+            "id" BIGSERIAL PRIMARY KEY,
+            "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "updated_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "company_id" BIGINT NOT NULL REFERENCES "company" ("id") ON DELETE CASCADE,
+            "template_id" BIGINT REFERENCES "billing_product_template" ("id") ON DELETE SET NULL,
+            "service_type" VARCHAR(100),
+            "region_id" BIGINT,
+            "adjustment_type" VARCHAR(50) NOT NULL DEFAULT 'fixed_price',
+            "target_field" VARCHAR(50) NOT NULL DEFAULT 'mrc',
+            "adjustment_value" DOUBLE PRECISION NOT NULL DEFAULT 0,
+            "currency" VARCHAR(10) NOT NULL DEFAULT 'USD',
+            "priority" INT NOT NULL DEFAULT 100,
+            "effective_date" DATE,
+            "expiry_date" DATE,
+            "status" BOOL NOT NULL DEFAULT TRUE,
+            "remark" VARCHAR(500)
+        );
+        CREATE INDEX IF NOT EXISTS "idx_billing_price_adjustment_company" ON "billing_price_adjustment" ("company_id");
+        CREATE INDEX IF NOT EXISTS "idx_billing_price_adjustment_template" ON "billing_price_adjustment" ("template_id");
+        CREATE INDEX IF NOT EXISTS "idx_billing_price_adjustment_service" ON "billing_price_adjustment" ("service_type");
+        CREATE INDEX IF NOT EXISTS "idx_billing_price_adjustment_status" ON "billing_price_adjustment" ("status");
+
         CREATE TABLE IF NOT EXISTS "bill_payment" (
             "id" BIGSERIAL PRIMARY KEY,
             "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1337,6 +1391,8 @@ async def ensure_bill_columns():
                     ('billing_product_template', 'updated_at'),
                     ('billing_subscription', 'created_at'),
                     ('billing_subscription', 'updated_at'),
+                    ('billing_price_adjustment', 'created_at'),
+                    ('billing_price_adjustment', 'updated_at'),
                     ('bill_payment', 'created_at'),
                     ('bill_payment', 'updated_at'),
                     ('bill_audit_log', 'created_at'),

@@ -134,6 +134,9 @@ export default {
   getBillingSubscriptions: (params = {}) => request.get('/bill/subscriptions', { params }),
   saveBillingSubscription: (data = {}) => request.post('/bill/subscriptions', data),
   deleteBillingSubscription: (subscriptionId) => request.delete(`/bill/subscriptions/${subscriptionId}`),
+  getBillingPriceAdjustments: (params = {}) => request.get('/bill/price-adjustments', { params }),
+  saveBillingPriceAdjustment: (data = {}) => request.post('/bill/price-adjustments', data),
+  deleteBillingPriceAdjustment: (adjustmentId) => request.delete(`/bill/price-adjustments/${adjustmentId}`),
   uploadBillVoucher: (params = {}, file) => {
     const formData = new FormData()
     formData.append('file', file)

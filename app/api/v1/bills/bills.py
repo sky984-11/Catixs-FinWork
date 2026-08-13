@@ -14,7 +14,14 @@ from tortoise.expressions import Q
 
 from app.controllers.bill import bill_controller, bill_item_controller
 from app.models.asset import AssetRegion
-from app.models.company import BillAuditLog, BillPayment, BillingProductTemplate, BillingSubscription, Company
+from app.models.company import (
+    BillAuditLog,
+    BillPayment,
+    BillingPriceAdjustment,
+    BillingProductTemplate,
+    BillingSubscription,
+    Company,
+)
 from app.schemas.base import Success, SuccessExtra
 from app.schemas.bills import (
     BillCreate,
@@ -23,6 +30,7 @@ from app.schemas.bills import (
     BillStatusPayload,
     BillUpdate,
     BillingSubscriptionPayload,
+    BillingPriceAdjustmentPayload,
     BillingTemplatePayload,
     FeishuBillSyncPayload,
 )
@@ -324,6 +332,23 @@ async def subscription_to_dict(obj: BillingSubscription) -> dict[str, Any]:
     template = await BillingProductTemplate.get_or_none(id=obj.template_id) if obj.template_id else None
     data["company_name"] = company.name if company else ""
     data["template_name"] = template.name if template else ""
+    data["template_mrc_price"] = template.mrc_price if template else None
+    data["template_nrc_price"] = template.nrc_price if template else None
+    data["template_price_model"] = template.price_model if template else ""
+    return data
+
+
+async def price_adjustment_to_dict(obj: BillingPriceAdjustment) -> dict[str, Any]:
+    data = await obj.to_dict()
+    company = await Company.get_or_none(id=obj.company_id)
+    template = await BillingProductTemplate.get_or_none(id=obj.template_id) if obj.template_id else None
+    region = await AssetRegion.get_or_none(id=obj.region_id) if obj.region_id else None
+    data["company_name"] = company.name if company else ""
+    data["template_name"] = template.name if template else ""
+    data["region_name"] = region.name if region else ""
+    data["region_country"] = region.country if region else ""
+    data["region_city"] = region.city if region else ""
+    data["region_code"] = region.code if region else ""
     return data
 
 
@@ -348,6 +373,24 @@ def template_payload_data(payload: BillingTemplatePayload) -> dict[str, Any]:
         "default_tax_rate": float(payload.default_tax_rate or 0),
         "status": bool(payload.status),
         "remark": payload.remark.strip() or None,
+    }
+
+
+def price_adjustment_payload_data(payload: BillingPriceAdjustmentPayload) -> dict[str, Any]:
+    return {
+        "company_id": payload.company_id,
+        "template_id": payload.template_id or None,
+        "service_type": clean(payload.service_type) or None,
+        "region_id": payload.region_id or None,
+        "adjustment_type": clean(payload.adjustment_type) or "fixed_price",
+        "target_field": clean(payload.target_field) or "mrc",
+        "adjustment_value": float(payload.adjustment_value or 0),
+        "currency": clean(payload.currency) or "USD",
+        "priority": int(payload.priority or 100),
+        "effective_date": payload.effective_date,
+        "expiry_date": payload.expiry_date,
+        "status": bool(payload.status),
+        "remark": clean(payload.remark) or None,
     }
 
 
@@ -632,7 +675,7 @@ async def subscription_payload_data(payload: BillingSubscriptionPayload) -> dict
         "billing_start_date": payload.billing_start_date,
         "billing_end_date": payload.billing_end_date,
         "contract_months": int(payload.contract_months or default_contract_months),
-        "unit_price": float(payload.unit_price or (template.unit_price if template else 0)),
+        "unit_price": float(payload.unit_price or (template.mrc_price if template else 0) or (template.unit_price if template else 0)),
         "quantity": float(payload.quantity or 1),
         "currency": clean((payload.currency or template.currency) if template else payload.currency) or "USD",
         "unit": clean((payload.unit or template.unit) if template else payload.unit) or None,
@@ -836,6 +879,54 @@ async def delete_subscription(subscription_id: int):
     deleted = await BillingSubscription.filter(id=subscription_id).delete()
     if not deleted:
         raise HTTPException(status_code=404, detail="产品订阅不存在")
+    return Success(msg="Deleted Successfully")
+
+
+@router.get("/price-adjustments", summary="客户价格微调列表")
+async def list_price_adjustments(
+    company_id: int | None = Query(None, description="客户ID"),
+    template_id: int | None = Query(None, description="产品模板ID"),
+    service_type: str = Query("", description="服务类型"),
+    status: bool | None = Query(None, description="状态"),
+):
+    q = Q()
+    if company_id:
+        q &= Q(company_id=company_id)
+    if template_id:
+        q &= Q(template_id=template_id)
+    if service_type:
+        q &= Q(service_type=service_type)
+    if status is not None:
+        q &= Q(status=status)
+    rows = await BillingPriceAdjustment.filter(q).order_by("company_id", "priority", "-updated_at")
+    return Success(data=[await price_adjustment_to_dict(item) for item in rows])
+
+
+@router.post("/price-adjustments", summary="保存客户价格微调")
+async def save_price_adjustment(payload: BillingPriceAdjustmentPayload):
+    if not await Company.filter(id=payload.company_id).exists():
+        raise HTTPException(status_code=404, detail="客户不存在")
+    if payload.template_id and not await BillingProductTemplate.filter(id=payload.template_id).exists():
+        raise HTTPException(status_code=404, detail="产品模板不存在")
+    if payload.region_id and not await AssetRegion.filter(id=payload.region_id).exists():
+        raise HTTPException(status_code=404, detail="区域不存在")
+    data = price_adjustment_payload_data(payload)
+    if payload.id:
+        obj = await BillingPriceAdjustment.get_or_none(id=payload.id)
+        if not obj:
+            raise HTTPException(status_code=404, detail="价格微调规则不存在")
+        await BillingPriceAdjustment.filter(id=payload.id).update(**data)
+        obj = await BillingPriceAdjustment.get(id=payload.id)
+    else:
+        obj = await BillingPriceAdjustment.create(**data)
+    return Success(msg="Saved Successfully", data=await price_adjustment_to_dict(obj))
+
+
+@router.delete("/price-adjustments/{adjustment_id}", summary="删除客户价格微调")
+async def delete_price_adjustment(adjustment_id: int):
+    deleted = await BillingPriceAdjustment.filter(id=adjustment_id).delete()
+    if not deleted:
+        raise HTTPException(status_code=404, detail="价格微调规则不存在")
     return Success(msg="Deleted Successfully")
 
 

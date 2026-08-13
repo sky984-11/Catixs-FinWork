@@ -198,6 +198,40 @@ class BillingSubscription(BaseModel, TimestampMixin):
         table = "billing_subscription"
 
 
+class BillingPriceAdjustment(BaseModel, TimestampMixin):
+    company = fields.ForeignKeyField(
+        "models.Company",
+        related_name="billing_price_adjustments",
+        on_delete=fields.CASCADE,
+    )
+    template = fields.ForeignKeyField(
+        "models.BillingProductTemplate",
+        related_name="price_adjustments",
+        null=True,
+        on_delete=fields.SET_NULL,
+    )
+    service_type = fields.CharField(max_length=100, null=True, description="服务类型")
+    region = fields.ForeignKeyField(
+        "models.AssetRegion",
+        related_name="billing_price_adjustments",
+        null=True,
+        on_delete=fields.SET_NULL,
+        description="区域",
+    )
+    adjustment_type = fields.CharField(max_length=50, default="fixed_price", description="调整类型")
+    target_field = fields.CharField(max_length=50, default="mrc", description="作用范围")
+    adjustment_value = fields.FloatField(default=0, description="调整值")
+    currency = fields.CharField(max_length=10, default="USD", description="币种")
+    priority = fields.IntField(default=100, description="优先级")
+    effective_date = fields.DateField(null=True, description="生效日期")
+    expiry_date = fields.DateField(null=True, description="失效日期")
+    status = fields.BooleanField(default=True, description="状态", index=True)
+    remark = fields.CharField(max_length=500, null=True, description="备注")
+
+    class Meta:
+        table = "billing_price_adjustment"
+
+
 class BillPayment(BaseModel, TimestampMixin):
     bill = fields.ForeignKeyField(
         "models.Bill",
