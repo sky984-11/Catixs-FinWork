@@ -20,7 +20,7 @@
               <template #checked>已启用</template>
               <template #unchecked>未启用</template>
             </n-switch>
-            <n-button type="primary" :loading="tgSaving" @click="saveTgAssistant">保存</n-button>
+            <span v-if="tgSaving" class="tg-saving">保存中...</span>
           </div>
 
           <div class="tg-grid">
@@ -58,7 +58,7 @@
 import { useUserStore } from '@/store'
 import api from '@/api'
 import { renderIcon } from '@/utils'
-import { reactive, ref } from 'vue'
+import { nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
@@ -70,7 +70,10 @@ const userStore = useUserStore()
 const tgVisible = ref(false)
 const tgLoading = ref(false)
 const tgSaving = ref(false)
+const tgReady = ref(false)
+const tgApplying = ref(false)
 const tgForm = reactive(createTgForm())
+let tgSaveTimer = null
 
 const options = [
   {
@@ -132,6 +135,7 @@ function normalizeList(value) {
 function fillTgForm(data = {}) {
   const includeUserKeywords = normalizeList(data.include_user_keywords)
   const legacySourceUserKeywords = normalizeList(data.source_user_keywords)
+  tgApplying.value = true
   Object.assign(tgForm, createTgForm(), {
     ...data,
     group_keywords: normalizeList(data.group_keywords),
@@ -144,29 +148,78 @@ function fillTgForm(data = {}) {
     event_types: normalizeList(data.event_types).length ? normalizeList(data.event_types) : ['message_created', 'message_updated'],
     message_types: normalizeList(data.message_types).length ? normalizeList(data.message_types) : ['incoming'],
   })
+  nextTick(() => {
+    tgApplying.value = false
+  })
 }
 
 async function openTgAssistant() {
   tgVisible.value = true
   tgLoading.value = true
+  tgReady.value = false
   try {
     const configRes = await api.getTgAssistantConfig()
     fillTgForm(configRes?.data || {})
+    await nextTick()
+    tgReady.value = true
   } finally {
     tgLoading.value = false
   }
 }
 
 async function saveTgAssistant() {
+  if (!tgReady.value) {
+    return
+  }
   tgSaving.value = true
   try {
     const res = await api.saveTgAssistantConfig({ ...tgForm })
     fillTgForm(res?.data || tgForm)
-    $message.success('TG助手配置已保存')
   } finally {
     tgSaving.value = false
   }
 }
+
+function scheduleTgAssistantSave() {
+  if (!tgVisible.value || tgLoading.value || !tgReady.value || tgApplying.value) {
+    return
+  }
+  if (tgSaveTimer) {
+    clearTimeout(tgSaveTimer)
+  }
+  tgSaveTimer = setTimeout(() => {
+    saveTgAssistant()
+  }, 350)
+}
+
+watch(
+  () => ({
+    is_enabled: tgForm.is_enabled,
+    group_keywords: tgForm.group_keywords,
+    include_user_keywords: tgForm.include_user_keywords,
+    exclude_user_keywords: tgForm.exclude_user_keywords,
+    mention_keywords: tgForm.mention_keywords,
+    ignored_keywords: tgForm.ignored_keywords,
+  }),
+  scheduleTgAssistantSave,
+  { deep: true }
+)
+
+watch(tgVisible, (visible) => {
+  if (!visible) {
+    tgReady.value = false
+    if (tgSaveTimer) {
+      clearTimeout(tgSaveTimer)
+      tgSaveTimer = null
+    }
+  }
+})
+
+onBeforeUnmount(() => {
+  if (tgSaveTimer) {
+    clearTimeout(tgSaveTimer)
+  }
+})
 
 </script>
 
@@ -179,9 +232,13 @@ async function saveTgAssistant() {
 .tg-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
+}
+
+.tg-saving {
+  color: #8a94a6;
+  font-size: 13px;
 }
 
 .tg-grid {
