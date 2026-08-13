@@ -18,6 +18,7 @@ from .dashboard import router as dashboard_router
 from .menus import menus_router
 from .netbox import netbox_router
 from .projects import projects_router
+from .requirements import router as requirements_router
 from .pve import grafana_router as pve_grafana_router
 from .pve import pve_router
 from .pve.novnc import ws_router as pve_novnc_ws_router
@@ -70,6 +71,7 @@ v1_router.include_router(bills_router, prefix="/bill", dependencies=[DependPermi
 v1_router.include_router(finance_quotes_router, prefix="/finance/quote", dependencies=[DependPermission])
 v1_router.include_router(companies_router, prefix="/company", dependencies=[DependPermission])
 v1_router.include_router(projects_router, prefix="/project", dependencies=[DependPermission])
+v1_router.include_router(requirements_router, prefix="/requirement", dependencies=[DependPermission], tags=["需求管理"])
 v1_router.include_router(resources_router, prefix="/resource", dependencies=[DependPermission])
 v1_router.include_router(akvorado_router, prefix="/akvorado", tags=["Akvorado"])
 v1_router.include_router(tg_assistant_router, prefix="/tg-assistant", tags=["TG助手"])

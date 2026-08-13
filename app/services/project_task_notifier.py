@@ -132,7 +132,7 @@ async def notify_project_daily_summary(now: datetime | None = None) -> bool:
         defaults={"status": "sending", "message": "sending"},
     )
     if not created and record.status == "success":
-        logger.info("project daily summary skipped: already_sent summary_date=%s", summary_date)
+        logger.debug("project daily summary skipped: already_sent summary_date=%s", summary_date)
         return False
     if not created and not should_retry_daily_summary_record(record, now):
         logger.info(

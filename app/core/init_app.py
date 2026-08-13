@@ -272,6 +272,7 @@ async def init_menus():
     await ensure_finance_quote_menu()
     await remove_inventory_sale_menu()
     await ensure_customer_project_menu()
+    await ensure_requirement_menu()
     await ensure_resource_menu()
     await ensure_task_menu()
 
@@ -864,6 +865,35 @@ async def ensure_customer_project_menu():
     await Menu.create(menu_type=MenuType.MENU, **values)
 
 
+async def ensure_requirement_menu():
+    menu = await Menu.filter(path="/requirements").first()
+    values = {
+        "name": "需求管理",
+        "path": "/requirements",
+        "order": 3,
+        "parent_id": 0,
+        "icon": "mdi:clipboard-list-outline",
+        "is_hidden": False,
+        "component": "/project-board/requirements",
+        "keepalive": False,
+        "redirect": "",
+    }
+    if menu:
+        changed = False
+        for field, value in values.items():
+            if getattr(menu, field) != value:
+                setattr(menu, field, value)
+                changed = True
+        if menu.menu_type != MenuType.MENU:
+            menu.menu_type = MenuType.MENU
+            changed = True
+        if changed:
+            await menu.save()
+        return
+
+    await Menu.create(menu_type=MenuType.MENU, **values)
+
+
 async def ensure_billing_subscription_menu():
     finance_menu = await get_service_module_menu("/finance")
     menu = await Menu.filter(path="/billing-subscription").first()
@@ -1085,6 +1115,8 @@ async def ensure_business_api_permissions():
         | Q(method="GET", path="/api/v1/asset/inventory-flow/list")
         | Q(method="GET", path="/api/v1/project/list")
         | Q(method="GET", path="/api/v1/project/get")
+        | Q(method="GET", path="/api/v1/requirement/list")
+        | Q(method="GET", path="/api/v1/requirement/get")
         | Q(method="GET", path="/api/v1/resource/free-devices")
         | Q(method="GET", path="/api/v1/resource/zenlayer-pricing")
         | Q(method="POST", path="/api/v1/resource/zenlayer-pricing/quote")
@@ -1098,8 +1130,10 @@ async def ensure_business_api_permissions():
         | Q(path__startswith="/api/v1/bill/")
         | Q(path__startswith="/api/v1/asset/inventory-sale/")
         | Q(path__startswith="/api/v1/project/")
+        | Q(path__startswith="/api/v1/requirement/")
     )
     project_menu = await Menu.filter(path="/project-board").first()
+    requirement_menu = await Menu.filter(path="/requirements").first()
     resource_menu = await Menu.filter(path="/resource").first()
     resource_child_menus = await Menu.filter(parent_id=resource_menu.id) if resource_menu else []
 
@@ -1115,6 +1149,8 @@ async def ensure_business_api_permissions():
                 await role.apis.add(*manage_apis)
             if project_menu:
                 await role.menus.add(project_menu)
+            if requirement_menu:
+                await role.menus.add(requirement_menu)
 
 
 async def ensure_task_permissions():
@@ -1504,6 +1540,75 @@ async def ensure_project_columns():
     )
 
 
+async def ensure_requirement_columns():
+    if settings.DB_TYPE == "sqlite":
+        conn = Tortoise.get_connection("sqlite")
+        columns = [
+            ("source_record_id", "VARCHAR(100)"),
+            ("service_type", "VARCHAR(50)"),
+            ("a_end", "VARCHAR(200)"),
+            ("z_end", "VARCHAR(200)"),
+            ("region", "VARCHAR(100)"),
+            ("datacenter", "VARCHAR(120)"),
+            ("bandwidth", "VARCHAR(100)"),
+            ("ip_count", "INT NOT NULL DEFAULT 0"),
+            ("cabinet_count", "REAL NOT NULL DEFAULT 0"),
+            ("server_count", "INT NOT NULL DEFAULT 0"),
+            ("contract_term", "VARCHAR(50)"),
+            ("budget_amount", "REAL"),
+            ("budget_currency", "VARCHAR(10) NOT NULL DEFAULT 'USD'"),
+            ("nrc_amount", "REAL"),
+            ("expected_mrr", "REAL"),
+            ("target_price", "VARCHAR(500)"),
+            ("probability", "INT NOT NULL DEFAULT 30"),
+            ("competitor", "VARCHAR(200)"),
+            ("next_action", "VARCHAR(255)"),
+        ]
+        for column, column_type in columns:
+            try:
+                await conn.execute_script(f'ALTER TABLE "customer_requirement" ADD COLUMN "{column}" {column_type};')
+            except OperationalError as exc:
+                message = str(exc).lower()
+                if "duplicate column" not in message and "no such table" not in message:
+                    raise
+        return
+
+    if settings.DB_TYPE != "postgres":
+        return
+
+    conn = Tortoise.get_connection("postgres")
+    await conn.execute_script(
+        """
+        ALTER TABLE IF EXISTS "customer_requirement"
+            ADD COLUMN IF NOT EXISTS "source_record_id" VARCHAR(100),
+            ADD COLUMN IF NOT EXISTS "service_type" VARCHAR(50),
+            ADD COLUMN IF NOT EXISTS "a_end" VARCHAR(200),
+            ADD COLUMN IF NOT EXISTS "z_end" VARCHAR(200),
+            ADD COLUMN IF NOT EXISTS "region" VARCHAR(100),
+            ADD COLUMN IF NOT EXISTS "datacenter" VARCHAR(120),
+            ADD COLUMN IF NOT EXISTS "bandwidth" VARCHAR(100),
+            ADD COLUMN IF NOT EXISTS "ip_count" INT NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS "cabinet_count" DOUBLE PRECISION NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS "server_count" INT NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS "contract_term" VARCHAR(50),
+            ADD COLUMN IF NOT EXISTS "budget_amount" DOUBLE PRECISION,
+            ADD COLUMN IF NOT EXISTS "budget_currency" VARCHAR(10) NOT NULL DEFAULT 'USD',
+            ADD COLUMN IF NOT EXISTS "nrc_amount" DOUBLE PRECISION,
+            ADD COLUMN IF NOT EXISTS "expected_mrr" DOUBLE PRECISION,
+            ADD COLUMN IF NOT EXISTS "target_price" VARCHAR(500),
+            ADD COLUMN IF NOT EXISTS "probability" INT NOT NULL DEFAULT 30,
+            ADD COLUMN IF NOT EXISTS "competitor" VARCHAR(200),
+            ADD COLUMN IF NOT EXISTS "next_action" VARCHAR(255);
+        CREATE INDEX IF NOT EXISTS "idx_customer_requirement_source_record"
+            ON "customer_requirement" ("source_record_id");
+        CREATE INDEX IF NOT EXISTS "idx_customer_requirement_service_type"
+            ON "customer_requirement" ("service_type");
+        CREATE INDEX IF NOT EXISTS "idx_customer_requirement_region"
+            ON "customer_requirement" ("region");
+        """
+    )
+
+
 async def ensure_ticket_columns():
     if settings.DB_TYPE == "sqlite":
         conn = Tortoise.get_connection("sqlite")
@@ -1882,6 +1987,7 @@ async def init_db():
     await ensure_asset_columns()
     await ensure_bill_columns()
     await ensure_project_columns()
+    await ensure_requirement_columns()
     await ensure_ticket_columns()
     await ensure_finance_quote_columns()
     await ensure_device_maintenance_columns()

@@ -114,3 +114,65 @@ class CustomerProjectDailySummary(BaseModel, TimestampMixin):
 
     class Meta:
         table = "customer_project_daily_summary"
+
+
+class CustomerRequirement(BaseModel, TimestampMixin):
+    title = fields.CharField(max_length=200, description="Requirement title", index=True)
+    code = fields.CharField(max_length=50, null=True, description="Requirement code", index=True, unique=True)
+    customer = fields.ForeignKeyField(
+        "models.Company",
+        related_name="customer_requirements",
+        null=True,
+        on_delete=fields.SET_NULL,
+        description="Customer",
+    )
+    project = fields.ForeignKeyField(
+        "models.CustomerProject",
+        related_name="requirements",
+        null=True,
+        on_delete=fields.SET_NULL,
+        description="Related project",
+    )
+    source = fields.CharField(max_length=30, default="customer", description="Requirement source", index=True)
+    source_record_id = fields.CharField(max_length=100, null=True, description="Source record ID", index=True)
+    source_detail = fields.CharField(max_length=200, null=True, description="Source detail")
+    requirement_type = fields.CharField(max_length=30, default="feature", description="Requirement type", index=True)
+    status = fields.CharField(max_length=30, default="pool", description="Requirement status", index=True)
+    priority = fields.CharField(max_length=20, default="medium", description="Priority", index=True)
+    owner = fields.CharField(max_length=100, null=True, description="Owner", index=True)
+    requester = fields.CharField(max_length=100, null=True, description="Requester", index=True)
+    service_type = fields.CharField(max_length=50, null=True, description="IDC service type", index=True)
+    a_end = fields.CharField(max_length=200, null=True, description="A end")
+    z_end = fields.CharField(max_length=200, null=True, description="Z end")
+    region = fields.CharField(max_length=100, null=True, description="Service region", index=True)
+    datacenter = fields.CharField(max_length=120, null=True, description="Datacenter")
+    bandwidth = fields.CharField(max_length=100, null=True, description="Bandwidth requirement")
+    ip_count = fields.IntField(default=0, description="IP count")
+    cabinet_count = fields.FloatField(default=0, description="Cabinet count")
+    server_count = fields.IntField(default=0, description="Server count")
+    contract_term = fields.CharField(max_length=50, null=True, description="Contract term")
+    budget_amount = fields.FloatField(null=True, description="Customer budget")
+    budget_currency = fields.CharField(max_length=10, default="USD", description="Budget currency")
+    nrc_amount = fields.FloatField(null=True, description="Expected NRC")
+    expected_mrr = fields.FloatField(null=True, description="Expected MRR")
+    target_price = fields.CharField(max_length=500, null=True, description="Target price")
+    probability = fields.IntField(default=30, description="Win probability")
+    competitor = fields.CharField(max_length=200, null=True, description="Competitor")
+    next_action = fields.CharField(max_length=255, null=True, description="Next action")
+    expected_at = fields.DateField(null=True, description="Expected date", index=True)
+    planned_at = fields.DateField(null=True, description="Planned date")
+    released_at = fields.DateField(null=True, description="Released date")
+    value_score = fields.IntField(default=0, description="Value score")
+    effort_score = fields.IntField(default=0, description="Effort score")
+    confidence_score = fields.IntField(default=0, description="Confidence score")
+    reach_score = fields.IntField(default=0, description="Reach score")
+    vote_count = fields.IntField(default=0, description="Vote count")
+    tags = fields.JSONField(default=list, description="Tags")
+    related_links = fields.JSONField(default=list, description="Related links")
+    description = fields.TextField(null=True, description="Description")
+    acceptance_criteria = fields.TextField(null=True, description="Acceptance criteria")
+    solution = fields.TextField(null=True, description="Solution")
+    sort_order = fields.IntField(default=0, description="Sort order")
+
+    class Meta:
+        table = "customer_requirement"

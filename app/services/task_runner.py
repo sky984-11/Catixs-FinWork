@@ -183,7 +183,7 @@ async def run_project_daily_summary(now: datetime) -> None:
     try:
         sent = await notify_project_daily_summary(now)
         if sent:
-            logger.info("project daily summary feishu notification sent")
+            logger.debug("project daily summary feishu notification sent")
     except Exception:
         logger.exception("project daily summary loop error")
     finally:
