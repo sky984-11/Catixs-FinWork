@@ -406,6 +406,9 @@ async def create_delivery_log(
 
 
 def webhook_url() -> str:
+    explicit_url = str(settings.CHATWOOT_WEBHOOK_URL or "").strip()
+    if explicit_url:
+        return explicit_url
     base_url = settings.get_web_base_url()
     if not base_url:
         return "/api/v1/tg-assistant/chatwoot"

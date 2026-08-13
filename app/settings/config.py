@@ -64,6 +64,7 @@ class Settings(BaseSettings):
     FEISHU_APP_ID: str = ""
     FEISHU_APP_SECRET: str = ""
     CHATWOOT_BASE_URL: str = "https://chatwoot.catixs.net"
+    CHATWOOT_WEBHOOK_URL: str = "https://finwork-webhook.catixs.net/api/v1/tg-assistant/chatwoot"
     CHATWOOT_WEBHOOK_SECRET: str = ""
     CHATWOOT_SIGNATURE_TOLERANCE_SECONDS: int = 300
     IPXO_CLIENT_ID: str = ""
