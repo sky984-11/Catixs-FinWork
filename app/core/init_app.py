@@ -1670,6 +1670,102 @@ async def ensure_device_maintenance_columns():
     )
 
 
+async def ensure_tg_assistant_tables():
+    if settings.DB_TYPE == "sqlite":
+        conn = Tortoise.get_connection("sqlite")
+        await conn.execute_script(
+            """
+            CREATE TABLE IF NOT EXISTS "tg_assistant_config" (
+                "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                "created_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "updated_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "user_id" BIGINT NOT NULL,
+                "is_enabled" BOOL NOT NULL DEFAULT 0,
+                "source_user_keywords" JSON NOT NULL DEFAULT '[]',
+                "content_keywords" JSON NOT NULL DEFAULT '[]',
+                "mention_keywords" JSON NOT NULL DEFAULT '[]',
+                "ignored_keywords" JSON NOT NULL DEFAULT '[]',
+                "event_types" JSON NOT NULL DEFAULT '[]',
+                "message_types" JSON NOT NULL DEFAULT '[]',
+                "include_private" BOOL NOT NULL DEFAULT 0,
+                "show_message_detail" BOOL NOT NULL DEFAULT 1
+            );
+            CREATE INDEX IF NOT EXISTS "idx_tg_assistant_config_user"
+                ON "tg_assistant_config" ("user_id");
+            CREATE INDEX IF NOT EXISTS "idx_tg_assistant_config_enabled"
+                ON "tg_assistant_config" ("is_enabled");
+
+            CREATE TABLE IF NOT EXISTS "tg_assistant_delivery_log" (
+                "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                "created_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "updated_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "user_id" BIGINT,
+                "event" VARCHAR(50) NOT NULL DEFAULT '',
+                "message_type" VARCHAR(30) NOT NULL DEFAULT '',
+                "conversation_id" VARCHAR(100) NOT NULL DEFAULT '',
+                "sender_name" VARCHAR(200) NOT NULL DEFAULT '',
+                "contact_name" VARCHAR(200) NOT NULL DEFAULT '',
+                "status" VARCHAR(30) NOT NULL DEFAULT '',
+                "reason" VARCHAR(500) NOT NULL DEFAULT '',
+                "matched_rule" VARCHAR(500) NOT NULL DEFAULT '',
+                "content_excerpt" TEXT
+            );
+            CREATE INDEX IF NOT EXISTS "idx_tg_assistant_log_user"
+                ON "tg_assistant_delivery_log" ("user_id");
+            CREATE INDEX IF NOT EXISTS "idx_tg_assistant_log_status"
+                ON "tg_assistant_delivery_log" ("status");
+            """
+        )
+        return
+
+    if settings.DB_TYPE != "postgres":
+        return
+    conn = Tortoise.get_connection("postgres")
+    await conn.execute_script(
+        """
+        CREATE TABLE IF NOT EXISTS "tg_assistant_config" (
+            "id" BIGSERIAL NOT NULL PRIMARY KEY,
+            "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "updated_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "user_id" BIGINT NOT NULL REFERENCES "user" ("id") ON DELETE CASCADE,
+            "is_enabled" BOOL NOT NULL DEFAULT FALSE,
+            "source_user_keywords" JSONB NOT NULL DEFAULT '[]',
+            "content_keywords" JSONB NOT NULL DEFAULT '[]',
+            "mention_keywords" JSONB NOT NULL DEFAULT '[]',
+            "ignored_keywords" JSONB NOT NULL DEFAULT '[]',
+            "event_types" JSONB NOT NULL DEFAULT '[]',
+            "message_types" JSONB NOT NULL DEFAULT '[]',
+            "include_private" BOOL NOT NULL DEFAULT FALSE,
+            "show_message_detail" BOOL NOT NULL DEFAULT TRUE
+        );
+        CREATE INDEX IF NOT EXISTS "idx_tg_assistant_config_user"
+            ON "tg_assistant_config" ("user_id");
+        CREATE INDEX IF NOT EXISTS "idx_tg_assistant_config_enabled"
+            ON "tg_assistant_config" ("is_enabled");
+
+        CREATE TABLE IF NOT EXISTS "tg_assistant_delivery_log" (
+            "id" BIGSERIAL NOT NULL PRIMARY KEY,
+            "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "updated_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "user_id" BIGINT REFERENCES "user" ("id") ON DELETE SET NULL,
+            "event" VARCHAR(50) NOT NULL DEFAULT '',
+            "message_type" VARCHAR(30) NOT NULL DEFAULT '',
+            "conversation_id" VARCHAR(100) NOT NULL DEFAULT '',
+            "sender_name" VARCHAR(200) NOT NULL DEFAULT '',
+            "contact_name" VARCHAR(200) NOT NULL DEFAULT '',
+            "status" VARCHAR(30) NOT NULL DEFAULT '',
+            "reason" VARCHAR(500) NOT NULL DEFAULT '',
+            "matched_rule" VARCHAR(500) NOT NULL DEFAULT '',
+            "content_excerpt" TEXT
+        );
+        CREATE INDEX IF NOT EXISTS "idx_tg_assistant_log_user"
+            ON "tg_assistant_delivery_log" ("user_id");
+        CREATE INDEX IF NOT EXISTS "idx_tg_assistant_log_status"
+            ON "tg_assistant_delivery_log" ("status");
+        """
+    )
+
+
 async def ensure_company_columns():
     if settings.DB_TYPE != "postgres":
         return
@@ -1772,6 +1868,7 @@ async def init_db():
     await ensure_ticket_columns()
     await ensure_finance_quote_columns()
     await ensure_device_maintenance_columns()
+    await ensure_tg_assistant_tables()
     await Tortoise.generate_schemas(safe=True)
     await ensure_billing_product_templates()
     if os.getenv("AUTO_DB_MIGRATE", "false").lower() in {"1", "true", "yes", "on"}:

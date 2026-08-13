@@ -118,6 +118,12 @@ async def notify_project_daily_summary(now: datetime | None = None) -> bool:
 
     now = now or datetime.now()
     if not should_run_daily_summary(now):
+        logger.debug(
+            "project daily summary skipped: before_run_time now=%s run_at=%02d:%02d",
+            now,
+            int(settings.PROJECT_DAILY_SUMMARY_HOUR or 8),
+            int(settings.PROJECT_DAILY_SUMMARY_MINUTE or 30),
+        )
         return False
 
     summary_date = now.date()
@@ -162,6 +168,12 @@ async def notify_project_daily_summary(now: datetime | None = None) -> bool:
     record.sent_at = now if success else None
     record.message = detail_message[:1000] if detail_message else ("sent" if success else "feishu app failed")
     await record.save()
+    if not success:
+        logger.error(
+            "project daily summary failed: summary_date=%s message=%s",
+            summary_date,
+            record.message,
+        )
     logger.info(
         "project daily summary finished: summary_date=%s status=%s message=%s",
         summary_date,

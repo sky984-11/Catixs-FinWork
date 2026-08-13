@@ -29,6 +29,7 @@ from .tasks import tasks_router
 from .users import users_router
 from .vendors import vendors_router
 from .tickets import ticket_router
+from .tg_assistant import router as tg_assistant_router
 
 v1_router = APIRouter()
 
@@ -71,3 +72,4 @@ v1_router.include_router(companies_router, prefix="/company", dependencies=[Depe
 v1_router.include_router(projects_router, prefix="/project", dependencies=[DependPermission])
 v1_router.include_router(resources_router, prefix="/resource", dependencies=[DependPermission])
 v1_router.include_router(akvorado_router, prefix="/akvorado", tags=["Akvorado"])
+v1_router.include_router(tg_assistant_router, prefix="/tg-assistant", tags=["TG助手"])

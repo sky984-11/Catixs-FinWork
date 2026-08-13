@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     PROJECT_FEISHU_USER_MAP: str = ""
     FEISHU_APP_ID: str = ""
     FEISHU_APP_SECRET: str = ""
+    CHATWOOT_BASE_URL: str = "https://chatwoot.catixs.net"
+    CHATWOOT_WEBHOOK_SECRET: str = ""
+    CHATWOOT_SIGNATURE_TOLERANCE_SECONDS: int = 300
     IPXO_CLIENT_ID: str = ""
     IPXO_SECRET_KEY: str = ""
     IPXO_COMPANY_UUID: str = ""

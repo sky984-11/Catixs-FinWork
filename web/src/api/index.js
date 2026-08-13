@@ -9,6 +9,10 @@ export default {
   updateProfile: (data = {}) => request.post('/base/profile', data),
   uploadAvatar: (data = {}) => request.post('/base/avatar', data),
   updatePassword: (data = {}) => request.post('/base/update_password', data),
+  // TG assistant
+  getTgAssistantConfig: () => request.get('/tg-assistant/config'),
+  saveTgAssistantConfig: (data = {}) => request.post('/tg-assistant/config', data),
+  getTgAssistantLogs: (params = {}) => request.get('/tg-assistant/logs', { params }),
   // users
   getUserList: (params = {}) => request.get('/user/list', { params }),
   getUserById: (params = {}) => request.get('/user/get', { params }),
