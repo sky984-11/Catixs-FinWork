@@ -8,11 +8,7 @@ from app.settings import settings
 
 class Loggin:
     def __init__(self) -> None:
-        debug = settings.DEBUG
-        if debug:
-            self.level = "DEBUG"
-        else:
-            self.level = "INFO"
+        self.level = settings.LOG_LEVEL
 
     def setup_logger(self):
         loguru_logger.remove()

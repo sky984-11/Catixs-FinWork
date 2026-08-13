@@ -18,6 +18,9 @@ db.sqlite3-wal
 ._.DS_Store
 .venv
 
+app/logs/
+app/logs/**
+
 uv.lock
 uploads/tickets/
 uploads/avatars/

@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     PROJECT_ROOT: str = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
     BASE_DIR: str = os.path.abspath(os.path.join(PROJECT_ROOT, os.pardir))
     LOGS_ROOT: str = os.path.join(BASE_DIR, "app/logs")
+    LOG_LEVEL: str = "INFO"
     SECRET_KEY: str = "3488a63e1765035d386f05409663f55c83bfae3b3c61a932744b20ad14244dcf"
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
@@ -95,6 +96,12 @@ class Settings(BaseSettings):
         if isinstance(v, str):
             return v.lower() not in ("false", "0", "no", "off", "release")
         return bool(v)
+
+    @field_validator("LOG_LEVEL", mode="before")
+    @classmethod
+    def normalize_log_level(cls, v):
+        level = str(v or "INFO").strip().upper()
+        return level or "INFO"
 
     @field_validator("DB_TYPE", mode="before")
     @classmethod
