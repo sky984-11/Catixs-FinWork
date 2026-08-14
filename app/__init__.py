@@ -25,13 +25,13 @@ class FrontendStaticFiles(StaticFiles):
     async def get_response(self, path: str, scope):
         response = await super().get_response(path, scope)
         if path.endswith((".js", ".css", ".html")):
-            response.headers["Cache-Control"] = "no-cache, max-age=0, must-revalidate"
+            response.headers["Cache-Control"] = "no-store, no-cache, max-age=0, must-revalidate"
         return response
 
 
 def frontend_file_response(path: str) -> FileResponse:
     response = FileResponse(path)
-    response.headers["Cache-Control"] = "no-cache, max-age=0, must-revalidate"
+    response.headers["Cache-Control"] = "no-store, no-cache, max-age=0, must-revalidate"
     return response
 
 

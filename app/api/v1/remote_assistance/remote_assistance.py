@@ -6,6 +6,7 @@ from typing import Any, Literal
 from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.log import logger
 from app.models.asset import AssetLocation
 from app.models.admin import User
 from app.models.remote_assistance import RemoteEngineer, RemoteHands, RemoteHandsPlan
@@ -102,6 +103,7 @@ def _parse_datetime(value: str | None) -> datetime | None:
             return datetime.strptime(normalized[:19], fmt).replace(tzinfo=None)
         except ValueError:
             continue
+    logger.warning("remote assistance datetime parse failed: raw={}", text)
     return None
 
 
@@ -351,6 +353,13 @@ async def create_plan_compat(payload: RemoteHandsPlanPayload):
 async def _create_plan(payload: RemoteHandsPlanPayload):
     try:
         data = await _plan_payload_data(payload)
+        logger.info(
+            "remote assistance create plan parsed: customer={}, site={}, raw_planned_at={}, parsed_planned_at={}",
+            data["customer"],
+            data["site"],
+            payload.planned_at,
+            data["planned_at"],
+        )
         if not data["customer"]:
             return Fail(msg="请输入客户名称")
         if not data["region"] or not data["site"]:
@@ -378,6 +387,14 @@ async def update_plan(plan_id: int, payload: RemoteHandsPlanPayload):
         if plan.status != "pending":
             return Fail(msg="只有待执行的运维计划才能变更")
         data = await _plan_payload_data(payload)
+        logger.info(
+            "remote assistance update plan parsed: plan_id={}, customer={}, site={}, raw_planned_at={}, parsed_planned_at={}",
+            plan_id,
+            data["customer"],
+            data["site"],
+            payload.planned_at,
+            data["planned_at"],
+        )
         if not data["customer"]:
             return Fail(msg="请输入客户名称")
         if not data["region"] or not data["site"]:
