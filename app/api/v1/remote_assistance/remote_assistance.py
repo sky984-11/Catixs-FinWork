@@ -84,10 +84,25 @@ def _parse_datetime(value: str | None) -> datetime | None:
     text = str(value or "").strip()
     if not text:
         return None
+    if text.isdigit():
+        try:
+            timestamp = int(text)
+            if len(text) == 10:
+                timestamp *= 1000
+            return datetime.fromtimestamp(timestamp / 1000).replace(tzinfo=None)
+        except (OverflowError, ValueError, OSError):
+            return None
+    normalized = text.replace("/", "-").replace("Z", "+00:00")
     try:
-        return datetime.fromisoformat(text.replace("Z", "+00:00")).replace(tzinfo=None)
+        return datetime.fromisoformat(normalized).replace(tzinfo=None)
     except ValueError:
-        return None
+        pass
+    for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(normalized[:19], fmt).replace(tzinfo=None)
+        except ValueError:
+            continue
+    return None
 
 
 def _naive_datetime(value: datetime | None) -> datetime | None:

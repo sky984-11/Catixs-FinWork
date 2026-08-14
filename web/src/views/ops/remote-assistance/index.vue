@@ -1446,6 +1446,8 @@ function handlePlanEngineerSelected(value) {
 }
 
 function updateWorkMinutes() {
+  remoteEditor.form.arrived_at = normalizeDateTime(remoteEditor.form.arrived_at)
+  remoteEditor.form.left_at = normalizeDateTime(remoteEditor.form.left_at)
   remoteEditor.form.work_minutes = minutesBetween(remoteEditor.form.arrived_at, remoteEditor.form.left_at)
 }
 
@@ -1473,6 +1475,8 @@ async function saveRemoteHands() {
   if (!fieldText(form.region)) return message.warning('请选择或输入地区')
   if (!form.site) return message.warning('请选择机房')
   if (!form.engineer_id) return message.warning('请选择工程师')
+  form.arrived_at = normalizeDateTime(form.arrived_at)
+  form.left_at = normalizeDateTime(form.left_at)
   if (isEndBeforeStart(form.arrived_at, form.left_at)) return message.warning('离场时间不能早于到场时间')
   remoteEditor.saving = true
   try {
@@ -1495,10 +1499,12 @@ async function savePlan() {
   if (!form.customer.trim()) return message.warning('请输入客户名称')
   if (!fieldText(form.region)) return message.warning('请选择地区')
   if (!form.site) return message.warning('请选择机房')
+  form.planned_at = normalizeDateTime(form.planned_at)
   if (!form.planned_at) return message.warning('请选择计划时间')
   planEditor.saving = true
   try {
     const payload = { ...form }
+    payload.planned_at = normalizeDateTime(payload.planned_at)
     delete payload.id
     delete payload.site_key
     if (form.id) await api.remoteAssistanceApi.updatePlan(form.id, payload)
@@ -1663,13 +1669,36 @@ function normalizeUserRows(rows) {
 }
 
 function normalizeDateTime(value) {
-  return value ? String(value).slice(0, 16) : null
+  if (!value) return null
+  if (value instanceof Date && Number.isFinite(value.getTime())) return formatLocalDateTime(value)
+  const text = String(value).trim()
+  if (!text) return null
+  const numeric = Number(text)
+  if (Number.isFinite(numeric) && text.length >= 10) {
+    const date = new Date(text.length === 10 ? numeric * 1000 : numeric)
+    if (Number.isFinite(date.getTime())) return formatLocalDateTime(date)
+  }
+  const match = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[T\s](\d{1,2})(?::(\d{1,2}))?)?/)
+  if (match) {
+    const [, year, month, day, hour = '00', minute = '00'] = match
+    return `${year}-${padDatePart(month)}-${padDatePart(day)}T${padDatePart(hour)}:${padDatePart(minute)}`
+  }
+  const date = new Date(text)
+  return Number.isFinite(date.getTime()) ? formatLocalDateTime(date) : null
+}
+
+function padDatePart(value) {
+  return String(value || '0').padStart(2, '0')
+}
+
+function formatLocalDateTime(date) {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+  return local.toISOString().slice(0, 16)
 }
 
 function localDateTime() {
   const now = new Date()
-  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
-  return local.toISOString().slice(0, 16)
+  return formatLocalDateTime(now)
 }
 
 function addHoursToDateTime(value, hours = 1) {
@@ -1677,8 +1706,7 @@ function addHoursToDateTime(value, hours = 1) {
   const date = new Date(value)
   if (!Number.isFinite(date.getTime())) return null
   date.setHours(date.getHours() + hours)
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
-  return local.toISOString().slice(0, 16)
+  return formatLocalDateTime(date)
 }
 
 function formatDate(value) {
