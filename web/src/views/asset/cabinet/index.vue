@@ -41,9 +41,13 @@
                     </span>
                   </div>
                   <n-space align="center">
-                    <n-tag round :type="rackConflictCount ? 'error' : 'success'">
-                      {{ rackConflictCount ? `${rackConflictCount} 个U位冲突` : 'U位正常' }}
+                    <n-tag v-if="rackConflictCount" round type="error">
+                      {{ `${rackConflictCount} 个U位冲突` }}
                     </n-tag>
+                    <n-button class="rack-photo-button" secondary round @click="openCabinetPhotoPreview">
+                      <template #icon><TheIcon icon="mdi:image-multiple-outline" :size="17" /></template>
+                      机柜图预览
+                    </n-button>
                     <n-button type="primary" round @click="openDeviceModal()">新增设备</n-button>
                   </n-space>
                 </div>
@@ -605,6 +609,58 @@
         </template>
       </n-modal>
 
+      <n-modal
+        v-model:show="cabinetPhotoModal.show"
+        preset="card"
+        :title="`${selectedCabinet?.name || '机柜'} 图预览`"
+        style="width: min(980px, calc(100vw - 32px))"
+        :bordered="false"
+        class="cabinet-photo-modal"
+      >
+        <n-image-group>
+          <div class="cabinet-photo-grid">
+            <article class="cabinet-photo-card">
+              <header>
+                <strong>正面</strong>
+                <span>{{ selectedCabinet?.front_image_url ? '已上传' : '待上传' }}</span>
+              </header>
+              <n-image
+                v-if="selectedCabinet?.front_image_url"
+                :src="selectedCabinet.front_image_url"
+                object-fit="contain"
+                class="cabinet-photo-image"
+              />
+              <div v-else class="cabinet-photo-empty">暂无正面图片</div>
+            </article>
+            <article class="cabinet-photo-card">
+              <header>
+                <strong>反面</strong>
+                <span>{{ selectedCabinet?.back_image_url ? '已上传' : '待上传' }}</span>
+              </header>
+              <n-image
+                v-if="selectedCabinet?.back_image_url"
+                :src="selectedCabinet.back_image_url"
+                object-fit="contain"
+                class="cabinet-photo-image"
+              />
+              <div v-else class="cabinet-photo-empty">暂无反面图片</div>
+            </article>
+          </div>
+        </n-image-group>
+        <template #action>
+          <n-space justify="space-between" align="center">
+            <span class="cabinet-photo-hint">运维人员可通过上传链接补充或更新正反面图片</span>
+            <n-space>
+              <n-button type="primary" secondary :loading="photoShare.loading" @click="copyCabinetPhotoUploadLink">
+                <template #icon><TheIcon icon="mdi:link-variant-plus" :size="17" /></template>
+                生成上传链接
+              </n-button>
+              <n-button type="primary" @click="cabinetPhotoModal.show = false">关闭</n-button>
+            </n-space>
+          </n-space>
+        </template>
+      </n-modal>
+
     </div>
   </AppPage>
 </template>
@@ -616,6 +672,7 @@ import 'leaflet/dist/leaflet.css'
 import { useRoute, useRouter } from 'vue-router'
 import api from '@/api'
 import CButton from '@/components/public/CButton.vue'
+import TheIcon from '@/components/icon/TheIcon.vue'
 import { translateRegion } from '@/utils/location-i18n'
 import DeviceVncConsole from './DeviceVncConsole.vue'
 
@@ -657,6 +714,8 @@ const cabinetModal = reactive({
   submitting: false,
   form: createCabinetForm(),
 })
+const cabinetPhotoModal = reactive({ show: false })
+const photoShare = reactive({ loading: false })
 const deviceModal = reactive({
   show: false,
   submitting: false,
@@ -929,6 +988,8 @@ function createCabinetForm() {
     power_socket_spec: '',
     rack_tray: '',
     pdu_socket_types: '',
+    front_image_url: '',
+    back_image_url: '',
     remark: '',
     status: true,
   }
@@ -1531,6 +1592,8 @@ function openCabinetModal(cabinet = null) {
       width_mm: Number(cabinet.width_mm || 600),
       depth_mm: Number(cabinet.depth_mm || 1000),
       power_allocation_kw: Number(cabinet.power_allocation_kw || 0),
+      front_image_url: cabinet.front_image_url || '',
+      back_image_url: cabinet.back_image_url || '',
     }
   } else {
     cabinetModal.form = createCabinetForm()
@@ -1575,6 +1638,8 @@ async function submitCabinet() {
       power_socket_spec: String(cabinetModal.form.power_socket_spec || '').trim(),
       rack_tray: String(cabinetModal.form.rack_tray || '').trim(),
       pdu_socket_types: String(cabinetModal.form.pdu_socket_types || '').trim(),
+      front_image_url: String(cabinetModal.form.front_image_url || '').trim(),
+      back_image_url: String(cabinetModal.form.back_image_url || '').trim(),
     }
     const submit = payload.id ? api.assetApi.updateCabinet : api.assetApi.createCabinet
     const res = await submit(payload)
@@ -1941,6 +2006,55 @@ function getDeviceStatus(value) {
 function attributesToList(attributes) {
   const normalized = normalizeDeviceConfigAttributes(attributes)
   return Object.entries(normalized).map(([key, value]) => ({ key, value }))
+}
+
+function openCabinetPhotoPreview() {
+  if (!selectedCabinet.value?.id) {
+    window.$message?.warning('请先选择机柜')
+    return
+  }
+  cabinetPhotoModal.show = true
+}
+
+function cabinetPhotoUploadUrl(path) {
+  if (!path) return ''
+  if (/^https?:\/\//i.test(path)) return path
+  return `${window.location.origin}${path}`
+}
+
+async function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+  const input = document.createElement('textarea')
+  input.value = text
+  input.style.position = 'fixed'
+  input.style.opacity = '0'
+  document.body.appendChild(input)
+  input.select()
+  document.execCommand('copy')
+  document.body.removeChild(input)
+}
+
+async function copyCabinetPhotoUploadLink() {
+  if (!selectedCabinet.value?.id) {
+    window.$message?.warning('请先选择机柜')
+    return
+  }
+  photoShare.loading = true
+  try {
+    const res = await api.assetApi.cabinetPhotoUploadLink({ cabinet_id: selectedCabinet.value.id })
+    const url = cabinetPhotoUploadUrl(res.data?.url || res.data?.path || '')
+    if (!url) {
+      window.$message?.warning('生成上传链接失败')
+      return
+    }
+    await copyText(url)
+    window.$message?.success('上传链接已生成，30分钟内有效，已复制到剪贴板')
+  } finally {
+    photoShare.loading = false
+  }
 }
 
 function firstAttributeValue(attributes = {}, keys = []) {
@@ -2713,6 +2827,20 @@ onBeforeUnmount(() => {
   padding-inline: 12px;
 }
 
+.rack-title :deep(.rack-photo-button) {
+  border-color: rgba(37, 99, 235, 0.18);
+  background: linear-gradient(180deg, #ffffff 0%, #eef6ff 100%);
+  color: #1d4ed8;
+  font-weight: 700;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.08);
+}
+
+.rack-title :deep(.rack-photo-button:hover) {
+  border-color: rgba(37, 99, 235, 0.34);
+  background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%);
+  color: #1e40af;
+}
+
 .rack-title :deep(.n-tag) {
   height: 26px;
 }
@@ -3090,6 +3218,52 @@ onBeforeUnmount(() => {
 
 .rack-empty {
   margin-top: 14px;
+}
+
+.cabinet-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.cabinet-photo-card {
+  display: grid;
+  gap: 10px;
+  min-height: 420px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.cabinet-photo-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #0f172a;
+}
+
+.cabinet-photo-card header span,
+.cabinet-photo-hint {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.cabinet-photo-image {
+  width: 100%;
+  height: 360px;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.cabinet-photo-empty {
+  display: grid;
+  place-items: center;
+  height: 360px;
+  color: #94a3b8;
+  border: 1px dashed #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
 }
 
 .detail-section {

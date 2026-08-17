@@ -1223,6 +1223,8 @@ async def ensure_asset_columns():
             ('asset_inventory', 'sale_price_currency', "VARCHAR(10) NOT NULL DEFAULT 'USD'"),
             ('asset_inventory_sale_item', 'cost_price_currency', "VARCHAR(10) NOT NULL DEFAULT 'USD'"),
             ('asset_inventory_sale_item', 'unit_price_currency', "VARCHAR(10) NOT NULL DEFAULT 'USD'"),
+            ('asset_cabinet', 'front_image_url', "VARCHAR(255)"),
+            ('asset_cabinet', 'back_image_url', "VARCHAR(255)"),
         ]
         for table, column, column_type in columns:
             try:
@@ -1254,6 +1256,10 @@ async def ensure_asset_columns():
 
         ALTER TABLE IF EXISTS "asset_device"
             ADD COLUMN IF NOT EXISTS "attributes" JSONB NOT NULL DEFAULT '{}';
+
+        ALTER TABLE IF EXISTS "asset_cabinet"
+            ADD COLUMN IF NOT EXISTS "front_image_url" VARCHAR(255),
+            ADD COLUMN IF NOT EXISTS "back_image_url" VARCHAR(255);
 
         ALTER TABLE IF EXISTS "asset_inventory_sale_item"
             ADD COLUMN IF NOT EXISTS "cost_price" DOUBLE PRECISION NOT NULL DEFAULT 0,

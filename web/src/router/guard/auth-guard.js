@@ -2,13 +2,14 @@ import { getToken, isNullOrWhitespace } from '@/utils'
 import { usePermissionStore } from '@/store'
 
 const WHITE_LIST = ['/login', '/404']
+const WHITE_PREFIX_LIST = ['/asset/cabinet-photo-upload/']
 export function createAuthGuard(router) {
   router.beforeEach(async (to) => {
     const token = getToken()
 
     /** 没有token的情况 */
     if (isNullOrWhitespace(token)) {
-      if (WHITE_LIST.includes(to.path)) return true
+      if (WHITE_LIST.includes(to.path) || WHITE_PREFIX_LIST.some((path) => to.path.startsWith(path))) return true
       return { path: 'login', query: { ...to.query, redirect: to.path } }
     }
 

@@ -44,6 +44,8 @@ class AssetCabinet(BaseModel, TimestampMixin):
     power_socket_spec = fields.CharField(max_length=500, null=True, description="电源插座")
     rack_tray = fields.CharField(max_length=100, null=True, description="机柜托盘")
     pdu_socket_types = fields.CharField(max_length=255, null=True, description="PDU插槽类型")
+    front_image_url = fields.CharField(max_length=255, null=True, description="机柜正面图片")
+    back_image_url = fields.CharField(max_length=255, null=True, description="机柜反面图片")
     remark = fields.CharField(max_length=500, null=True, description="备注")
     status = fields.BooleanField(default=True, description="启用状态", index=True)
 

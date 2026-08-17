@@ -1,11 +1,14 @@
 import csv
 import asyncio
+import hashlib
+import hmac
 import ipaddress
 import io
 import json
 import os
 import socket
 import ssl
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -70,9 +73,12 @@ from app.schemas.assets import (
     AssetRegionUpdate,
 )
 from app.schemas.base import Success, SuccessExtra
+from app.settings.config import settings
 
 router = APIRouter()
 ws_router = APIRouter()
+public_router = APIRouter()
+auth_router = APIRouter()
 
 INVENTORY_FEISHU_WEBHOOK = os.getenv(
     "INVENTORY_FEISHU_WEBHOOK",
@@ -86,6 +92,15 @@ DEVICE_VNC_SESSIONS: dict[str, dict] = {}
 DEVICE_VNC_SESSION_TTL = 120
 DEVICE_VNC_DEFAULT_PORT = 5901
 DEVICE_VNC_DEFAULT_PASSWORD = "vnc@3202"
+CABINET_PHOTO_UPLOAD_DIR = os.path.join(settings.BASE_DIR, "uploads", "cabinets")
+CABINET_PHOTO_MAX_SIZE = 10 * 1024 * 1024
+CABINET_PHOTO_UPLOAD_TOKEN_TTL = 30 * 60
+CABINET_PHOTO_CONTENT_TYPES = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
 
 
 class AssetDeviceVncRequest(BaseModel):
@@ -103,6 +118,48 @@ class AssetDeviceIpmiLogRequest(BaseModel):
     device_id: int
     node_name: str | None = None
     limit: int = 50
+
+
+def cabinet_photo_upload_token(cabinet_id: int, expires_at: int | None = None) -> str:
+    expires_at = int(expires_at or (time.time() + CABINET_PHOTO_UPLOAD_TOKEN_TTL))
+    message = f"{int(cabinet_id)}.{expires_at}".encode("utf-8")
+    signature = hmac.new(settings.SECRET_KEY.encode("utf-8"), message, hashlib.sha256).hexdigest()[:32]
+    return f"{int(cabinet_id)}.{expires_at}.{signature}"
+
+
+def parse_cabinet_photo_upload_token(token: str) -> int | None:
+    try:
+        raw_id, raw_expires_at, signature = str(token or "").strip().split(".", 2)
+        cabinet_id = int(raw_id)
+        expires_at = int(raw_expires_at)
+    except (TypeError, ValueError):
+        return None
+    if expires_at < int(time.time()):
+        return None
+    expected = cabinet_photo_upload_token(cabinet_id, expires_at).split(".", 2)[2]
+    if not hmac.compare_digest(signature, expected):
+        return None
+    return cabinet_id
+
+
+async def save_cabinet_photo(cabinet: AssetCabinet, side: str, file: UploadFile) -> str:
+    side = "back" if side == "back" else "front"
+    content_type = str(file.content_type or "").lower()
+    ext = CABINET_PHOTO_CONTENT_TYPES.get(content_type)
+    if not ext:
+        raise ValueError("仅支持 JPG、PNG、WebP、GIF 图片")
+    content = await file.read()
+    if not content:
+        raise ValueError("图片不能为空")
+    if len(content) > CABINET_PHOTO_MAX_SIZE:
+        raise ValueError("图片不能超过 10MB")
+    cabinet_dir = os.path.join(CABINET_PHOTO_UPLOAD_DIR, str(cabinet.id))
+    os.makedirs(cabinet_dir, exist_ok=True)
+    filename = f"{side}-{uuid.uuid4().hex[:12]}{ext}"
+    file_path = os.path.join(cabinet_dir, filename)
+    with open(file_path, "wb") as output:
+        output.write(content)
+    return f"/uploads/cabinets/{cabinet.id}/{filename}"
 
 
 def normalize_redfish_host(value: str) -> str:
@@ -1372,7 +1429,16 @@ def normalize_cabinet_payload(cabinet_in: AssetCabinetCreate | AssetCabinetUpdat
     data["width_mm"] = max(int(data.get("width_mm") or 0), 0)
     data["depth_mm"] = max(int(data.get("depth_mm") or 0), 0)
     data["power_allocation_kw"] = max(float(data.get("power_allocation_kw") or 0), 0)
-    for field in ("power_overage_rate", "pdu_spec", "power_socket_spec", "rack_tray", "pdu_socket_types", "remark"):
+    for field in (
+        "power_overage_rate",
+        "pdu_spec",
+        "power_socket_spec",
+        "rack_tray",
+        "pdu_socket_types",
+        "front_image_url",
+        "back_image_url",
+        "remark",
+    ):
         data[field] = str(data.get(field) or "").strip()
     return data
 
@@ -1422,6 +1488,83 @@ async def delete_cabinet(cabinet_id: int = Query(...)):
         return Success(msg="机柜下存在设备，不能删除", code=400)
     await asset_cabinet_controller.remove(id=cabinet_id)
     return Success(msg="Deleted Successfully")
+
+
+@auth_router.get("/cabinet/photo-upload-link", summary="生成机柜图公开上传链接")
+async def cabinet_photo_upload_link(cabinet_id: int = Query(...)):
+    cabinet = await AssetCabinet.get_or_none(id=cabinet_id)
+    if not cabinet:
+        return Success(msg="机柜不存在", code=404)
+    expires_at = int(time.time() + CABINET_PHOTO_UPLOAD_TOKEN_TTL)
+    token = cabinet_photo_upload_token(cabinet.id, expires_at)
+    path = f"/asset/cabinet-photo-upload/{token}"
+    return Success(data={"token": token, "path": path, "url": path, "expires_at": expires_at, "ttl_seconds": CABINET_PHOTO_UPLOAD_TOKEN_TTL})
+
+
+@router.post("/cabinet/photo/upload", summary="上传机柜图")
+async def upload_cabinet_photo(
+    cabinet_id: int = Query(...),
+    side: str = Query("front"),
+    file: UploadFile = File(..., description="机柜图片"),
+):
+    cabinet = await AssetCabinet.get_or_none(id=cabinet_id)
+    if not cabinet:
+        return Success(msg="机柜不存在", code=404)
+    side = "back" if side == "back" else "front"
+    try:
+        image_url = await save_cabinet_photo(cabinet, side, file)
+    except ValueError as exc:
+        return Success(msg=str(exc), code=400)
+    field = "back_image_url" if side == "back" else "front_image_url"
+    setattr(cabinet, field, image_url)
+    await cabinet.save(update_fields=[field, "updated_at"])
+    return Success(msg="上传成功", data={"side": side, "image_url": image_url, field: image_url})
+
+
+@public_router.get("/cabinet-photo", summary="公开读取机柜图上传信息")
+async def public_cabinet_photo_info(token: str = Query(...)):
+    cabinet_id = parse_cabinet_photo_upload_token(token)
+    if not cabinet_id:
+        return Success(msg="上传链接无效", code=403)
+    cabinet = await AssetCabinet.get_or_none(id=cabinet_id)
+    if not cabinet:
+        return Success(msg="机柜不存在", code=404)
+    location = await AssetLocation.get_or_none(id=cabinet.location_id)
+    region = await AssetRegion.get_or_none(id=location.region_id) if location else None
+    return Success(
+        data={
+            "id": cabinet.id,
+            "name": cabinet.name,
+            "code": cabinet.code or "",
+            "location_name": location.name if location else "",
+            "region_name": region.name if region else "",
+            "front_image_url": cabinet.front_image_url or "",
+            "back_image_url": cabinet.back_image_url or "",
+        }
+    )
+
+
+@public_router.post("/cabinet-photo/upload", summary="公开上传机柜图")
+async def public_upload_cabinet_photo(
+    token: str = Query(...),
+    side: str = Query("front"),
+    file: UploadFile = File(..., description="机柜图片"),
+):
+    cabinet_id = parse_cabinet_photo_upload_token(token)
+    if not cabinet_id:
+        return Success(msg="上传链接无效", code=403)
+    cabinet = await AssetCabinet.get_or_none(id=cabinet_id)
+    if not cabinet:
+        return Success(msg="机柜不存在", code=404)
+    side = "back" if side == "back" else "front"
+    try:
+        image_url = await save_cabinet_photo(cabinet, side, file)
+    except ValueError as exc:
+        return Success(msg=str(exc), code=400)
+    field = "back_image_url" if side == "back" else "front_image_url"
+    setattr(cabinet, field, image_url)
+    await cabinet.save(update_fields=[field, "updated_at"])
+    return Success(msg="上传成功", data={"side": side, "image_url": image_url, field: image_url})
 
 
 @router.get("/device-brand/list", summary="设备品牌型号列表")

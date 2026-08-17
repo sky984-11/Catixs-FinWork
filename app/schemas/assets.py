@@ -55,6 +55,8 @@ class AssetCabinetBase(BaseModel):
     power_socket_spec: str = Field("", example="2x 32A single phase 220V-240V IEC 60309 commando socket")
     rack_tray: str = Field("", example="2x rack tray")
     pdu_socket_types: str = Field("", example="C13, C19")
+    front_image_url: str = Field("", example="/uploads/cabinets/1/front.jpg")
+    back_image_url: str = Field("", example="/uploads/cabinets/1/back.jpg")
     remark: str = Field("", example="")
     status: bool = Field(True, example=True)
 

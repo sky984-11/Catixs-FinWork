@@ -201,6 +201,8 @@ export default {
     createCabinet: (data = {}) => request.post('/asset/cabinet/create', data),
     updateCabinet: (data = {}) => request.post('/asset/cabinet/update', data),
     deleteCabinet: (params = {}) => request.delete('/asset/cabinet/delete', { params }),
+    cabinetPhotoUploadLink: (params = {}) => request.get('/asset/cabinet/photo-upload-link', { params }),
+    uploadCabinetPhoto: (data = {}, params = {}) => request.post('/asset/cabinet/photo/upload', data, { params }),
     deviceBrands: () => request.get('/asset/device-brand/list'),
     createDeviceBrand: (data = {}) => request.post('/asset/device-brand/create', data),
     deleteDeviceBrand: (params = {}) => request.delete('/asset/device-brand/delete', { params }),
@@ -315,5 +317,10 @@ export default {
     createEngineer: (data = {}) => request.post('/remote-assistance/engineers', data),
     updateEngineer: (id, data = {}) => request.put(`/remote-assistance/engineers/${id}`, data),
     deleteEngineer: (id) => request.delete(`/remote-assistance/engineers/${id}`),
+  },
+
+  assetPublicApi: {
+    cabinetPhotoInfo: (params = {}) => request.get('/asset-public/cabinet-photo', { params }),
+    uploadCabinetPhoto: (data = {}, params = {}) => request.post('/asset-public/cabinet-photo/upload', data, { params }),
   },
 }

@@ -136,6 +136,15 @@ export const basicRoutes = [
     },
   },
   {
+    name: 'AssetCabinetPhotoUpload',
+    path: '/asset/cabinet-photo-upload/:token',
+    component: () => import('@/views/asset/cabinet-photo-upload/index.vue'),
+    isHidden: true,
+    meta: {
+      title: '机柜图上传',
+    },
+  },
+  {
     name: 'OpsVirtualMachineMonitor',
     path: '/virtual-machine/monitor',
     component: Layout,
