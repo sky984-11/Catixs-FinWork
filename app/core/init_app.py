@@ -1775,6 +1775,54 @@ async def ensure_device_maintenance_columns():
     )
 
 
+async def ensure_remote_assistance_datetime_columns():
+    if settings.DB_TYPE != "postgres":
+        return
+
+    conn = Tortoise.get_connection("postgres")
+    await conn.execute_script(
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'remote_hands' AND column_name = 'arrived_at' AND data_type = 'timestamp with time zone'
+            ) THEN
+                ALTER TABLE "remote_hands" ALTER COLUMN "arrived_at" TYPE TIMESTAMP USING "arrived_at" AT TIME ZONE 'UTC';
+            END IF;
+
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'remote_hands' AND column_name = 'left_at' AND data_type = 'timestamp with time zone'
+            ) THEN
+                ALTER TABLE "remote_hands" ALTER COLUMN "left_at" TYPE TIMESTAMP USING "left_at" AT TIME ZONE 'UTC';
+            END IF;
+
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'remote_hands_plan' AND column_name = 'planned_at' AND data_type = 'timestamp with time zone'
+            ) THEN
+                ALTER TABLE "remote_hands_plan" ALTER COLUMN "planned_at" TYPE TIMESTAMP USING "planned_at" AT TIME ZONE 'UTC';
+            END IF;
+
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'remote_hands_plan' AND column_name = 'notified_at' AND data_type = 'timestamp with time zone'
+            ) THEN
+                ALTER TABLE "remote_hands_plan" ALTER COLUMN "notified_at" TYPE TIMESTAMP USING "notified_at" AT TIME ZONE 'UTC';
+            END IF;
+
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'remote_hands_plan' AND column_name = 'reminder_notified_at' AND data_type = 'timestamp with time zone'
+            ) THEN
+                ALTER TABLE "remote_hands_plan" ALTER COLUMN "reminder_notified_at" TYPE TIMESTAMP USING "reminder_notified_at" AT TIME ZONE 'UTC';
+            END IF;
+        END $$;
+        """
+    )
+
+
 async def ensure_tg_assistant_tables():
     if settings.DB_TYPE == "sqlite":
         conn = Tortoise.get_connection("sqlite")
@@ -1991,6 +2039,7 @@ async def init_db():
     await ensure_ticket_columns()
     await ensure_finance_quote_columns()
     await ensure_device_maintenance_columns()
+    await ensure_remote_assistance_datetime_columns()
     await ensure_tg_assistant_tables()
     await Tortoise.generate_schemas(safe=True)
     await ensure_billing_product_templates()

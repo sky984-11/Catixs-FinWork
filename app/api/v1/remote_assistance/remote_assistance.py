@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
+import re
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
 from fastapi import APIRouter
@@ -14,6 +15,7 @@ from app.schemas.base import Fail, Success
 from app.services.remote_hands_plan_notifier import int_list, notify_remote_hands_plan
 
 router = APIRouter()
+LOCAL_TIMEZONE = timezone(timedelta(hours=8))
 
 
 class RemoteHandsPayload(BaseModel):
@@ -90,12 +92,29 @@ def _parse_datetime(value: str | None) -> datetime | None:
             timestamp = int(text)
             if len(text) == 10:
                 timestamp *= 1000
-            return datetime.fromtimestamp(timestamp / 1000).replace(tzinfo=None)
+            return datetime.fromtimestamp(timestamp / 1000, tz=LOCAL_TIMEZONE).replace(tzinfo=None)
         except (OverflowError, ValueError, OSError):
             return None
     normalized = text.replace("/", "-").replace("Z", "+00:00")
+    match = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s](\d{1,2})(?::(\d{1,2})(?::(\d{1,2}))?)?)?", normalized)
+    if match:
+        year, month, day, hour, minute, second = match.groups(default="0")
+        try:
+            return datetime(
+                int(year),
+                int(month),
+                int(day),
+                int(hour or 0),
+                int(minute or 0),
+                int(second or 0),
+            )
+        except ValueError:
+            pass
     try:
-        return datetime.fromisoformat(normalized).replace(tzinfo=None)
+        value = datetime.fromisoformat(normalized)
+        if value.tzinfo:
+            value = value.astimezone(LOCAL_TIMEZONE)
+        return value.replace(tzinfo=None)
     except ValueError:
         pass
     for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
@@ -120,6 +139,8 @@ def _now_naive() -> datetime:
 def _format_datetime(value: datetime | None) -> str | None:
     if not value:
         return None
+    if value.tzinfo:
+        value = value.astimezone(LOCAL_TIMEZONE)
     return value.strftime("%Y-%m-%dT%H:%M")
 
 
@@ -334,6 +355,15 @@ async def overview():
 async def create_remote_hands(payload: RemoteHandsPayload):
     try:
         data = _remote_payload_data(payload)
+        logger.info(
+            "remote assistance create record parsed: customer={}, site={}, raw_arrived_at={}, parsed_arrived_at={}, raw_left_at={}, parsed_left_at={}",
+            data["customer"],
+            data["site"],
+            payload.arrived_at,
+            data["arrived_at"],
+            payload.left_at,
+            data["left_at"],
+        )
         await RemoteHands.create(**data)
         return Success(msg="运维记录已创建")
     except Exception as exc:
@@ -505,6 +535,16 @@ async def delete_plan(plan_id: int):
 async def update_remote_hands(item_id: int, payload: RemoteHandsPayload):
     try:
         data = _remote_payload_data(payload)
+        logger.info(
+            "remote assistance update record parsed: item_id={}, customer={}, site={}, raw_arrived_at={}, parsed_arrived_at={}, raw_left_at={}, parsed_left_at={}",
+            item_id,
+            data["customer"],
+            data["site"],
+            payload.arrived_at,
+            data["arrived_at"],
+            payload.left_at,
+            data["left_at"],
+        )
         updated = await RemoteHands.filter(id=item_id).update(**data)
         if not updated:
             return Fail(msg="运维记录不存在")
