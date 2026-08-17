@@ -1,5 +1,20 @@
 import { request } from '@/utils'
 
+const DEFAULT_ASSET_PUBLIC_UPLOAD_API_BASE = 'https://finwork-webhook.catixs.net/api/v1'
+
+function normalizeApiBase(base = '') {
+  return String(base || '').replace(/\/$/, '')
+}
+
+function assetPublicUploadUrl(path) {
+  const envBase = normalizeApiBase(import.meta.env.VITE_ASSET_PUBLIC_UPLOAD_API_BASE)
+  if (envBase) return `${envBase}${path}`
+  if (typeof window !== 'undefined' && window.location.hostname === 'finwork.catixs.net') {
+    return `${DEFAULT_ASSET_PUBLIC_UPLOAD_API_BASE}${path}`
+  }
+  return path
+}
+
 export default {
   login: (data) => request.post('/base/access_token', data, { noNeedToken: true }),
   getUserInfo: () => request.get('/base/userinfo'),
@@ -320,7 +335,8 @@ export default {
   },
 
   assetPublicApi: {
-    cabinetPhotoInfo: (params = {}) => request.get('/asset-public/cabinet-photo', { params }),
-    uploadCabinetPhoto: (data = {}, params = {}) => request.post('/asset-public/cabinet-photo/upload', data, { params }),
+    cabinetPhotoInfo: (params = {}) => request.get('/asset-public/cabinet-photo', { params, noNeedToken: true }),
+    uploadCabinetPhoto: (data = {}, params = {}) =>
+      request.post(assetPublicUploadUrl('/asset-public/cabinet-photo/upload'), data, { params, noNeedToken: true }),
   },
 }

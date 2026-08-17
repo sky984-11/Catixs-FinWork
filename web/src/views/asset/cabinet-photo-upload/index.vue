@@ -91,6 +91,8 @@ async function uploadPhoto(side, event) {
   }
   const formData = new FormData()
   formData.append('file', file)
+  formData.append('token', token())
+  formData.append('side', side)
   uploadingSide.value = side
   try {
     const res = await api.assetPublicApi.uploadCabinetPhoto(formData, { token: token(), side })
@@ -98,6 +100,8 @@ async function uploadPhoto(side, event) {
     if (side === 'back') cabinet.back_image_url = data.back_image_url || data.image_url || ''
     else cabinet.front_image_url = data.front_image_url || data.image_url || ''
     window.$message?.success('上传成功')
+  } catch (error) {
+    window.$message?.error(error?.message || '上传失败，请重新生成上传链接后再试')
   } finally {
     uploadingSide.value = ''
   }
@@ -114,11 +118,11 @@ onMounted(loadCabinet)
   height: 100dvh;
   min-height: 100vh;
   min-height: 100dvh;
-  overflow-y: auto;
   overflow-x: hidden;
-  -webkit-overflow-scrolling: touch;
+  overflow-y: auto;
   padding: 32px 16px;
   background: #eef3f8;
+  -webkit-overflow-scrolling: touch;
 }
 
 .upload-shell {
@@ -164,8 +168,8 @@ onMounted(loadCabinet)
 
 .upload-card {
   display: grid;
-  gap: 12px;
   min-width: 0;
+  gap: 12px;
   padding: 14px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
@@ -202,8 +206,8 @@ onMounted(loadCabinet)
 
 .upload-button {
   display: grid;
-  place-items: center;
   height: 38px;
+  place-items: center;
   color: #fff;
   font-weight: 700;
   border-radius: 6px;

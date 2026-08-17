@@ -18,7 +18,7 @@ from urllib.parse import urlencode
 
 import httpx
 import websockets
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile, WebSocket
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, WebSocket
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from starlette.websockets import WebSocketDisconnect
@@ -1546,10 +1546,14 @@ async def public_cabinet_photo_info(token: str = Query(...)):
 
 @public_router.post("/cabinet-photo/upload", summary="公开上传机柜图")
 async def public_upload_cabinet_photo(
-    token: str = Query(...),
-    side: str = Query("front"),
+    token: str | None = Query(None),
+    side: str | None = Query(None),
+    form_token: str | None = Form(None, alias="token"),
+    form_side: str | None = Form(None, alias="side"),
     file: UploadFile = File(..., description="机柜图片"),
 ):
+    token = str(token or form_token or "").strip()
+    side = str(side or form_side or "front").strip()
     cabinet_id = parse_cabinet_photo_upload_token(token)
     if not cabinet_id:
         return Success(msg="上传链接无效", code=403)
