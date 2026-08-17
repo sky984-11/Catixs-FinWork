@@ -115,7 +115,7 @@
               :pagination="remotePagination"
               :row-key="(row) => row.id"
               flex-height
-              :scroll-x="1740"
+              :scroll-x="1600"
               striped
             >
               <template #empty><n-empty description="暂无运维记录" /></template>
@@ -196,17 +196,11 @@
             <n-form-item label="任务状态">
               <n-select v-model:value="remoteEditor.form.status" :options="statusOptions" />
             </n-form-item>
-            <n-form-item label="运维结算">
-              <n-select
-                v-model:value="remoteEditor.form.ops_settlement_status"
-                :options="settlementOptions"
-              />
-            </n-form-item>
-            <n-form-item label="客户结算">
-              <n-select
-                v-model:value="remoteEditor.form.customer_settlement_status"
-                :options="settlementOptions"
-              />
+            <n-form-item label="是否结算">
+              <n-switch v-model:value="remoteEditor.form.is_settled">
+                <template #checked>已结算</template>
+                <template #unchecked>未结算</template>
+              </n-switch>
             </n-form-item>
             <n-form-item label="到场时间">
               <n-date-picker
@@ -478,7 +472,7 @@
 
 <script setup>
 import { computed, h, onMounted, reactive, ref } from 'vue'
-import { NButton, NPopconfirm, NSpace, NSelect, NTag, NTooltip, useMessage } from 'naive-ui'
+import { NButton, NPopconfirm, NSpace, NSelect, NSwitch, NTag, NTooltip, useMessage } from 'naive-ui'
 import api from '@/api'
 import CButton from '@/components/public/CButton.vue'
 import { translateCity, translateCountry, translateLocationPath } from '@/utils/location-i18n'
@@ -581,11 +575,6 @@ const statusOptions = [
   { label: '已取消', value: 'cancelled' },
 ]
 
-const settlementOptions = [
-  { label: '未计费', value: 'unbilled' },
-  { label: '已计费', value: 'billed' },
-  { label: '已结算', value: 'settled' },
-]
 
 const planStatusOptions = [
   { label: '待执行', value: 'pending' },
@@ -761,12 +750,8 @@ const remoteColumns = [
       { default: () => statusLabel(row.status) }),
   },
   {
-    title: '运维结算', key: 'ops_settlement_status', width: 130,
-    render: (row) => renderSettlementSelect(row, 'ops'),
-  },
-  {
-    title: '客户结算', key: 'customer_settlement_status', width: 130,
-    render: (row) => renderSettlementSelect(row, 'customer'),
+    title: '是否结算', key: 'is_settled', width: 120,
+    render: (row) => renderSettlementSwitch(row),
   },
   {
     title: '备注', key: 'note', width: 360,
@@ -920,8 +905,7 @@ function createRemoteForm(source = {}) {
     left_at: normalizeDateTime(source.left_at),
     work_minutes: Number(source.work_minutes || 0),
     status: source.status || 'scheduled',
-    ops_settlement_status: readSettlementStatus(source, 'ops'),
-    customer_settlement_status: readSettlementStatus(source, 'customer'),
+    is_settled: readSettledFlag(source),
     note: source.note || '',
   }
 }
@@ -1610,18 +1594,17 @@ async function updateRemoteStatus(row, nextStatus) {
   await fetchOverview()
 }
 
-async function updateRemoteSettlement(row, type, value) {
-  const normalized = normalizeSettlementStatus(value)
-  if (normalized === readSettlementStatus(row, type)) return
-  const key = `${row.id}:${type}`
+async function updateRemoteSettled(row, value) {
+  const nextValue = Boolean(value)
+  if (nextValue === readSettledFlag(row)) return
+  const key = `${row.id}:settled`
   remoteSettlementSaving.value = new Set([...remoteSettlementSaving.value, key])
   try {
     const payload = { ...createRemoteForm(row) }
     delete payload.id
-    payload.ops_settlement_status = readSettlementStatus(row, 'ops')
-    payload.customer_settlement_status = readSettlementStatus(row, 'customer')
-    if (type === 'ops') payload.ops_settlement_status = normalized
-    else payload.customer_settlement_status = normalized
+    payload.is_settled = nextValue
+    payload.ops_settlement_status = nextValue ? 'settled' : 'unbilled'
+    payload.customer_settlement_status = nextValue ? 'settled' : 'unbilled'
     await api.remoteAssistanceApi.updateRemoteHands(row.id, payload)
     message.success('结算状态已更新')
     await fetchOverview()
@@ -1798,25 +1781,28 @@ function readSettlementStatus(source, type) {
   return normalizeSettlementStatus(value)
 }
 
-function renderSettlementSelect(row, type) {
-  const key = `${row.id}:${type}`
-  return h(NSelect, {
-    value: readSettlementStatus(row, type),
-    options: settlementOptions,
-    size: 'tiny',
-    consistentMenuWidth: false,
-    loading: remoteSettlementSaving.value.has(key),
-    disabled: remoteSettlementSaving.value.has(key),
-    style: { width: '108px' },
-    onUpdateValue: (value) => updateRemoteSettlement(row, type, value),
-  })
+function readSettledFlag(source) {
+  if (!source) return false
+  if (source.is_settled !== undefined && source.is_settled !== null) {
+    return Boolean(source.is_settled)
+  }
+  return readSettlementStatus(source, 'ops') === 'settled'
+    && readSettlementStatus(source, 'customer') === 'settled'
 }
 
-function renderSettlementTag(value) {
-  const normalized = normalizeSettlementStatus(value)
-  const type = { unbilled: 'warning', billed: 'info', settled: 'success' }[normalized]
-  const label = settlementOptions.find((item) => item.value === normalized)?.label || '未计费'
-  return h(NTag, { type, bordered: false, size: 'small' }, { default: () => label })
+function renderSettlementSwitch(row) {
+  const key = `${row.id}:settled`
+  const saving = remoteSettlementSaving.value.has(key)
+  return h(NSwitch, {
+    value: readSettledFlag(row),
+    size: 'small',
+    loading: saving,
+    disabled: saving,
+    onUpdateValue: (value) => updateRemoteSettled(row, value),
+  }, {
+    checked: () => '已结算',
+    unchecked: () => '未结算',
+  })
 }
 
 function renderDeleteConfirm({ title, actionText, onConfirm, buttonProps = {} }) {

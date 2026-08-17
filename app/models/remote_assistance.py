@@ -40,6 +40,7 @@ class RemoteHands(BaseModel, TimestampMixin):
     left_at = fields.DatetimeField(null=True, description="离场时间", index=True)
     work_minutes = fields.IntField(default=0, description="工时分钟")
     status = fields.CharField(max_length=30, default="scheduled", description="任务状态", index=True)
+    is_settled = fields.BooleanField(default=False, description="是否结算", index=True)
     ops_settlement_status = fields.CharField(max_length=30, default="unbilled", description="运维结算状态", index=True)
     customer_settlement_status = fields.CharField(max_length=30, default="unbilled", description="客户结算状态", index=True)
     note = fields.TextField(null=True, description="备注")

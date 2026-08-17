@@ -36,6 +36,7 @@ class RemoteHandsPayload(BaseModel):
     left_at: str | None = ""
     work_minutes: int = 0
     status: Literal["scheduled", "arrived", "done", "cancelled"] = "scheduled"
+    is_settled: bool | None = None
     ops_settlement_status: Literal["unbilled", "billed", "settled"] = "unbilled"
     customer_settlement_status: Literal["unbilled", "billed", "settled"] = "unbilled"
     note: str = ""
@@ -156,9 +157,22 @@ def _work_minutes_between(start: datetime | None, end: datetime | None) -> int:
     return max(int((end - start).total_seconds() // 60), 0)
 
 
+def _is_settled_from_item(item: RemoteHands) -> bool:
+    if bool(getattr(item, "is_settled", False)):
+        return True
+    return (
+        (item.ops_settlement_status or "unbilled") == "settled"
+        and (item.customer_settlement_status or "unbilled") == "settled"
+    )
+
+
 def _remote_payload_data(payload: RemoteHandsPayload) -> dict[str, Any]:
     arrived_at = _parse_datetime(payload.arrived_at)
     left_at = _parse_datetime(payload.left_at)
+    is_settled = bool(payload.is_settled) if payload.is_settled is not None else (
+        payload.ops_settlement_status == "settled" and payload.customer_settlement_status == "settled"
+    )
+    settlement_status = "settled" if is_settled else "unbilled"
     return {
         "customer": _clean_text(payload.customer),
         "ticket": _clean_text(payload.ticket) or None,
@@ -175,8 +189,9 @@ def _remote_payload_data(payload: RemoteHandsPayload) -> dict[str, Any]:
         "left_at": left_at,
         "work_minutes": _work_minutes_between(arrived_at, left_at),
         "status": payload.status,
-        "ops_settlement_status": payload.ops_settlement_status,
-        "customer_settlement_status": payload.customer_settlement_status,
+        "is_settled": is_settled,
+        "ops_settlement_status": settlement_status,
+        "customer_settlement_status": settlement_status,
         "note": _clean_text(payload.note) or None,
     }
 
@@ -239,6 +254,7 @@ async def _remote_to_dict(item: RemoteHands) -> dict[str, Any]:
         "left_at": _format_datetime(item.left_at),
         "work_minutes": item.work_minutes or 0,
         "status": item.status or "scheduled",
+        "is_settled": _is_settled_from_item(item),
         "ops_settlement_status": item.ops_settlement_status or "unbilled",
         "customer_settlement_status": item.customer_settlement_status or "unbilled",
         "note": item.note or "",
@@ -488,6 +504,7 @@ async def complete_plan(plan_id: int, payload: RemoteHandsPlanCompletePayload):
             left_at=left_at,
             work_minutes=_work_minutes_between(arrived_at, left_at),
             status="done",
+            is_settled=False,
             ops_settlement_status="unbilled",
             customer_settlement_status="unbilled",
             note=note,

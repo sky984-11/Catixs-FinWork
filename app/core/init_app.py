@@ -1824,6 +1824,14 @@ async def ensure_remote_assistance_datetime_columns():
             ) THEN
                 ALTER TABLE "remote_hands_plan" ALTER COLUMN "reminder_notified_at" TYPE TIMESTAMP USING "reminder_notified_at" AT TIME ZONE 'UTC';
             END IF;
+
+            ALTER TABLE IF EXISTS "remote_hands"
+                ADD COLUMN IF NOT EXISTS "is_settled" BOOLEAN NOT NULL DEFAULT FALSE;
+
+            UPDATE "remote_hands"
+            SET "is_settled" = TRUE
+            WHERE COALESCE("ops_settlement_status", '') = 'settled'
+              AND COALESCE("customer_settlement_status", '') = 'settled';
         END $$;
         """
     )
