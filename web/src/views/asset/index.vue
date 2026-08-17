@@ -1495,7 +1495,7 @@ const inventoryColumns = computed(() => [
       return renderInventoryActions(row)
     },
   },
-])
+].filter((column) => !['threshold', 'cost_price', 'sale_price'].includes(column.key)))
 
 const saleRecordColumns = computed(() => [
   { title: '销售单号', key: 'sale_no', width: 170 },
