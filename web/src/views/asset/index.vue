@@ -214,19 +214,21 @@
               </div>
             </div>
 
-            <n-data-table
-              v-if="viewMode === 'table' || !canShowRackView"
-              remote
-              :loading="loading.list"
-              :columns="isInventoryView ? inventoryColumns : deviceColumns"
-              :data="isInventoryView ? inventoryItems : devices"
-              :pagination="pagination"
-              :row-key="(row) => row.id"
-              :row-class-name="() => 'asset-table-row'"
-              @update:page="handlePageChange"
-              @update:page-size="handlePageSizeChange"
-              @update:sorter="handleSorterChange"
-            />
+            <div v-if="viewMode === 'table' || !canShowRackView" class="asset-table-wrap">
+              <n-data-table
+                remote
+                flex-height
+                :loading="loading.list"
+                :columns="isInventoryView ? inventoryColumns : deviceColumns"
+                :data="isInventoryView ? inventoryItems : devices"
+                :pagination="pagination"
+                :row-key="(row) => row.id"
+                :row-class-name="() => 'asset-table-row'"
+                @update:page="handlePageChange"
+                @update:page-size="handlePageSizeChange"
+                @update:sorter="handleSorterChange"
+              />
+            </div>
             <n-spin v-else :show="loading.rack">
               <div class="rack-visual">
                 <div class="rack-summary">
@@ -847,7 +849,7 @@
             <n-form-item label="位置名称" path="name">
               <n-input v-model:value="simpleModal.form.name" />
             </n-form-item>
-            <n-form-item label="位置类型">
+            <n-form-item v-if="props.defaultModule !== 'inventory'" label="位置类型">
               <n-radio-group v-model:value="simpleModal.form.type">
                 <n-radio-button :value="0">库存</n-radio-button>
                 <n-radio-button :value="1">机房</n-radio-button>
@@ -1155,6 +1157,10 @@ const createOptions = [
   { label: '新增机柜', key: 'cabinet' },
 ]
 
+const inventoryCreateOptions = [
+  { label: '新增库存位置', key: 'location' },
+]
+
 const assetResourcePathMap = {
   region: 'region',
   location: 'location',
@@ -1269,7 +1275,9 @@ const currentCabinet = computed(() => {
 const canShowRackView = computed(() => !isInventoryView.value && selectedNode.value?.type === 'cabinet')
 const rackCapacity = computed(() => Math.max(Number(currentCabinet.value?.capacity_u) || 42, 1))
 const permittedCreateOptions = computed(() =>
-  createOptions.filter((item) => hasAssetPermission(item.key, 'create'))
+  (props.defaultModule === 'inventory' ? inventoryCreateOptions : createOptions).filter((item) =>
+    hasAssetPermission(item.key, 'create')
+  )
 )
 
 const regionOptions = computed(() =>
@@ -1308,18 +1316,27 @@ const cabinetOptions = computed(() =>
   })
 )
 const contextActionText = computed(() => {
+  if (props.defaultModule === 'inventory') {
+    if (selectedNode.value?.type === 'location') return '编辑库存位置'
+    return '新增库存位置'
+  }
   if (!selectedNode.value) return '新增区域'
   if (selectedNode.value.type === 'region') return '编辑区域'
   if (selectedNode.value.type === 'location') return '编辑位置'
   return '编辑机柜'
 })
 const contextIcon = computed(() => {
+  if (props.defaultModule === 'inventory') return 'mdi:warehouse'
   if (!selectedNode.value) return 'mdi:map-marker-plus-outline'
   if (selectedNode.value.type === 'region') return 'mdi:map-marker-radius-outline'
   if (selectedNode.value.type === 'location') return 'mdi:warehouse'
   return 'mdi:server-network'
 })
 const canUseContextAction = computed(() => {
+  if (props.defaultModule === 'inventory') {
+    const action = selectedNode.value?.type === 'location' ? 'update' : 'create'
+    return hasAssetPermission('location', action)
+  }
   const resource = selectedNode.value?.type || 'region'
   const action = selectedNode.value ? 'update' : 'create'
   return hasAssetPermission(resource, action)
@@ -2131,13 +2148,19 @@ function openContextModal() {
     warnNoPermission()
     return
   }
+  if (props.defaultModule === 'inventory') {
+    if (selectedNode.value?.type === 'location') openSimpleModal('location', selectedNode.value)
+    else openSimpleModal('location')
+    return
+  }
   if (!selectedNode.value) openSimpleModal('region')
   else openSimpleModal(selectedNode.value.type, selectedNode.value)
 }
 
 function openSimpleModal(kind, node = null) {
   simpleModal.kind = kind
-  simpleModal.title = `${node ? '编辑' : '新增'}${kindName(kind)}`
+  const name = props.defaultModule === 'inventory' && kind === 'location' ? '库存位置' : kindName(kind)
+  simpleModal.title = `${node ? '编辑' : '新增'}${name}`
   simpleModal.form = createSimpleForm(kind, node)
   simpleModal.show = true
 }
@@ -2159,7 +2182,7 @@ function createSimpleForm(kind, node) {
       id: row?.id,
       region_id: row?.region_id || selectedRegionId(),
       name: row?.name || '',
-      type: row?.type ?? 1,
+      type: row?.type ?? (props.defaultModule === 'inventory' ? 0 : 1),
       address: row?.address || '',
       remark: row?.remark || '',
       status: row?.status ?? true,
@@ -2205,13 +2228,29 @@ async function submitSimple() {
       cabinet: [api.assetApi.createCabinet, api.assetApi.updateCabinet],
     }
     const [createFn, updateFn] = map[simpleModal.kind]
-    await (simpleModal.form.id ? updateFn(simpleModal.form) : createFn(simpleModal.form))
+    if (props.defaultModule === 'inventory' && simpleModal.kind === 'location') {
+      simpleModal.form.type = 0
+    }
+    const res = await (simpleModal.form.id ? updateFn(simpleModal.form) : createFn(simpleModal.form))
+    const saved = res?.data
     window.$message?.success('保存成功')
     simpleModal.show = false
     await refreshAll()
+    await selectSimpleAfterSave(simpleModal.kind, saved)
   } finally {
     simpleModal.submitting = false
   }
+}
+
+async function selectSimpleAfterSave(kind, saved = null) {
+  if (!saved?.id) return
+  const id = `${kind}-${saved.id}`
+  const node = flattenTree(visibleTreeData.value).find((item) => item.id === id)
+  if (!node) return
+  selectedKeys.value = [id]
+  selectedNode.value = node
+  pagination.page = 1
+  await loadCurrentList()
 }
 
 async function deleteSimple() {
@@ -3139,6 +3178,9 @@ onMounted(refreshAll)
   display: flex;
   flex-direction: column;
   gap: 16px;
+  height: calc(100vh - 96px);
+  min-height: 0;
+  overflow: hidden;
   padding: 16px;
 }
 
@@ -3190,12 +3232,58 @@ onMounted(refreshAll)
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
   gap: 16px;
-  min-height: 620px;
+  flex: 1;
+  min-height: 0;
 }
 
 .asset-sidebar,
 .content-panel {
   padding: 16px;
+}
+
+.asset-sidebar {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.asset-sidebar :deep(.n-tree) {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+}
+
+.asset-main {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.summary-band,
+.filter-panel {
+  flex-shrink: 0;
+}
+
+.content-panel {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.content-panel > .panel-head {
+  flex-shrink: 0;
+}
+
+.asset-table-wrap {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
 }
 
 .content-panel :deep(.n-data-table-th__title),
@@ -3206,7 +3294,13 @@ onMounted(refreshAll)
 }
 
 .content-panel :deep(.n-data-table) {
+  width: 100%;
+  height: 100%;
   border-radius: 8px;
+}
+
+.content-panel :deep(.n-data-table .n-data-table-base-table) {
+  min-height: 0;
 }
 
 .content-panel :deep(.n-data-table-th) {

@@ -1976,6 +1976,9 @@ async def ensure_pre_schema_columns():
         """
         ALTER TABLE IF EXISTS "company"
             ADD COLUMN IF NOT EXISTS "default_contract_months" INT NOT NULL DEFAULT 12;
+
+        ALTER TABLE IF EXISTS "remote_hands"
+            ADD COLUMN IF NOT EXISTS "is_settled" BOOLEAN NOT NULL DEFAULT FALSE;
         """
     )
 
