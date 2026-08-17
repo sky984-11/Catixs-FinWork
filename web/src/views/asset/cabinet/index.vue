@@ -617,36 +617,40 @@
         :bordered="false"
         class="cabinet-photo-modal"
       >
-        <n-image-group>
-          <div class="cabinet-photo-grid">
-            <article class="cabinet-photo-card">
-              <header>
-                <strong>正面</strong>
-                <span>{{ selectedCabinet?.front_image_url ? '已上传' : '待上传' }}</span>
-              </header>
-              <n-image
-                v-if="selectedCabinet?.front_image_url"
-                :src="selectedCabinet.front_image_url"
-                object-fit="contain"
-                class="cabinet-photo-image"
-              />
-              <div v-else class="cabinet-photo-empty">暂无正面图片</div>
-            </article>
-            <article class="cabinet-photo-card">
-              <header>
-                <strong>反面</strong>
-                <span>{{ selectedCabinet?.back_image_url ? '已上传' : '待上传' }}</span>
-              </header>
-              <n-image
-                v-if="selectedCabinet?.back_image_url"
-                :src="selectedCabinet.back_image_url"
-                object-fit="contain"
-                class="cabinet-photo-image"
-              />
-              <div v-else class="cabinet-photo-empty">暂无反面图片</div>
-            </article>
-          </div>
-        </n-image-group>
+        <div class="cabinet-photo-grid">
+          <article class="cabinet-photo-card">
+            <header>
+              <strong>正面</strong>
+              <span>{{ selectedCabinet?.front_image_url ? '已上传' : '待上传' }}</span>
+            </header>
+            <a
+              v-if="selectedCabinet?.front_image_url"
+              class="cabinet-photo-link"
+              :href="selectedCabinet.front_image_url"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <img :src="selectedCabinet.front_image_url" alt="机柜正面图" class="cabinet-photo-image" />
+            </a>
+            <div v-else class="cabinet-photo-empty">暂无正面图片</div>
+          </article>
+          <article class="cabinet-photo-card">
+            <header>
+              <strong>反面</strong>
+              <span>{{ selectedCabinet?.back_image_url ? '已上传' : '待上传' }}</span>
+            </header>
+            <a
+              v-if="selectedCabinet?.back_image_url"
+              class="cabinet-photo-link"
+              :href="selectedCabinet.back_image_url"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <img :src="selectedCabinet.back_image_url" alt="机柜反面图" class="cabinet-photo-image" />
+            </a>
+            <div v-else class="cabinet-photo-empty">暂无反面图片</div>
+          </article>
+        </div>
         <template #action>
           <n-space justify="space-between" align="center">
             <span class="cabinet-photo-hint">运维人员可通过上传链接补充或更新正反面图片</span>
@@ -3249,10 +3253,19 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 
+.cabinet-photo-link {
+  display: block;
+  height: 360px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #fff;
+}
+
 .cabinet-photo-image {
   width: 100%;
   height: 360px;
   border-radius: 6px;
+  object-fit: contain;
   background: #fff;
 }
 

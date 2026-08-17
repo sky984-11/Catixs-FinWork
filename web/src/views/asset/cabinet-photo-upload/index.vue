@@ -17,12 +17,15 @@
                 {{ cabinet[item.field] ? '已上传' : '待上传' }}
               </n-tag>
             </div>
-            <n-image
+            <a
               v-if="cabinet[item.field]"
-              :src="cabinet[item.field]"
-              object-fit="contain"
               class="upload-preview"
-            />
+              :href="cabinet[item.field]"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <img :src="cabinet[item.field]" :alt="`机柜${item.label}图`" />
+            </a>
             <div v-else class="upload-empty">暂无{{ item.label }}图片</div>
             <label class="upload-button">
               <input type="file" accept="image/*" @change="(event) => uploadPhoto(item.value, event)" />
@@ -191,7 +194,7 @@ onMounted(loadCabinet)
   background: #fff;
 }
 
-.upload-preview :deep(img) {
+.upload-preview img {
   width: 100%;
   height: 100%;
   object-fit: contain;
