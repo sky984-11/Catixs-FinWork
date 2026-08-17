@@ -1,7 +1,17 @@
 <template>
   <teleport to="body">
-    <div v-if="visible" class="fw-assistant" :class="{ open: panelOpen }">
-      <section v-if="panelOpen" class="fw-assistant-panel" aria-label="FW小助手对话">
+    <div
+      v-if="visible"
+      class="fw-assistant"
+      :class="{ open: panelOpen, dragging: draggingState.active }"
+      :style="assistantStyle"
+    >
+      <section
+        v-if="panelOpen"
+        class="fw-assistant-panel"
+        :style="panelStyle"
+        aria-label="FW小助手对话"
+      >
         <header class="fw-assistant-head">
           <div class="fw-assistant-brand">
             <span class="fw-assistant-avatar">
@@ -42,16 +52,22 @@
         </form>
       </section>
 
-      <button class="fw-assistant-fab" type="button" title="FW小助手" @click="panelOpen = !panelOpen">
+      <button
+        class="fw-assistant-fab"
+        type="button"
+        title="FW小助手"
+        @pointerdown="startDrag($event, 'fab')"
+        @click="togglePanel"
+      >
         <span class="fw-assistant-orbit"></span>
-        <img :src="logoUrl" alt="FW小助手" />
+        <img :src="logoUrl" alt="FW小助手" draggable="false" />
       </button>
     </div>
   </teleport>
 </template>
 
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import logoUrl from '@/assets/svg/logo.svg?url'
 import TheIcon from '@/components/icon/TheIcon.vue'
@@ -68,6 +84,28 @@ const panelOpen = ref(false)
 const sending = ref(false)
 const draft = ref('')
 const messagesEl = ref(null)
+const ASSISTANT_POSITION_KEY = 'fw-assistant-position'
+const DEFAULT_ASSISTANT_SIZE = 66
+const PANEL_WIDTH = 380
+const PANEL_HEIGHT = 470
+const PANEL_GAP = 14
+const assistantPosition = reactive({
+  left: 0,
+  top: 0,
+})
+const draggingState = reactive({
+  active: false,
+  moved: false,
+  startX: 0,
+  startY: 0,
+  offsetX: 0,
+  offsetY: 0,
+  width: DEFAULT_ASSISTANT_SIZE,
+  height: DEFAULT_ASSISTANT_SIZE,
+  pointerId: null,
+  dragTarget: null,
+  source: '',
+})
 const messages = ref([
   {
     id: Date.now(),
@@ -83,12 +121,185 @@ const visible = computed(() => {
 
 const assistantStatusText = computed(() => (DEEPSEEK_API_ENDPOINT ? DEEPSEEK_MODEL : '待接入 DeepSeek'))
 
+const assistantStyle = computed(() => ({
+  left: `${assistantPosition.left}px`,
+  top: `${assistantPosition.top}px`,
+}))
+const panelStyle = computed(() => {
+  const margin = getAssistantMargin()
+  const assistantSize = getAssistantSize()
+  const maxPanelWidth = Math.min(PANEL_WIDTH, window.innerWidth - margin * 2)
+  const left = clamp(
+    0,
+    margin - assistantPosition.left,
+    window.innerWidth - margin - maxPanelWidth - assistantPosition.left
+  )
+  const spaceAbove = assistantPosition.top - margin
+  const spaceBelow = window.innerHeight - assistantPosition.top - assistantSize - margin
+  const shouldOpenBelow = spaceBelow > spaceAbove
+  const vertical = shouldOpenBelow
+    ? { top: `${assistantSize + PANEL_GAP}px` }
+    : { bottom: `${assistantSize + PANEL_GAP}px` }
+  return {
+    ...vertical,
+    left: `${left}px`,
+  }
+})
+
 watch(
   () => route.path,
   () => {
     if (!visible.value) panelOpen.value = false
   }
 )
+
+onMounted(() => {
+  restoreAssistantPosition()
+  window.addEventListener('resize', keepAssistantInViewport)
+})
+
+onBeforeUnmount(() => {
+  stopDrag()
+  window.removeEventListener('resize', keepAssistantInViewport)
+})
+
+function togglePanel(event) {
+  if (draggingState.moved) {
+    event?.preventDefault()
+    draggingState.moved = false
+    return
+  }
+  panelOpen.value = !panelOpen.value
+}
+
+function startDrag(event, source = 'fab') {
+  if (event.button !== 0) return
+  if (source === 'header' && event.target?.closest?.('button, textarea, input, select, a')) return
+  const assistantEl = event.currentTarget?.closest?.('.fw-assistant')
+  if (!assistantEl) return
+
+  const rect = assistantEl.getBoundingClientRect()
+  draggingState.active = true
+  draggingState.moved = false
+  draggingState.startX = event.clientX
+  draggingState.startY = event.clientY
+  draggingState.offsetX = event.clientX - rect.left
+  draggingState.offsetY = event.clientY - rect.top
+  draggingState.width = rect.width
+  draggingState.height = rect.height
+  draggingState.pointerId = event.pointerId
+  draggingState.dragTarget = event.currentTarget
+  draggingState.source = source
+  event.currentTarget?.setPointerCapture?.(event.pointerId)
+
+  window.addEventListener('pointermove', handleDragMove, { passive: false })
+  window.addEventListener('pointerup', stopDrag)
+  window.addEventListener('pointercancel', stopDrag)
+  window.addEventListener('blur', stopDrag)
+}
+
+function handleDragMove(event) {
+  if (!draggingState.active) return
+  if (draggingState.pointerId !== null && event.pointerId !== draggingState.pointerId) return
+  const distance = Math.hypot(event.clientX - draggingState.startX, event.clientY - draggingState.startY)
+  if (distance > 4) draggingState.moved = true
+  event.preventDefault()
+
+  const margin = getAssistantMargin()
+  const maxLeft = Math.max(window.innerWidth - draggingState.width - margin, margin)
+  const maxTop = Math.max(window.innerHeight - draggingState.height - margin, margin)
+  assistantPosition.left = clamp(
+    event.clientX - draggingState.offsetX,
+    margin,
+    maxLeft
+  )
+  assistantPosition.top = clamp(
+    event.clientY - draggingState.offsetY,
+    margin,
+    maxTop
+  )
+}
+
+function stopDrag() {
+  if (!draggingState.active) return
+  const shouldKeepMoved = draggingState.source === 'fab' && draggingState.moved
+  if (draggingState.pointerId !== null) {
+    try {
+      draggingState.dragTarget?.releasePointerCapture?.(draggingState.pointerId)
+    } catch {
+      // The pointer may already be released by the browser.
+    }
+  }
+  draggingState.active = false
+  draggingState.moved = shouldKeepMoved
+  draggingState.pointerId = null
+  draggingState.dragTarget = null
+  draggingState.source = ''
+  window.removeEventListener('pointermove', handleDragMove)
+  window.removeEventListener('pointerup', stopDrag)
+  window.removeEventListener('pointercancel', stopDrag)
+  window.removeEventListener('blur', stopDrag)
+  saveAssistantPosition()
+}
+
+function keepAssistantInViewport() {
+  const assistantEl = document.querySelector('.fw-assistant')
+  const rect = assistantEl?.getBoundingClientRect()
+  const width = rect?.width || DEFAULT_ASSISTANT_SIZE
+  const height = rect?.height || DEFAULT_ASSISTANT_SIZE
+  const margin = getAssistantMargin()
+  assistantPosition.left = clamp(
+    assistantPosition.left,
+    margin,
+    Math.max(window.innerWidth - width - margin, margin)
+  )
+  assistantPosition.top = clamp(
+    assistantPosition.top,
+    margin,
+    Math.max(window.innerHeight - height - margin, margin)
+  )
+  saveAssistantPosition()
+}
+
+function restoreAssistantPosition() {
+  const margin = getAssistantMargin()
+  const assistantSize = getAssistantSize()
+  assistantPosition.left = window.innerWidth - assistantSize - margin
+  assistantPosition.top = window.innerHeight - assistantSize - margin
+  try {
+    const parsed = JSON.parse(localStorage.getItem(ASSISTANT_POSITION_KEY) || '{}')
+    if (Number.isFinite(parsed.left)) assistantPosition.left = parsed.left
+    if (Number.isFinite(parsed.top)) assistantPosition.top = parsed.top
+    if (!Number.isFinite(parsed.left) && Number.isFinite(parsed.right)) {
+      assistantPosition.left = window.innerWidth - parsed.right - assistantSize
+    }
+    if (!Number.isFinite(parsed.top) && Number.isFinite(parsed.bottom)) {
+      assistantPosition.top = window.innerHeight - parsed.bottom - assistantSize
+    }
+  } catch {
+    // Ignore stale localStorage data.
+  }
+  keepAssistantInViewport()
+}
+
+function saveAssistantPosition() {
+  localStorage.setItem(
+    ASSISTANT_POSITION_KEY,
+    JSON.stringify({ left: assistantPosition.left, top: assistantPosition.top })
+  )
+}
+
+function getAssistantMargin() {
+  return window.innerWidth <= 640 ? 14 : 24
+}
+
+function getAssistantSize() {
+  return window.innerWidth <= 640 ? 58 : DEFAULT_ASSISTANT_SIZE
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max)
+}
 
 async function sendMessage() {
   const content = draft.value.trim()
@@ -150,8 +361,8 @@ async function scrollToBottom() {
 <style scoped>
 .fw-assistant {
   position: fixed;
-  right: 24px;
-  bottom: 24px;
+  width: 66px;
+  height: 66px;
   z-index: 3000;
   pointer-events: none;
 }
@@ -162,8 +373,8 @@ async function scrollToBottom() {
 }
 
 .fw-assistant-panel {
+  position: absolute;
   width: min(380px, calc(100vw - 32px));
-  margin-bottom: 14px;
   overflow: hidden;
   border: 1px solid rgba(148, 163, 184, 0.28);
   border-radius: 12px;
@@ -181,6 +392,7 @@ async function scrollToBottom() {
   background:
     radial-gradient(circle at 16% 0%, rgba(37, 99, 235, 0.14), transparent 35%),
     linear-gradient(135deg, #f8fbff 0%, #f2fbf7 100%);
+  user-select: none;
 }
 
 .fw-assistant-brand {
@@ -337,11 +549,18 @@ async function scrollToBottom() {
     radial-gradient(circle at 28% 22%, rgba(255, 255, 255, 0.96) 0 18%, rgba(255, 255, 255, 0.62) 19% 32%, transparent 33%),
     conic-gradient(from 218deg, #2563eb 0deg, #06b6d4 138deg, #22c55e 250deg, #2563eb 360deg);
   cursor: pointer;
+  touch-action: none;
+  user-select: none;
   box-shadow:
     0 20px 42px rgba(37, 99, 235, 0.3),
     0 8px 18px rgba(6, 182, 212, 0.18),
     inset 0 1px 0 rgba(255, 255, 255, 0.62);
   animation: fw-float 3.6s ease-in-out infinite;
+}
+
+.fw-assistant.dragging .fw-assistant-fab {
+  cursor: grabbing;
+  animation-play-state: paused;
 }
 
 .fw-assistant-fab::before {
@@ -377,6 +596,9 @@ async function scrollToBottom() {
   box-shadow:
     0 8px 18px rgba(15, 23, 42, 0.18),
     inset 0 0 0 1px rgba(37, 99, 235, 0.12);
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .fw-assistant-orbit {
@@ -386,6 +608,7 @@ async function scrollToBottom() {
   border: 1px solid rgba(255, 255, 255, 0.58);
   border-radius: 50%;
   box-shadow: 0 0 22px rgba(255, 255, 255, 0.42);
+  pointer-events: none;
 }
 
 .fw-assistant-fab:hover {
@@ -422,11 +645,6 @@ async function scrollToBottom() {
 }
 
 @media (max-width: 640px) {
-  .fw-assistant {
-    right: 14px;
-    bottom: 14px;
-  }
-
   .fw-assistant-panel {
     width: calc(100vw - 28px);
   }
@@ -436,6 +654,11 @@ async function scrollToBottom() {
   }
 
   .fw-assistant-fab {
+    width: 58px;
+    height: 58px;
+  }
+
+  .fw-assistant {
     width: 58px;
     height: 58px;
   }
