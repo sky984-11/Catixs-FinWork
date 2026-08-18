@@ -18,13 +18,12 @@ from app.models.admin import User
 from app.models.ticket import Ticket, TicketReply
 from app.schemas.base import Success, SuccessExtra
 from app.schemas.tickets import TicketAttachmentUpload, TicketCreate, TicketEmailSend, TicketReplyCreate, TicketUpdate
-from app.utils.feishu_bot import (
-    TICKET_STATUS_MAP,
-    TICKET_TYPE_MAP,
-    send_ticket_created_notification,
-    send_ticket_reply_notification,
-    send_ticket_status_changed_notification,
+from app.services.ticket_feishu_notifier import (
+    notify_ticket_created,
+    notify_ticket_reply,
+    notify_ticket_status_changed,
 )
+from app.utils.feishu_bot import TICKET_STATUS_MAP, TICKET_TYPE_MAP
 from app.utils.feishu_email import send_email
 
 logger = logging.getLogger(__name__)
@@ -395,17 +394,16 @@ async def create_ticket_reply(
         content=content,
     )
     try:
-        await send_ticket_reply_notification(
-            ticket_no=ticket_obj.ticket_no,
-            title=ticket_obj.title,
-            ticket_type=ticket_obj.type,
-            replier_name=get_user_display_name(current_user),
+        sent_count = await notify_ticket_reply(
+            ticket=ticket_obj,
+            replier=current_user,
             content=content,
+            reply_to_user_id=reply_to_user_id,
             reply_to_user_name=reply_to_user_name,
             parent_content=parent_content,
             ticket_url=build_ticket_detail_url(request, ticket_obj.id),
         )
-        logger.info(f"ticket {ticket_obj.ticket_no} reply notification sent to Feishu")
+        logger.info(f"ticket {ticket_obj.ticket_no} reply Feishu app notifications sent: {sent_count}")
     except Exception as e:
         logger.error(f"send ticket reply Feishu notification failed: {e}")
 
@@ -424,23 +422,13 @@ async def create_ticket(
     # 创建工单
     ticket_obj = await ticket_controller.create_ticket(TicketCreate(**ticket_data))
     
-    # 获取创建人信息
-    creator = current_user
-    creator_name = creator.username if creator else "未知用户"
-    
     try:
-        await send_ticket_created_notification(
-            ticket_no=ticket_obj.ticket_no,
-            title=ticket_obj.title,
-            ticket_type=ticket_obj.type,
-            status=ticket_obj.status,
-            creator_name=creator_name,
-            description=ticket_obj.desc or "暂无描述",
-            created_at=ticket_obj.created_at,
-            location=ticket_obj.location,
+        sent_count = await notify_ticket_created(
+            ticket=ticket_obj,
+            creator=current_user,
             ticket_url=build_ticket_detail_url(request, ticket_obj.id),
         )
-        logger.info(f"工单 {ticket_obj.ticket_no} 创建通知已发送至飞书")
+        logger.info(f"ticket {ticket_obj.ticket_no} created Feishu app notifications sent: {sent_count}")
     except Exception as e:
         # 通知发送失败不影响工单创建结果
         logger.error(f"发送飞书通知失败: {e}")
@@ -451,6 +439,7 @@ async def create_ticket(
 @router.post("/update", summary="更新工单", dependencies=[DependAuth])
 async def update_ticket(
     ticket_in: TicketUpdate,
+    request: Request,
 ):
     current_user = await get_current_ticket_user()
     ticket_obj = None
@@ -491,16 +480,13 @@ async def update_ticket(
         )
     if ticket_in.status == 0 and old_status != 0:
         try:
-            await send_ticket_status_changed_notification(
-                ticket_no=ticket_obj.ticket_no,
-                title=ticket_obj.title,
-                ticket_type=ticket_obj.type,
+            sent_count = await notify_ticket_status_changed(
+                ticket=ticket_obj,
                 old_status=old_status,
-                new_status=ticket_obj.status,
-                operator_name=get_user_display_name(current_user),
-                completion_note=ticket_obj.completion_note,
+                operator=current_user,
+                ticket_url=build_ticket_detail_url(request, ticket_obj.id),
             )
-            logger.info(f"ticket {ticket_obj.ticket_no} completion notification sent to Feishu")
+            logger.info(f"ticket {ticket_obj.ticket_no} completion Feishu app notifications sent: {sent_count}")
         except Exception as e:
             logger.error(f"send ticket completion Feishu notification failed: {e}")
     return Success(msg="工单更新成功", data=await ticket_to_dict(ticket_obj))
