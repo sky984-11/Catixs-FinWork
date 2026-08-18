@@ -26,6 +26,11 @@ export function resResolve(response) {
   if (config?.skipErrorHandle) {
     return Promise.resolve(response)
   }
+  if (typeof data === 'string' && data.trim().toLowerCase().startsWith('<!doctype html')) {
+    const message = '接口返回了前端页面，请检查后端服务是否已重启或开发代理是否指向正确 API 端口'
+    window.$message?.error(message, { keepAliveOnHover: true })
+    return Promise.reject({ code: status, message, error: data })
+  }
   if (data?.code !== 200) {
     const code = data?.code ?? status
     /** 根据code处理对应的操作，并返回处理后的message */

@@ -17,6 +17,8 @@ function assetPublicUploadUrl(path) {
 
 export default {
   login: (data) => request.post('/base/access_token', data, { noNeedToken: true }),
+  getFeishuOAuthConfig: (params = {}) => request.get('/base/feishu/oauth/config', { params, noNeedToken: true }),
+  loginByFeishuOAuth: (data = {}) => request.post('/base/feishu/oauth/login', data, { noNeedToken: true }),
   getUserInfo: () => request.get('/base/userinfo'),
   getUserMenu: () => request.get('/base/usermenu'),
   getUserApi: () => request.get('/base/userapi'),

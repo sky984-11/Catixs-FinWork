@@ -18,3 +18,9 @@ class JWTPayload(BaseModel):
     username: str
     is_superuser: bool
     exp: datetime
+
+
+class FeishuOAuthLogin(BaseModel):
+    code: str = Field(..., description="Feishu OAuth authorization code")
+    redirect_uri: str = Field("", description="OAuth redirect URI used to request the code")
+    state: str = Field("", description="OAuth state")

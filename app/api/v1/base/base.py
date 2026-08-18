@@ -3,9 +3,10 @@ import binascii
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
-from urllib.parse import unquote, urlparse
+from urllib.parse import urlencode, unquote, urlparse
 
-from fastapi import APIRouter, HTTPException
+import httpx
+from fastapi import APIRouter, HTTPException, Query
 
 from app.controllers.user import user_controller
 from app.core.ctx import CTX_USER_ID
@@ -15,11 +16,16 @@ from app.schemas.base import Fail, Success
 from app.schemas.login import *
 from app.schemas.users import UpdatePassword, UserAvatarUpload, UserProfileUpdate
 from app.settings import settings
+from app.utils.feishu_app import lookup_feishu_user_id_by_email, lookup_feishu_user_id_by_mobile
 from app.utils.jwt_utils import create_access_token
 from app.utils.password import get_password_hash, verify_password
 
 router = APIRouter()
 
+FEISHU_API_BASE = "https://open.feishu.cn/open-apis"
+FEISHU_OAUTH_AUTHORIZE_URL = f"{FEISHU_API_BASE}/authen/v1/authorize"
+FEISHU_OAUTH_TOKEN_URL = f"{FEISHU_API_BASE}/authen/v2/oauth/token"
+FEISHU_USER_INFO_URL = f"{FEISHU_API_BASE}/authen/v1/user_info"
 MENU_ICON_FALLBACKS = {
     "/syslog": "mdi:text-box-search-outline",
 }
@@ -58,6 +64,177 @@ def normalize_avatar_url(avatar: str | None) -> str:
     return avatar
 
 
+def clean_text(value) -> str:
+    return str(value or "").strip()
+
+
+def split_csv(value: str | None) -> set[str]:
+    return {item.strip() for item in str(value or "").split(",") if item.strip()}
+
+
+def feishu_oauth_enabled() -> bool:
+    return bool(clean_text(settings.FEISHU_APP_ID) and clean_text(settings.FEISHU_APP_SECRET))
+
+
+def get_feishu_redirect_uri(redirect_uri: str | None = None) -> str:
+    configured = clean_text(settings.FEISHU_OAUTH_REDIRECT_URI)
+    if configured:
+        return configured
+    supplied = clean_text(redirect_uri)
+    if supplied:
+        return supplied
+    web_base_url = settings.get_web_base_url()
+    return f"{web_base_url}/login" if web_base_url else ""
+
+
+def build_feishu_oauth_url(*, redirect_uri: str, state: str) -> str:
+    params = {
+        "client_id": clean_text(settings.FEISHU_APP_ID),
+        "redirect_uri": redirect_uri,
+        "scope": clean_text(settings.FEISHU_OAUTH_SCOPE),
+        "state": state,
+    }
+    return f"{FEISHU_OAUTH_AUTHORIZE_URL}?{urlencode(params)}"
+
+
+def feishu_data(response: httpx.Response, action: str) -> dict:
+    try:
+        data = response.json()
+    except ValueError:
+        raise HTTPException(status_code=502, detail=f"{action} failed: Feishu returned non-json response")
+    if response.status_code != 200 or data.get("code") not in (0, None):
+        raise HTTPException(status_code=502, detail=f"{action} failed: {data.get('msg') or data}")
+    payload = data.get("data")
+    return payload if isinstance(payload, dict) else data
+
+
+async def fetch_feishu_user_info(code: str, redirect_uri: str) -> dict:
+    if not feishu_oauth_enabled():
+        raise HTTPException(status_code=400, detail="Feishu OAuth is not configured")
+    token_payload = {
+        "grant_type": "authorization_code",
+        "client_id": clean_text(settings.FEISHU_APP_ID),
+        "client_secret": clean_text(settings.FEISHU_APP_SECRET),
+        "code": clean_text(code),
+        "redirect_uri": redirect_uri,
+    }
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        token_response = await client.post(FEISHU_OAUTH_TOKEN_URL, json=token_payload)
+        token_data = feishu_data(token_response, "Feishu OAuth token exchange")
+        user_access_token = clean_text(token_data.get("access_token") or token_data.get("user_access_token"))
+        if not user_access_token:
+            raise HTTPException(status_code=502, detail="Feishu OAuth token response missing access_token")
+
+        user_response = await client.get(
+            FEISHU_USER_INFO_URL,
+            headers={"Authorization": f"Bearer {user_access_token}"},
+        )
+        return feishu_data(user_response, "Feishu user info")
+
+
+async def ensure_feishu_company_user(user_info: dict, user: User) -> None:
+    user_id = clean_text(user_info.get("user_id"))
+    tenant_key = clean_text(user_info.get("tenant_key"))
+    allowed_tenant_keys = split_csv(settings.FEISHU_ALLOWED_TENANT_KEYS)
+
+    if allowed_tenant_keys:
+        if tenant_key and tenant_key in allowed_tenant_keys:
+            return
+        raise HTTPException(status_code=403, detail="仅允许科特思网络科技公司员工使用飞书登录。")
+
+    if not user_id:
+        raise HTTPException(status_code=403, detail="飞书 user_id 缺失，无法校验员工身份。")
+
+    matched_user_id = ""
+    if user.email:
+        matched_user_id = await lookup_feishu_user_id_by_email(user.email)
+    if not matched_user_id and user.phone:
+        matched_user_id = await lookup_feishu_user_id_by_mobile(user.phone)
+
+    if matched_user_id and matched_user_id == user_id:
+        return
+
+    raise HTTPException(status_code=403, detail="仅允许科特思网络科技公司员工使用飞书登录。")
+
+
+async def resolve_feishu_login_user(user_info: dict) -> User:
+    open_id = clean_text(user_info.get("open_id") or user_info.get("sub"))
+    union_id = clean_text(user_info.get("union_id"))
+    user_id = clean_text(user_info.get("user_id"))
+    email = clean_text(user_info.get("email")).lower()
+    mobile = clean_text(user_info.get("mobile") or user_info.get("phone"))
+
+    user = None
+    if union_id:
+        user = await User.filter(feishu_union_id=union_id).first()
+    if not user and open_id:
+        user = await User.filter(feishu_open_id=open_id).first()
+    if not user and user_id:
+        user = await User.filter(feishu_user_id=user_id).first()
+    if not user and email:
+        user = await User.filter(email__iexact=email).first()
+    if not user and mobile:
+        normalized_mobile = mobile.replace(" ", "").replace("-", "")
+        user = await User.filter(phone=normalized_mobile).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=403,
+            detail="Feishu account is not bound to a FinWork user. Please bind by email or contact an administrator.",
+        )
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="User is disabled")
+
+    await ensure_feishu_company_user(user_info, user)
+
+    update_fields = []
+    for field, value in (
+        ("feishu_open_id", open_id),
+        ("feishu_union_id", union_id),
+        ("feishu_user_id", user_id),
+    ):
+        if value and getattr(user, field, None) != value:
+            setattr(user, field, value)
+            update_fields.append(field)
+
+    avatar = clean_text(
+        user_info.get("avatar_url")
+        or user_info.get("picture")
+        or user_info.get("avatar_big")
+        or user_info.get("avatar_middle")
+        or user_info.get("avatar_thumb")
+    )
+    if avatar and not user.avatar:
+        user.avatar = avatar
+        update_fields.append("avatar")
+
+    name = clean_text(user_info.get("name") or user_info.get("en_name"))
+    if name and not user.alias:
+        user.alias = name[:30]
+        update_fields.append("alias")
+
+    if update_fields:
+        update_fields.append("updated_at")
+        await user.save(update_fields=list(dict.fromkeys(update_fields)))
+    return user
+
+
+def build_jwt_response(user: User) -> JWTOut:
+    access_token_expires = timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.now(timezone.utc) + access_token_expires
+    return JWTOut(
+        access_token=create_access_token(
+            data=JWTPayload(
+                user_id=user.id,
+                username=user.username,
+                is_superuser=user.is_superuser,
+                exp=expire,
+            )
+        ),
+        username=user.username,
+    )
+
+
 async def menu_to_dict_with_fallback(menu: Menu) -> dict:
     data = await menu.to_dict()
     if data.get("path") in MENU_ICON_FALLBACKS:
@@ -69,20 +246,39 @@ async def menu_to_dict_with_fallback(menu: Menu) -> dict:
 async def login_access_token(credentials: CredentialsSchema):
     user: User = await user_controller.authenticate(credentials)
     await user_controller.update_last_login(user.id)
-    access_token_expires = timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
-    expire = datetime.now(timezone.utc) + access_token_expires
+    data = build_jwt_response(user)
+    return Success(data=data.model_dump())
 
-    data = JWTOut(
-        access_token=create_access_token(
-            data=JWTPayload(
-                user_id=user.id,
-                username=user.username,
-                is_superuser=user.is_superuser,
-                exp=expire,
-            )
-        ),
-        username=user.username,
-    )
+
+@router.get("/feishu/oauth/config", summary="Feishu OAuth login config")
+async def feishu_oauth_config(
+    redirect_uri: str | None = Query(default=None),
+    state: str | None = Query(default=None),
+):
+    redirect_uri = get_feishu_redirect_uri(redirect_uri)
+    state = clean_text(state) or uuid.uuid4().hex
+    enabled = feishu_oauth_enabled() and bool(redirect_uri)
+    data = {
+        "enabled": enabled,
+        "client_id": clean_text(settings.FEISHU_APP_ID),
+        "redirect_uri": redirect_uri,
+        "scope": clean_text(settings.FEISHU_OAUTH_SCOPE),
+        "state": state,
+        "auth_url": build_feishu_oauth_url(redirect_uri=redirect_uri, state=state) if enabled else "",
+    }
+    return Success(data=data)
+
+
+@router.post("/feishu/oauth/login", summary="Feishu OAuth login")
+async def feishu_oauth_login(payload: FeishuOAuthLogin):
+    code = clean_text(payload.code)
+    if not code:
+        return Fail(code=400, msg="Feishu OAuth code is required")
+    redirect_uri = get_feishu_redirect_uri(payload.redirect_uri)
+    user_info = await fetch_feishu_user_info(code=code, redirect_uri=redirect_uri)
+    user = await resolve_feishu_login_user(user_info)
+    await user_controller.update_last_login(user.id)
+    data = build_jwt_response(user)
     return Success(data=data.model_dump())
 
 

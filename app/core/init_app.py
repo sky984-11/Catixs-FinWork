@@ -50,6 +50,7 @@ def make_middlewares():
             exclude_paths=[
                 r"^/(?!api/)",
                 "/api/v1/base/access_token",
+                "/api/v1/base/feishu/oauth/login",
                 "/api/v1/vendor/export",
                 "/api/v1/vendor/import",
                 "/docs",
@@ -2003,6 +2004,20 @@ async def ensure_company_branding():
 
 
 async def ensure_user_columns():
+    if settings.DB_TYPE == "sqlite":
+        conn = Tortoise.get_connection("sqlite")
+        for statement in (
+            'ALTER TABLE "user" ADD COLUMN "avatar" VARCHAR(255);',
+            'ALTER TABLE "user" ADD COLUMN "feishu_open_id" VARCHAR(100);',
+            'ALTER TABLE "user" ADD COLUMN "feishu_union_id" VARCHAR(100);',
+            'ALTER TABLE "user" ADD COLUMN "feishu_user_id" VARCHAR(100);',
+        ):
+            try:
+                await conn.execute_script(statement)
+            except OperationalError:
+                pass
+        return
+
     if settings.DB_TYPE != "postgres":
         return
 
@@ -2010,7 +2025,16 @@ async def ensure_user_columns():
     await conn.execute_script(
         """
         ALTER TABLE IF EXISTS "user"
-            ADD COLUMN IF NOT EXISTS "avatar" VARCHAR(255);
+            ADD COLUMN IF NOT EXISTS "avatar" VARCHAR(255),
+            ADD COLUMN IF NOT EXISTS "feishu_open_id" VARCHAR(100),
+            ADD COLUMN IF NOT EXISTS "feishu_union_id" VARCHAR(100),
+            ADD COLUMN IF NOT EXISTS "feishu_user_id" VARCHAR(100);
+        CREATE UNIQUE INDEX IF NOT EXISTS "uid_user_feishu_open_id"
+            ON "user" ("feishu_open_id") WHERE "feishu_open_id" IS NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS "uid_user_feishu_union_id"
+            ON "user" ("feishu_union_id") WHERE "feishu_union_id" IS NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS "uid_user_feishu_user_id"
+            ON "user" ("feishu_user_id") WHERE "feishu_user_id" IS NOT NULL;
         """
     )
 

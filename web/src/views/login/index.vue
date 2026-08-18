@@ -36,30 +36,52 @@
 
             <!-- Login Form -->
             <div class="form-content space-y-28px">
-              <div class="input-group">
-                <n-input v-model:value="loginInfo.username" size="large" autofocus class="login-input text-16px"
-                  placeholder="请输入用户名" :maxlength="20">
-                  <template #prefix>
-                    <i class="i-carbon-user text-gray-400 mr-2" />
-                  </template>
-                </n-input>
+              <div v-if="oauthMessage" class="oauth-message">
+                {{ oauthMessage }}
               </div>
-              <div class="input-group mt-20px">
-                <n-input v-model:value="loginInfo.password" size="large" class="login-input  text-16px" type="password"
-                  show-password-on="mousedown" placeholder="请输入密码" :maxlength="20" @keypress.enter="handleLogin">
-                  <template #prefix>
-                    <i class="i-carbon-locked text-gray-400 mr-2" />
-                  </template>
-                </n-input>
-              </div>
-
               <div class="action-group mt-40px">
                 <n-button
-                  class="h-52px w-full rounded-12px text-17px font-bold shadow-md hover:shadow-lg transition-all duration-300"
-                  type="primary" :loading="loading" @click="handleLogin">
-                  {{ $t('views.login.text_login') }}
+                  class="feishu-login-button h-52px w-full rounded-12px text-17px font-bold shadow-md hover:shadow-lg transition-all duration-300"
+                  type="primary" :loading="oauthLoading" @click="handleFeishuLogin">
+                  <template #icon>
+                    <img class="feishu-mark" :src="feishuLogoUrl" alt="" aria-hidden="true" />
+                  </template>
+                  飞书登录
                 </n-button>
+                <button class="password-toggle" type="button" @click="passwordLoginVisible = !passwordLoginVisible">
+                  {{ passwordLoginVisible ? '收起账号密码登录' : '账号密码登录' }}
+                </button>
               </div>
+
+              <n-collapse-transition :show="passwordLoginVisible">
+                <div class="password-login-panel">
+                  <div class="input-group">
+                    <n-input v-model:value="loginInfo.username" size="large" autofocus class="login-input text-16px"
+                      placeholder="请输入用户名" :maxlength="20">
+                      <template #prefix>
+                        <i class="i-carbon-user text-gray-400 mr-2" />
+                      </template>
+                    </n-input>
+                  </div>
+                  <div class="input-group mt-20px">
+                    <n-input v-model:value="loginInfo.password" size="large" class="login-input  text-16px" type="password"
+                      show-password-on="mousedown" placeholder="请输入密码" :maxlength="20" @keypress.enter="handleLogin">
+                      <template #prefix>
+                        <i class="i-carbon-locked text-gray-400 mr-2" />
+                      </template>
+                    </n-input>
+                  </div>
+                  <n-button
+                    class="h-44px w-full rounded-12px text-15px font-bold mt-18px"
+                    secondary
+                    type="primary"
+                    :loading="loading"
+                    @click="handleLogin"
+                  >
+                    {{ $t('views.login.text_login') }}
+                  </n-button>
+                </div>
+              </n-collapse-transition>
             </div>
           </div>
         </div>
@@ -73,18 +95,23 @@ import { lStorage, setToken } from '@/utils'
 import bgImg from '@/assets/images/login_bg.webp'
 import api from '@/api'
 import { addDynamicRoutes } from '@/router'
-import { usePermissionStore } from '@/store'
 import { useI18n } from 'vue-i18n'
 import logoUrl from '@/assets/svg/logo.svg?url'
+import feishuLogoUrl from '@/assets/svg/feishu-logo.svg?url'
 
 const router = useRouter()
-const { query } = useRoute()
+const route = useRoute()
 const { t } = useI18n({ useScope: 'global' })
+const FEISHU_OAUTH_STATE_KEY = 'feishuOAuthState'
+const FEISHU_OAUTH_REDIRECT_URI_KEY = 'feishuOAuthRedirectUri'
+const HOME_PATH = '/workbench'
 
 const loginInfo = ref({
   username: '',
   password: '',
 })
+const oauthMessage = ref('')
+const passwordLoginVisible = ref(false)
 
 initLoginInfo()
 
@@ -97,6 +124,94 @@ function initLoginInfo() {
 }
 
 const loading = ref(false)
+const oauthLoading = ref(false)
+
+function currentRedirectUri() {
+  return `${window.location.origin}${window.location.pathname}`
+}
+
+function randomState() {
+  if (window.crypto?.getRandomValues) {
+    const values = window.crypto.getRandomValues(new Uint32Array(4))
+    return Array.from(values, (value) => value.toString(16).padStart(8, '0')).join('')
+  }
+  return `${Date.now()}${Math.random()}`.replace(/\D/g, '')
+}
+
+function errorText(error, fallback = '操作失败') {
+  const data = error?.error || error?.response?.data || error
+  return data?.detail || data?.msg || data?.message || error?.message || fallback
+}
+
+async function goAfterLogin() {
+  await addDynamicRoutes()
+  const query = { ...route.query }
+  delete query.redirect
+  delete query.code
+  delete query.state
+  delete query.error
+
+  router.push({ path: HOME_PATH, query })
+}
+
+async function handleFeishuLogin() {
+  try {
+    oauthLoading.value = true
+    oauthMessage.value = '正在跳转飞书授权...'
+    const state = randomState()
+    const redirectUri = currentRedirectUri()
+    const res = await api.getFeishuOAuthConfig({ redirect_uri: redirectUri, state })
+    if (!res.data?.enabled || !res.data?.auth_url) {
+      oauthMessage.value = '飞书登录未配置，请联系管理员配置 FEISHU_APP_ID / FEISHU_APP_SECRET'
+      return
+    }
+    lStorage.set(FEISHU_OAUTH_STATE_KEY, res.data.state || state, 600)
+    lStorage.set(FEISHU_OAUTH_REDIRECT_URI_KEY, res.data.redirect_uri || redirectUri, 600)
+    window.location.href = res.data.auth_url
+  } catch (error) {
+    console.error('feishu oauth start error', error)
+    oauthMessage.value = errorText(error, '飞书登录初始化失败')
+  } finally {
+    oauthLoading.value = false
+  }
+}
+
+async function handleFeishuCallback() {
+  const { code, state, error } = route.query
+  if (error) {
+    oauthMessage.value = `飞书授权失败：${error}`
+    return
+  }
+  if (!code) return
+
+  const savedState = lStorage.get(FEISHU_OAUTH_STATE_KEY)
+  const callbackState = String(Array.isArray(state) ? state[0] : state || '')
+  if (savedState && callbackState && savedState !== callbackState) {
+    oauthMessage.value = '飞书登录状态校验失败，请重新登录'
+    return
+  }
+  lStorage.remove(FEISHU_OAUTH_STATE_KEY)
+
+  try {
+    oauthLoading.value = true
+    oauthMessage.value = '正在验证飞书身份...'
+    const res = await api.loginByFeishuOAuth({
+      code: String(Array.isArray(code) ? code[0] : code),
+      state: callbackState,
+      redirect_uri: lStorage.get(FEISHU_OAUTH_REDIRECT_URI_KEY) || currentRedirectUri(),
+    })
+    lStorage.remove(FEISHU_OAUTH_REDIRECT_URI_KEY)
+    setToken(res.data.access_token)
+    $message.success('飞书登录成功')
+    await goAfterLogin()
+  } catch (error) {
+    console.error('feishu oauth login error', error)
+    oauthMessage.value = errorText(error, '飞书登录失败')
+  } finally {
+    oauthLoading.value = false
+  }
+}
+
 async function handleLogin() {
   const { username, password } = loginInfo.value
   if (!username || !password) {
@@ -109,52 +224,14 @@ async function handleLogin() {
     const res = await api.login({ username, password: password.toString() })
     $message.success(t('views.login.message_login_success'))
     setToken(res.data.access_token)
-    await addDynamicRoutes()
-    if (query.redirect) {
-      const path = query.redirect
-      Reflect.deleteProperty(query, 'redirect')
-      router.push({ path, query })
-    } else {
-      const permissionStore = usePermissionStore()
-
-      // 已注册路由集合，优先只跳转到真正注册过的路由
-      const registeredPaths = new Set(router.getRoutes().map((r) => r.path))
-
-      const buildFull = (parent, child) => {
-        if (!child || child === '' || child === '/') return parent
-        if (child.startsWith('/')) return child
-        return `${parent.replace(/\/$/, '')}/${child}`
-      }
-
-      const dfs = (nodes, parent = '') => {
-        if (!nodes || !nodes.length) return null
-        for (const node of nodes) {
-          if (node.isHidden) continue
-          // compute full path
-          const nodePath = node.path || ''
-          const full = nodePath.startsWith('/') ? nodePath : (parent ? `${parent.replace(/\/$/, '')}/${nodePath}` : nodePath)
-
-          // if has children, search children first (depth-first)
-          if (node.children && node.children.length) {
-            const res = dfs(node.children, full || node.path)
-            if (res) return res
-          }
-
-          // treat empty path as parent path
-          const candidate = (!nodePath || nodePath === '' || nodePath === '/') ? (parent || node.path) : full
-          if (candidate && registeredPaths.has(candidate)) return candidate
-        }
-        return null
-      }
-
-      let target = dfs(permissionStore.accessRoutes || []) || dfs(permissionStore.menus || []) || '/'
-      router.push(target)
-    }
+    await goAfterLogin()
   } catch (e) {
     console.error('login error', e.error)
   }
   loading.value = false
 }
+
+onMounted(handleFeishuCallback)
 </script>
 
 <style scoped>
@@ -229,6 +306,49 @@ async function handleLogin() {
 
 .login-input :deep(.n-input-wrapper) {
   padding-left: 12px;
+}
+
+.oauth-message {
+  padding: 11px 14px;
+  color: #0f4c81;
+  font-size: 13px;
+  line-height: 1.5;
+  border: 1px solid rgba(23, 168, 137, 0.24);
+  border-radius: 10px;
+  background: rgba(23, 168, 137, 0.08);
+}
+
+.feishu-login-button {
+  background: linear-gradient(135deg, #0d6efd 0%, #17a889 100%);
+  border: 0;
+}
+
+.feishu-mark {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+
+.password-toggle {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+  color: #64748b;
+  font-size: 13px;
+  text-align: center;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.password-toggle:hover {
+  color: #0d6efd;
+}
+
+.password-login-panel {
+  margin-top: 18px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(148, 163, 184, 0.22);
 }
 
 .dark .text-blue-standard {

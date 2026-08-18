@@ -10,6 +10,9 @@ class BaseUser(BaseModel):
     username: Optional[str] = None
     phone: Optional[str] = None
     avatar: Optional[str] = None
+    feishu_open_id: Optional[str] = None
+    feishu_union_id: Optional[str] = None
+    feishu_user_id: Optional[str] = None
     is_active: Optional[bool] = True
     is_superuser: Optional[bool] = False
     created_at: Optional[datetime]
