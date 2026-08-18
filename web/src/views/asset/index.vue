@@ -40,25 +40,6 @@
         </aside>
 
         <main class="asset-main">
-          <section class="summary-band">
-            <article>
-              <span>区域</span>
-              <strong>{{ regionOptions.length }}</strong>
-            </article>
-            <article>
-              <span>位置</span>
-              <strong>{{ locationOptions.length }}</strong>
-            </article>
-            <article>
-              <span>机柜</span>
-              <strong>{{ cabinetOptions.length }}</strong>
-            </article>
-            <article>
-              <span>{{ isInventoryView ? '当前库存项' : '当前设备' }}</span>
-              <strong>{{ pagination.itemCount }}</strong>
-            </article>
-          </section>
-
           <section class="filter-panel">
             <n-input
               v-model:value="filters.keyword"
@@ -77,7 +58,10 @@
             <n-select
               v-if="isInventoryView"
               v-model:value="filters.inventoryType"
+              multiple
               clearable
+              filterable
+              max-tag-count="responsive"
               placeholder="库存分类"
               :options="inventoryTypeOptions"
               @update:value="handleInventoryFilterTypeChange"
@@ -85,21 +69,30 @@
             <n-select
               v-if="isInventoryView"
               v-model:value="filters.inventorySubtype"
+              multiple
               clearable
+              filterable
+              max-tag-count="responsive"
               placeholder="库存子类"
               :options="filterInventorySubtypeOptions"
             />
             <n-select
               v-else
               v-model:value="filters.deviceType"
+              multiple
               clearable
+              filterable
+              max-tag-count="responsive"
               placeholder="设备类型"
               :options="deviceTypeOptions"
             />
             <n-select
               v-if="!isInventoryView"
               v-model:value="filters.deviceStatus"
+              multiple
               clearable
+              filterable
+              max-tag-count="responsive"
               placeholder="设备状态"
               :options="deviceStatusOptions"
             />
@@ -1036,10 +1029,10 @@ const loading = reactive({
 })
 const filters = reactive({
   keyword: '',
-  deviceType: null,
-  deviceStatus: null,
-  inventoryType: '',
-  inventorySubtype: '',
+  deviceType: [],
+  deviceStatus: [],
+  inventoryType: [],
+  inventorySubtype: [],
 })
 const inventorySorter = reactive({
   columnKey: '',
@@ -1047,10 +1040,10 @@ const inventorySorter = reactive({
 })
 const pagination = reactive({
   page: 1,
-  pageSize: 10,
+  pageSize: 20,
   itemCount: 0,
   showSizePicker: true,
-  pageSizes: [10, 20, 50],
+  pageSizes: [20, 50, 100],
 })
 
 const deviceModal = reactive({ show: false, submitting: false, form: createEmptyDevice() })
@@ -1977,8 +1970,8 @@ async function loadDevices() {
       page: pagination.page,
       page_size: pagination.pageSize,
       keyword: filters.keyword || undefined,
-      type: filters.deviceType ?? undefined,
-      status: filters.deviceStatus ?? undefined,
+      type: normalizeMultiSelectParam(filters.deviceType),
+      status: normalizeMultiSelectParam(filters.deviceStatus),
       ...getSelectedParams({ ignoreSelection: hasGlobalKeyword.value }),
     })
     devices.value = res.data || []
@@ -2008,8 +2001,8 @@ async function loadRackDevices() {
       page_size: 1000,
       cabinet_id: selectedNode.value.raw_id,
       keyword: filters.keyword || undefined,
-      type: filters.deviceType ?? undefined,
-      status: filters.deviceStatus ?? undefined,
+      type: normalizeMultiSelectParam(filters.deviceType),
+      status: normalizeMultiSelectParam(filters.deviceStatus),
     })
     rackDevices.value = res.data || []
     if (selectedRackDevice.value) {
@@ -2028,8 +2021,8 @@ async function loadInventory() {
       page: pagination.page,
       page_size: pagination.pageSize,
       keyword: filters.keyword || undefined,
-      type: filters.inventoryType || undefined,
-      subtype: filters.inventorySubtype || undefined,
+      type: normalizeMultiSelectParam(filters.inventoryType),
+      subtype: normalizeMultiSelectParam(filters.inventorySubtype),
       sort_by: inventorySorter.columnKey || undefined,
       sort_order: inventorySorter.order || undefined,
       ...getSelectedParams({ ignoreSelection: hasGlobalKeyword.value }),
@@ -2105,10 +2098,10 @@ function handleSorterChange(sorter) {
 
 function resetFilters() {
   filters.keyword = ''
-  filters.deviceType = null
-  filters.deviceStatus = null
-  filters.inventoryType = ''
-  filters.inventorySubtype = ''
+  filters.deviceType = []
+  filters.deviceStatus = []
+  filters.inventoryType = []
+  filters.inventorySubtype = []
   inventorySorter.columnKey = ''
   inventorySorter.order = ''
   pagination.page = 1
@@ -2684,9 +2677,8 @@ async function deleteInventoryCategory(category) {
   const value = category.value
   const res = await api.assetApi.deleteInventoryCategory({ category_id: category.id })
   inventoryCategoryTree.value = normalizeInventoryCategoryTree(res.data || [])
-  if (filters.inventoryType === value) {
-    filters.inventoryType = ''
-    filters.inventorySubtype = ''
+  if (removeFilterValue(filters.inventoryType, value)) {
+    filters.inventorySubtype = []
   }
   if (inventoryModal.form.type === value) {
     inventoryModal.form.type = ''
@@ -2726,8 +2718,8 @@ async function deleteInventorySubtype(category, subtype) {
   const subtypeValue = subtype.value
   const res = await api.assetApi.deleteInventoryCategory({ category_id: subtype.id })
   inventoryCategoryTree.value = normalizeInventoryCategoryTree(res.data || [])
-  if (filters.inventoryType === parentValue && filters.inventorySubtype === subtypeValue) {
-    filters.inventorySubtype = ''
+  if (Array.isArray(filters.inventoryType) && filters.inventoryType.includes(parentValue)) {
+    removeFilterValue(filters.inventorySubtype, subtypeValue)
   }
   if (inventoryModal.form.type === parentValue && inventoryModal.form.subtype === subtypeValue) {
     inventoryModal.form.subtype = ''
@@ -2735,9 +2727,33 @@ async function deleteInventorySubtype(category, subtype) {
   window.$message?.success('子类已删除')
 }
 
+function normalizeMultiSelectParam(value) {
+  return Array.isArray(value) && value.length ? value : undefined
+}
+
+function removeFilterValue(list, value) {
+  if (!Array.isArray(list)) return false
+  const index = list.indexOf(value)
+  if (index < 0) return false
+  list.splice(index, 1)
+  return true
+}
+
 function getInventorySubtypeOptions(type) {
-  const category = inventoryCategoryTree.value.find((item) => item.value === type)
-  return (category?.children || []).map((item) => ({ label: item.label, value: item.value }))
+  const selectedTypes = Array.isArray(type) ? type : type ? [type] : []
+  const categories = selectedTypes.length
+    ? inventoryCategoryTree.value.filter((item) => selectedTypes.includes(item.value))
+    : inventoryCategoryTree.value
+  const seen = new Set()
+  return categories.flatMap((category) =>
+    (category.children || [])
+      .filter((item) => {
+        if (seen.has(item.value)) return false
+        seen.add(item.value)
+        return true
+      })
+      .map((item) => ({ label: item.label, value: item.value }))
+  )
 }
 
 function handleInventoryTypeChange() {
@@ -2750,9 +2766,9 @@ function handleInventoryTypeChange() {
 
 function handleInventoryFilterTypeChange() {
   const validValues = getInventorySubtypeOptions(filters.inventoryType).map((item) => item.value)
-  if (filters.inventorySubtype && !validValues.includes(filters.inventorySubtype)) {
-    filters.inventorySubtype = ''
-  }
+  filters.inventorySubtype = Array.isArray(filters.inventorySubtype)
+    ? filters.inventorySubtype.filter((value) => validValues.includes(value))
+    : []
 }
 
 function handleDeviceBrandChange() {
@@ -3177,7 +3193,7 @@ onMounted(refreshAll)
 .asset-page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   height: calc(100vh - 96px);
   min-height: 0;
   overflow: hidden;
@@ -3259,10 +3275,9 @@ onMounted(refreshAll)
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
-.summary-band,
 .filter-panel {
   flex-shrink: 0;
 }
@@ -4092,7 +4107,7 @@ onMounted(refreshAll)
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .panel-head {
@@ -4101,32 +4116,6 @@ onMounted(refreshAll)
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 14px;
-}
-
-.summary-band {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.summary-band article {
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  border-radius: 8px;
-  background: #fff;
-  padding: 14px 16px;
-}
-
-.summary-band span {
-  display: block;
-  color: #64748b;
-  font-size: 13px;
-}
-
-.summary-band strong {
-  display: block;
-  margin-top: 6px;
-  color: #0f172a;
-  font-size: 24px;
 }
 
 .filter-panel {
@@ -4265,8 +4254,7 @@ onMounted(refreshAll)
 }
 
 html.dark .asset-sidebar,
-html.dark .content-panel,
-html.dark .summary-band article {
+html.dark .content-panel {
   border-color: rgba(148, 163, 184, 0.2);
   background: rgba(17, 24, 39, 0.86);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
@@ -4275,13 +4263,11 @@ html.dark .summary-band article {
 html.dark .panel-head h2,
 html.dark .rack-summary h3,
 html.dark .rack-detail-head h3,
-html.dark .summary-band strong,
 html.dark .detail-section h3 {
   color: #e5e7eb;
 }
 
 html.dark .eyebrow,
-html.dark .summary-band span,
 html.dark .content-panel :deep(.device-meta-line),
 html.dark .content-panel :deep(.muted-cell) {
   color: #94a3b8;
@@ -4418,7 +4404,6 @@ html.dark .rack-detail-empty {
 
 @media (max-width: 960px) {
   .asset-layout,
-  .summary-band,
   .filter-panel,
   .rack-scene {
     grid-template-columns: 1fr;

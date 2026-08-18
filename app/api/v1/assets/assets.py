@@ -18,7 +18,7 @@ from urllib.parse import urlencode
 
 import httpx
 import websockets
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, WebSocket
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile, WebSocket
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from starlette.websockets import WebSocketDisconnect
@@ -1133,6 +1133,28 @@ def get_inventory_order(sort_by: str = "", sort_order: str = "") -> list[str]:
     return [f"{prefix}{sort_by}", "id"]
 
 
+def query_param_values(request: Request, name: str, fallback=None) -> list[str]:
+    values: list[str] = []
+    for key in (name, f"{name}[]"):
+        values.extend(request.query_params.getlist(key))
+    if not values and fallback not in (None, ""):
+        values.append(str(fallback))
+    parsed_values: list[str] = []
+    for value in values:
+        parsed_values.extend(str(value).split(","))
+    return [value.strip() for value in parsed_values if value.strip()]
+
+
+def query_param_int_values(request: Request, name: str, fallback=None) -> list[int]:
+    values: list[int] = []
+    for value in query_param_values(request, name, fallback):
+        try:
+            values.append(int(value))
+        except (TypeError, ValueError):
+            continue
+    return values
+
+
 def inventory_matches_keyword(item: AssetInventory, keyword: str) -> bool:
     text = keyword.strip().lower()
     if not text:
@@ -1623,6 +1645,7 @@ async def delete_device_model(model_id: int = Query(...)):
 
 @router.get("/device/list", summary="设备列表")
 async def list_device(
+    request: Request,
     page: int = Query(1),
     page_size: int = Query(10),
     region_id: int | None = Query(None),
@@ -1633,6 +1656,8 @@ async def list_device(
     status: int | None = Query(None),
 ):
     q = Q()
+    type_values = query_param_int_values(request, "type", type)
+    status_values = query_param_int_values(request, "status", status)
     if cabinet_id is not None:
         q &= Q(cabinet_id=cabinet_id)
     else:
@@ -1640,10 +1665,10 @@ async def list_device(
             q &= Q(region_id=region_id)
         if location_id is not None:
             q &= Q(location_id=location_id)
-    if type is not None:
-        q &= Q(type=type)
-    if status is not None:
-        q &= Q(status=status)
+    if type_values:
+        q &= Q(type__in=type_values)
+    if status_values:
+        q &= Q(status__in=status_values)
     if keyword:
         q &= (
             Q(asset_no__contains=keyword)
@@ -2077,6 +2102,7 @@ async def delete_inventory_category(category_id: int = Query(...)):
 
 @router.get("/inventory/list", summary="库存列表")
 async def list_inventory(
+    request: Request,
     page: int = Query(1),
     page_size: int = Query(10),
     region_id: int | None = Query(None),
@@ -2091,14 +2117,16 @@ async def list_inventory(
     sort_order: str = Query(""),
 ):
     q = Q()
+    type_values = query_param_values(request, "type", type)
+    subtype_values = query_param_values(request, "subtype", subtype)
     if region_id is not None:
         q &= Q(region_id=region_id)
     if location_id is not None:
         q &= Q(location_id=location_id)
-    if type:
-        q &= Q(type__contains=type)
-    if subtype:
-        q &= Q(subtype__contains=subtype)
+    if type_values:
+        q &= Q(type__in=type_values)
+    if subtype_values:
+        q &= Q(subtype__in=subtype_values)
     if status is not None:
         q &= Q(status=status)
     order = get_inventory_order(sort_by, sort_order)
@@ -2188,7 +2216,7 @@ async def export_inventory():
     output.seek(0)
     filename = "asset_inventory.csv"
     return StreamingResponse(
-        iter([output.getvalue()]),
+        iter(["\ufeff" + output.getvalue()]),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
