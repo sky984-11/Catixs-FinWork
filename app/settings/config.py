@@ -70,6 +70,16 @@ class Settings(BaseSettings):
     CHATWOOT_WEBHOOK_URL: str = "https://finwork-webhook.catixs.net/api/v1/tg-assistant/chatwoot"
     CHATWOOT_WEBHOOK_SECRET: str = ""
     CHATWOOT_SIGNATURE_TOLERANCE_SECONDS: int = 300
+    FW_ASSISTANT_API_KEY: str = ""
+    FW_ASSISTANT_API_BASE: str = "https://api.siliconflow.cn/v1"
+    FW_ASSISTANT_MODEL: str = "deepseek-ai/DeepSeek-V3"
+    FW_ASSISTANT_TIMEOUT: float = 45.0
+    FW_ASSISTANT_DB_QUERY_ENABLED: bool = True
+    FW_ASSISTANT_DB_QUERY_LIMIT: int = 50
+    DEEPSEEK_API_KEY: str = ""
+    DEEPSEEK_API_BASE: str = "https://api.siliconflow.cn/v1"
+    DEEPSEEK_MODEL: str = "deepseek-ai/DeepSeek-V3"
+    DEEPSEEK_TIMEOUT: float = 45.0
     IPXO_CLIENT_ID: str = ""
     IPXO_SECRET_KEY: str = ""
     IPXO_COMPANY_UUID: str = ""

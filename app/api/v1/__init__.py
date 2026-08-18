@@ -14,6 +14,7 @@ from .companies import companies_router
 from .device_maintenance import router as device_maintenance_router
 from .depts import depts_router
 from .finance_quotes import finance_quotes_router
+from .fw_assistant import router as fw_assistant_router
 from .dashboard import router as dashboard_router
 from .menus import menus_router
 from .netbox import netbox_router
@@ -77,3 +78,4 @@ v1_router.include_router(requirements_router, prefix="/requirement", dependencie
 v1_router.include_router(resources_router, prefix="/resource", dependencies=[DependPermission])
 v1_router.include_router(akvorado_router, prefix="/akvorado", tags=["Akvorado"])
 v1_router.include_router(tg_assistant_router, prefix="/tg-assistant", tags=["TG助手"])
+v1_router.include_router(fw_assistant_router, prefix="/fw-assistant", tags=["FW Assistant"])

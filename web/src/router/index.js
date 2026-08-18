@@ -49,9 +49,17 @@ export async function addDynamicRoutes() {
     router.addRoute(NOT_FOUND_ROUTE)
   } catch (error) {
     console.error('error', error)
-    const userStore = useUserStore()
-    await userStore.logout()
+    if (isAuthError(error)) {
+      const userStore = useUserStore()
+      await userStore.logout()
+      return
+    }
+    router.addRoute(EMPTY_ROUTE)
   }
+}
+
+function isAuthError(error) {
+  return Number(error?.code || error?.status || error?.response?.status) === 401
 }
 
 export function getRouteNames(routes) {

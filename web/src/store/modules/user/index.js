@@ -48,6 +48,9 @@ export const useUserStore = defineStore('user', {
         this.userInfo = { id, username, alias, email, avatar, roles, is_superuser, is_active }
         return res.data
       } catch (error) {
+        if (Number(error?.response?.status || error?.code) === 401) {
+          this.logout()
+        }
         return error
       }
     },

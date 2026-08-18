@@ -34,7 +34,19 @@
             class="fw-message"
             :class="`is-${message.role}`"
           >
-            <div class="fw-message-bubble">{{ message.content }}</div>
+            <div class="fw-message-bubble">
+              <span v-if="message.loading" class="fw-loading-dots" aria-label="正在查询 FinWork 数据">
+                <i></i>
+                <i></i>
+                <i></i>
+              </span>
+              <div
+                v-else-if="message.role === 'assistant'"
+                class="fw-markdown"
+                v-html="renderMarkdown(message.content)"
+              ></div>
+              <template v-else>{{ message.content }}</template>
+            </div>
           </article>
         </div>
 
@@ -69,14 +81,14 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import api from '@/api'
 import logoUrl from '@/assets/svg/logo.svg?url'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import { getToken } from '@/utils'
 
 defineOptions({ name: 'FwAssistant' })
 
-const DEEPSEEK_API_ENDPOINT = import.meta.env.VITE_FW_ASSISTANT_API_URL || ''
-const DEEPSEEK_MODEL = import.meta.env.VITE_FW_ASSISTANT_MODEL || 'deepseek-chat'
+const DEEPSEEK_MODEL = import.meta.env.VITE_FW_ASSISTANT_MODEL || 'deepseek-ai/DeepSeek-V3'
 
 const hiddenPathPrefixes = ['/login', '/asset/cabinet-photo-upload/', '/ops/virtual-machine/console']
 const route = useRoute()
@@ -110,16 +122,17 @@ const messages = ref([
   {
     id: Date.now(),
     role: 'assistant',
-    content: '你好，我是 FW 小助手。DeepSeek API 接入后，我可以帮你分析需求、总结项目、处理工单和生成跟进建议。',
+    content: '你好，我是 FW 小助手。我会先查询 FinWork 实时数据，再帮你分析需求、总结项目、处理工单和生成跟进建议。',
   },
 ])
 
 const visible = computed(() => {
+  const currentPath = route.path
   if (!getToken()) return false
-  return !hiddenPathPrefixes.some((prefix) => route.path.startsWith(prefix))
+  return !hiddenPathPrefixes.some((prefix) => currentPath.startsWith(prefix))
 })
 
-const assistantStatusText = computed(() => (DEEPSEEK_API_ENDPOINT ? DEEPSEEK_MODEL : '待接入 DeepSeek'))
+const assistantStatusText = computed(() => DEEPSEEK_MODEL)
 
 const assistantStyle = computed(() => ({
   left: `${assistantPosition.left}px`,
@@ -301,17 +314,86 @@ function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max)
 }
 
+function escapeHtml(value = '') {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function renderInlineMarkdown(value = '') {
+  return escapeHtml(value)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+}
+
+function renderMarkdown(value = '') {
+  const lines = String(value || '').replace(/\r\n/g, '\n').split('\n')
+  const html = []
+  let inList = false
+
+  const closeList = () => {
+    if (inList) {
+      html.push('</ul>')
+      inList = false
+    }
+  }
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim()
+    if (!line) {
+      closeList()
+      continue
+    }
+
+    const heading = line.match(/^(#{1,4})\s+(.+)$/)
+    if (heading) {
+      closeList()
+      const level = Math.min(heading[1].length + 2, 6)
+      html.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`)
+      continue
+    }
+
+    const bullet = line.match(/^[-*]\s+(.+)$/)
+    if (bullet) {
+      if (!inList) {
+        html.push('<ul>')
+        inList = true
+      }
+      html.push(`<li>${renderInlineMarkdown(bullet[1])}</li>`)
+      continue
+    }
+
+    closeList()
+    html.push(`<p>${renderInlineMarkdown(line)}</p>`)
+  }
+
+  closeList()
+  return html.join('')
+}
+
 async function sendMessage() {
   const content = draft.value.trim()
   if (!content || sending.value) return
   messages.value.push({ id: Date.now(), role: 'user', content })
   draft.value = ''
   sending.value = true
+  const loadingId = Date.now() + 1
+  messages.value.push({ id: loadingId, role: 'assistant', content: '正在查询 FinWork 数据...', loading: true })
   await scrollToBottom()
   try {
-    const reply = await callAssistantApi(content)
-    messages.value.push({ id: Date.now() + 1, role: 'assistant', content: reply })
+    const reply = await callAssistantApiWithClient(content)
+    const loadingMessage = messages.value.find((item) => item.id === loadingId)
+    if (loadingMessage) {
+      loadingMessage.content = reply
+      loadingMessage.loading = false
+    } else {
+      messages.value.push({ id: Date.now() + 1, role: 'assistant', content: reply })
+    }
   } catch (error) {
+    messages.value = messages.value.filter((item) => item.id !== loadingId)
     messages.value.push({
       id: Date.now() + 1,
       role: 'assistant',
@@ -323,30 +405,18 @@ async function sendMessage() {
   }
 }
 
-async function callAssistantApi(content) {
-  if (!DEEPSEEK_API_ENDPOINT) {
-    return `已收到：${content}\n\n当前为本地占位回复。后续配置 VITE_FW_ASSISTANT_API_URL 后，会把消息发送到你的后端 DeepSeek 代理接口。`
-  }
-  const response = await fetch(DEEPSEEK_API_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      token: getToken() || '',
+async function callAssistantApiWithClient(content) {
+  const data = await api.fwAssistantChat({
+    model: DEEPSEEK_MODEL,
+    message: content,
+    messages: messages.value
+      .filter((item) => !item.loading)
+      .map((item) => ({ role: item.role, content: item.content })),
+    context: {
+      path: route.path,
+      title: route.meta?.title || document.title,
     },
-    body: JSON.stringify({
-      model: DEEPSEEK_MODEL,
-      message: content,
-      messages: messages.value.map((item) => ({ role: item.role, content: item.content })),
-      context: {
-        path: route.path,
-        title: route.meta?.title || document.title,
-      },
-    }),
   })
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok || data?.code && data.code !== 200) {
-    throw new Error(data?.msg || data?.message || 'AI 接口调用失败')
-  }
   return data?.data?.content || data?.data?.reply || data?.content || data?.reply || '已收到。'
 }
 
@@ -488,6 +558,77 @@ async function scrollToBottom() {
 .fw-message.is-user .fw-message-bubble {
   color: #fff;
   background: linear-gradient(135deg, #2563eb 0%, #0891b2 100%);
+}
+
+.fw-markdown {
+  white-space: normal;
+}
+
+.fw-markdown :deep(h3),
+.fw-markdown :deep(h4),
+.fw-markdown :deep(h5),
+.fw-markdown :deep(h6) {
+  margin: 0 0 8px;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.fw-markdown :deep(p) {
+  margin: 0 0 8px;
+}
+
+.fw-markdown :deep(p:last-child),
+.fw-markdown :deep(ul:last-child) {
+  margin-bottom: 0;
+}
+
+.fw-markdown :deep(ul) {
+  margin: 0 0 8px;
+  padding-left: 18px;
+}
+
+.fw-markdown :deep(li) {
+  margin: 3px 0;
+}
+
+.fw-markdown :deep(strong) {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.fw-markdown :deep(code) {
+  border-radius: 4px;
+  background: #f1f5f9;
+  color: #0f766e;
+  font-size: 12px;
+  padding: 1px 4px;
+}
+
+.fw-loading-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 42px;
+  min-height: 20px;
+}
+
+.fw-loading-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #0891b2;
+  opacity: 0.35;
+  animation: fw-loading-dot 1s ease-in-out infinite;
+}
+
+.fw-loading-dots i:nth-child(2) {
+  animation-delay: 0.14s;
+}
+
+.fw-loading-dots i:nth-child(3) {
+  animation-delay: 0.28s;
 }
 
 .fw-assistant-input {
@@ -641,6 +782,20 @@ async function scrollToBottom() {
   50% {
     opacity: 1;
     transform: scale(1.08);
+  }
+}
+
+@keyframes fw-loading-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+
+  40% {
+    opacity: 1;
+    transform: translateY(-4px);
   }
 }
 

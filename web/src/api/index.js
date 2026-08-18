@@ -19,9 +19,9 @@ export default {
   login: (data) => request.post('/base/access_token', data, { noNeedToken: true }),
   getFeishuOAuthConfig: (params = {}) => request.get('/base/feishu/oauth/config', { params, noNeedToken: true }),
   loginByFeishuOAuth: (data = {}) => request.post('/base/feishu/oauth/login', data, { noNeedToken: true }),
-  getUserInfo: () => request.get('/base/userinfo'),
-  getUserMenu: () => request.get('/base/usermenu'),
-  getUserApi: () => request.get('/base/userapi'),
+  getUserInfo: () => request.get('/base/userinfo', { skipErrorHandle: true }),
+  getUserMenu: () => request.get('/base/usermenu', { skipErrorHandle: true }),
+  getUserApi: () => request.get('/base/userapi', { skipErrorHandle: true }),
   // profile
   updateProfile: (data = {}) => request.post('/base/profile', data),
   uploadAvatar: (data = {}) => request.post('/base/avatar', data),
@@ -30,6 +30,8 @@ export default {
   getTgAssistantConfig: () => request.get('/tg-assistant/config'),
   saveTgAssistantConfig: (data = {}) => request.post('/tg-assistant/config', data),
   getTgAssistantLogs: (params = {}) => request.get('/tg-assistant/logs', { params }),
+  // FW assistant
+  fwAssistantChat: (data = {}) => request.post('/fw-assistant/chat', data, { timeout: 70000 }),
   // users
   getUserList: (params = {}) => request.get('/user/list', { params }),
   getUserById: (params = {}) => request.get('/user/get', { params }),

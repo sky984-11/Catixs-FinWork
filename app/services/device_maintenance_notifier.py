@@ -16,8 +16,9 @@ from app.utils.feishu_app import (
 )
 
 
-def text(value: Any) -> str:
-    return str(value or "").strip()
+def text(value: Any, default: str = "") -> str:
+    result = str(value or "").strip()
+    return result or default
 
 
 def format_datetime(value: datetime | None) -> str:

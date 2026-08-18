@@ -22,8 +22,8 @@ export function reqReject(error) {
 
 export function resResolve(response) {
   const { data, status, statusText, config } = response
-  // 跳过错误处理（如文件下载）
-  if (config?.skipErrorHandle) {
+  // Blob downloads need the raw response so callers can read headers/body directly.
+  if (config?.skipErrorHandle && config?.responseType === 'blob') {
     return Promise.resolve(response)
   }
   if (typeof data === 'string' && data.trim().toLowerCase().startsWith('<!doctype html')) {
@@ -35,13 +35,18 @@ export function resResolve(response) {
     const code = data?.code ?? status
     /** 根据code处理对应的操作，并返回处理后的message */
     const message = resolveResError(code, data?.msg ?? statusText)
-    window.$message?.error(message, { keepAliveOnHover: true })
+    if (!config?.skipErrorHandle) {
+      window.$message?.error(message, { keepAliveOnHover: true })
+    }
     return Promise.reject({ code, message, error: data || response })
   }
   return Promise.resolve(data)
 }
 
 export async function resReject(error) {
+  if (error?.config?.skipErrorHandle) {
+    return Promise.reject(error)
+  }
   if (!error || !error.response) {
     const code = error?.code
     /** 根据code处理对应的操作，并返回处理后的message */
