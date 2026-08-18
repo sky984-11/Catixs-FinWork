@@ -12,6 +12,7 @@ FEISHU_API_BASE = "https://open.feishu.cn/open-apis"
 _tenant_access_token = ""
 _tenant_access_token_expire_at = 0.0
 _email_user_id_cache: dict[str, str] = {}
+_email_user_identity_cache: dict[str, dict[str, str]] = {}
 _mobile_user_id_cache: dict[str, str] = {}
 
 
@@ -143,20 +144,29 @@ async def send_feishu_app_card(
 
 
 async def lookup_feishu_user_id_by_email(email: str) -> str:
+    identity = await lookup_feishu_user_identity_by_email(email)
+    return identity.get("user_id", "")
+
+
+async def lookup_feishu_user_identity_by_email(email: str) -> dict[str, str]:
     email = str(email or "").strip()
     if not email:
-        return ""
+        return {}
 
     cache_key = email.lower()
-    if cache_key in _email_user_id_cache:
-        return _email_user_id_cache[cache_key]
+    if cache_key in _email_user_identity_cache:
+        return _email_user_identity_cache[cache_key]
 
-    user_id = await lookup_feishu_user_id_by_email_from_contact(email)
-    if not user_id:
+    identity = await lookup_feishu_user_identity_by_email_from_contact(email)
+    if not identity:
         user_id = await lookup_feishu_user_id_by_email_from_directory(email)
+        identity = {"user_id": user_id} if user_id else {}
+    user_id = identity.get("user_id", "")
     if user_id:
         _email_user_id_cache[cache_key] = user_id
-    return user_id
+    if identity:
+        _email_user_identity_cache[cache_key] = identity
+    return identity
 
 
 async def lookup_feishu_user_id_by_mobile(mobile: str) -> str:
@@ -207,9 +217,14 @@ def normalize_mobile(value: str | None) -> str:
 
 
 async def lookup_feishu_user_id_by_email_from_contact(email: str) -> str:
+    identity = await lookup_feishu_user_identity_by_email_from_contact(email)
+    return identity.get("user_id", "")
+
+
+async def lookup_feishu_user_identity_by_email_from_contact(email: str) -> dict[str, str]:
     token = await get_tenant_access_token()
     if not token:
-        return ""
+        return {}
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.post(
@@ -222,18 +237,23 @@ async def lookup_feishu_user_id_by_email_from_contact(email: str) -> str:
         data = response.json()
     except ValueError:
         logger.error(f"feishu contact email lookup response is not json: {response.text}")
-        return ""
+        return {}
 
     if response.status_code != 200 or data.get("code") != 0:
         logger.warning(f"feishu contact email lookup failed: status={response.status_code} data={data}")
-        return ""
+        return {}
 
     target_email = email.lower()
     for user in ((data.get("data") or {}).get("user_list") or []):
         user_email = str(user.get("email") or "").strip().lower()
         if user_email == target_email and user.get("user_id"):
-            return str(user.get("user_id") or "").strip()
-    return ""
+            return {
+                "user_id": str(user.get("user_id") or "").strip(),
+                "open_id": str(user.get("open_id") or "").strip(),
+                "union_id": str(user.get("union_id") or "").strip(),
+                "email": user_email,
+            }
+    return {}
 
 
 async def lookup_feishu_user_id_by_email_from_directory(email: str) -> str:
@@ -278,6 +298,35 @@ async def lookup_feishu_user_id_by_email_from_directory(email: str) -> str:
         if user_email == target_email and base_info.get("employee_id"):
             return str(base_info.get("employee_id") or "").strip()
     return ""
+
+
+async def lookup_feishu_email_by_user_id(user_id: str) -> str:
+    user_id = str(user_id or "").strip()
+    if not user_id:
+        return ""
+
+    token = await get_tenant_access_token()
+    if not token:
+        return ""
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.get(
+            f"{FEISHU_API_BASE}/contact/v3/users/{user_id}",
+            params={"user_id_type": "user_id", "department_id_type": "open_department_id"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    try:
+        data = response.json()
+    except ValueError:
+        logger.error(f"feishu contact user lookup response is not json: {response.text}")
+        return ""
+
+    if response.status_code != 200 or data.get("code") != 0:
+        logger.warning(f"feishu contact user lookup failed: status={response.status_code} data={data}")
+        return ""
+
+    user = (data.get("data") or {}).get("user") or {}
+    return str(user.get("email") or user.get("enterprise_email") or "").strip().lower()
 
 
 def markdown_link(text: str | None, url: str | None) -> str:

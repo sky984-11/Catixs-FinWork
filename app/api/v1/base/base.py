@@ -6,24 +6,25 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode, unquote, urlparse
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.controllers.user import user_controller
 from app.core.ctx import CTX_USER_ID
 from app.core.dependency import DependAuth, has_admin_role
+from app.core.runtime_context import get_frontend_origin_from_request, is_local_origin
+from app.log import logger
 from app.models.admin import Api, Menu, Role, User
 from app.schemas.base import Fail, Success
 from app.schemas.login import *
 from app.schemas.users import UpdatePassword, UserAvatarUpload, UserProfileUpdate
 from app.settings import settings
-from app.utils.feishu_app import lookup_feishu_user_id_by_email, lookup_feishu_user_id_by_mobile
 from app.utils.jwt_utils import create_access_token
 from app.utils.password import get_password_hash, verify_password
 
 router = APIRouter()
 
 FEISHU_API_BASE = "https://open.feishu.cn/open-apis"
-FEISHU_OAUTH_AUTHORIZE_URL = f"{FEISHU_API_BASE}/authen/v1/authorize"
+FEISHU_OAUTH_AUTHORIZE_URL = "https://accounts.feishu.cn/open-apis/authen/v1/authorize"
 FEISHU_OAUTH_TOKEN_URL = f"{FEISHU_API_BASE}/authen/v2/oauth/token"
 FEISHU_USER_INFO_URL = f"{FEISHU_API_BASE}/authen/v1/user_info"
 MENU_ICON_FALLBACKS = {
@@ -76,15 +77,43 @@ def feishu_oauth_enabled() -> bool:
     return bool(clean_text(settings.FEISHU_APP_ID) and clean_text(settings.FEISHU_APP_SECRET))
 
 
+def is_dev_redirect_uri(redirect_uri: str) -> bool:
+    try:
+        parsed = urlparse(redirect_uri)
+        dev_parsed = urlparse(clean_text(settings.WEB_DEV_BASE_URL))
+    except ValueError:
+        return False
+
+    hostname = (parsed.hostname or "").lower()
+    if hostname in {"localhost", "127.0.0.1", "::1"}:
+        return True
+    return bool(dev_parsed.scheme and dev_parsed.netloc and parsed.scheme == dev_parsed.scheme and parsed.netloc == dev_parsed.netloc)
+
+
 def get_feishu_redirect_uri(redirect_uri: str | None = None) -> str:
+    supplied = clean_text(redirect_uri)
+    if supplied and is_dev_redirect_uri(supplied):
+        return supplied
+
     configured = clean_text(settings.FEISHU_OAUTH_REDIRECT_URI)
     if configured:
         return configured
-    supplied = clean_text(redirect_uri)
     if supplied:
         return supplied
     web_base_url = settings.get_web_base_url()
     return f"{web_base_url}/login" if web_base_url else ""
+
+
+def get_feishu_redirect_uri_for_request(request: Request, redirect_uri: str | None = None) -> str:
+    supplied = clean_text(redirect_uri)
+    if supplied:
+        return get_feishu_redirect_uri(supplied)
+
+    origin = get_frontend_origin_from_request(request)
+    if origin and is_local_origin(origin):
+        return f"{origin.rstrip('/')}/login"
+
+    return get_feishu_redirect_uri()
 
 
 def build_feishu_oauth_url(*, redirect_uri: str, state: str) -> str:
@@ -124,68 +153,58 @@ async def fetch_feishu_user_info(code: str, redirect_uri: str) -> dict:
         user_access_token = clean_text(token_data.get("access_token") or token_data.get("user_access_token"))
         if not user_access_token:
             raise HTTPException(status_code=502, detail="Feishu OAuth token response missing access_token")
+        token_scope = clean_text(token_data.get("scope"))
 
         user_response = await client.get(
             FEISHU_USER_INFO_URL,
             headers={"Authorization": f"Bearer {user_access_token}"},
         )
-        return feishu_data(user_response, "Feishu user info")
+        user_info = feishu_data(user_response, "Feishu user info")
+        user_info["_token_scope"] = token_scope
+        logger.info(
+            "feishu oauth user_info received: token_scope=%s fields=%s",
+            token_scope or "<empty>",
+            sorted(key for key in user_info.keys() if not key.startswith("_")),
+        )
+        return user_info
 
 
-async def ensure_feishu_company_user(user_info: dict, user: User) -> None:
-    user_id = clean_text(user_info.get("user_id"))
+async def ensure_feishu_allowed_tenant(user_info: dict) -> None:
     tenant_key = clean_text(user_info.get("tenant_key"))
     allowed_tenant_keys = split_csv(settings.FEISHU_ALLOWED_TENANT_KEYS)
 
-    if allowed_tenant_keys:
-        if tenant_key and tenant_key in allowed_tenant_keys:
-            return
+    if allowed_tenant_keys and tenant_key not in allowed_tenant_keys:
         raise HTTPException(status_code=403, detail="仅允许科特思网络科技公司员工使用飞书登录。")
-
-    if not user_id:
-        raise HTTPException(status_code=403, detail="飞书 user_id 缺失，无法校验员工身份。")
-
-    matched_user_id = ""
-    if user.email:
-        matched_user_id = await lookup_feishu_user_id_by_email(user.email)
-    if not matched_user_id and user.phone:
-        matched_user_id = await lookup_feishu_user_id_by_mobile(user.phone)
-
-    if matched_user_id and matched_user_id == user_id:
-        return
-
-    raise HTTPException(status_code=403, detail="仅允许科特思网络科技公司员工使用飞书登录。")
 
 
 async def resolve_feishu_login_user(user_info: dict) -> User:
     open_id = clean_text(user_info.get("open_id") or user_info.get("sub"))
     union_id = clean_text(user_info.get("union_id"))
     user_id = clean_text(user_info.get("user_id"))
-    email = clean_text(user_info.get("email")).lower()
-    mobile = clean_text(user_info.get("mobile") or user_info.get("phone"))
+    email = clean_text(user_info.get("email") or user_info.get("enterprise_email")).lower()
 
-    user = None
-    if union_id:
-        user = await User.filter(feishu_union_id=union_id).first()
-    if not user and open_id:
-        user = await User.filter(feishu_open_id=open_id).first()
-    if not user and user_id:
-        user = await User.filter(feishu_user_id=user_id).first()
-    if not user and email:
-        user = await User.filter(email__iexact=email).first()
-    if not user and mobile:
-        normalized_mobile = mobile.replace(" ", "").replace("-", "")
-        user = await User.filter(phone=normalized_mobile).first()
+    await ensure_feishu_allowed_tenant(user_info)
 
+    if not email:
+        token_scope = clean_text(user_info.get("_token_scope")) or "<empty>"
+        fields = ", ".join(sorted(key for key in user_info.keys() if not key.startswith("_"))) or "<empty>"
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "飞书未返回邮箱，无法匹配 FinWork 用户。"
+                f"当前 user_access_token scope={token_scope}，user_info 字段={fields}。"
+                "请确认飞书应用已在用户身份权限中开通并授权获取用户邮箱信息，且飞书员工资料已维护邮箱。"
+            ),
+        )
+
+    user = await User.filter(email__iexact=email).first()
     if not user:
         raise HTTPException(
             status_code=403,
-            detail="Feishu account is not bound to a FinWork user. Please bind by email or contact an administrator.",
+            detail=f"飞书邮箱 {email} 未匹配到 FinWork 用户，请确认数据库用户邮箱是否一致。",
         )
     if not user.is_active:
         raise HTTPException(status_code=403, detail="User is disabled")
-
-    await ensure_feishu_company_user(user_info, user)
 
     update_fields = []
     for field, value in (
@@ -252,10 +271,11 @@ async def login_access_token(credentials: CredentialsSchema):
 
 @router.get("/feishu/oauth/config", summary="Feishu OAuth login config")
 async def feishu_oauth_config(
+    request: Request,
     redirect_uri: str | None = Query(default=None),
     state: str | None = Query(default=None),
 ):
-    redirect_uri = get_feishu_redirect_uri(redirect_uri)
+    redirect_uri = get_feishu_redirect_uri_for_request(request, redirect_uri)
     state = clean_text(state) or uuid.uuid4().hex
     enabled = feishu_oauth_enabled() and bool(redirect_uri)
     data = {

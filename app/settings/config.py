@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     FEISHU_APP_ID: str = ""
     FEISHU_APP_SECRET: str = ""
     FEISHU_OAUTH_REDIRECT_URI: str = ""
-    FEISHU_OAUTH_SCOPE: str = "auth:user.id:read"
+    FEISHU_OAUTH_SCOPE: str = "contact:user.email:readonly contact:user.employee:readonly"
     FEISHU_ALLOWED_TENANT_KEYS: str = ""
     CHATWOOT_BASE_URL: str = "https://chatwoot.catixs.net"
     CHATWOOT_WEBHOOK_URL: str = "https://finwork-webhook.catixs.net/api/v1/tg-assistant/chatwoot"
