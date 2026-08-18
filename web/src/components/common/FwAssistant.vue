@@ -62,6 +62,11 @@
             <TheIcon icon="mdi:send" :size="18" />
           </button>
         </form>
+        <span
+          class="fw-resize-handle"
+          title="调整窗口大小"
+          @pointerdown="startResize"
+        ></span>
       </section>
 
       <button
@@ -97,13 +102,20 @@ const sending = ref(false)
 const draft = ref('')
 const messagesEl = ref(null)
 const ASSISTANT_POSITION_KEY = 'fw-assistant-position'
+const ASSISTANT_PANEL_SIZE_KEY = 'fw-assistant-panel-size'
 const DEFAULT_ASSISTANT_SIZE = 66
 const PANEL_WIDTH = 380
 const PANEL_HEIGHT = 470
+const PANEL_MIN_WIDTH = 320
+const PANEL_MIN_HEIGHT = 360
 const PANEL_GAP = 14
 const assistantPosition = reactive({
   left: 0,
   top: 0,
+})
+const panelSize = reactive({
+  width: PANEL_WIDTH,
+  height: PANEL_HEIGHT,
 })
 const draggingState = reactive({
   active: false,
@@ -117,6 +129,15 @@ const draggingState = reactive({
   pointerId: null,
   dragTarget: null,
   source: '',
+})
+const resizingState = reactive({
+  active: false,
+  startX: 0,
+  startY: 0,
+  startWidth: PANEL_WIDTH,
+  startHeight: PANEL_HEIGHT,
+  pointerId: null,
+  target: null,
 })
 const messages = ref([
   {
@@ -141,11 +162,12 @@ const assistantStyle = computed(() => ({
 const panelStyle = computed(() => {
   const margin = getAssistantMargin()
   const assistantSize = getAssistantSize()
-  const maxPanelWidth = Math.min(PANEL_WIDTH, window.innerWidth - margin * 2)
+  const panelWidth = getPanelWidth()
+  const panelHeight = getPanelHeight()
   const left = clamp(
     0,
     margin - assistantPosition.left,
-    window.innerWidth - margin - maxPanelWidth - assistantPosition.left
+    window.innerWidth - margin - panelWidth - assistantPosition.left
   )
   const spaceAbove = assistantPosition.top - margin
   const spaceBelow = window.innerHeight - assistantPosition.top - assistantSize - margin
@@ -156,6 +178,9 @@ const panelStyle = computed(() => {
   return {
     ...vertical,
     left: `${left}px`,
+    width: `${panelWidth}px`,
+    height: `${panelHeight}px`,
+    '--fw-panel-body-height': `${Math.max(panelHeight - 150, 180)}px`,
   }
 })
 
@@ -168,11 +193,13 @@ watch(
 
 onMounted(() => {
   restoreAssistantPosition()
+  restorePanelSize()
   window.addEventListener('resize', keepAssistantInViewport)
 })
 
 onBeforeUnmount(() => {
   stopDrag()
+  stopResize()
   window.removeEventListener('resize', keepAssistantInViewport)
 })
 
@@ -255,6 +282,65 @@ function stopDrag() {
   saveAssistantPosition()
 }
 
+function startResize(event) {
+  if (event.button !== 0) return
+  resizingState.active = true
+  resizingState.startX = event.clientX
+  resizingState.startY = event.clientY
+  resizingState.startWidth = getPanelWidth()
+  resizingState.startHeight = getPanelHeight()
+  resizingState.pointerId = event.pointerId
+  resizingState.target = event.currentTarget
+  event.currentTarget?.setPointerCapture?.(event.pointerId)
+  event.preventDefault()
+
+  window.addEventListener('pointermove', handleResizeMove, { passive: false })
+  window.addEventListener('pointerup', stopResize)
+  window.addEventListener('pointercancel', stopResize)
+  window.addEventListener('blur', stopResize)
+}
+
+function handleResizeMove(event) {
+  if (!resizingState.active) return
+  if (resizingState.pointerId !== null && event.pointerId !== resizingState.pointerId) return
+  event.preventDefault()
+
+  const style = panelStyle.value
+  const opensBelow = Boolean(style.top)
+  const deltaX = event.clientX - resizingState.startX
+  const deltaY = event.clientY - resizingState.startY
+  panelSize.width = clamp(
+    resizingState.startWidth + deltaX,
+    PANEL_MIN_WIDTH,
+    getPanelMaxWidth()
+  )
+  panelSize.height = clamp(
+    resizingState.startHeight + (opensBelow ? deltaY : -deltaY),
+    PANEL_MIN_HEIGHT,
+    getPanelMaxHeight()
+  )
+  savePanelSize()
+}
+
+function stopResize() {
+  if (!resizingState.active) return
+  if (resizingState.pointerId !== null) {
+    try {
+      resizingState.target?.releasePointerCapture?.(resizingState.pointerId)
+    } catch {
+      // The pointer may already be released by the browser.
+    }
+  }
+  resizingState.active = false
+  resizingState.pointerId = null
+  resizingState.target = null
+  window.removeEventListener('pointermove', handleResizeMove)
+  window.removeEventListener('pointerup', stopResize)
+  window.removeEventListener('pointercancel', stopResize)
+  window.removeEventListener('blur', stopResize)
+  savePanelSize()
+}
+
 function keepAssistantInViewport() {
   const assistantEl = document.querySelector('.fw-assistant')
   const rect = assistantEl?.getBoundingClientRect()
@@ -272,6 +358,7 @@ function keepAssistantInViewport() {
     Math.max(window.innerHeight - height - margin, margin)
   )
   saveAssistantPosition()
+  normalizePanelSize()
 }
 
 function restoreAssistantPosition() {
@@ -300,6 +387,48 @@ function saveAssistantPosition() {
     ASSISTANT_POSITION_KEY,
     JSON.stringify({ left: assistantPosition.left, top: assistantPosition.top })
   )
+}
+
+function restorePanelSize() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(ASSISTANT_PANEL_SIZE_KEY) || '{}')
+    if (Number.isFinite(parsed.width)) panelSize.width = parsed.width
+    if (Number.isFinite(parsed.height)) panelSize.height = parsed.height
+  } catch {
+    // Ignore stale localStorage data.
+  }
+  normalizePanelSize()
+}
+
+function savePanelSize() {
+  localStorage.setItem(
+    ASSISTANT_PANEL_SIZE_KEY,
+    JSON.stringify({ width: getPanelWidth(), height: getPanelHeight() })
+  )
+}
+
+function normalizePanelSize() {
+  panelSize.width = getPanelWidth()
+  panelSize.height = getPanelHeight()
+}
+
+function getPanelMaxWidth() {
+  const margin = getAssistantMargin()
+  return Math.max(PANEL_MIN_WIDTH, window.innerWidth - margin * 2)
+}
+
+function getPanelMaxHeight() {
+  const margin = getAssistantMargin()
+  const assistantSize = getAssistantSize()
+  return Math.max(PANEL_MIN_HEIGHT, window.innerHeight - assistantSize - PANEL_GAP - margin * 2)
+}
+
+function getPanelWidth() {
+  return clamp(panelSize.width, PANEL_MIN_WIDTH, getPanelMaxWidth())
+}
+
+function getPanelHeight() {
+  return clamp(panelSize.height, PANEL_MIN_HEIGHT, getPanelMaxHeight())
 }
 
 function getAssistantMargin() {
@@ -444,7 +573,8 @@ async function scrollToBottom() {
 
 .fw-assistant-panel {
   position: absolute;
-  width: min(380px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   border: 1px solid rgba(148, 163, 184, 0.28);
   border-radius: 12px;
@@ -522,9 +652,11 @@ async function scrollToBottom() {
 
 .fw-assistant-messages {
   display: flex;
-  height: 320px;
+  min-height: 180px;
+  height: var(--fw-panel-body-height, 320px);
   flex-direction: column;
   gap: 10px;
+  flex: 1 1 auto;
   overflow-y: auto;
   padding: 14px;
   background:
@@ -633,6 +765,7 @@ async function scrollToBottom() {
 
 .fw-assistant-input {
   display: grid;
+  flex: 0 0 auto;
   grid-template-columns: minmax(0, 1fr) 38px;
   gap: 8px;
   padding: 12px;
@@ -675,6 +808,33 @@ async function scrollToBottom() {
   cursor: not-allowed;
   opacity: 0.5;
   box-shadow: none;
+}
+
+.fw-resize-handle {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  z-index: 2;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  pointer-events: auto;
+}
+
+.fw-resize-handle::before {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 10px;
+  height: 10px;
+  content: '';
+  border-right: 2px solid rgba(100, 116, 139, 0.45);
+  border-bottom: 2px solid rgba(100, 116, 139, 0.45);
+  border-radius: 1px;
+}
+
+.fw-resize-handle:hover::before {
+  border-color: rgba(8, 145, 178, 0.85);
 }
 
 .fw-assistant-fab {
@@ -801,11 +961,11 @@ async function scrollToBottom() {
 
 @media (max-width: 640px) {
   .fw-assistant-panel {
-    width: calc(100vw - 28px);
+    max-width: calc(100vw - 28px);
   }
 
   .fw-assistant-messages {
-    height: min(52vh, 340px);
+    min-height: 220px;
   }
 
   .fw-assistant-fab {
