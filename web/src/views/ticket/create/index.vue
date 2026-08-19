@@ -44,6 +44,17 @@
             />
           </n-form-item>
 
+          <n-form-item v-if="isAdminOrNoc" label="处理人" path="assigneeId">
+            <n-select
+              v-model:value="form.assigneeId"
+              :options="assigneeOptions"
+              :loading="usersLoading"
+              placeholder="请选择处理人"
+              clearable
+              filterable
+            />
+          </n-form-item>
+
           <template v-if="showLocationField">
             <n-form-item label="地点" path="location">
               <n-input v-model:value="form.location" placeholder="请输入地点" />
@@ -121,7 +132,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
 import { useUserStore } from '@/store'
@@ -145,14 +156,32 @@ const typeOptions = [
 const formRef = ref(null)
 const uploadedFiles = ref([])
 const submitting = ref(false)
+const usersLoading = ref(false)
+const assigneeOptions = ref([])
 
 const form = reactive({
   title: '',
   type: null,
+  assigneeId: null,
   description: '',
   location: '',
   planTime: null,
   timeRange: null,
+})
+
+const isAdminOrNoc = computed(() => {
+  if (userStore.isSuperUser) return true
+  const accountNames = [
+    userStore.name,
+    userStore.userInfo?.alias,
+    String(userStore.email || '').split('@')[0],
+  ].map(value => String(value || '').trim().toLowerCase())
+  if (accountNames.includes('noc')) return true
+  const roles = userStore.role || []
+  return roles.some(role => {
+    const roleName = String(typeof role === 'string' ? role : role?.name || '').trim().toLowerCase()
+    return ['admin', 'noc', '管理员'].includes(roleName)
+  })
 })
 
 const showLocationField = computed(() => form.type === 0 || form.type === 2)
@@ -218,6 +247,7 @@ async function submitTicket() {
       title: form.title,
       type: form.type,
       user_id: userStore.userId,
+      assignee_id: isAdminOrNoc.value ? form.assigneeId || null : undefined,
       desc: cleanupTicketDescriptionForSubmit(form.description),
       location: showLocationField.value ? form.location || undefined : undefined,
       start_time: getSubmitStartTime(),
@@ -252,6 +282,24 @@ function getSubmitEndTime() {
   return undefined
 }
 
+async function loadAssigneeOptions() {
+  if (!isAdminOrNoc.value) return
+  usersLoading.value = true
+  try {
+    const result = await api.ticketApi.users()
+    if (result.code === 200) {
+      assigneeOptions.value = (result.data || []).map(user => ({
+        label: user.alias || user.username || user.email,
+        value: user.id,
+      }))
+    }
+  } catch (error) {
+    window.$message?.error('处理人列表加载失败')
+  } finally {
+    usersLoading.value = false
+  }
+}
+
 async function uploadTicketAttachments(files, ticketId) {
   const urls = []
   for (const file of files) {
@@ -265,6 +313,8 @@ async function uploadTicketAttachments(files, ticketId) {
   }
   return urls
 }
+
+onMounted(loadAssigneeOptions)
 </script>
 
 <style scoped>

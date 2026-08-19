@@ -17,6 +17,17 @@
         <span class="filter-label">用户：</span>
         <n-select v-model:value="localFilters.customerId" :options="customerOptions" placeholder="请选择用户" style="width: 150px" />
       </div>
+      <div v-show="isAdminOrNoc" class="filter-item">
+        <span class="filter-label">处理人：</span>
+        <n-select
+          v-model:value="localFilters.assigneeId"
+          :options="assigneeOptions"
+          placeholder="请选择处理人"
+          clearable
+          filterable
+          style="width: 170px"
+        />
+      </div>
       <n-button secondary type="primary" style="border-radius: 12px" @click="$emit('search')">查询</n-button>
       <n-button secondary style="border-radius: 12px" @click="$emit('reset')">重置</n-button>
     </div>
@@ -46,6 +57,10 @@ const props = defineProps({
     default: () => []
   },
   customerOptions: {
+    type: Array,
+    default: () => []
+  },
+  assigneeOptions: {
     type: Array,
     default: () => []
   }

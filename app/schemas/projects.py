@@ -32,7 +32,7 @@ class BaseCustomerProject(BaseModel):
 
 
 class CustomerProjectCreate(BaseModel):
-    name: str = Field(..., max_length=120)
+    name: str = Field(..., max_length=255)
     code: Optional[str] = Field(None, max_length=50)
     customer_id: Optional[int] = None
     status: str = "planning"

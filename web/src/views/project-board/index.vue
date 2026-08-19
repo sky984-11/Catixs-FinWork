@@ -206,7 +206,10 @@ const taskContextOptions = [
 ]
 
 const rules = {
-  name: [{ required: true, message: '请输入项目名称', trigger: ['input', 'blur'] }],
+  name: [
+    { required: true, message: '请输入项目名称', trigger: ['input', 'blur'] },
+    { max: 255, message: '项目名称不能超过 255 个字符', trigger: ['input', 'blur'] },
+  ],
   customer_id: [{ required: true, type: 'number', message: '请选择客户', trigger: 'change' }],
   owner: [{ required: true, message: '请选择负责人', trigger: ['change', 'blur'] }],
 }
@@ -370,17 +373,28 @@ async function handleSave() {
     await modalFormRef.value?.validate()
     const payload = { ...modalForm }
     if (payload.budget_amount === null) delete payload.budget_amount
+    let result
     if (modalAction.value === 'add') {
       delete payload.id
-      await api.projectApi.create(payload)
+      result = await api.projectApi.create(payload)
+      if (result?.code && result.code !== 200) {
+        window.$message?.error?.(result.msg || '新增失败')
+        return
+      }
       window.$message?.success?.('新增成功')
     } else {
-      await api.projectApi.update(payload)
+      result = await api.projectApi.update(payload)
+      if (result?.code && result.code !== 200) {
+        window.$message?.error?.(result.msg || '保存失败')
+        return
+      }
       window.$message?.success?.('保存成功')
     }
     modalVisible.value = false
     await loadProjects()
     if (detailProject.value?.id === payload.id) await loadProjectDetail(payload.id)
+  } catch (error) {
+    window.$message?.error?.(error?.response?.data?.msg || error?.message || '保存失败')
   } finally {
     modalLoading.value = false
   }
@@ -1690,7 +1704,7 @@ onMounted(async () => {
       >
         <NGrid :cols="2" :x-gap="16">
           <NFormItemGi label="项目名称" path="name">
-            <NInput v-model:value="modalForm.name" clearable />
+            <NInput v-model:value="modalForm.name" clearable maxlength="255" show-count />
           </NFormItemGi>
           <NFormItemGi label="项目编号" path="code">
             <NInput v-model:value="modalForm.code" clearable />

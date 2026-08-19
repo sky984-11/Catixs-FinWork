@@ -9,6 +9,7 @@
           :status-options="statusOptions"
           :type-options="typeOptions"
           :customer-options="customerOptions"
+          :assignee-options="assigneeOptions"
           @search="handleSearch"
           @reset="handleReset"
         />
@@ -149,6 +150,7 @@ const pendingCompletionTicket = ref(null)
 const sendSelectedUsers = ref([])
 const userOptions = ref([])
 const customerOptions = ref([{ label: '全部用户', value: null }])
+const assigneeOptions = ref([{ label: '全部处理人', value: null }])
 
 const isAdminOrNoc = computed(() => {
   if (userStore.isSuperUser) return true
@@ -171,6 +173,7 @@ const filters = reactive({
   status: null,
   type: null,
   customerId: null,
+  assigneeId: null,
   dateRange: null
 })
 
@@ -215,7 +218,8 @@ async function loadData(reset = false) {
       title: filters.title || undefined,
       status: filters.status !== null ? filters.status : undefined,
       type: filters.type !== null ? filters.type : undefined,
-      user_id: filters.customerId !== null && isAdminOrNoc.value ? filters.customerId : undefined
+      user_id: filters.customerId !== null && isAdminOrNoc.value ? filters.customerId : undefined,
+      assignee_id: filters.assigneeId !== null && isAdminOrNoc.value ? filters.assigneeId : undefined
     }
 
     const result = await api.ticketApi.list(params)
@@ -306,6 +310,7 @@ function handleReset() {
   filters.status = null
   filters.type = null
   filters.customerId = null
+  filters.assigneeId = null
   filters.dateRange = null
   loadData(true)
 }
@@ -556,6 +561,14 @@ async function loadUsers() {
         email: u.email,
         disabled: false
       }))
+
+      assigneeOptions.value = [
+        { label: '全部处理人', value: null },
+        ...users.map(u => ({
+          label: u.alias || u.username || u.email,
+          value: u.id
+        }))
+      ]
     }
   } catch (error) {
     console.error('加载用户列表失败', error)

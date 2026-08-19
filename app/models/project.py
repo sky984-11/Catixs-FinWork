@@ -4,7 +4,7 @@ from .base import BaseModel, TimestampMixin
 
 
 class CustomerProject(BaseModel, TimestampMixin):
-    name = fields.CharField(max_length=120, description="项目名称", index=True)
+    name = fields.CharField(max_length=255, description="项目名称", index=True)
     code = fields.CharField(max_length=50, null=True, description="项目编号", index=True, unique=True)
     customer = fields.ForeignKeyField(
         "models.Company",

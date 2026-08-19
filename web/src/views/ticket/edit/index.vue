@@ -42,6 +42,17 @@
             />
           </n-form-item>
 
+          <n-form-item v-if="isAdminOrNoc" label="处理人" path="assigneeId">
+            <n-select
+              v-model:value="form.assigneeId"
+              :options="assigneeOptions"
+              :loading="usersLoading"
+              placeholder="请选择处理人"
+              clearable
+              filterable
+            />
+          </n-form-item>
+
           <n-form-item label="工单描述" path="description" required>
             <n-input
               v-model:value="form.description"
@@ -122,6 +133,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
 import api from '@/api'
+import { useUserStore } from '@/store'
 import CButton from '@/components/public/CButton.vue'
 import { fileToBase64Payload } from '../utils/fileBase64'
 
@@ -129,18 +141,22 @@ defineOptions({ name: 'EditTicket' })
 
 const route = useRoute()
 const router = useRouter()
+const userStore = useUserStore()
 
 const formRef = ref(null)
 const loading = ref(false)
 const submitting = ref(false)
 const ticketLoaded = ref(false)
 const uploadedFiles = ref([])
+const usersLoading = ref(false)
+const assigneeOptions = ref([])
 
 const form = reactive({
   id: null,
   ticketNo: '',
   title: '',
   type: null,
+  assigneeId: null,
   description: '',
   location: '',
   planTime: null,
@@ -158,6 +174,20 @@ const isMaintenanceType = computed(() => form.type === 2 || form.type === 3)
 const showLocationField = computed(() => form.type === 0 || isMaintenanceType.value)
 const showSingleTime = computed(() => form.type === 0)
 const showRangeTime = computed(() => isMaintenanceType.value)
+const isAdminOrNoc = computed(() => {
+  if (userStore.isSuperUser) return true
+  const accountNames = [
+    userStore.name,
+    userStore.userInfo?.alias,
+    String(userStore.email || '').split('@')[0],
+  ].map(value => String(value || '').trim().toLowerCase())
+  if (accountNames.includes('noc')) return true
+  const roles = userStore.role || []
+  return roles.some(role => {
+    const roleName = String(typeof role === 'string' ? role : role?.name || '').trim().toLowerCase()
+    return ['admin', 'noc', '管理员'].includes(roleName)
+  })
+})
 const timeFieldLabel = computed(() => {
   if (form.type === 0) return '故障时间'
   if (isMaintenanceType.value) return '维护时间'
@@ -208,6 +238,7 @@ function fillForm(ticket) {
   form.ticketNo = ticket.ticket_no || ''
   form.title = ticket.title || ''
   form.type = Number(ticket.type ?? 0)
+  form.assigneeId = ticket.assignee_id || null
   form.description = ticket.desc || ''
   form.location = ticket.location || ''
   const planTime = ticket.start_time ? new Date(ticket.start_time).getTime() : null
@@ -277,6 +308,7 @@ async function submitTicket() {
       id: form.id,
       ticket_no: form.ticketNo,
       title: form.title,
+      assignee_id: isAdminOrNoc.value ? form.assigneeId || null : undefined,
       desc: form.description,
       location: showLocationField.value ? form.location || undefined : undefined,
       start_time: getSubmitStartTime(),
@@ -308,6 +340,24 @@ function getSubmitEndTime() {
   return undefined
 }
 
+async function loadAssigneeOptions() {
+  if (!isAdminOrNoc.value) return
+  usersLoading.value = true
+  try {
+    const result = await api.ticketApi.users()
+    if (result.code === 200) {
+      assigneeOptions.value = (result.data || []).map(user => ({
+        label: user.alias || user.username || user.email,
+        value: user.id,
+      }))
+    }
+  } catch (error) {
+    window.$message?.error('处理人列表加载失败')
+  } finally {
+    usersLoading.value = false
+  }
+}
+
 async function resolveAttachmentUrls() {
   const urls = []
   for (const item of uploadedFiles.value) {
@@ -327,7 +377,10 @@ async function resolveAttachmentUrls() {
   return urls
 }
 
-onMounted(loadTicket)
+onMounted(() => {
+  loadTicket()
+  loadAssigneeOptions()
+})
 </script>
 
 <style scoped>

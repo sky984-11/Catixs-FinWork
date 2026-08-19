@@ -1526,6 +1526,8 @@ async def ensure_project_columns():
             ADD COLUMN IF NOT EXISTS "shared_users" JSONB NOT NULL DEFAULT '[]'::jsonb,
             ADD COLUMN IF NOT EXISTS "due_soon_notified_at" TIMESTAMP,
             ADD COLUMN IF NOT EXISTS "due_notified_at" TIMESTAMP;
+        ALTER TABLE IF EXISTS "customer_project"
+            ALTER COLUMN "name" TYPE VARCHAR(255);
         ALTER TABLE IF EXISTS "customer_project_task"
             ALTER COLUMN "due_date" TYPE TIMESTAMPTZ
             USING "due_date"::timestamp AT TIME ZONE 'Asia/Shanghai';
