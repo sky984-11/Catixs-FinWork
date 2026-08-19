@@ -11,7 +11,7 @@
       <RouterLink class="resource-home__card" to="/resource/free-devices">
         <TheIcon icon="mdi:server-plus-outline" :size="26" />
         <strong>可售服务器</strong>
-        <span>按地区查看机柜管理里的可售服务器</span>
+        <span>按地区查看机柜资源里的可售服务器</span>
       </RouterLink>
       <RouterLink class="resource-home__card" to="/resource/zenlayer-pricing">
         <TheIcon icon="mdi:chart-line-variant" :size="26" />

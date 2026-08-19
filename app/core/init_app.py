@@ -176,7 +176,7 @@ async def init_menus():
         ops_menu, finance_menu = await ensure_service_module_menus()
         ticket_menu = await Menu.create(
             menu_type=MenuType.MENU,
-            name="工单管理",
+            name="服务工单",
             path="/ticket",
             order=1,
             parent_id=ops_menu.id,
@@ -264,9 +264,9 @@ async def init_menus():
     await ensure_pop_menu()
     await ensure_syslog_menu()
     await ensure_akvorado_menu()
-    await ensure_ipam_menu()
+    await ensure_cloud_host_menu()
     await ensure_remote_assistance_menu()
-    await ensure_device_maintenance_menu()
+    await remove_disabled_feature_menus()
     await ensure_business_party_menu()
     await ensure_bill_menu()
     await ensure_billing_subscription_menu()
@@ -303,13 +303,27 @@ async def ensure_menu_catalog(name: str, path: str, order: int, icon: str, redir
         if changed:
             await menu.save()
         return menu
-
     return await Menu.create(**values)
+
+
+async def remove_disabled_feature_menus():
+    disabled_paths = ["/ipam", "/ops/device-maintenance"]
+    menus = await Menu.filter(path__in=disabled_paths)
+    for menu in menus:
+        changed = False
+        if not menu.is_hidden:
+            menu.is_hidden = True
+            changed = True
+        if menu.order != 9999:
+            menu.order = 9999
+            changed = True
+        if changed:
+            await menu.save()
 
 
 async def ensure_service_module_menus():
     ops_menu = await ensure_menu_catalog(
-        name="\u8fd0\u7ef4\u6a21\u5757",
+        name="运维中心",
         path="/ops",
         order=3,
         icon="mdi:tools",
@@ -396,7 +410,7 @@ async def ensure_ticket_route_menus():
     if not ticket_menu:
         ticket_menu = await Menu.create(
             menu_type=MenuType.MENU,
-            name="工单管理",
+            name="服务工单",
             path="/ticket",
             order=1,
             parent_id=ops_menu.id,
@@ -409,6 +423,7 @@ async def ensure_ticket_route_menus():
     else:
         changed = False
         values = {
+            "name": "服务工单",
             "order": 1,
             "parent_id": ops_menu.id,
             "icon": "material-symbols:assignment-globe",
@@ -536,14 +551,14 @@ async def ensure_asset_menu():
 
     asset_menus = [
         {
-            "name": "机柜管理",
+            "name": "机柜资源",
             "path": "/asset/cabinet",
             "order": 3,
             "icon": "mdi:server-network",
             "component": "/asset/cabinet",
         },
         {
-            "name": "库存管理",
+            "name": "资产库存",
             "path": "/asset/inventory",
             "order": 4,
             "icon": "mdi:package-variant-closed",
@@ -580,7 +595,7 @@ async def ensure_pop_menu():
     ops_menu = await get_service_module_menu("/ops")
     menu = await Menu.filter(path="/ops/pop").first()
     values = {
-        "name": "POP点管理",
+        "name": "网络节点",
         "path": "/ops/pop",
         "order": 2,
         "parent_id": ops_menu.id,
@@ -610,7 +625,7 @@ async def ensure_syslog_menu():
     ops_menu = await get_service_module_menu("/ops")
     syslog_menu = await Menu.filter(path="/syslog").first()
     values = {
-        "name": "Syslog日志管理",
+        "name": "日志中心",
         "path": "/syslog",
         "order": 3,
         "parent_id": ops_menu.id,
@@ -640,7 +655,7 @@ async def ensure_akvorado_menu():
     ops_menu = await get_service_module_menu("/ops")
     akvorado_menu = await Menu.filter(path="/akvorado").first()
     values = {
-        "name": "Akvorado 流量",
+        "name": "流量分析",
         "path": "/akvorado",
         "order": 4,
         "parent_id": ops_menu.id,
@@ -661,6 +676,38 @@ async def ensure_akvorado_menu():
             changed = True
         if changed:
             await akvorado_menu.save()
+        return
+
+    await Menu.create(menu_type=MenuType.MENU, **values)
+
+
+async def ensure_cloud_host_menu():
+    ops_menu = await get_service_module_menu("/ops")
+    menu = await Menu.filter(path="/ops/virtual-machine").first()
+    if not menu:
+        menu = await Menu.filter(component="/ops/virtual-machine").first()
+    values = {
+        "name": "云资源",
+        "path": "/ops/virtual-machine",
+        "order": 5,
+        "parent_id": ops_menu.id,
+        "icon": "mdi:server-network",
+        "is_hidden": False,
+        "component": "/ops/virtual-machine",
+        "keepalive": False,
+        "redirect": "",
+    }
+    if menu:
+        changed = False
+        for field, value in values.items():
+            if getattr(menu, field) != value:
+                setattr(menu, field, value)
+                changed = True
+        if menu.menu_type != MenuType.MENU:
+            menu.menu_type = MenuType.MENU
+            changed = True
+        if changed:
+            await menu.save()
         return
 
     await Menu.create(menu_type=MenuType.MENU, **values)
@@ -700,7 +747,7 @@ async def ensure_remote_assistance_menu():
     ops_menu = await get_service_module_menu("/ops")
     menu = await Menu.filter(path="/remote-assistance").first()
     values = {
-        "name": "运维记录",
+        "name": "运维日志",
         "path": "/remote-assistance",
         "order": 6,
         "parent_id": ops_menu.id,
@@ -2083,7 +2130,6 @@ async def init_db():
     await ensure_requirement_columns()
     await ensure_ticket_columns()
     await ensure_finance_quote_columns()
-    await ensure_device_maintenance_columns()
     await ensure_remote_assistance_datetime_columns()
     await ensure_tg_assistant_tables()
     await Tortoise.generate_schemas(safe=True)

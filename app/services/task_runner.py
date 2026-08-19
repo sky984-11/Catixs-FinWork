@@ -11,14 +11,12 @@ from tortoise.expressions import Q
 from app.controllers.task import scheduled_task_controller
 from app.log import logger
 from app.models.admin import ScheduledTask, ScheduledTaskLog
-from app.services.device_maintenance_notifier import notify_due_device_maintenance_tasks
 from app.services.project_task_notifier import notify_due_project_tasks, notify_project_daily_summary
 from app.services.remote_hands_plan_notifier import notify_due_remote_hands_plans
 from app.settings.config import settings
 
 _scheduler_task: asyncio.Task | None = None
 _running_task_ids: set[int] = set()
-_device_maintenance_notification_running = False
 _project_task_notification_running = False
 _project_daily_summary_running = False
 _remote_hands_plan_notification_running = False
@@ -110,13 +108,10 @@ async def execute_scheduled_task(task: ScheduledTask) -> None:
 
 
 async def scheduler_loop() -> None:
-    global _device_maintenance_notification_running, _project_daily_summary_running, _project_task_notification_running, _remote_hands_plan_notification_running
+    global _project_daily_summary_running, _project_task_notification_running, _remote_hands_plan_notification_running
     while True:
         try:
             now = datetime.now()
-            if not _device_maintenance_notification_running:
-                _device_maintenance_notification_running = True
-                asyncio.create_task(run_device_maintenance_notifications(now))
             if not _remote_hands_plan_notification_running:
                 _remote_hands_plan_notification_running = True
                 asyncio.create_task(run_remote_hands_plan_notifications(now))
@@ -140,18 +135,6 @@ async def scheduler_loop() -> None:
         except Exception:
             logger.exception("scheduled task loop error")
         await asyncio.sleep(60)
-
-
-async def run_device_maintenance_notifications(now: datetime) -> None:
-    global _device_maintenance_notification_running
-    try:
-        sent_count = await notify_due_device_maintenance_tasks(now)
-        if sent_count:
-            logger.info("device maintenance feishu notifications sent: %s", sent_count)
-    except Exception:
-        logger.exception("device maintenance notification loop error")
-    finally:
-        _device_maintenance_notification_running = False
 
 
 async def run_remote_hands_plan_notifications(now: datetime) -> None:

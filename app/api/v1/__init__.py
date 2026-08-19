@@ -11,13 +11,11 @@ from .bank_accounts import bank_accounts_router
 from .base import base_router
 from .bills import bills_router
 from .companies import companies_router
-from .device_maintenance import router as device_maintenance_router
 from .depts import depts_router
 from .finance_quotes import finance_quotes_router
 from .fw_assistant import router as fw_assistant_router
 from .dashboard import router as dashboard_router
 from .menus import menus_router
-from .netbox import netbox_router
 from .projects import projects_router
 from .requirements import router as requirements_router
 from .pve import grafana_router as pve_grafana_router
@@ -51,8 +49,7 @@ v1_router.include_router(assets_ws_router, prefix="/asset", tags=["资产管理 
 v1_router.include_router(assets_public_router, prefix="/asset-public", tags=["资产管理公开模块"])
 v1_router.include_router(assets_auth_router, prefix="/asset", dependencies=[DependAuth], tags=["资产管理登录模块"])
 v1_router.include_router(assets_router, prefix="/asset", dependencies=[DependPermission], tags=["资产管理模块"])
-v1_router.include_router(syslog_router, prefix="/syslog", dependencies=[DependPermission], tags=["Syslog日志管理模块"])
-v1_router.include_router(netbox_router, prefix="/netbox", dependencies=[DependPermission], tags=["NetBox IPAM"])
+v1_router.include_router(syslog_router, prefix="/syslog", dependencies=[DependPermission], tags=["Syslog模块"])
 v1_router.include_router(pve_novnc_ws_router, prefix="/pve", tags=["PVE noVNC模块"])
 v1_router.include_router(pve_router, prefix="/pve", dependencies=[DependPermission], tags=["PVE Datacenter模块"])
 v1_router.include_router(
@@ -60,12 +57,6 @@ v1_router.include_router(
     prefix="/remote-assistance",
     dependencies=[DependPermission],
     tags=["运维记录模块"],
-)
-v1_router.include_router(
-    device_maintenance_router,
-    prefix="/device-maintenance",
-    dependencies=[DependPermission],
-    tags=["维护计划"],
 )
 v1_router.include_router(banks_router, prefix="/bank", dependencies=[DependPermission])
 v1_router.include_router(pve_grafana_router, prefix="/pve", tags=["PVE Grafana"])
@@ -76,6 +67,6 @@ v1_router.include_router(companies_router, prefix="/company", dependencies=[Depe
 v1_router.include_router(projects_router, prefix="/project", dependencies=[DependPermission])
 v1_router.include_router(requirements_router, prefix="/requirement", dependencies=[DependPermission], tags=["需求管理"])
 v1_router.include_router(resources_router, prefix="/resource", dependencies=[DependPermission])
-v1_router.include_router(akvorado_router, prefix="/akvorado", tags=["Akvorado"])
+v1_router.include_router(akvorado_router, prefix="/akvorado", tags=["Sflow"])
 v1_router.include_router(tg_assistant_router, prefix="/tg-assistant", tags=["TG助手"])
 v1_router.include_router(fw_assistant_router, prefix="/fw-assistant", tags=["FW Assistant"])

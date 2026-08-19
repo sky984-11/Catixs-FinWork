@@ -1580,7 +1580,7 @@ function openCabinetModal(cabinet = null) {
     return
   }
   if (!selectedRegionLocationOptions.value.length) {
-    window.$message?.warning('当前地区暂无机房，请先到 POP点管理 创建机房')
+    window.$message?.warning('当前地区暂无机房，请先到网络节点创建机房')
     return
   }
   if (cabinet) {

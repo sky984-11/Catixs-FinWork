@@ -3,7 +3,7 @@
     <div class="akvorado-page">
       <aside class="region-panel">
         <!-- <div class="panel-head">
-          <strong>Akvorado</strong>
+          <strong>Sflow</strong>
         </div> -->
 
         <div class="region-list">
@@ -46,7 +46,7 @@
           <iframe
             :key="frameKey"
             :src="selectedFrameUrl"
-            :title="`${selectedRegion.code} Akvorado`"
+            :title="`${selectedRegion.code} Sflow`"
             @load="frameLoading = false"
           />
         </section>

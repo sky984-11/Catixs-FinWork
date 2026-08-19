@@ -269,29 +269,6 @@ export default {
     raw: (params = {}) => request.get('/syslog/raw', { params }),
   },
 
-  // device maintenance
-  deviceMaintenanceApi: {
-    overview: () => request.get('/device-maintenance/overview'),
-    createTask: (data = {}) => request.post('/device-maintenance/task', data),
-    notifyTask: (id) => request.post(`/device-maintenance/task/${id}/notify`),
-    updateTaskStatus: (id, data = {}) => request.post(`/device-maintenance/task/${id}/status`, data),
-  },
-
-  // NetBox IPAM
-  netboxApi: {
-    ipamOverview: (params = {}) => request.get('/netbox/ipam/overview', { params }),
-    ipamFilterOptions: (params = {}) => request.get('/netbox/ipam/filter-options', { params }),
-    prefixIps: (params = {}) => request.get('/netbox/ipam/prefix-ips', { params }),
-    prefixOptions: () => request.get('/netbox/ipam/prefix-options'),
-    createIpAddress: (data = {}) => request.post('/netbox/ipam/ip-addresses', data),
-    updateIpAddress: (id, data = {}) => request.patch(`/netbox/ipam/ip-addresses/${id}`, data),
-    deleteIpAddress: (id) => request.delete(`/netbox/ipam/ip-addresses/${id}`),
-    createPrefix: (data = {}) => request.post('/netbox/ipam/prefixes', data),
-    updatePrefix: (id, data = {}) => request.patch(`/netbox/ipam/prefixes/${id}`, data),
-    deletePrefix: (id) => request.delete(`/netbox/ipam/prefixes/${id}`),
-    syncPveIps: (params = {}) => request.post('/netbox/ipam/sync-pve-ips', {}, { params }),
-  },
-
   // virtual machine
   virtualMachineApi: {
     pveNodes: () => request.get('/pve/nodes'),
