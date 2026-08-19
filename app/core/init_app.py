@@ -51,6 +51,8 @@ def make_middlewares():
                 r"^/(?!api/)",
                 "/api/v1/base/access_token",
                 "/api/v1/base/feishu/oauth/login",
+                r"^/api/v1/pve/grafana/proxy/api/ds/query$",
+                r"^/api/v1/tg-assistant/chatwoot$",
                 "/api/v1/vendor/export",
                 "/api/v1/vendor/import",
                 "/docs",
