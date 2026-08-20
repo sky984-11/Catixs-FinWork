@@ -977,11 +977,12 @@ function noVncCellProps() {
 }
 
 const columns = [
-  { title: 'VMID', key: 'vmid', width: 90, cellProps: noVncCellProps },
+  { title: 'VMID', key: 'vmid', width: 90, fixed: 'left', cellProps: noVncCellProps },
   {
     title: '虚拟机名称',
     key: 'name',
-    minWidth: 300,
+    width: 340,
+    fixed: 'left',
     ellipsis: { tooltip: true },
     cellProps: noVncCellProps,
     render(row) {
