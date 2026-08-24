@@ -1,16 +1,6 @@
 <template>
   <AppPage :show-footer="false">
     <div class="crm-page">
-      <section v-if="mode === 'customers'" class="crm-summary">
-        <article v-for="card in summaryCards" :key="card.label">
-          <span :class="['crm-summary__icon', card.tone]"><TheIcon :icon="card.icon" :size="22" /></span>
-          <div>
-            <small>{{ card.label }}</small>
-            <strong>{{ card.value }}</strong>
-          </div>
-        </article>
-      </section>
-
       <section class="crm-panel">
         <div class="crm-panel__head">
           <div>
@@ -325,7 +315,6 @@ const salesUserLoading = ref(false)
 const rows = ref([])
 const detail = ref(null)
 const detailVisible = ref(false)
-const dashboard = reactive({ customers: 0, active_customers: 0, contracts: 0, expiring_contracts: 0, contacts: 0, unsettled_bills: 0 })
 const pagination = reactive({ page: 1, pageSize: 20, itemCount: 0, pageSizes: [20, 50, 100] })
 const query = reactive({ keyword: '', lifecycle: null, customer_level: null, entity_type: null, signing_entity_id: null, customer_id: null, status: null, role: null })
 const options = reactive({
@@ -401,15 +390,6 @@ const paymentMethodOptions = [
   { label: '信用卡', value: 'credit_card' },
   { label: '其他', value: 'other' },
 ]
-
-const summaryCards = computed(() => [
-  { label: '客户总数', value: dashboard.customers, icon: 'mdi:account-group-outline', tone: 'blue' },
-  { label: '正式客户', value: dashboard.active_customers, icon: 'mdi:account-check-outline', tone: 'green' },
-  { label: '合同总数', value: dashboard.contracts, icon: 'mdi:file-sign', tone: 'purple' },
-  { label: '即将到期', value: dashboard.expiring_contracts, icon: 'mdi:calendar-alert-outline', tone: 'orange' },
-  { label: '联系人', value: dashboard.contacts, icon: 'mdi:card-account-phone-outline', tone: 'cyan' },
-  { label: '未结算账单', value: dashboard.unsettled_bills, icon: 'mdi:receipt-clock-outline', tone: 'red' },
-])
 
 const ModalFooter = defineComponent({
   props: { loading: Boolean },
@@ -573,11 +553,6 @@ async function loadOptions() {
   options.currencies = data.currencies || []
 }
 
-async function loadDashboard() {
-  const res = await api.customerCenterApi.dashboard()
-  Object.assign(dashboard, res.data || {})
-}
-
 function pageParams(extra = {}) {
   return { page: pagination.page, page_size: pagination.pageSize, ...extra }
 }
@@ -619,7 +594,7 @@ function handlePageSizeChange(size) {
 }
 
 async function refreshAll() {
-  await Promise.all([loadOptions(), loadSalesUsers(), loadDashboard(), loadPage()])
+  await Promise.all([loadOptions(), loadSalesUsers(), loadPage()])
 }
 
 function rowActions(row, edit, remove) {
@@ -857,7 +832,6 @@ async function removeBill(row) {
 
 async function refreshAfterEdit() {
   await loadOptions()
-  await loadDashboard()
   await loadPage()
   if (detail.value?.id) await openDetail(detail.value.id)
 }
@@ -895,47 +869,11 @@ onMounted(() => {
   gap: 16px;
   min-height: calc(100vh - 120px);
 }
-.crm-summary {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(120px, 1fr));
-  gap: 12px;
-}
-.crm-summary article {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 76px;
-  padding: 14px 16px;
-  border: 1px solid #e7edf4;
-  border-radius: 8px;
-  background: #fff;
-}
-.crm-summary small,
 .eyebrow {
   color: #607089;
   font-size: 12px;
   font-weight: 700;
 }
-.crm-summary strong {
-  display: block;
-  color: #111827;
-  font-size: 26px;
-  line-height: 1.1;
-}
-.crm-summary__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 8px;
-}
-.blue { color: #2563eb; background: #eaf1ff; }
-.green { color: #16a34a; background: #e9f8ef; }
-.purple { color: #6d28d9; background: #f1ebff; }
-.orange { color: #ea580c; background: #fff1e8; }
-.cyan { color: #0891b2; background: #e8f8fb; }
-.red { color: #e11d48; background: #fff0f3; }
 .crm-panel {
   display: flex;
   flex: 1;
@@ -1153,7 +1091,6 @@ onMounted(() => {
   font-size: 12px;
 }
 @media (max-width: 1280px) {
-  .crm-summary { grid-template-columns: repeat(3, 1fr); }
   .crm-filter { grid-template-columns: 1fr 1fr; }
   .detail-metrics,
   .info-grid { grid-template-columns: repeat(2, 1fr); }
