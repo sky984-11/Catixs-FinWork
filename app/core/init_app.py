@@ -28,6 +28,7 @@ from app.log import logger
 from app.models.admin import Api, Menu, Role
 from app.models.admin import ScheduledTask
 from app.models.company import Bank, BankAccount, Company
+from app.models.customer_center import CrmSigningEntity
 from app.schemas.menus import MenuType
 from app.settings.config import settings
 
@@ -277,6 +278,8 @@ async def init_menus():
     await ensure_customer_project_menu()
     await ensure_requirement_menu()
     await ensure_resource_menu()
+    await ensure_customer_center_menu()
+    await remove_disabled_feature_menus()
     await ensure_task_menu()
 
 
@@ -307,8 +310,8 @@ async def ensure_menu_catalog(name: str, path: str, order: int, icon: str, redir
 
 
 async def remove_disabled_feature_menus():
-    disabled_paths = ["/ipam", "/ops/device-maintenance"]
-    menus = await Menu.filter(path__in=disabled_paths)
+    disabled_paths = ["/ipam", "/ops/device-maintenance", "/finance", "/resource"]
+    menus = await Menu.filter(Q(path__in=disabled_paths) | Q(parent_id__in=await Menu.filter(path__in=["/finance", "/resource"]).values_list("id", flat=True)))
     for menu in menus:
         changed = False
         if not menu.is_hidden:
@@ -319,6 +322,63 @@ async def remove_disabled_feature_menus():
             changed = True
         if changed:
             await menu.save()
+
+
+async def ensure_customer_center_menu():
+    customer_menu = await ensure_menu_catalog(
+        name="客户中心",
+        path="/customer-center",
+        order=2,
+        icon="mdi:account-tie-outline",
+        redirect="/customer-center/customers",
+    )
+    child_menus = [
+        {
+            "name": "客户管理",
+            "path": "customers",
+            "order": 1,
+            "icon": "mdi:account-group-outline",
+            "component": "/customer-center/customers",
+        },
+        {
+            "name": "客户合同",
+            "path": "contracts",
+            "order": 2,
+            "icon": "mdi:file-sign",
+            "component": "/customer-center/contracts",
+        },
+        {
+            "name": "客户联系人",
+            "path": "contacts",
+            "order": 3,
+            "icon": "mdi:card-account-phone-outline",
+            "component": "/customer-center/contacts",
+        },
+    ]
+    for menu_data in child_menus:
+        menu = await Menu.filter(component=menu_data["component"]).first()
+        values = {
+            "menu_type": MenuType.MENU,
+            "name": menu_data["name"],
+            "path": menu_data["path"],
+            "order": menu_data["order"],
+            "parent_id": customer_menu.id,
+            "icon": menu_data["icon"],
+            "is_hidden": False,
+            "component": menu_data["component"],
+            "keepalive": False,
+            "redirect": "",
+        }
+        if menu:
+            changed = False
+            for field, value in values.items():
+                if getattr(menu, field) != value:
+                    setattr(menu, field, value)
+                    changed = True
+            if changed:
+                await menu.save()
+        else:
+            await Menu.create(**values)
 
 
 async def ensure_service_module_menus():
@@ -1167,6 +1227,13 @@ async def ensure_business_api_permissions():
         | Q(method="GET", path="/api/v1/project/get")
         | Q(method="GET", path="/api/v1/requirement/list")
         | Q(method="GET", path="/api/v1/requirement/get")
+        | Q(method="GET", path="/api/v1/customer-center/options")
+        | Q(method="GET", path="/api/v1/customer-center/dashboard")
+        | Q(method="GET", path="/api/v1/customer-center/customers")
+        | Q(method="GET", path="/api/v1/customer-center/contacts")
+        | Q(method="GET", path="/api/v1/customer-center/contracts")
+        | Q(method="GET", path="/api/v1/customer-center/bills")
+        | Q(method="GET", path="/api/v1/customer-center/signing-entities")
         | Q(method="GET", path="/api/v1/resource/free-devices")
         | Q(method="GET", path="/api/v1/resource/zenlayer-pricing")
         | Q(method="POST", path="/api/v1/resource/zenlayer-pricing/quote")
@@ -1181,19 +1248,20 @@ async def ensure_business_api_permissions():
         | Q(path__startswith="/api/v1/asset/inventory-sale/")
         | Q(path__startswith="/api/v1/project/")
         | Q(path__startswith="/api/v1/requirement/")
+        | Q(path__startswith="/api/v1/customer-center/")
     )
     project_menu = await Menu.filter(path="/project-board").first()
     requirement_menu = await Menu.filter(path="/requirements").first()
-    resource_menu = await Menu.filter(path="/resource").first()
-    resource_child_menus = await Menu.filter(parent_id=resource_menu.id) if resource_menu else []
+    customer_center_menu = await Menu.filter(path="/customer-center").first()
+    customer_center_child_menus = await Menu.filter(parent_id=customer_center_menu.id) if customer_center_menu else []
 
     for role in roles:
         if read_apis:
             await role.apis.add(*read_apis)
-        if resource_menu:
-            await role.menus.add(resource_menu)
-        if resource_child_menus:
-            await role.menus.add(*resource_child_menus)
+        if customer_center_menu:
+            await role.menus.add(customer_center_menu)
+        if customer_center_child_menus:
+            await role.menus.add(*customer_center_child_menus)
         if is_admin_role_name(role.name):
             if manage_apis:
                 await role.apis.add(*manage_apis)
@@ -2054,6 +2122,51 @@ async def ensure_company_branding():
             await company.save()
 
 
+async def ensure_required_signing_entities():
+    entries = [
+        {
+            "name": "Catixs Ltd",
+            "legal_name": "Catixs Ltd",
+            "code": "CATIXS-LTD",
+            "country": "United Kingdom",
+            "address": "6 Watergate Walk, London, E14 9XH, United Kingdom",
+            "registration_no": "13745695",
+            "logo_url": "/logos/catixs.png",
+        },
+        {
+            "name": "77 Telecom Ltd",
+            "legal_name": "77 Telecom Ltd",
+            "code": "77-TELECOM-LTD",
+            "country": "Hong Kong",
+            "address": "RM B, 10/F, LEE MAY BUILDING, 788-790 NATHAN ROAD, MONGKOK, KOWLOON, HONG KONG",
+            "registration_no": "78687939",
+            "logo_url": "/logos/77-telecom.png",
+        },
+        {
+            "name": "深圳科特思网络科技有限公司",
+            "legal_name": "深圳科特思网络科技有限公司",
+            "code": "CATIXS-CN",
+            "country": "China",
+            "address": "深圳市南山区粤海街道科技园社区科发路222号康泰集团大厦3202",
+            "tax_no": "91440300MAEAJ4CP7U",
+            "registration_no": "91440300MAEAJ4CP7U",
+            "logo_url": "/logos/catixs.png",
+        },
+    ]
+    for item in entries:
+        entity = await CrmSigningEntity.filter(name=item["name"]).first()
+        if entity:
+            changed = False
+            for field, value in item.items():
+                if getattr(entity, field) != value:
+                    setattr(entity, field, value)
+                    changed = True
+            if changed:
+                await entity.save()
+        else:
+            await CrmSigningEntity.create(**item)
+
+
 async def ensure_user_columns():
     if settings.DB_TYPE == "sqlite":
         conn = Tortoise.get_connection("sqlite")
@@ -2326,3 +2439,4 @@ async def init_data():
     await ensure_pve_ip_sync_task()
     await init_companies()
     await ensure_company_branding()
+    await ensure_required_signing_entities()

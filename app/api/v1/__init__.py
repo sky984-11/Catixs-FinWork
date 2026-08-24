@@ -11,6 +11,7 @@ from .bank_accounts import bank_accounts_router
 from .base import base_router
 from .bills import bills_router
 from .companies import companies_router
+from .customer_center import router as customer_center_router
 from .depts import depts_router
 from .finance_quotes import finance_quotes_router
 from .fw_assistant import router as fw_assistant_router
@@ -64,6 +65,7 @@ v1_router.include_router(bank_accounts_router, prefix="/bank_account", dependenc
 v1_router.include_router(bills_router, prefix="/bill", dependencies=[DependPermission])
 v1_router.include_router(finance_quotes_router, prefix="/finance/quote", dependencies=[DependPermission])
 v1_router.include_router(companies_router, prefix="/company", dependencies=[DependPermission])
+v1_router.include_router(customer_center_router, prefix="/customer-center", dependencies=[DependPermission], tags=["客户中心"])
 v1_router.include_router(projects_router, prefix="/project", dependencies=[DependPermission])
 v1_router.include_router(requirements_router, prefix="/requirement", dependencies=[DependPermission], tags=["需求管理"])
 v1_router.include_router(resources_router, prefix="/resource", dependencies=[DependPermission])

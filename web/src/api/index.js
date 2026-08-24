@@ -315,6 +315,28 @@ export default {
     deleteEngineer: (id) => request.delete(`/remote-assistance/engineers/${id}`),
   },
 
+  customerCenterApi: {
+    options: () => request.get('/customer-center/options'),
+    dashboard: () => request.get('/customer-center/dashboard'),
+    listCustomers: (params = {}) => request.get('/customer-center/customers', { params }),
+    getCustomer: (id) => request.get(`/customer-center/customers/${id}`),
+    createCustomer: (data = {}) => request.post('/customer-center/customers', data),
+    updateCustomer: (id, data = {}) => request.put(`/customer-center/customers/${id}`, data),
+    deleteCustomer: (id) => request.delete(`/customer-center/customers/${id}`),
+    listContacts: (params = {}) => request.get('/customer-center/contacts', { params }),
+    createContact: (data = {}) => request.post('/customer-center/contacts', data),
+    updateContact: (id, data = {}) => request.put(`/customer-center/contacts/${id}`, data),
+    deleteContact: (id) => request.delete(`/customer-center/contacts/${id}`),
+    listContracts: (params = {}) => request.get('/customer-center/contracts', { params }),
+    createContract: (data = {}) => request.post('/customer-center/contracts', data),
+    updateContract: (id, data = {}) => request.put(`/customer-center/contracts/${id}`, data),
+    deleteContract: (id) => request.delete(`/customer-center/contracts/${id}`),
+    listBills: (params = {}) => request.get('/customer-center/bills', { params }),
+    createBill: (data = {}) => request.post('/customer-center/bills', data),
+    updateBill: (id, data = {}) => request.put(`/customer-center/bills/${id}`, data),
+    deleteBill: (id) => request.delete(`/customer-center/bills/${id}`),
+  },
+
   assetPublicApi: {
     cabinetPhotoInfo: (params = {}) => request.get('/asset-public/cabinet-photo', { params, noNeedToken: true }),
     uploadCabinetPhoto: (data = {}, params = {}) =>
