@@ -640,4 +640,39 @@ onMounted(() => {
   justify-content: flex-end;
   gap: 12px;
 }
+
+@media (max-width: 768px) {
+  .ticket-page {
+    min-height: 100vh;
+    padding: 10px;
+    background: #f5f7fb;
+  }
+
+  .filter-card {
+    display: none;
+  }
+
+  .ticket-list-container {
+    margin-top: 0;
+    border-radius: 14px;
+  }
+
+  .ticket-list-container :deep(.n-card-header) {
+    padding: 12px 14px;
+  }
+
+  .ticket-list-container :deep(.n-card__content) {
+    padding: 0;
+  }
+
+  .scroll-container {
+    height: calc(100vh - 128px);
+    margin: 0;
+    padding: 8px;
+  }
+
+  .cards-wrapper {
+    padding: 0;
+  }
+}
 </style>

@@ -7,7 +7,7 @@
           <h2>编辑虚拟机 · {{ vmName }}</h2>
           <p>{{ remote }} / VMID {{ vmid }}</p>
         </div>
-        <n-space>
+        <n-space class="edit-actions">
           <n-button :loading="rebooting" secondary type="warning" @click="rebootVm">
             <template #icon>
               <TheIcon icon="mdi:restart" :size="16" />
@@ -27,7 +27,7 @@
         <section class="edit-grid">
           <n-card title="基础资源" :bordered="false">
             <n-form label-placement="left" label-width="110">
-              <n-grid :cols="2" :x-gap="18">
+              <n-grid :cols="baseResourceCols" :x-gap="18">
                 <n-form-item-gi label="CPU 核心">
                   <n-input-number v-model:value="form.cores" :min="1" :max="256" class="full-width" />
                 </n-form-item-gi>
@@ -66,7 +66,7 @@
                   删除
                 </n-button>
               </div>
-              <n-grid :cols="4" :x-gap="12">
+              <n-grid :cols="networkFormCols" :x-gap="12">
                 <n-form-item-gi label="模型">
                   <n-select v-model:value="network.model" :options="modelOptions" />
                 </n-form-item-gi>
@@ -97,6 +97,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useWindowSize } from '@vueuse/core'
 import { useMessage } from 'naive-ui'
 import api from '@/api'
 import TheIcon from '@/components/icon/TheIcon.vue'
@@ -104,6 +105,10 @@ import TheIcon from '@/components/icon/TheIcon.vue'
 const route = useRoute()
 const router = useRouter()
 const message = useMessage()
+const { width: viewportWidth } = useWindowSize()
+const isMobileEditView = computed(() => viewportWidth.value <= 768)
+const baseResourceCols = computed(() => (isMobileEditView.value ? 1 : 2))
+const networkFormCols = computed(() => (isMobileEditView.value ? 1 : 4))
 
 const loading = ref(false)
 const saving = ref(false)
@@ -344,5 +349,60 @@ onMounted(fetchConfig)
   border-radius: 8px;
   color: #94a3b8;
   text-align: center;
+}
+
+@media (max-width: 768px) {
+  .vm-edit-page {
+    padding: 10px;
+  }
+
+  .edit-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .edit-header h2 {
+    font-size: 18px;
+    line-height: 1.35;
+    word-break: break-word;
+  }
+
+  .edit-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .edit-actions :deep(.n-button) {
+    width: 100%;
+  }
+
+  .edit-actions :deep(.n-button:first-child) {
+    grid-column: 1 / -1;
+  }
+
+  .edit-grid {
+    gap: 10px;
+  }
+
+  .edit-grid :deep(.n-card-header) {
+    padding: 14px 16px 8px;
+  }
+
+  .edit-grid :deep(.n-card__content) {
+    padding: 10px 16px 16px;
+  }
+
+  .net-card {
+    padding: 12px;
+  }
+
+  .net-title {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .net-title :deep(.n-button) {
+    width: 100%;
+  }
 }
 </style>

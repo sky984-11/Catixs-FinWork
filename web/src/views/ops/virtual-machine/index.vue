@@ -141,6 +141,7 @@
             </div>
 
             <n-data-table
+              v-if="!isMobileVmView"
               :key="tableRenderKey"
               remote
               :loading="loading.vms"
@@ -152,7 +153,85 @@
               :row-class-name="() => 'vm-table-row'"
               :row-props="vmRowProps"
             />
-            <div class="vm-list-footer">
+            <div v-else class="mobile-vm-list">
+              <VanSkeleton v-if="loading.vms" title :row="8" />
+              <VanEmpty v-else-if="!pagedVmList.length" image-size="70" description="暂无虚拟机" />
+              <template v-else>
+                <article
+                  v-for="vm in pagedVmList"
+                  :key="vm.id"
+                  class="mobile-vm-card"
+                  @dblclick="openNoVnc(vm)"
+                >
+                  <header class="mobile-vm-card__head">
+                    <div>
+                      <span>VMID {{ vm.vmid }}</span>
+                      <strong>{{ vm.name || '-' }}</strong>
+                    </div>
+                    <VanTag :type="mobileVmStatusType(vm)" round>{{ mobileVmStatusText(vm) }}</VanTag>
+                  </header>
+
+                  <div class="mobile-vm-ips">
+                    <span v-if="!mobileVmIps(vm).length">IP -</span>
+                    <VanTag v-for="ip in mobileVmIps(vm)" :key="ip" plain type="primary">
+                      {{ ip }}
+                    </VanTag>
+                  </div>
+
+                  <div class="mobile-vm-meta">
+                    <span>
+                      <em>CPU</em>
+                      <strong>{{ formatMobileCpu(vm) }}</strong>
+                    </span>
+                    <span>
+                      <em>内存</em>
+                      <strong>{{ formatBytes(vm.mem) }} / {{ formatBytes(vm.maxmem) }}</strong>
+                    </span>
+                    <span>
+                      <em>磁盘</em>
+                      <strong>{{ formatBytes(vm.disk) }} / {{ formatBytes(vm.maxdisk) }}</strong>
+                    </span>
+                    <span>
+                      <em>运行时间</em>
+                      <strong>{{ formatUptime(vm.uptime) }}</strong>
+                    </span>
+                    <span>
+                      <em>有效时间</em>
+                      <strong>
+                        <VanTag :type="mobileExpireType(vm)" plain>{{ resolveVmExpire(vm).text }}</VanTag>
+                      </strong>
+                    </span>
+                  </div>
+
+                  <p v-if="vm.remark" class="mobile-vm-remark">{{ vm.remark }}</p>
+
+                  <div class="mobile-vm-actions">
+                    <VanButton size="small" plain type="primary" icon="bar-chart-o" @click.stop="openMonitor(vm)">
+                      监控
+                    </VanButton>
+                    <VanButton
+                      size="small"
+                      plain
+                      :type="mobileVmPowerType(vm)"
+                      icon="power-o"
+                      @click.stop="handlePowerVm(vm)"
+                    >
+                      {{ mobileVmPowerText(vm) }}
+                    </VanButton>
+                    <VanButton size="small" plain type="primary" icon="edit" @click.stop="openEditVm(vm)">
+                      编辑
+                    </VanButton>
+                    <VanButton size="small" plain type="danger" icon="delete-o" @click.stop="confirmDeleteVm(vm)">
+                      删除
+                    </VanButton>
+                    <VanButton size="small" plain type="warning" icon="share-o" @click.stop="openMigration(vm)">
+                      迁移
+                    </VanButton>
+                  </div>
+                </article>
+              </template>
+            </div>
+            <div class="vm-list-footer" :class="{ 'mobile-vm-footer': isMobileVmView }">
               <div class="status-summary">
                 <n-tag type="success" round>运行 {{ vmSummary.running || 0 }}</n-tag>
                 <n-tag type="default" round>停止 {{ vmSummary.stopped || 0 }}</n-tag>
@@ -178,8 +257,8 @@
         :style="vmCreateModalStyle"
       >
         <n-spin v-if="!createModal.created" :show="createModal.loading">
-          <n-form label-placement="left" label-width="110">
-            <n-grid :cols="2" :x-gap="14">
+          <n-form class="vm-create-form" :label-placement="mobileFormLabelPlacement" :label-width="mobileFormLabelWidth">
+            <n-grid :cols="createFormCols" :x-gap="14">
               <n-form-item-gi label="操作系统" required>
                 <n-cascader
                   v-model:value="createModal.form.os_selection"
@@ -258,7 +337,7 @@
               <n-form-item-gi v-if="createModal.form.network.mode === 'static'" label="VLAN" required>
                 <n-input-number v-model:value="createModal.form.network.vlan" :min="1" :max="4094" class="full-width" />
               </n-form-item-gi>
-              <n-form-item-gi label="有效时间" :span="2">
+              <n-form-item-gi label="有效时间" :span="createWideSpan">
                 <n-date-picker
                   v-model:value="createModal.form.expire_at"
                   type="datetime"
@@ -270,7 +349,7 @@
                   :shortcuts="createExpireShortcuts"
                 />
               </n-form-item-gi>
-              <n-form-item-gi label="描述" :span="2">
+              <n-form-item-gi label="描述" :span="createWideSpan">
                 <n-input
                   v-model:value="createModal.form.description"
                   type="textarea"
@@ -284,7 +363,7 @@
         <div v-else class="create-result-panel">
           <n-result status="success" title="虚拟机已创建" description="请记录这台虚拟机的初始配置，root 密码只对应当前创建的机器。">
             <template #footer>
-              <n-descriptions bordered :column="2" size="small">
+              <n-descriptions bordered :column="createFormCols" size="small">
                 <n-descriptions-item label="虚拟机名称">
                   {{ createModal.createdConfig?.vm_name || '-' }}
                 </n-descriptions-item>
@@ -663,6 +742,8 @@
 <script setup>
 import { computed, h, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useWindowSize } from '@vueuse/core'
+import { Button as VanButton, Empty as VanEmpty, Skeleton as VanSkeleton, Tag as VanTag } from 'vant'
 import { NButton, NSpace, NTag, useDialog, useMessage } from 'naive-ui'
 import api from '@/api'
 import TheIcon from '@/components/icon/TheIcon.vue'
@@ -672,6 +753,12 @@ import NoVncConsole from './NoVncConsole.vue'
 const message = useMessage()
 const dialog = useDialog()
 const router = useRouter()
+const { width: viewportWidth } = useWindowSize()
+const isMobileVmView = computed(() => viewportWidth.value <= 768)
+const createFormCols = computed(() => (isMobileVmView.value ? 1 : 2))
+const createWideSpan = computed(() => (isMobileVmView.value ? 1 : 2))
+const mobileFormLabelPlacement = computed(() => (isMobileVmView.value ? 'top' : 'left'))
+const mobileFormLabelWidth = computed(() => (isMobileVmView.value ? undefined : 110))
 
 const createExpireTimePickerProps = {
   format: 'HH:00',
@@ -1252,6 +1339,43 @@ function resolveVmExpire(row) {
   if (diff < 0) return { text, type: 'error' }
   if (diff <= 3 * 24 * 60 * 60 * 1000) return { text, type: 'warning' }
   return { text, type: 'success' }
+}
+
+function mobileVmIps(row) {
+  const ips = row?.ips || row?.ip_addresses || []
+  if (Array.isArray(ips) && ips.length) return ips.slice(0, 3)
+  if (row?.ip_loading) return ['查询中']
+  return []
+}
+
+function mobileVmStatusText(row) {
+  return row?.status === 'running' ? '运行中' : '已停止'
+}
+
+function mobileVmStatusType(row) {
+  return row?.status === 'running' ? 'success' : 'default'
+}
+
+function mobileVmPowerText(row) {
+  return row?.status === 'running' ? '关机' : '开机'
+}
+
+function mobileVmPowerType(row) {
+  return row?.status === 'running' ? 'warning' : 'success'
+}
+
+function mobileExpireType(row) {
+  const type = resolveVmExpire(row).type
+  if (type === 'error') return 'danger'
+  if (type === 'info') return 'primary'
+  if (type === 'success' || type === 'warning') return type
+  return 'default'
+}
+
+function formatMobileCpu(row) {
+  const cpu = row?.cpu ?? 0
+  const maxcpu = row?.maxcpu || 0
+  return `${cpu}% / ${maxcpu} 核`
 }
 
 function handlePowerVm(row) {
@@ -2538,6 +2662,113 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
+.mobile-vm-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mobile-vm-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
+}
+
+.mobile-vm-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mobile-vm-card__head div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mobile-vm-card__head span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mobile-vm-card__head strong {
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-vm-ips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.mobile-vm-ips > span {
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.mobile-vm-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.mobile-vm-meta span {
+  min-width: 0;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 8px;
+}
+
+.mobile-vm-meta em {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.mobile-vm-meta strong {
+  display: block;
+  overflow: hidden;
+  margin-top: 3px;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-vm-remark {
+  margin: 10px 0 0;
+  border-left: 3px solid #bfdbfe;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.5;
+  padding-left: 8px;
+  word-break: break-word;
+}
+
+.mobile-vm-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.mobile-vm-actions :deep(.van-button) {
+  width: 100%;
+}
+
 .vm-name-cell {
   display: flex;
   min-width: 0;
@@ -2571,6 +2802,11 @@ onBeforeUnmount(() => {
 
 .vm-console-modal :deep(.n-card__content) {
   padding: 0;
+}
+
+.vm-create-modal :deep(.n-card__content) {
+  max-height: calc(100vh - 180px);
+  overflow-y: auto;
 }
 
 .add-node-steps {
@@ -2755,6 +2991,24 @@ html.dark .content-panel :deep(.vm-table-row:hover .n-data-table-td) {
   background: rgba(30, 41, 59, 0.72);
 }
 
+html.dark .mobile-vm-card {
+  border-color: rgba(148, 163, 184, 0.18);
+  background: rgba(17, 24, 39, 0.9);
+}
+
+html.dark .mobile-vm-card__head strong,
+html.dark .mobile-vm-meta strong {
+  color: #e5e7eb;
+}
+
+html.dark .mobile-vm-meta span {
+  background: rgba(15, 23, 42, 0.86);
+}
+
+html.dark .mobile-vm-remark {
+  color: #cbd5e1;
+}
+
 html.dark .task-status-panel h2,
 html.dark .task-detail-grid strong {
   color: #e5e7eb;
@@ -2795,8 +3049,130 @@ html.dark .task-float-button {
   }
 }
 
+@media (max-width: 768px) {
+  .vm-page {
+    padding: 10px;
+  }
+
+  .vm-layout,
+  .vm-main {
+    gap: 10px;
+  }
+
+  .vm-sidebar {
+    height: auto;
+    max-height: none;
+    padding: 12px;
+  }
+
+  .side-spin {
+    flex: none;
+  }
+
+  .side-list {
+    flex-direction: row;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0 2px 4px 0;
+  }
+
+  .side-list-item {
+    min-width: 164px;
+  }
+
+  .summary-band {
+    gap: 8px;
+  }
+
+  .summary-band article {
+    padding: 10px;
+  }
+
+  .summary-band strong {
+    font-size: 17px;
+  }
+
+  .summary-ip-card {
+    grid-column: 1 / -1;
+  }
+
+  .content-panel {
+    padding: 12px;
+  }
+
+  .content-panel > .panel-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .vm-list-actions {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-left: 0;
+  }
+
+  .vm-list-actions :deep(.n-button) {
+    width: 100%;
+  }
+
+  .mobile-vm-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .mobile-vm-footer :deep(.n-pagination) {
+    justify-content: center;
+  }
+
+  .vm-create-modal {
+    width: calc(100vw - 16px) !important;
+    max-width: calc(100vw - 16px) !important;
+  }
+
+  .vm-create-modal :deep(.n-card-header) {
+    padding: 14px 16px 8px;
+  }
+
+  .vm-create-modal :deep(.n-card__content) {
+    max-height: calc(100vh - 152px);
+    padding: 10px 16px;
+  }
+
+  .vm-create-modal :deep(.n-card__footer) {
+    padding: 10px 16px 14px;
+  }
+
+  .vm-create-form :deep(.n-form-item) {
+    grid-template-rows: auto;
+  }
+
+  .vm-create-form :deep(.n-input-group) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .modal-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .modal-footer > span {
+    line-height: 1.5;
+  }
+
+  .modal-footer :deep(.n-button) {
+    min-width: 0;
+  }
+}
+
 @media (max-width: 520px) {
   .summary-band {
+    grid-template-columns: 1fr;
+  }
+
+  .mobile-vm-meta {
     grid-template-columns: 1fr;
   }
 }

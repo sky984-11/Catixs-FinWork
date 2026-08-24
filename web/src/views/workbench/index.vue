@@ -1,6 +1,121 @@
 <template>
   <AppPage :show-footer="false">
-    <div class="workbench-page">
+    <div v-if="isMobileOps" class="mobile-ops-page">
+      <van-nav-bar title="运维中心" fixed placeholder>
+        <template #right>
+          <button class="mobile-refresh" :disabled="loading" @click="loadDashboard">
+            <TheIcon icon="material-symbols:refresh-rounded" :size="18" />
+          </button>
+        </template>
+      </van-nav-bar>
+
+      <van-pull-refresh v-model="mobileRefreshing" @refresh="handleMobileRefresh">
+        <section class="mobile-hero">
+          <div class="mobile-user">
+            <img class="mobile-avatar" :src="userStore.avatar" alt="avatar" />
+            <div>
+              <span>IDC 运维中心</span>
+              <strong>{{ greetingText }}</strong>
+              <em>故障、请求、资源与日志的移动工作台。</em>
+            </div>
+          </div>
+          <van-button type="primary" block round @click="goTicket">进入工单</van-button>
+        </section>
+
+        <van-grid class="mobile-module-grid" :column-num="4" :border="false" clickable>
+          <van-grid-item v-for="item in mobileModules" :key="item.path" :text="item.label" @click="goPath(item.path)">
+            <template #icon>
+              <span class="mobile-module-icon" :style="{ color: item.color, background: item.bg }">
+                <TheIcon :icon="item.icon" :size="20" />
+              </span>
+            </template>
+          </van-grid-item>
+        </van-grid>
+
+        <section class="mobile-metrics">
+          <article v-for="item in metricCards" :key="item.key">
+            <span :style="{ color: item.color, background: item.bg }">
+              <TheIcon :icon="item.icon" :size="19" />
+            </span>
+            <div>
+              <small>{{ item.label }}</small>
+              <strong>{{ item.value }}</strong>
+            </div>
+          </article>
+        </section>
+
+        <van-cell-group inset title="工单态势">
+          <div class="mobile-status-list">
+            <div v-for="item in statusRows" :key="item.value" class="mobile-status-row">
+              <div>
+                <span>{{ item.label }}</span>
+                <strong>{{ item.count }}</strong>
+              </div>
+              <van-progress :percentage="item.percent" :color="item.color" :show-pivot="false" />
+            </div>
+          </div>
+        </van-cell-group>
+
+        <van-cell-group inset title="运维队列">
+          <van-cell v-for="item in queueRows" :key="item.value" center clickable @click="goTicket">
+            <template #icon>
+              <span class="mobile-cell-icon" :style="{ color: item.color, background: item.bg }">
+                <TheIcon :icon="item.icon" :size="18" />
+              </span>
+            </template>
+            <template #title>
+              <span class="mobile-cell-title">{{ item.label }}</span>
+            </template>
+            <template #label>
+              <span>{{ item.desc }}</span>
+            </template>
+            <template #value>
+              <strong class="mobile-cell-value">{{ item.count }}</strong>
+            </template>
+          </van-cell>
+        </van-cell-group>
+
+        <van-cell-group inset title="最近工单">
+          <van-skeleton v-if="loading" title :row="5" />
+          <van-empty v-else-if="!recentTickets.length" image-size="72" description="暂无工单数据" />
+          <van-cell
+            v-for="ticket in recentTickets"
+            v-else
+            :key="ticket.id"
+            clickable
+            center
+            :title="ticket.title"
+            :label="`${ticket.ticketNo} · ${formatDate(ticket.createdAt)}`"
+            @click="goTicket"
+          >
+            <template #value>
+              <van-tag :type="mobileStatusType(ticket.status)" plain>{{ getStatusName(ticket.status) }}</van-tag>
+            </template>
+          </van-cell>
+        </van-cell-group>
+
+        <van-cell-group inset title="待处理队列">
+          <van-empty v-if="!loading && !waitingTickets.length" image-size="72" description="当前无待处理工单" />
+          <van-cell
+            v-for="ticket in waitingTickets"
+            v-else
+            :key="ticket.id"
+            clickable
+            :title="ticket.title"
+            :label="`${ticket.ticketNo} · ${getTypeName(ticket.type)}`"
+            @click="goTicket"
+          >
+            <template #value>
+              <van-tag :type="getAgeTagType(ticket.createdAt) === 'warning' ? 'warning' : 'primary'">
+                {{ getTicketAge(ticket.createdAt) }}
+              </van-tag>
+            </template>
+          </van-cell>
+        </van-cell-group>
+      </van-pull-refresh>
+    </div>
+
+    <div v-else class="workbench-page">
       <section class="toolbar-panel">
         <div class="user-cluster">
           <img class="user-avatar" :src="userStore.avatar" alt="avatar" />
@@ -177,6 +292,20 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useWindowSize } from '@vueuse/core'
+import {
+  Button as VanButton,
+  Cell as VanCell,
+  CellGroup as VanCellGroup,
+  Empty as VanEmpty,
+  Grid as VanGrid,
+  GridItem as VanGridItem,
+  NavBar as VanNavBar,
+  Progress as VanProgress,
+  PullRefresh as VanPullRefresh,
+  Skeleton as VanSkeleton,
+  Tag as VanTag,
+} from 'vant'
 import api from '@/api'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import { useUserStore } from '@/store'
@@ -185,8 +314,11 @@ defineOptions({ name: 'Workbench' })
 
 const router = useRouter()
 const userStore = useUserStore()
+const { width } = useWindowSize()
 const loading = ref(false)
 const loadError = ref('')
+const mobileRefreshing = ref(false)
+const isMobileOps = computed(() => width.value <= 768)
 
 const emptyCountMap = () => ({ 0: 0, 1: 0, 2: 0, 3: 0 })
 
@@ -327,6 +459,17 @@ const queueRows = computed(() => {
   }))
 })
 
+const mobileModules = [
+  { label: '服务工单', path: '/ticket', icon: 'mdi:ticket-confirmation-outline', color: '#2563eb', bg: 'rgba(37, 99, 235, .1)' },
+  { label: '网络节点', path: '/ops/pop', icon: 'mdi:map-marker-network-outline', color: '#0ea5e9', bg: 'rgba(14, 165, 233, .1)' },
+  { label: '日志中心', path: '/syslog', icon: 'mdi:text-box-search-outline', color: '#7c3aed', bg: 'rgba(124, 58, 237, .1)' },
+  { label: '机柜资源', path: '/asset/cabinet', icon: 'mdi:server', color: '#0891b2', bg: 'rgba(8, 145, 178, .1)' },
+  { label: '流量分析', path: '/akvorado', icon: 'mdi:chart-areaspline', color: '#16a34a', bg: 'rgba(22, 163, 74, .1)' },
+  { label: '资产库存', path: '/asset/inventory', icon: 'mdi:warehouse', color: '#ea580c', bg: 'rgba(234, 88, 12, .12)' },
+  { label: '云资源', path: '/ops/virtual-machine', icon: 'mdi:cloud-outline', color: '#4f46e5', bg: 'rgba(79, 70, 229, .1)' },
+  { label: '运维日志', path: '/remote-assistance', icon: 'mdi:clipboard-text-clock-outline', color: '#64748b', bg: 'rgba(100, 116, 139, .12)' },
+]
+
 const recentTickets = computed(() => dashboard.recentTickets.map(formatTicket))
 const waitingTickets = computed(() => dashboard.waitingTickets.map(formatTicket))
 
@@ -425,6 +568,11 @@ function getAgeTagType(value) {
   return 'info'
 }
 
+function mobileStatusType(status) {
+  const map = { 0: 'success', 1: 'primary', 2: 'warning', 3: 'default' }
+  return map[status] || 'default'
+}
+
 async function loadDashboard() {
   loading.value = true
   loadError.value = ''
@@ -450,12 +598,206 @@ function goTicket() {
   router.push('/ticket')
 }
 
+function goPath(path) {
+  router.push(path)
+}
+
+async function handleMobileRefresh() {
+  await loadDashboard()
+  mobileRefreshing.value = false
+}
+
 onMounted(() => {
   loadDashboard()
 })
 </script>
 
 <style scoped>
+.mobile-ops-page {
+  min-height: 100vh;
+  background: #f5f7fb;
+  color: #0f172a;
+}
+
+.mobile-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: #eef4ff;
+  color: #2563eb;
+}
+
+.mobile-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 12px;
+  padding: 16px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #0f2f68 0%, #168f86 100%);
+  color: #fff;
+  box-shadow: 0 12px 28px rgba(15, 47, 104, .18);
+}
+
+.mobile-user {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+
+.mobile-avatar {
+  width: 48px;
+  height: 48px;
+  flex: none;
+  border: 2px solid rgba(255, 255, 255, .7);
+  border-radius: 50%;
+  background: #fff;
+  object-fit: cover;
+}
+
+.mobile-user span,
+.mobile-user em {
+  display: block;
+  color: rgba(255, 255, 255, .78);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.mobile-user strong {
+  display: block;
+  margin: 3px 0;
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.mobile-module-grid,
+.mobile-metrics {
+  margin: 0 12px 12px;
+}
+
+.mobile-module-grid :deep(.van-grid-item__content) {
+  gap: 6px;
+  padding: 12px 4px;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.mobile-module-grid :deep(.van-grid-item__text) {
+  color: #334155;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.mobile-module-icon,
+.mobile-cell-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+}
+
+.mobile-module-icon {
+  width: 36px;
+  height: 36px;
+}
+
+.mobile-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.mobile-metrics article {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.mobile-metrics article > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: 10px;
+}
+
+.mobile-metrics small {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.mobile-metrics strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.mobile-status-list {
+  padding: 4px 14px 12px;
+}
+
+.mobile-status-row + .mobile-status-row {
+  margin-top: 12px;
+}
+
+.mobile-status-row > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 7px;
+  color: #475569;
+  font-size: 13px;
+}
+
+.mobile-status-row strong {
+  color: #0f172a;
+}
+
+.mobile-cell-icon {
+  width: 34px;
+  height: 34px;
+  margin-right: 10px;
+}
+
+.mobile-cell-title {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.mobile-cell-value {
+  color: #0f172a;
+  font-size: 20px;
+}
+
+.mobile-ops-page :deep(.van-cell-group--inset) {
+  margin: 0 12px 12px;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.mobile-ops-page :deep(.van-cell-group__title) {
+  padding: 10px 12px 8px;
+  color: #475569;
+  font-weight: 700;
+}
+
+.mobile-ops-page :deep(.van-nav-bar) {
+  --van-nav-bar-title-text-color: #0f172a;
+}
+
 .workbench-page {
   display: flex;
   flex-direction: column;
