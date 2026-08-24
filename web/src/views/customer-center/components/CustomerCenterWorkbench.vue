@@ -655,7 +655,7 @@ const contactColumns = [
   { title: '联系人', key: 'name', width: 150, fixed: 'left' },
   { title: '类型', key: 'contact_type_label', width: 90, render: (row) => renderTag(row.contact_type_label, row.contact_type === 'group' ? 'warning' : 'default') },
   { title: '所属客户', key: 'customer_name', width: 200, ellipsis: { tooltip: true } },
-  { title: '角色', key: 'role_label', width: 120, render: (row) => renderTag(row.role_label, 'info') },
+  { title: '角色', key: 'role_label', width: 120, render: (row) => renderTag(row.role_label, contactRoleType(row.role)) },
   { title: '邮箱', key: 'email', width: 190, ellipsis: { tooltip: true } },
   { title: '电话', key: 'phone', width: 130 },
   { title: '操作', key: 'actions', width: 92, fixed: 'right', render: (row) => rowActions(row, openContactModal, removeContact) },
@@ -686,6 +686,17 @@ function lifecycleType(value) {
 
 function contractType(value) {
   return value === 'active' ? 'success' : value === 'expiring' ? 'warning' : value === 'expired' || value === 'terminated' ? 'error' : 'info'
+}
+
+function contactRoleType(value) {
+  const roleTypeMap = {
+    business: 'success',
+    technical: 'info',
+    finance: 'warning',
+    ops: 'default',
+    emergency: 'error',
+  }
+  return roleTypeMap[value] || 'default'
 }
 
 function customerRowProps(row) {
