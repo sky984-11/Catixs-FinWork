@@ -225,7 +225,13 @@
         <template #footer><ModalFooter :loading="contractModal.loading" @cancel="contractModal.show = false" @save="saveContract" /></template>
       </n-modal>
 
-      <n-modal v-model:show="contactModal.show" preset="card" :title="contactModal.form.id ? '编辑联系人' : '新增联系人'" class="crm-modal contact-modal">
+      <n-modal
+        v-model:show="contactModal.show"
+        preset="card"
+        :title="contactModal.form.id ? '编辑联系人' : '新增联系人'"
+        class="crm-modal contact-modal"
+        style="width: min(720px, calc(100vw - 32px))"
+      >
         <div class="contact-modal__intro">
           <span class="contact-modal__icon">
             <TheIcon icon="mdi:card-account-phone-outline" :size="24" />
@@ -241,11 +247,11 @@
               <span>归属与身份</span>
               <small>确认联系人归属客户、类型和沟通角色</small>
             </div>
-            <n-grid :cols="6" :x-gap="16" :y-gap="2">
-              <n-form-item-gi label="所属客户" required :span="3"><n-select v-model:value="contactModal.form.customer_id" filterable :options="options.customers" placeholder="请选择客户" /></n-form-item-gi>
-              <n-form-item-gi label="联系人类型" :span="3"><n-select v-model:value="contactModal.form.contact_type" :options="options.contactTypes" /></n-form-item-gi>
-              <n-form-item-gi label="联系人角色" :span="2"><n-select v-model:value="contactModal.form.role" :options="options.contactRoles" /></n-form-item-gi>
-              <n-form-item-gi :label="contactModal.form.contact_type === 'group' ? '组名 / 部门名' : '联系人姓名'" :span="4"><n-input v-model:value="contactModal.form.name" :placeholder="contactModal.form.contact_type === 'group' ? '如：NOC / Accounting / Billing' : '请输入联系人姓名'" /></n-form-item-gi>
+            <n-grid :cols="2" :x-gap="16" :y-gap="2" responsive="screen">
+              <n-form-item-gi label="所属客户" required :span="2"><n-select v-model:value="contactModal.form.customer_id" filterable :options="options.customers" placeholder="请选择客户" /></n-form-item-gi>
+              <n-form-item-gi label="联系人类型"><n-select v-model:value="contactModal.form.contact_type" :options="options.contactTypes" /></n-form-item-gi>
+              <n-form-item-gi label="联系人角色"><n-select v-model:value="contactModal.form.role" :options="options.contactRoles" /></n-form-item-gi>
+              <n-form-item-gi :label="contactModal.form.contact_type === 'group' ? '组名 / 部门名' : '联系人姓名'" :span="2"><n-input v-model:value="contactModal.form.name" :placeholder="contactModal.form.contact_type === 'group' ? '如：NOC / Accounting / Billing' : '请输入联系人姓名'" /></n-form-item-gi>
             </n-grid>
           </section>
 
@@ -254,11 +260,11 @@
               <span>联系方式</span>
               <small>组邮箱可只维护邮箱，个人联系人可补充电话和地址</small>
             </div>
-            <n-grid :cols="6" :x-gap="16" :y-gap="2">
-              <n-form-item-gi label="邮箱" :span="3"><n-input v-model:value="contactModal.form.email" placeholder="name@example.com" /></n-form-item-gi>
-              <n-form-item-gi label="电话" :span="3"><n-input v-model:value="contactModal.form.phone" placeholder="国家码 + 电话号码" /></n-form-item-gi>
-              <n-form-item-gi label="联系地址" :span="6"><n-input v-model:value="contactModal.form.address" placeholder="可填写办公地址、邮寄地址或所在地" /></n-form-item-gi>
-              <n-form-item-gi label="备注" :span="6"><n-input v-model:value="contactModal.form.remark" type="textarea" placeholder="内部备注、沟通偏好、账单抄送说明等" /></n-form-item-gi>
+            <n-grid :cols="2" :x-gap="16" :y-gap="2" responsive="screen">
+              <n-form-item-gi label="邮箱"><n-input v-model:value="contactModal.form.email" placeholder="name@example.com" /></n-form-item-gi>
+              <n-form-item-gi label="电话"><n-input v-model:value="contactModal.form.phone" placeholder="国家码 + 电话号码" /></n-form-item-gi>
+              <n-form-item-gi label="联系地址" :span="2"><n-input v-model:value="contactModal.form.address" placeholder="可填写办公地址、邮寄地址或所在地" /></n-form-item-gi>
+              <n-form-item-gi label="备注" :span="2"><n-input v-model:value="contactModal.form.remark" type="textarea" placeholder="内部备注、沟通偏好、账单抄送说明等" /></n-form-item-gi>
             </n-grid>
           </section>
         </n-form>
@@ -995,9 +1001,6 @@ onMounted(refreshAll)
 }
 :deep(.customer-modal) {
   width: min(960px, 94vw);
-}
-:deep(.contact-modal) {
-  width: min(820px, 94vw);
 }
 :deep(.customer-modal .n-card-header) {
   padding: 20px 24px 12px;
