@@ -276,7 +276,8 @@
 </template>
 
 <script setup>
-import { computed, defineComponent, h, onMounted, reactive, ref } from 'vue'
+import { computed, defineComponent, h, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   NButton,
   NDataTable,
@@ -304,6 +305,8 @@ import api from '@/api'
 import TheIcon from '@/components/icon/TheIcon.vue'
 
 const props = defineProps({ mode: { type: String, default: 'customers' } })
+const route = useRoute()
+const router = useRouter()
 
 const labelMap = {
   customers: { title: '客户管理', keyword: '搜索客户简称 / 客户全称 / 销售 / 地区' },
@@ -626,6 +629,12 @@ function rowActions(row, edit, remove) {
   ])
 }
 
+function goCustomerContacts(row, event) {
+  event?.stopPropagation?.()
+  if (!row?.id) return
+  router.push({ path: '/customer-center/contacts', query: { customer_id: row.id } })
+}
+
 const customerColumns = [
   { title: '客户简称', key: 'name', width: 170, fixed: 'left', ellipsis: { tooltip: true } },
   { title: '客户全称', key: 'legal_name', width: 260, ellipsis: { tooltip: true } },
@@ -635,7 +644,22 @@ const customerColumns = [
   { title: '生命周期', key: 'lifecycle_label', width: 120, render: (row) => renderTag(row.lifecycle_label, lifecycleType(row.lifecycle)) },
   { title: '所属销售', key: 'sales_owner', width: 130 },
   { title: '所属地区', key: 'region', width: 130 },
-  { title: '联系人', key: 'contact_count', width: 90 },
+  {
+    title: '联系人',
+    key: 'contact_count',
+    width: 90,
+    render: (row) => h(
+      NButton,
+      {
+        text: true,
+        type: 'primary',
+        class: 'count-link',
+        title: '查看客户联系人',
+        onClick: (event) => goCustomerContacts(row, event),
+      },
+      () => row.contact_count || 0
+    ),
+  },
   { title: '合同', key: 'contract_count', width: 80 },
   { title: '账单', key: 'bill_count', width: 80 },
   { title: '操作', key: 'actions', width: 92, fixed: 'right', render: (row) => rowActions(row, openCustomerModal, removeCustomer) },
@@ -838,7 +862,30 @@ async function refreshAfterEdit() {
   if (detail.value?.id) await openDetail(detail.value.id)
 }
 
-onMounted(refreshAll)
+function routeCustomerId() {
+  const id = Number(route.query.customer_id || 0)
+  return Number.isFinite(id) && id > 0 ? id : null
+}
+
+function applyRouteQuery() {
+  if (props.mode !== 'contacts') return
+  const customerId = routeCustomerId()
+  if (customerId && query.customer_id !== customerId) {
+    query.customer_id = customerId
+    pagination.page = 1
+  }
+}
+
+watch(() => route.query.customer_id, () => {
+  if (props.mode !== 'contacts') return
+  applyRouteQuery()
+  loadPage()
+})
+
+onMounted(() => {
+  applyRouteQuery()
+  refreshAll()
+})
 </script>
 
 <style scoped>
@@ -931,6 +978,10 @@ onMounted(refreshAll)
   display: inline-flex;
   align-items: center;
   white-space: nowrap;
+}
+.count-link {
+  font-weight: 700;
+  min-width: 24px;
 }
 .detail-body {
   display: flex;
