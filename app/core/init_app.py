@@ -2087,6 +2087,29 @@ async def ensure_company_columns():
     )
 
 
+async def ensure_customer_center_columns():
+    if settings.DB_TYPE == "sqlite":
+        conn = Tortoise.get_connection("sqlite")
+        try:
+            await conn.execute_script('ALTER TABLE "crm_customer_contact" ADD COLUMN "contact_type" VARCHAR(30) NOT NULL DEFAULT \'person\';')
+        except OperationalError as exc:
+            message = str(exc).lower()
+            if "duplicate column" not in message and "no such table" not in message:
+                raise
+        return
+
+    if settings.DB_TYPE != "postgres":
+        return
+
+    conn = Tortoise.get_connection("postgres")
+    await conn.execute_script(
+        """
+        ALTER TABLE IF EXISTS "crm_customer_contact"
+            ADD COLUMN IF NOT EXISTS "contact_type" VARCHAR(30) NOT NULL DEFAULT 'person';
+        """
+    )
+
+
 async def ensure_pre_schema_columns():
     if settings.DB_TYPE != "postgres":
         return
@@ -2237,6 +2260,7 @@ async def init_db():
 
     await ensure_user_columns()
     await ensure_company_columns()
+    await ensure_customer_center_columns()
     await ensure_asset_columns()
     await ensure_bill_columns()
     await ensure_project_columns()

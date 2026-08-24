@@ -42,6 +42,10 @@ CONTACT_ROLES = [
     {"label": "运维联系人", "value": "ops"},
     {"label": "紧急联系人", "value": "emergency"},
 ]
+CONTACT_TYPES = [
+    {"label": "个人", "value": "person"},
+    {"label": "组邮箱", "value": "group"},
+]
 CONTRACT_STATUSES = [
     {"label": "草稿", "value": "draft"},
     {"label": "待签署", "value": "pending_signature"},
@@ -66,7 +70,7 @@ class CustomerPayload(BaseModel):
     entity_type: str = "enterprise"
     signing_entity_id: int | None = None
     customer_level: str = "C"
-    lifecycle: str = "prospect"
+    lifecycle: str = "active"
     sales_owner: str | None = Field(None, max_length=100)
     region: str | None = Field(None, max_length=100)
     address: str | None = Field(None, max_length=255)
@@ -79,14 +83,14 @@ class CustomerPayload(BaseModel):
 
 class ContactPayload(BaseModel):
     customer_id: int
-    name: str = Field(..., max_length=100)
+    contact_type: str = "person"
+    name: str | None = Field(None, max_length=100)
     role: str = "business"
     title: str | None = Field(None, max_length=100)
     email: str | None = Field(None, max_length=160)
     phone: str | None = Field(None, max_length=80)
     address: str | None = Field(None, max_length=255)
     remark: str | None = Field(None, max_length=500)
-    is_primary: bool = False
     status: bool = True
 
 
@@ -124,6 +128,28 @@ def compact(values: dict[str, Any]) -> dict[str, Any]:
     return {key: (None if value == "" else value) for key, value in values.items()}
 
 
+def normalize_contact_data(values: dict[str, Any]) -> dict[str, Any]:
+    data = compact(values)
+    if data.get("contact_type") not in {"person", "group"}:
+        data["contact_type"] = "person"
+    if not data.get("name"):
+        email = str(data.get("email") or "").strip()
+        data["name"] = email.split("@", 1)[0] if email else "未命名联系人"
+    return data
+
+
+async def next_customer_code() -> str:
+    prefix = f"CUS{date.today():%Y%m%d}"
+    latest = await CrmCustomer.filter(customer_code__startswith=prefix).order_by("-customer_code").first()
+    if not latest or not latest.customer_code:
+        return f"{prefix}001"
+    try:
+        sequence = int(latest.customer_code.replace(prefix, "", 1)) + 1
+    except ValueError:
+        sequence = 1
+    return f"{prefix}{sequence:03d}"
+
+
 def label_of(options: list[dict[str, str]], value: str | None) -> str:
     return next((item["label"] for item in options if item["value"] == value), value or "-")
 
@@ -146,6 +172,7 @@ async def contact_dict(contact: CrmCustomerContact) -> dict[str, Any]:
     data = await contact.to_dict()
     customer = await contact.customer
     data["customer_name"] = customer.name
+    data["contact_type_label"] = label_of(CONTACT_TYPES, data.get("contact_type"))
     data["role_label"] = label_of(CONTACT_ROLES, data.get("role"))
     return data
 
@@ -185,6 +212,7 @@ async def options():
             "lifecycles": LIFECYCLES,
             "levels": LEVELS,
             "contact_roles": CONTACT_ROLES,
+            "contact_types": CONTACT_TYPES,
             "contract_statuses": CONTRACT_STATUSES,
             "bill_statuses": BILL_STATUSES,
             "currencies": [{"label": item, "value": item} for item in ["USD", "CNY", "HKD", "EUR", "GBP", "SGD"]],
@@ -261,7 +289,7 @@ async def list_customers(
 async def get_customer(customer_id: int):
     customer = await CrmCustomer.get(id=customer_id)
     data = await customer_dict(customer, include_counts=True)
-    contacts = await CrmCustomerContact.filter(customer_id=customer_id).order_by("-is_primary", "role", "name")
+    contacts = await CrmCustomerContact.filter(customer_id=customer_id).order_by("role", "name")
     contracts = await CrmCustomerContract.filter(customer_id=customer_id).order_by("-expiry_date", "-id")
     bills = await CrmCustomerBill.filter(customer_id=customer_id).order_by("-bill_date", "-id")
     data["contacts"] = [await contact_dict(item) for item in contacts]
@@ -274,6 +302,9 @@ async def get_customer(customer_id: int):
 async def create_customer(payload: CustomerPayload):
     data = compact(payload.model_dump())
     data["customer_level"] = str(data.get("customer_level") or "C").upper()
+    data["lifecycle"] = data.get("lifecycle") or "active"
+    data["alias"] = data.get("name")
+    data["customer_code"] = await next_customer_code()
     customer = await CrmCustomer.create(**data)
     return Success(msg="客户已创建", data=await customer_dict(customer, include_counts=True))
 
@@ -283,6 +314,8 @@ async def update_customer(customer_id: int, payload: CustomerPayload):
     data = compact(payload.model_dump(exclude_unset=True))
     if "customer_level" in data:
         data["customer_level"] = str(data.get("customer_level") or "C").upper()
+    if "name" in data:
+        data["alias"] = data.get("name")
     await CrmCustomer.filter(id=customer_id).update(**data)
     customer = await CrmCustomer.get(id=customer_id)
     return Success(msg="客户已更新", data=await customer_dict(customer, include_counts=True))
@@ -305,19 +338,19 @@ async def list_contacts(page: int = Query(1), page_size: int = Query(20), keywor
     if role:
         q &= Q(role=role)
     total = await CrmCustomerContact.filter(q).count()
-    rows = await CrmCustomerContact.filter(q).order_by("-is_primary", "role", "name").offset((page - 1) * page_size).limit(page_size)
+    rows = await CrmCustomerContact.filter(q).order_by("role", "name").offset((page - 1) * page_size).limit(page_size)
     return SuccessExtra(data=[await contact_dict(item) for item in rows], total=total, page=page, page_size=page_size)
 
 
 @router.post("/contacts", summary="新增联系人")
 async def create_contact(payload: ContactPayload):
-    contact = await CrmCustomerContact.create(**compact(payload.model_dump()))
+    contact = await CrmCustomerContact.create(**normalize_contact_data(payload.model_dump()))
     return Success(msg="联系人已创建", data=await contact_dict(contact))
 
 
 @router.put("/contacts/{contact_id}", summary="编辑联系人")
 async def update_contact(contact_id: int, payload: ContactPayload):
-    await CrmCustomerContact.filter(id=contact_id).update(**compact(payload.model_dump(exclude_unset=True)))
+    await CrmCustomerContact.filter(id=contact_id).update(**normalize_contact_data(payload.model_dump(exclude_unset=True)))
     contact = await CrmCustomerContact.get(id=contact_id)
     return Success(msg="联系人已更新", data=await contact_dict(contact))
 

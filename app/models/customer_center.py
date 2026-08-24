@@ -33,7 +33,7 @@ class CrmCustomer(BaseModel, TimestampMixin):
         description="签约主体",
     )
     customer_level = fields.CharField(max_length=10, default="C", description="客户等级", index=True)
-    lifecycle = fields.CharField(max_length=30, default="prospect", description="客户生命周期", index=True)
+    lifecycle = fields.CharField(max_length=30, default="active", description="客户生命周期", index=True)
     sales_owner = fields.CharField(max_length=100, null=True, description="所属销售", index=True)
     region = fields.CharField(max_length=100, null=True, description="所属地区", index=True)
     address = fields.CharField(max_length=255, null=True, description="联系地址")
@@ -54,6 +54,7 @@ class CrmCustomerContact(BaseModel, TimestampMixin):
         on_delete=fields.CASCADE,
         description="客户",
     )
+    contact_type = fields.CharField(max_length=30, default="person", description="联系人类型", index=True)
     name = fields.CharField(max_length=100, description="联系人姓名", index=True)
     role = fields.CharField(max_length=30, default="business", description="联系人角色", index=True)
     title = fields.CharField(max_length=100, null=True, description="职位")
@@ -61,7 +62,6 @@ class CrmCustomerContact(BaseModel, TimestampMixin):
     phone = fields.CharField(max_length=80, null=True, description="电话", index=True)
     address = fields.CharField(max_length=255, null=True, description="联系地址")
     remark = fields.CharField(max_length=500, null=True, description="备注")
-    is_primary = fields.BooleanField(default=False, description="主要联系人", index=True)
     status = fields.BooleanField(default=True, description="状态", index=True)
 
     class Meta:
