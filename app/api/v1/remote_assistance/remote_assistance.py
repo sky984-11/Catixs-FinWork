@@ -84,7 +84,17 @@ class RemoteHandsPlanCompletePayload(BaseModel):
     note: str = ""
 
 
-def _parse_datetime(value: str | None) -> datetime | None:
+def _naive_datetime(value: datetime | None) -> datetime | None:
+    if not value:
+        return None
+    if value.tzinfo:
+        value = value.astimezone(LOCAL_TIMEZONE)
+    return value.replace(tzinfo=None)
+
+
+def _parse_datetime(value: str | datetime | None) -> datetime | None:
+    if isinstance(value, datetime):
+        return _naive_datetime(value)
     text = str(value or "").strip()
     if not text:
         return None
@@ -93,10 +103,15 @@ def _parse_datetime(value: str | None) -> datetime | None:
             timestamp = int(text)
             if len(text) == 10:
                 timestamp *= 1000
-            return datetime.fromtimestamp(timestamp / 1000, tz=LOCAL_TIMEZONE).replace(tzinfo=None)
+            return _naive_datetime(datetime.fromtimestamp(timestamp / 1000, tz=LOCAL_TIMEZONE))
         except (OverflowError, ValueError, OSError):
             return None
     normalized = text.replace("/", "-").replace("Z", "+00:00")
+    try:
+        value = datetime.fromisoformat(normalized)
+        return _naive_datetime(value)
+    except ValueError:
+        pass
     match = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s](\d{1,2})(?::(\d{1,2})(?::(\d{1,2}))?)?)?", normalized)
     if match:
         year, month, day, hour, minute, second = match.groups(default="0")
@@ -111,26 +126,13 @@ def _parse_datetime(value: str | None) -> datetime | None:
             )
         except ValueError:
             pass
-    try:
-        value = datetime.fromisoformat(normalized)
-        if value.tzinfo:
-            value = value.astimezone(LOCAL_TIMEZONE)
-        return value.replace(tzinfo=None)
-    except ValueError:
-        pass
     for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
         try:
-            return datetime.strptime(normalized[:19], fmt).replace(tzinfo=None)
+            return _naive_datetime(datetime.strptime(normalized[:19], fmt))
         except ValueError:
             continue
     logger.warning("remote assistance datetime parse failed: raw={}", text)
     return None
-
-
-def _naive_datetime(value: datetime | None) -> datetime | None:
-    if not value:
-        return None
-    return value.replace(tzinfo=None)
 
 
 def _now_naive() -> datetime:
@@ -167,8 +169,8 @@ def _is_settled_from_item(item: RemoteHands) -> bool:
 
 
 def _remote_payload_data(payload: RemoteHandsPayload) -> dict[str, Any]:
-    arrived_at = _parse_datetime(payload.arrived_at)
-    left_at = _parse_datetime(payload.left_at)
+    arrived_at = _naive_datetime(_parse_datetime(payload.arrived_at))
+    left_at = _naive_datetime(_parse_datetime(payload.left_at))
     is_settled = bool(payload.is_settled) if payload.is_settled is not None else (
         payload.ops_settlement_status == "settled" and payload.customer_settlement_status == "settled"
     )
@@ -230,10 +232,16 @@ async def _plan_payload_data(payload: RemoteHandsPlanPayload) -> dict[str, Any]:
         "site": _clean_text(payload.site) or None,
         "rack": _clean_text(payload.rack) or None,
         "timezone": _clean_text(payload.timezone) or "Asia/Shanghai",
-        "planned_at": _parse_datetime(payload.planned_at),
+        "planned_at": _naive_datetime(_parse_datetime(payload.planned_at)),
         "status": payload.status,
         "note": _clean_text(payload.note) or None,
     }
+
+
+def _normalize_plan_datetimes(plan: RemoteHandsPlan) -> None:
+    plan.planned_at = _naive_datetime(plan.planned_at)
+    plan.notified_at = _naive_datetime(plan.notified_at)
+    plan.reminder_notified_at = _naive_datetime(plan.reminder_notified_at)
 
 
 async def _remote_to_dict(item: RemoteHands) -> dict[str, Any]:
@@ -417,7 +425,8 @@ async def _create_plan(payload: RemoteHandsPlanPayload):
             ok, message = await notify_remote_hands_plan(plan)
             plan.notify_status = "sent" if ok else "failed"
             plan.notify_message = message[:500]
-            plan.notified_at = datetime.now() if ok else None
+            plan.notified_at = _now_naive() if ok else None
+            _normalize_plan_datetimes(plan)
             await plan.save(update_fields=["notify_status", "notify_message", "notified_at", "updated_at"])
         return Success(msg="运维计划已创建", data=await _plan_to_dict(plan))
     except Exception as exc:
@@ -454,7 +463,8 @@ async def update_plan(plan_id: int, payload: RemoteHandsPlanPayload):
             ok, message = await notify_remote_hands_plan(plan)
             plan.notify_status = "sent" if ok else "failed"
             plan.notify_message = message[:500]
-            plan.notified_at = datetime.now() if ok else plan.notified_at
+            plan.notified_at = _now_naive() if ok else plan.notified_at
+        _normalize_plan_datetimes(plan)
         await plan.save()
         return Success(msg="运维计划已变更", data=await _plan_to_dict(plan))
     except Exception as exc:
@@ -470,7 +480,8 @@ async def notify_plan(plan_id: int):
         ok, message = await notify_remote_hands_plan(plan)
         plan.notify_status = "sent" if ok else "failed"
         plan.notify_message = message[:500]
-        plan.notified_at = datetime.now() if ok else plan.notified_at
+        plan.notified_at = _now_naive() if ok else plan.notified_at
+        _normalize_plan_datetimes(plan)
         await plan.save(update_fields=["notify_status", "notify_message", "notified_at", "updated_at"])
         return Success(msg=message, data=await _plan_to_dict(plan))
     except Exception as exc:

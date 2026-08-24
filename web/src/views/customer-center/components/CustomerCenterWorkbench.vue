@@ -104,8 +104,6 @@
                     <article><span>所属地区</span><strong>{{ detail.region || '-' }}</strong></article>
                     <article><span>联系地址</span><strong>{{ detail.address || '-' }}</strong></article>
                   </div>
-                  <div class="text-block"><b>开票信息</b><p>{{ formatInvoiceInfo(detail.invoice_info) }}</p></div>
-                  <div class="text-block"><b>财务信息</b><p>{{ formatFinanceInfo(detail.finance_info) }}</p></div>
                   <div class="text-block"><b>备注</b><p>{{ detail.remark || '-' }}</p></div>
                 </n-tab-pane>
                 <n-tab-pane name="contacts" tab="客户联系人">
@@ -123,14 +121,20 @@
         </n-drawer-content>
       </n-drawer>
 
-      <n-modal v-model:show="customerModal.show" preset="card" :title="customerModal.form.id ? '编辑客户' : '新增客户'" class="crm-modal customer-modal">
+      <n-modal
+        v-model:show="customerModal.show"
+        preset="card"
+        :title="customerModal.form.id ? '编辑客户' : '新增客户'"
+        class="crm-modal customer-modal"
+        style="width: min(760px, calc(100vw - 32px))"
+      >
         <div class="customer-modal__intro">
           <span class="customer-modal__icon">
             <TheIcon icon="mdi:office-building-outline" :size="24" />
           </span>
           <div>
             <strong>{{ customerModal.form.id ? '维护客户档案' : '创建客户档案' }}</strong>
-            <p>统一维护客户主体、签约归属、销售负责人和财务备注。</p>
+            <p>统一维护客户主体、签约归属、销售负责人和内部备注。</p>
           </div>
         </div>
         <n-form :model="customerModal.form" label-placement="top" class="customer-form">
@@ -139,7 +143,7 @@
               <span>基本信息</span>
               <small>客户识别与主体资料</small>
             </div>
-            <n-grid :cols="2" :x-gap="16" :y-gap="2">
+            <n-grid :cols="2" :x-gap="16" :y-gap="2" responsive="screen">
               <n-form-item-gi label="客户简称" required><n-input v-model:value="customerModal.form.name" placeholder="请输入客户简称" /></n-form-item-gi>
               <n-form-item-gi label="客户全称"><n-input v-model:value="customerModal.form.legal_name" placeholder="请输入工商或证件主体名称" /></n-form-item-gi>
               <n-form-item-gi label="联系地址" :span="2"><n-input v-model:value="customerModal.form.address" placeholder="请输入客户联系地址" /></n-form-item-gi>
@@ -151,7 +155,7 @@
               <span>客户属性</span>
               <small>签约、分级与生命周期</small>
             </div>
-            <n-grid :cols="2" :x-gap="16" :y-gap="2">
+            <n-grid :cols="2" :x-gap="16" :y-gap="2" responsive="screen">
               <n-form-item-gi label="主体类型"><n-select v-model:value="customerModal.form.entity_type" :options="options.entityTypes" placeholder="请选择主体类型" /></n-form-item-gi>
               <n-form-item-gi label="签约主体"><n-select v-model:value="customerModal.form.signing_entity_id" clearable filterable :options="options.signingEntities" placeholder="请选择签约主体" /></n-form-item-gi>
               <n-form-item-gi label="客户等级"><n-select v-model:value="customerModal.form.customer_level" :options="options.levels" placeholder="请选择客户等级" /></n-form-item-gi>
@@ -172,33 +176,11 @@
 
           <section class="form-section">
             <div class="form-section__head">
-              <span>财务与备注</span>
-              <small>按国家/地区维护开票、结算与风控信息</small>
+              <span>备注</span>
+              <small>客户主档只记录非财务类说明</small>
             </div>
-            <n-grid :cols="2" :x-gap="16" :y-gap="2">
-              <n-form-item-gi label="开票地区"><n-select v-model:value="customerModal.form.invoice_profile.invoice_region" :options="invoiceRegionOptions" /></n-form-item-gi>
-              <n-form-item-gi label="发票/账单类型"><n-select v-model:value="customerModal.form.invoice_profile.invoice_type" :options="invoiceTypeOptions" /></n-form-item-gi>
-              <n-form-item-gi label="发票抬头"><n-input v-model:value="customerModal.form.invoice_profile.invoice_title" placeholder="通常为客户全称" /></n-form-item-gi>
-              <n-form-item-gi label="税号 / VAT / GST"><n-input v-model:value="customerModal.form.invoice_profile.tax_id" placeholder="按当地税务规则填写" /></n-form-item-gi>
-              <n-form-item-gi label="注册号 / BR / UEN"><n-input v-model:value="customerModal.form.invoice_profile.registration_no" placeholder="香港 BR、新加坡 UEN、海外注册号等" /></n-form-item-gi>
-              <n-form-item-gi label="开票邮箱"><n-input v-model:value="customerModal.form.invoice_profile.invoice_email" placeholder="用于发送发票或 Invoice" /></n-form-item-gi>
-              <n-form-item-gi v-if="customerModal.form.invoice_profile.invoice_region === 'CN'" label="开户银行"><n-input v-model:value="customerModal.form.invoice_profile.bank_name" placeholder="专票常用" /></n-form-item-gi>
-              <n-form-item-gi v-if="customerModal.form.invoice_profile.invoice_region === 'CN'" label="银行账号"><n-input v-model:value="customerModal.form.invoice_profile.bank_account" placeholder="专票常用" /></n-form-item-gi>
-              <n-form-item-gi v-if="['HK', 'SG', 'EU', 'US', 'OTHER'].includes(customerModal.form.invoice_profile.invoice_region)" label="SWIFT / Routing"><n-input v-model:value="customerModal.form.invoice_profile.swift_code" placeholder="跨境收付款识别码" /></n-form-item-gi>
-              <n-form-item-gi v-if="customerModal.form.invoice_profile.invoice_region === 'EU'" label="IBAN"><n-input v-model:value="customerModal.form.invoice_profile.iban" placeholder="欧盟/欧洲客户常用" /></n-form-item-gi>
-              <n-form-item-gi label="开票地址" :span="2"><n-input v-model:value="customerModal.form.invoice_profile.invoice_address" placeholder="注册地址或税务地址" /></n-form-item-gi>
-
-              <n-form-item-gi label="结算币种"><n-select v-model:value="customerModal.form.finance_profile.settlement_currency" :options="options.currencies" /></n-form-item-gi>
-              <n-form-item-gi label="结算周期"><n-select v-model:value="customerModal.form.finance_profile.billing_cycle" :options="billingCycleOptions" /></n-form-item-gi>
-              <n-form-item-gi label="账期"><n-select v-model:value="customerModal.form.finance_profile.payment_terms" :options="paymentTermOptions" /></n-form-item-gi>
-              <n-form-item-gi label="付款方式"><n-select v-model:value="customerModal.form.finance_profile.payment_method" :options="paymentMethodOptions" /></n-form-item-gi>
-              <n-form-item-gi label="信用额度"><n-input-number v-model:value="customerModal.form.finance_profile.credit_limit" :min="0" placeholder="0 表示未授信" /></n-form-item-gi>
-              <n-form-item-gi label="允许欠款"><n-switch v-model:value="customerModal.form.finance_profile.allow_arrears" /></n-form-item-gi>
-              <n-form-item-gi label="对账日"><n-input-number v-model:value="customerModal.form.finance_profile.reconciliation_day" :min="1" :max="31" placeholder="每月几号" /></n-form-item-gi>
-              <n-form-item-gi label="财务联系人"><n-input v-model:value="customerModal.form.finance_profile.finance_contact" placeholder="姓名 / 邮箱 / 电话" /></n-form-item-gi>
-              <n-form-item-gi label="地区特殊说明" :span="2"><n-input v-model:value="customerModal.form.invoice_profile.local_requirement" type="textarea" placeholder="例如：中国大陆专票要求、香港 BR 要求、EU VAT reverse charge、美国 W-9 等" /></n-form-item-gi>
-              <n-form-item-gi label="财务备注" :span="2"><n-input v-model:value="customerModal.form.finance_profile.finance_remark" type="textarea" placeholder="结算习惯、信用风险、历史付款情况等" /></n-form-item-gi>
-              <n-form-item-gi label="备注" :span="2"><n-input v-model:value="customerModal.form.remark" type="textarea" placeholder="内部备注、风险提示、历史沟通记录等" /></n-form-item-gi>
+            <n-grid :cols="1" :x-gap="16" :y-gap="2" responsive="screen">
+              <n-form-item-gi label="备注"><n-input v-model:value="customerModal.form.remark" type="textarea" placeholder="内部备注、风险提示、历史沟通记录等" /></n-form-item-gi>
             </n-grid>
           </section>
         </n-form>
@@ -638,9 +620,9 @@ async function refreshAll() {
 }
 
 function rowActions(row, edit, remove) {
-  return h(NSpace, { size: 6 }, () => [
-    h(NButton, { size: 'small', secondary: true, type: 'info', onClick: () => edit(row) }, { icon: () => h(TheIcon, { icon: 'mdi:pencil', size: 15 }), default: () => '编辑' }),
-    h(NPopconfirm, { onPositiveClick: () => remove(row) }, { trigger: () => h(NButton, { size: 'small', secondary: true, type: 'error' }, { icon: () => h(TheIcon, { icon: 'mdi:trash-can-outline', size: 15 }), default: () => '删除' }), default: () => '确认删除？' }),
+  return h(NSpace, { size: 6, wrap: false, class: 'table-actions' }, () => [
+    h(NButton, { size: 'small', secondary: true, circle: true, type: 'info', title: '编辑', onClick: () => edit(row) }, { icon: () => h(TheIcon, { icon: 'mdi:pencil', size: 15 }) }),
+    h(NPopconfirm, { onPositiveClick: () => remove(row) }, { trigger: () => h(NButton, { size: 'small', secondary: true, circle: true, type: 'error', title: '删除' }, { icon: () => h(TheIcon, { icon: 'mdi:trash-can-outline', size: 15 }) }), default: () => '确认删除？' }),
   ])
 }
 
@@ -656,7 +638,7 @@ const customerColumns = [
   { title: '联系人', key: 'contact_count', width: 90 },
   { title: '合同', key: 'contract_count', width: 80 },
   { title: '账单', key: 'bill_count', width: 80 },
-  { title: '操作', key: 'actions', width: 150, fixed: 'right', render: (row) => rowActions(row, openCustomerModal, removeCustomer) },
+  { title: '操作', key: 'actions', width: 92, fixed: 'right', render: (row) => rowActions(row, openCustomerModal, removeCustomer) },
 ]
 const contractColumns = [
   { title: '合同编号', key: 'contract_no', width: 150, fixed: 'left', ellipsis: { tooltip: true } },
@@ -668,7 +650,7 @@ const contractColumns = [
   { title: '到期日期', key: 'expiry_date', width: 120 },
   { title: '金额', key: 'amount', width: 120, render: (row) => `${row.currency || ''} ${Number(row.amount || 0).toLocaleString()}` },
   { title: '提醒', key: 'reminder_days', width: 100, render: (row) => (row.reminder_enabled ? `${row.reminder_days || 0}天` : '关闭') },
-  { title: '操作', key: 'actions', width: 150, fixed: 'right', render: (row) => rowActions(row, openContractModal, removeContract) },
+  { title: '操作', key: 'actions', width: 92, fixed: 'right', render: (row) => rowActions(row, openContractModal, removeContract) },
 ]
 const contactColumns = [
   { title: '联系人', key: 'name', width: 150, fixed: 'left' },
@@ -677,7 +659,7 @@ const contactColumns = [
   { title: '角色', key: 'role_label', width: 120, render: (row) => renderTag(row.role_label, 'info') },
   { title: '邮箱', key: 'email', width: 190, ellipsis: { tooltip: true } },
   { title: '电话', key: 'phone', width: 130 },
-  { title: '操作', key: 'actions', width: 150, fixed: 'right', render: (row) => rowActions(row, openContactModal, removeContact) },
+  { title: '操作', key: 'actions', width: 92, fixed: 'right', render: (row) => rowActions(row, openContactModal, removeContact) },
 ]
 const billColumns = [
   { title: '账单编号', key: 'bill_no', width: 140 },
@@ -687,7 +669,7 @@ const billColumns = [
   { title: '账单日期', key: 'bill_date', width: 120 },
   { title: '到期日期', key: 'due_date', width: 120 },
   { title: '无后续业务', key: 'business_closed', width: 110, render: (row) => (row.business_closed ? renderTag('是', 'success') : '-') },
-  { title: '操作', key: 'actions', width: 150, render: (row) => rowActions(row, openBillModal, removeBill) },
+  { title: '操作', key: 'actions', width: 92, render: (row) => rowActions(row, openBillModal, removeBill) },
 ]
 const columns = computed(() => (props.mode === 'customers' ? customerColumns : props.mode === 'contracts' ? contractColumns : contactColumns))
 
@@ -737,9 +719,6 @@ function emptyBill() {
 
 function openCustomerModal(row = null) {
   const form = row ? { ...emptyCustomer(), ...row } : emptyCustomer()
-  form.invoice_profile = parseInvoiceProfile(form.invoice_info)
-  form.finance_profile = parseFinanceProfile(form.finance_info)
-  if (!form.invoice_profile.invoice_title) form.invoice_profile.invoice_title = form.legal_name || form.name || ''
   customerModal.form = form
   customerModal.show = true
 }
@@ -765,8 +744,6 @@ async function saveCustomer() {
   try {
     const payload = { ...customerModal.form }
     payload.alias = payload.name
-    payload.invoice_info = serializeProfile('invoice_profile', payload.invoice_profile)
-    payload.finance_info = serializeProfile('finance_profile', payload.finance_profile)
     delete payload.invoice_profile
     delete payload.finance_profile
     if (!payload.id) delete payload.customer_code
@@ -950,6 +927,11 @@ onMounted(refreshAll)
   justify-content: space-between;
   padding-top: 14px;
 }
+.table-actions {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
 .detail-body {
   display: flex;
   flex-direction: column;
@@ -999,9 +981,6 @@ onMounted(refreshAll)
 :deep(.crm-modal) {
   width: min(920px, 92vw);
 }
-:deep(.customer-modal) {
-  width: min(960px, 94vw);
-}
 :deep(.customer-modal .n-card-header) {
   padding: 20px 24px 12px;
 }
@@ -1010,6 +989,8 @@ onMounted(refreshAll)
 }
 :deep(.customer-modal .n-card__content) {
   padding: 0 24px 8px;
+  max-height: min(72vh, 680px);
+  overflow: auto;
 }
 :deep(.contact-modal .n-card__content) {
   padding: 0 24px 8px;
