@@ -327,7 +327,12 @@ const addText = computed(() => modeMeta[props.mode]?.add || '新增')
 const addIcon = computed(() => modeMeta[props.mode]?.icon || 'mdi:plus')
 const keywordPlaceholder = computed(() => modeMeta[props.mode]?.keyword || '搜索')
 const showKeyword = computed(() => !['configs', 'products', 'specs'].includes(props.mode))
-const scrollX = computed(() => (props.mode === 'pricing' ? 1280 : props.mode === 'products' ? 1180 : 980))
+const scrollX = computed(() => {
+  if (props.mode === 'pricing') return 1280
+  if (props.mode === 'products') return 1180
+  if (props.mode === 'specs') return 1280
+  return 980
+})
 const selectedCategoryKeys = computed(() => (query.category_id ? [query.category_id] : []))
 const topCategoryOptions = computed(() => options.categories.filter((item) => !item.parent_id))
 const productRegionOptions = computed(() => {
@@ -435,6 +440,14 @@ function renderTag(text, type = 'default') {
   return h(NTag, { size: 'small', round: true, type }, { default: () => text || '-' })
 }
 
+function renderCategoryTag(text, type = 'default') {
+  return h(
+    'span',
+    { style: { display: 'inline-flex', margin: '3px 10px 3px 0' } },
+    [h(NTag, { size: 'small', round: true, type }, { default: () => text || '-' })]
+  )
+}
+
 const categoryTagTypes = ['info', 'success', 'warning', 'error', 'primary', 'default']
 
 function categoryTagType(name) {
@@ -452,12 +465,12 @@ function renderCategoryTags(row) {
         .map((item) => item.trim())
         .filter(Boolean)
   if (!names.length) return '-'
-  return h('div', { class: 'category-tags' }, names.map((name) => renderTag(name, categoryTagType(name))))
+  return h('div', { class: 'category-tags' }, names.map((name) => renderCategoryTag(name, categoryTagType(name))))
 }
 
 function actionButtons(row) {
   return h('div', { class: 'table-actions' }, [
-    h(NButton, { size: 'small', secondary: true, type: 'info', onClick: () => openEditor(row) }, { icon: () => h(TheIcon, { icon: 'mdi:pencil', size: 15 }) }),
+    h(NButton, { size: 'small', secondary: true, type: 'info', style: { marginRight: '12px' }, onClick: () => openEditor(row) }, { icon: () => h(TheIcon, { icon: 'mdi:pencil', size: 15 }) }),
     h(NPopconfirm, { onPositiveClick: () => deleteRow(row) }, {
       trigger: () => h(NButton, { size: 'small', secondary: true, type: 'error' }, { icon: () => h(TheIcon, { icon: 'mdi:trash-can-outline', size: 15 }) }),
       default: () => '确认删除？',
@@ -475,12 +488,12 @@ const productColumns = [
   { title: '操作', key: 'actions', width: 100, fixed: 'right', render: actionButtons },
 ]
 const attributeColumns = [
-  { title: '属性名称', key: 'name', width: 180 },
-  { title: '属性编码', key: 'code', width: 150 },
-  { title: '适用分类', key: 'category_name', width: 300, render: renderCategoryTags },
-  { title: '属性类型', key: 'attr_type_label', width: 120 },
-  { title: '单位', key: 'unit', width: 100 },
-  { title: '必填', key: 'required', width: 90, render: (row) => renderTag(row.required ? '是' : '否', row.required ? 'warning' : 'default') },
+  { title: '属性名称', key: 'name', width: 130 },
+  { title: '属性编码', key: 'code', width: 140 },
+  { title: '适用分类', key: 'category_name', width: 680, render: renderCategoryTags },
+  { title: '属性类型', key: 'attr_type_label', width: 90 },
+  { title: '单位', key: 'unit', width: 70 },
+  { title: '必填', key: 'required', width: 70, render: (row) => renderTag(row.required ? '是' : '否', row.required ? 'warning' : 'default') },
   { title: '操作', key: 'actions', width: 100, fixed: 'right', render: actionButtons },
 ]
 const configColumns = [
@@ -1131,17 +1144,21 @@ onMounted(refreshAll)
   overflow: auto;
 }
 .category-actions,
-.table-actions,
 .modal-footer {
   display: inline-flex;
   align-items: center;
   gap: 8px;
 }
+.table-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+}
 .category-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  padding: 4px 0;
+  gap: 0;
+  padding: 3px 0;
 }
 .category-actions {
   flex-shrink: 0;
