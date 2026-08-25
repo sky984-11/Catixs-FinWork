@@ -544,6 +544,8 @@ ATTRIBUTE_CATEGORY_CODES_MAP = {
 
 
 async def seed_spec_attributes():
+    if await ProductSpecAttribute.exists():
+        return
     category_codes = set(ATTRIBUTE_CATEGORY_CODE_MAP.values())
     for codes in ATTRIBUTE_CATEGORY_CODES_MAP.values():
         category_codes.update(codes)
@@ -628,7 +630,7 @@ async def options():
     await seed_spec_attributes()
     categories = await ProductCategory.filter(status=True).order_by("level", "order", "name")
     products = await ProductItem.filter(status="active").order_by("name").values("id", "name", "code", "billing_mode", "category_id")
-    attributes = await ProductSpecAttribute.filter(status=True).order_by("category_id", "name").values("id", "name", "code", "attr_type", "unit", "category_id", "category_ids")
+    attributes = await ProductSpecAttribute.filter(status=True).order_by("category_id", "name").values("id", "name", "code", "attr_type", "unit", "options", "category_id", "category_ids")
     customers = await CrmCustomer.filter(status=True).order_by("name").values("id", "name", "legal_name")
     return Success(
         data={
@@ -642,6 +644,7 @@ async def options():
                     "code": item["code"],
                     "attr_type": item["attr_type"],
                     "unit": item["unit"],
+                    "options": item["options"],
                     "category_id": item["category_id"],
                     "category_ids": normalize_category_ids(item.get("category_ids") or [], item.get("category_id")),
                 }

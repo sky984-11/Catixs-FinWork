@@ -231,8 +231,18 @@
               </n-form-item-gi>
               <n-form-item-gi label="排序"><n-input-number v-model:value="editor.form.order" :min="0" /></n-form-item-gi>
               <n-form-item-gi label="必填"><n-switch v-model:value="editor.form.required" /></n-form-item-gi>
-              <n-form-item-gi label="默认值"><n-input v-model:value="editor.form.default_value" /></n-form-item-gi>
-              <n-form-item-gi label="可选范围"><n-input v-model:value="editor.form.value_range" /></n-form-item-gi>
+              <n-form-item-gi label="默认值">
+                <n-input-number v-if="selectedConfigAttrType === 'number'" v-model:value="editor.form.default_value" clearable :placeholder="configValuePlaceholder" />
+                <n-select v-else-if="selectedConfigAttrType === 'select'" v-model:value="editor.form.default_value" clearable filterable :options="selectedConfigAttrOptions" :placeholder="configValuePlaceholder" />
+                <n-select v-else-if="selectedConfigAttrType === 'multi_select'" v-model:value="editor.form.default_value" multiple clearable filterable :options="selectedConfigAttrOptions" :placeholder="configValuePlaceholder" />
+                <n-switch v-else-if="selectedConfigAttrType === 'switch'" v-model:value="editor.form.default_value" />
+                <n-date-picker v-else-if="selectedConfigAttrType === 'date'" v-model:formatted-value="editor.form.default_value" value-format="yyyy-MM-dd" type="date" clearable :placeholder="configValuePlaceholder" />
+                <n-input v-else v-model:value="editor.form.default_value" :placeholder="configValuePlaceholder" />
+              </n-form-item-gi>
+              <n-form-item-gi label="可选范围">
+                <n-select v-if="['select', 'multi_select'].includes(selectedConfigAttrType)" v-model:value="editor.form.value_range" multiple clearable filterable :options="selectedConfigAttrOptions" placeholder="不限制则留空" />
+                <n-input v-else v-model:value="editor.form.value_range" :placeholder="configRangePlaceholder" />
+              </n-form-item-gi>
             </template>
 
             <template v-else-if="mode === 'pricing'">
@@ -341,6 +351,26 @@ const configAttributeOptions = computed(() => {
     if (current) rows.unshift(current)
   }
   return rows
+})
+const selectedConfigAttribute = computed(() => {
+  if (props.mode !== 'configs' || !editor.form.attribute_id) return null
+  return options.attributes.find((item) => String(item.value) === String(editor.form.attribute_id)) || null
+})
+const selectedConfigAttrType = computed(() => selectedConfigAttribute.value?.attr_type || 'text')
+const selectedConfigAttrOptions = computed(() => parseAttributeOptions(selectedConfigAttribute.value?.options))
+const configValuePlaceholder = computed(() => {
+  if (!selectedConfigAttribute.value) return '请先选择规格属性'
+  if (selectedConfigAttrType.value === 'number') return `请输入数字${selectedConfigAttribute.value.unit ? `，单位 ${selectedConfigAttribute.value.unit}` : ''}`
+  if (['select', 'multi_select'].includes(selectedConfigAttrType.value)) return selectedConfigAttrOptions.value.length ? '请选择默认值' : '请先在规格属性中维护可选值'
+  if (selectedConfigAttrType.value === 'date') return '请选择日期'
+  if (selectedConfigAttrType.value === 'resource_ref') return '请输入资源引用'
+  return '请输入默认值'
+})
+const configRangePlaceholder = computed(() => {
+  if (selectedConfigAttrType.value === 'number') return '例如：1-100，或填写允许的数字范围'
+  if (selectedConfigAttrType.value === 'date') return '例如：2026-01-01 至 2026-12-31'
+  if (selectedConfigAttrType.value === 'switch') return '开关类型通常无需填写'
+  return '不限制则留空'
 })
 
 const loading = ref(false)
@@ -607,6 +637,7 @@ function openEditor(row = null) {
     editor.form.category_ids = attributeCategoryIds(editor.form)
     editor.form.category_id = editor.form.category_ids[0] || null
   }
+  if (props.mode === 'configs') normalizeConfigEditorValues(false)
   if (!row) applyProductBillingDefault()
   editor.show = true
   nextTick(() => {
@@ -656,6 +687,77 @@ function specAttributeCategoryIdsForProduct(productId) {
 function attributeCategoryIds(attribute = {}) {
   const values = Array.isArray(attribute.category_ids) && attribute.category_ids.length ? attribute.category_ids : [attribute.category_id]
   return values.map((item) => Number(item)).filter(Boolean)
+}
+
+function parseAttributeOptions(raw) {
+  const textValue = String(raw || '').trim()
+  if (!textValue) return []
+  let values = []
+  try {
+    const parsed = JSON.parse(textValue)
+    if (Array.isArray(parsed)) values = parsed
+    else if (parsed && typeof parsed === 'object') values = Object.entries(parsed).map(([value, label]) => ({ label, value }))
+  } catch {
+    values = textValue.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean)
+  }
+  return values
+    .map((item) => {
+      if (item && typeof item === 'object') {
+        const value = item.value ?? item.id ?? item.code ?? item.label ?? item.name
+        const label = item.label ?? item.name ?? item.title ?? value
+        return value == null ? null : { label: String(label), value: String(value) }
+      }
+      return item == null ? null : { label: String(item), value: String(item) }
+    })
+    .filter(Boolean)
+}
+
+function parseMultiValue(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item)).filter(Boolean)
+  const textValue = String(value || '').trim()
+  if (!textValue) return []
+  try {
+    const parsed = JSON.parse(textValue)
+    if (Array.isArray(parsed)) return parsed.map((item) => String(item)).filter(Boolean)
+  } catch {
+    // fall through to delimiter parsing
+  }
+  return textValue.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean)
+}
+
+function normalizeConfigEditorValues(reset = false) {
+  if (props.mode !== 'configs') return
+  const type = selectedConfigAttrType.value
+  if (reset) {
+    editor.form.default_value = type === 'switch' ? false : type === 'number' ? null : type === 'multi_select' ? [] : ''
+    editor.form.value_range = ['select', 'multi_select'].includes(type) ? [] : ''
+    return
+  }
+  if (type === 'multi_select') {
+    editor.form.default_value = parseMultiValue(editor.form.default_value)
+    editor.form.value_range = parseMultiValue(editor.form.value_range)
+  }
+  else if (type === 'select') {
+    editor.form.default_value = Array.isArray(editor.form.default_value) ? editor.form.default_value[0] || null : editor.form.default_value || null
+    editor.form.value_range = parseMultiValue(editor.form.value_range)
+  } else if (type === 'switch') {
+    editor.form.default_value = editor.form.default_value === true || ['true', '1', 'yes', '是'].includes(String(editor.form.default_value).toLowerCase())
+    editor.form.value_range = Array.isArray(editor.form.value_range) ? editor.form.value_range.join(', ') : editor.form.value_range || ''
+  } else if (type === 'number') {
+    const numberValue = Number(editor.form.default_value)
+    editor.form.default_value = Number.isFinite(numberValue) ? numberValue : null
+    editor.form.value_range = Array.isArray(editor.form.value_range) ? editor.form.value_range.join(', ') : editor.form.value_range || ''
+  } else {
+    editor.form.default_value = Array.isArray(editor.form.default_value) ? editor.form.default_value.join(', ') : editor.form.default_value || ''
+    editor.form.value_range = Array.isArray(editor.form.value_range) ? editor.form.value_range.join(', ') : editor.form.value_range || ''
+  }
+}
+
+function serializeConfigValue(value) {
+  if (Array.isArray(value)) return value.length ? JSON.stringify(value) : null
+  if (typeof value === 'boolean') return String(value)
+  if (value == null || value === '') return null
+  return String(value)
 }
 
 function ensureConfigAttributeFitsProduct() {
@@ -863,6 +965,8 @@ async function saveEditor() {
       else await api.productCenterApi.createAttribute(payload)
     } else if (props.mode === 'configs') {
       if (!payload.product_id || !payload.attribute_id) return window.$message?.warning('请选择产品和规格属性')
+      payload.default_value = serializeConfigValue(payload.default_value)
+      payload.value_range = serializeConfigValue(payload.value_range)
       if (payload.id) await api.productCenterApi.updateSpecConfig(payload.id, payload)
       else await api.productCenterApi.createSpecConfig(payload)
     } else if (props.mode === 'pricing') {
@@ -887,6 +991,7 @@ async function deleteRow(row) {
   else if (props.mode === 'configs') await api.productCenterApi.deleteSpecConfig(row.id)
   else if (props.mode === 'pricing') await api.productCenterApi.deletePrice(row.id)
   else await api.productCenterApi.deleteTemplate(row.id)
+  window.$message?.success('删除成功')
   await refreshAll()
 }
 
@@ -902,6 +1007,11 @@ watch(() => editor.form.category_id, () => {
 watch(() => editor.form.product_id, () => {
   if (editorInitializing.value) return
   ensureConfigAttributeFitsProduct()
+})
+
+watch(() => editor.form.attribute_id, () => {
+  if (editorInitializing.value || props.mode !== 'configs') return
+  normalizeConfigEditorValues(true)
 })
 
 onMounted(refreshAll)
