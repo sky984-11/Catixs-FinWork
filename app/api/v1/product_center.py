@@ -125,6 +125,12 @@ def label_of(options: list[dict[str, str]], value: str | None) -> str:
     return next((item["label"] for item in options if item["value"] == value), value or "-")
 
 
+def effective_attr_type(code: str | None, attr_type: str | None) -> str:
+    if code == "cpu":
+        return "number"
+    return attr_type or "text"
+
+
 def normalize_category_ids(category_ids: list[int] | None, category_id: int | None = None) -> list[int]:
     values: list[int] = []
     for value in category_ids or []:
@@ -380,7 +386,8 @@ PRODUCT_SPEC_ATTRIBUTE_SEEDS = [
     {
         "name": "CPU",
         "code": "cpu",
-        "attr_type": "text",
+        "attr_type": "number",
+        "unit": "核",
         "required": False,
         "description": "物理服务器CPU配置或云主机vCPU数量。",
     },
@@ -583,6 +590,7 @@ async def product_dict(product: ProductItem) -> dict[str, Any]:
 
 async def attribute_dict(attribute: ProductSpecAttribute) -> dict[str, Any]:
     data = await attribute.to_dict()
+    data["attr_type"] = effective_attr_type(data.get("code"), data.get("attr_type"))
     ids = attribute_category_ids(attribute)
     names = await category_names(ids)
     data["category_ids"] = ids
@@ -642,7 +650,7 @@ async def options():
                     "label": f'{item["name"]} ({item["code"]})',
                     "value": item["id"],
                     "code": item["code"],
-                    "attr_type": item["attr_type"],
+                    "attr_type": effective_attr_type(item["code"], item["attr_type"]),
                     "unit": item["unit"],
                     "options": item["options"],
                     "category_id": item["category_id"],

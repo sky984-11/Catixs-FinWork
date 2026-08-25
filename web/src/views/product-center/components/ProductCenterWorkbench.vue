@@ -229,8 +229,6 @@
                   :placeholder="editor.form.product_id ? '请选择规格属性' : '请先选择关联产品'"
                 />
               </n-form-item-gi>
-              <n-form-item-gi label="排序"><n-input-number v-model:value="editor.form.order" :min="0" /></n-form-item-gi>
-              <n-form-item-gi label="必填"><n-switch v-model:value="editor.form.required" /></n-form-item-gi>
               <n-form-item-gi label="默认值">
                 <n-input-number v-if="selectedConfigAttrType === 'number'" v-model:value="editor.form.default_value" clearable :placeholder="configValuePlaceholder" />
                 <n-select v-else-if="selectedConfigAttrType === 'select'" v-model:value="editor.form.default_value" clearable filterable :options="selectedConfigAttrOptions" :placeholder="configValuePlaceholder" />
@@ -243,6 +241,8 @@
                 <n-select v-if="['select', 'multi_select'].includes(selectedConfigAttrType)" v-model:value="editor.form.value_range" multiple clearable filterable :options="selectedConfigAttrOptions" placeholder="不限制则留空" />
                 <n-input v-else v-model:value="editor.form.value_range" :placeholder="configRangePlaceholder" />
               </n-form-item-gi>
+              <n-form-item-gi label="排序"><n-input-number v-model:value="editor.form.order" :min="0" /></n-form-item-gi>
+              <n-form-item-gi label="必填"><n-switch v-model:value="editor.form.required" /></n-form-item-gi>
             </template>
 
             <template v-else-if="mode === 'pricing'">
@@ -309,6 +309,7 @@ import {
 } from 'naive-ui'
 import api from '@/api'
 import TheIcon from '@/components/icon/TheIcon.vue'
+import CButton from '@/components/public/CButton.vue'
 import { translateCity, translateCountry, translateLocationPath } from '@/utils/location-i18n'
 
 const props = defineProps({ mode: { type: String, default: 'products' } })
@@ -417,10 +418,16 @@ const ModalFooter = defineComponent({
   emits: ['cancel', 'save'],
   props: { loading: Boolean },
   setup(componentProps, { emit }) {
-    return () => h('div', { class: 'modal-footer' }, [
-      h(NButton, { onClick: () => emit('cancel') }, () => '取消'),
-      h(NButton, { type: 'primary', loading: componentProps.loading, onClick: () => emit('save') }, () => '保存'),
-    ])
+    return () =>
+      h('div', { class: 'modal-footer' }, [
+        h(CButton, {
+          showCancel: true,
+          showSave: true,
+          saveLoading: componentProps.loading,
+          onCancel: () => emit('cancel'),
+          onSave: () => emit('save'),
+        }),
+      ])
   },
 })
 
@@ -1182,6 +1189,7 @@ onMounted(refreshAll)
   min-height: 76px;
 }
 .modal-footer {
+  width: 100%;
   justify-content: flex-end;
 }
 @media (max-width: 900px) {
