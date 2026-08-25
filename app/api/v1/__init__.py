@@ -18,6 +18,7 @@ from .fw_assistant import router as fw_assistant_router
 from .dashboard import router as dashboard_router
 from .menus import menus_router
 from .projects import projects_router
+from .product_center import router as product_center_router
 from .requirements import router as requirements_router
 from .pve import grafana_router as pve_grafana_router
 from .pve import pve_router
@@ -66,6 +67,7 @@ v1_router.include_router(bills_router, prefix="/bill", dependencies=[DependPermi
 v1_router.include_router(finance_quotes_router, prefix="/finance/quote", dependencies=[DependPermission])
 v1_router.include_router(companies_router, prefix="/company", dependencies=[DependPermission])
 v1_router.include_router(customer_center_router, prefix="/customer-center", dependencies=[DependPermission], tags=["客户中心"])
+v1_router.include_router(product_center_router, prefix="/product-center", dependencies=[DependPermission], tags=["产品中心"])
 v1_router.include_router(projects_router, prefix="/project", dependencies=[DependPermission])
 v1_router.include_router(requirements_router, prefix="/requirement", dependencies=[DependPermission], tags=["需求管理"])
 v1_router.include_router(resources_router, prefix="/resource", dependencies=[DependPermission])

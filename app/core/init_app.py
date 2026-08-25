@@ -279,6 +279,7 @@ async def init_menus():
     await ensure_requirement_menu()
     await ensure_resource_menu()
     await ensure_customer_center_menu()
+    await ensure_product_center_menu()
     await remove_disabled_feature_menus()
     await ensure_task_menu()
 
@@ -379,6 +380,83 @@ async def ensure_customer_center_menu():
                 await menu.save()
         else:
             await Menu.create(**values)
+async def ensure_product_center_menu():
+    product_menu = await ensure_menu_catalog(
+        name="产品中心",
+        path="/product-center",
+        order=4,
+        icon="mdi:cube-outline",
+        redirect="/product-center/products",
+    )
+    child_menus = [
+        {
+            "name": "产品管理",
+            "path": "products",
+            "order": 1,
+            "icon": "mdi:format-list-bulleted-square",
+            "component": "/product-center/products",
+        },
+        {
+            "name": "规格属性",
+            "path": "specs",
+            "order": 2,
+            "icon": "mdi:tune-variant",
+            "component": "/product-center/specs",
+        },
+        {
+            "name": "规格配置",
+            "path": "configs",
+            "order": 3,
+            "icon": "mdi:playlist-edit",
+            "component": "/product-center/configs",
+        },
+        {
+            "name": "定价管理",
+            "path": "pricing",
+            "order": 4,
+            "icon": "mdi:cash-multiple",
+            "component": "/product-center/pricing",
+        },
+        {
+            "name": "产品模板",
+            "path": "templates",
+            "order": 5,
+            "icon": "mdi:file-document-edit-outline",
+            "component": "/product-center/templates",
+        },
+    ]
+    for menu_data in child_menus:
+        menu = await Menu.filter(component=menu_data["component"]).first()
+        values = {
+            "menu_type": MenuType.MENU,
+            "name": menu_data["name"],
+            "path": menu_data["path"],
+            "order": menu_data["order"],
+            "parent_id": product_menu.id,
+            "icon": menu_data["icon"],
+            "is_hidden": False,
+            "component": menu_data["component"],
+            "keepalive": False,
+            "redirect": "",
+        }
+        if menu:
+            changed = False
+            for field, value in values.items():
+                if getattr(menu, field) != value:
+                    setattr(menu, field, value)
+                    changed = True
+            if changed:
+                await menu.save()
+        else:
+            await Menu.create(**values)
+    await Menu.filter(component__in=["/product-center/quote-lines"]).delete()
+    try:
+        from app.api.v1.product_center import seed_categories, seed_spec_attributes
+
+        await seed_categories()
+        await seed_spec_attributes()
+    except Exception as exc:
+        logger.warning(f"product center seed init failed: {exc}")
 
 
 async def ensure_service_module_menus():
@@ -1234,6 +1312,7 @@ async def ensure_business_api_permissions():
         | Q(method="GET", path="/api/v1/customer-center/contracts")
         | Q(method="GET", path="/api/v1/customer-center/bills")
         | Q(method="GET", path="/api/v1/customer-center/signing-entities")
+        | Q(path__startswith="/api/v1/product-center/")
         | Q(method="GET", path="/api/v1/resource/free-devices")
         | Q(method="GET", path="/api/v1/resource/zenlayer-pricing")
         | Q(method="POST", path="/api/v1/resource/zenlayer-pricing/quote")
@@ -1249,11 +1328,14 @@ async def ensure_business_api_permissions():
         | Q(path__startswith="/api/v1/project/")
         | Q(path__startswith="/api/v1/requirement/")
         | Q(path__startswith="/api/v1/customer-center/")
+        | Q(path__startswith="/api/v1/product-center/")
     )
     project_menu = await Menu.filter(path="/project-board").first()
     requirement_menu = await Menu.filter(path="/requirements").first()
     customer_center_menu = await Menu.filter(path="/customer-center").first()
     customer_center_child_menus = await Menu.filter(parent_id=customer_center_menu.id) if customer_center_menu else []
+    product_center_menu = await Menu.filter(path="/product-center").first()
+    product_center_child_menus = await Menu.filter(parent_id=product_center_menu.id) if product_center_menu else []
 
     for role in roles:
         if read_apis:
@@ -1262,6 +1344,10 @@ async def ensure_business_api_permissions():
             await role.menus.add(customer_center_menu)
         if customer_center_child_menus:
             await role.menus.add(*customer_center_child_menus)
+        if product_center_menu:
+            await role.menus.add(product_center_menu)
+        if product_center_child_menus:
+            await role.menus.add(*product_center_child_menus)
         if is_admin_role_name(role.name):
             if manage_apis:
                 await role.apis.add(*manage_apis)
