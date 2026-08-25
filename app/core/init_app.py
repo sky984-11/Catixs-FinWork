@@ -2196,6 +2196,39 @@ async def ensure_customer_center_columns():
     )
 
 
+async def ensure_product_center_columns():
+    if settings.DB_TYPE == "sqlite":
+        conn = Tortoise.get_connection("sqlite")
+        try:
+            await conn.execute_script('ALTER TABLE "product_spec_attribute" ADD COLUMN "category_id" BIGINT;')
+        except OperationalError as exc:
+            message = str(exc).lower()
+            if "duplicate column" not in message and "no such table" not in message:
+                raise
+        try:
+            await conn.execute_script('ALTER TABLE "product_spec_attribute" ADD COLUMN "category_ids" JSON NOT NULL DEFAULT \'[]\';')
+        except OperationalError as exc:
+            message = str(exc).lower()
+            if "duplicate column" not in message and "no such table" not in message:
+                raise
+        return
+
+    if settings.DB_TYPE != "postgres":
+        return
+
+    conn = Tortoise.get_connection("postgres")
+    await conn.execute_script(
+        """
+        ALTER TABLE IF EXISTS "product_spec_attribute"
+            ADD COLUMN IF NOT EXISTS "category_id" BIGINT;
+        ALTER TABLE IF EXISTS "product_spec_attribute"
+            ADD COLUMN IF NOT EXISTS "category_ids" JSONB NOT NULL DEFAULT '[]';
+        CREATE INDEX IF NOT EXISTS "idx_product_spec_attribute_category"
+            ON "product_spec_attribute" ("category_id");
+        """
+    )
+
+
 async def ensure_pre_schema_columns():
     if settings.DB_TYPE != "postgres":
         return
@@ -2347,6 +2380,7 @@ async def init_db():
     await ensure_user_columns()
     await ensure_company_columns()
     await ensure_customer_center_columns()
+    await ensure_product_center_columns()
     await ensure_asset_columns()
     await ensure_bill_columns()
     await ensure_project_columns()

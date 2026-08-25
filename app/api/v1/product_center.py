@@ -71,6 +71,8 @@ class ProductPayload(BaseModel):
 class AttributePayload(BaseModel):
     name: str = Field(..., max_length=120)
     code: str = Field(..., max_length=80)
+    category_id: int | None = None
+    category_ids: list[int] = Field(default_factory=list)
     attr_type: str = "text"
     unit: str | None = Field(None, max_length=40)
     required: bool = False
@@ -121,6 +123,40 @@ def compact(values: dict[str, Any]) -> dict[str, Any]:
 
 def label_of(options: list[dict[str, str]], value: str | None) -> str:
     return next((item["label"] for item in options if item["value"] == value), value or "-")
+
+
+def normalize_category_ids(category_ids: list[int] | None, category_id: int | None = None) -> list[int]:
+    values: list[int] = []
+    for value in category_ids or []:
+        try:
+            item = int(value)
+        except (TypeError, ValueError):
+            continue
+        if item > 0 and item not in values:
+            values.append(item)
+    if not values and category_id:
+        values.append(int(category_id))
+    return values
+
+
+def attribute_category_ids(attribute: ProductSpecAttribute) -> list[int]:
+    return normalize_category_ids(attribute.category_ids or [], attribute.category_id)
+
+
+async def category_names(category_ids: list[int]) -> list[str]:
+    if not category_ids:
+        return []
+    rows = await ProductCategory.filter(id__in=category_ids).values("id", "name")
+    names_by_id = {int(item["id"]): item["name"] for item in rows}
+    return [names_by_id[item] for item in category_ids if item in names_by_id]
+
+
+def prepare_attribute_payload(payload: AttributePayload) -> dict[str, Any]:
+    data = compact(payload.model_dump())
+    ids = normalize_category_ids(data.pop("category_ids", None), data.get("category_id"))
+    data["category_ids"] = ids
+    data["category_id"] = ids[0] if ids else None
+    return data
 
 
 def delete_block_msg(target: str, refs: list[str]) -> str:
@@ -443,10 +479,85 @@ PRODUCT_SPEC_ATTRIBUTE_SEEDS = [
     },
 ]
 
+ATTRIBUTE_CATEGORY_CODE_MAP = {
+    "cross_connect_media": "CAT00103",
+    "server_model": "CAT00201",
+    "asn": "CAT00303",
+    "cloud_provider": "CAT00403",
+    "remote_hands_hours": "CAT00601",
+    "service_level": "CAT00601",
+}
+
+ATTRIBUTE_CATEGORY_CODES_MAP = {
+    "region": [
+        "CAT00101", "CAT00102", "CAT00103",
+        "CAT00201", "CAT00202",
+        "CAT00301", "CAT00302", "CAT00303",
+        "CAT00401", "CAT00402", "CAT00403",
+        "CAT00501", "CAT00502", "CAT00503", "CAT00504", "CAT00505",
+        "CAT00601",
+    ],
+    "billing_mode": [
+        "CAT00101", "CAT00102", "CAT00103",
+        "CAT00201", "CAT00202",
+        "CAT00301", "CAT00302", "CAT00303",
+        "CAT00401", "CAT00402", "CAT00403",
+        "CAT00501", "CAT00502", "CAT00503", "CAT00504", "CAT00505",
+        "CAT00601",
+    ],
+    "billing_cycle": [
+        "CAT00101", "CAT00102", "CAT00103",
+        "CAT00201", "CAT00202",
+        "CAT00301", "CAT00302", "CAT00303",
+        "CAT00401", "CAT00402", "CAT00403",
+        "CAT00501", "CAT00502", "CAT00503", "CAT00504", "CAT00505",
+        "CAT00601",
+    ],
+    "rack_size": ["CAT00101"],
+    "rack_units": ["CAT00102"],
+    "power_capacity": ["CAT00101", "CAT00102"],
+    "power_type": ["CAT00101", "CAT00102"],
+    "cpu": ["CAT00201", "CAT00202"],
+    "memory": ["CAT00201", "CAT00202"],
+    "storage": ["CAT00201", "CAT00202"],
+    "ip_version": ["CAT00301", "CAT00302"],
+    "ip_quantity": ["CAT00301", "CAT00302"],
+    "ip_prefix": ["CAT00301", "CAT00302"],
+    "interconnect_type": ["CAT00401", "CAT00402", "CAT00403"],
+    "bandwidth": ["CAT00401", "CAT00402", "CAT00403", "CAT00501", "CAT00502", "CAT00503", "CAT00504", "CAT00505"],
+    "interface_type": ["CAT00103", "CAT00401", "CAT00402", "CAT00403", "CAT00501", "CAT00502", "CAT00503", "CAT00504", "CAT00505"],
+    "port_speed": ["CAT00103", "CAT00401", "CAT00402", "CAT00403", "CAT00501", "CAT00502", "CAT00503", "CAT00504", "CAT00505"],
+    "a_end_access_type": ["CAT00501", "CAT00502", "CAT00503"],
+    "a_end_location": ["CAT00501", "CAT00502", "CAT00503", "CAT00504", "CAT00505"],
+    "z_end_location": ["CAT00403", "CAT00504", "CAT00505"],
+    "local_loop_required": ["CAT00501", "CAT00502", "CAT00503"],
+    "is_datacenter": ["CAT00502"],
+    "access_scenario": ["CAT00502"],
+    "need_quote": ["CAT00502"],
+    "custom_price_required": ["CAT00502"],
+    "burst_required": ["CAT00504"],
+    "commit_bandwidth": ["CAT00501", "CAT00502", "CAT00503", "CAT00504"],
+    "burst_bandwidth": ["CAT00501", "CAT00502", "CAT00503", "CAT00504"],
+    "route_type": ["CAT00501", "CAT00502", "CAT00503"],
+    "protection_type": ["CAT00504", "CAT00505"],
+}
+
 
 async def seed_spec_attributes():
+    category_codes = set(ATTRIBUTE_CATEGORY_CODE_MAP.values())
+    for codes in ATTRIBUTE_CATEGORY_CODES_MAP.values():
+        category_codes.update(codes)
+    category_ids = dict(await ProductCategory.filter(code__in=category_codes).values_list("code", "id"))
     for item in PRODUCT_SPEC_ATTRIBUTE_SEEDS:
         values = {**item, "status": True}
+        category_codes = ATTRIBUTE_CATEGORY_CODES_MAP.get(item["code"])
+        if not category_codes:
+            category_code = ATTRIBUTE_CATEGORY_CODE_MAP.get(item["code"])
+            category_codes = [category_code] if category_code else []
+        ids = [category_ids[code] for code in category_codes if code in category_ids]
+        if ids:
+            values["category_id"] = ids[0]
+            values["category_ids"] = ids
         await ProductSpecAttribute.update_or_create(defaults=values, code=item["code"])
 
 
@@ -470,6 +581,12 @@ async def product_dict(product: ProductItem) -> dict[str, Any]:
 
 async def attribute_dict(attribute: ProductSpecAttribute) -> dict[str, Any]:
     data = await attribute.to_dict()
+    ids = attribute_category_ids(attribute)
+    names = await category_names(ids)
+    data["category_ids"] = ids
+    data["category_names"] = names
+    data["category_id"] = ids[0] if ids else None
+    data["category_name"] = "、".join(names) if names else "-"
     data["attr_type_label"] = label_of(ATTRIBUTE_TYPES, data.get("attr_type"))
     return data
 
@@ -510,15 +627,26 @@ async def options():
     await seed_categories()
     await seed_spec_attributes()
     categories = await ProductCategory.filter(status=True).order_by("level", "order", "name")
-    products = await ProductItem.filter(status="active").order_by("name").values("id", "name", "code", "billing_mode")
-    attributes = await ProductSpecAttribute.filter(status=True).order_by("name").values("id", "name", "code")
+    products = await ProductItem.filter(status="active").order_by("name").values("id", "name", "code", "billing_mode", "category_id")
+    attributes = await ProductSpecAttribute.filter(status=True).order_by("category_id", "name").values("id", "name", "code", "attr_type", "unit", "category_id", "category_ids")
     customers = await CrmCustomer.filter(status=True).order_by("name").values("id", "name", "legal_name")
     return Success(
         data={
             "categories": [{"label": item.name, "value": item.id, "parent_id": item.parent_id} for item in categories],
             "category_tree": await category_tree(),
-            "products": [{"label": item["name"], "value": item["id"], "code": item["code"], "billing_mode": item["billing_mode"]} for item in products],
-            "attributes": [{"label": f'{item["name"]} ({item["code"]})', "value": item["id"]} for item in attributes],
+            "products": [{"label": item["name"], "value": item["id"], "code": item["code"], "billing_mode": item["billing_mode"], "category_id": item["category_id"]} for item in products],
+            "attributes": [
+                {
+                    "label": f'{item["name"]} ({item["code"]})',
+                    "value": item["id"],
+                    "code": item["code"],
+                    "attr_type": item["attr_type"],
+                    "unit": item["unit"],
+                    "category_id": item["category_id"],
+                    "category_ids": normalize_category_ids(item.get("category_ids") or [], item.get("category_id")),
+                }
+                for item in attributes
+            ],
             "customers": [{"label": item["legal_name"] or item["name"], "value": item["id"]} for item in customers],
             "product_statuses": PRODUCT_STATUSES,
             "price_types": PRICE_TYPES,
@@ -595,7 +723,14 @@ async def delete_category(category_id: int):
 
 
 @router.get("/products", summary="产品列表")
-async def list_products(page: int = Query(1), page_size: int = Query(20), keyword: str = Query(""), category_id: int | None = Query(None), status: str = Query("")):
+async def list_products(
+    page: int = Query(1),
+    page_size: int = Query(20),
+    keyword: str = Query(""),
+    category_id: int | None = Query(None),
+    status: str = Query(""),
+    region: str = Query(""),
+):
     q = Q()
     if keyword:
         q &= Q(name__contains=keyword) | Q(code__contains=keyword) | Q(region__contains=keyword)
@@ -603,6 +738,8 @@ async def list_products(page: int = Query(1), page_size: int = Query(20), keywor
         q &= Q(category_id=category_id)
     if status:
         q &= Q(status=status)
+    if region:
+        q &= Q(region=region)
     total = await ProductItem.filter(q).count()
     rows = await ProductItem.filter(q).order_by("category_id", "name").offset((page - 1) * page_size).limit(page_size)
     return SuccessExtra(data=[await product_dict(item) for item in rows], total=total, page=page, page_size=page_size)
@@ -639,27 +776,45 @@ async def delete_product(product_id: int):
 
 
 @router.get("/attributes", summary="规格属性列表")
-async def list_attributes(page: int = Query(1), page_size: int = Query(20), keyword: str = Query(""), attr_type: str = Query("")):
+async def list_attributes(
+    page: int = Query(1),
+    page_size: int = Query(20),
+    keyword: str = Query(""),
+    attr_type: str = Query(""),
+    category_id: int | None = Query(None),
+):
     await seed_spec_attributes()
     q = Q()
     if keyword:
         q &= Q(name__contains=keyword) | Q(code__contains=keyword) | Q(unit__contains=keyword)
     if attr_type:
         q &= Q(attr_type=attr_type)
+    if category_id:
+        all_rows = await ProductSpecAttribute.filter(q).order_by("category_id", "name")
+        matched = [item for item in all_rows if int(category_id) in attribute_category_ids(item)]
+        total = len(matched)
+        rows = matched[(page - 1) * page_size : page * page_size]
+        return SuccessExtra(data=[await attribute_dict(item) for item in rows], total=total, page=page, page_size=page_size)
     total = await ProductSpecAttribute.filter(q).count()
-    rows = await ProductSpecAttribute.filter(q).order_by("name").offset((page - 1) * page_size).limit(page_size)
+    rows = await ProductSpecAttribute.filter(q).order_by("category_id", "name").offset((page - 1) * page_size).limit(page_size)
     return SuccessExtra(data=[await attribute_dict(item) for item in rows], total=total, page=page, page_size=page_size)
 
 
 @router.post("/attributes", summary="新增规格属性")
 async def create_attribute(payload: AttributePayload):
-    attribute = await ProductSpecAttribute.create(**compact(payload.model_dump()))
+    data = prepare_attribute_payload(payload)
+    if not data["category_ids"]:
+        return Fail(msg="请选择适用分类")
+    attribute = await ProductSpecAttribute.create(**data)
     return Success(msg="规格属性已创建", data=await attribute_dict(attribute))
 
 
 @router.put("/attributes/{attribute_id}", summary="编辑规格属性")
 async def update_attribute(attribute_id: int, payload: AttributePayload):
-    await ProductSpecAttribute.filter(id=attribute_id).update(**compact(payload.model_dump(exclude_unset=True)))
+    data = prepare_attribute_payload(payload)
+    if not data["category_ids"]:
+        return Fail(msg="请选择适用分类")
+    await ProductSpecAttribute.filter(id=attribute_id).update(**data)
     return Success(msg="规格属性已更新", data=await attribute_dict(await ProductSpecAttribute.get(id=attribute_id)))
 
 

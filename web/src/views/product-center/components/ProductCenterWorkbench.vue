@@ -37,9 +37,6 @@
             <h2>{{ pageTitle }}</h2>
           </div>
           <n-space>
-            <n-button secondary circle :loading="loading" title="刷新" @click="loadPage">
-              <template #icon><TheIcon icon="mdi:refresh" :size="18" /></template>
-            </n-button>
             <n-button type="primary" @click="openEditor()">
               <template #icon><TheIcon :icon="addIcon" :size="18" /></template>
               {{ addText }}
@@ -48,11 +45,43 @@
         </div>
 
         <div class="filter-row">
+          <div class="filter-controls">
           <n-input v-if="showKeyword" v-model:value="query.keyword" clearable :placeholder="keywordPlaceholder" @keyup.enter="loadPage">
             <template #prefix><TheIcon icon="mdi:magnify" :size="17" /></template>
           </n-input>
+          <n-cascader
+            v-if="mode === 'products'"
+            v-model:value="query.category_id"
+            clearable
+            filterable
+            :show-path="false"
+            check-strategy="child"
+            :options="options.categoryTree"
+            placeholder="产品分类"
+          />
           <n-select v-if="mode === 'products'" v-model:value="query.status" clearable :options="options.productStatuses" placeholder="产品状态" />
+          <n-cascader
+            v-if="mode === 'products'"
+            v-model:value="query.region"
+            clearable
+            filterable
+            show-path
+            check-strategy="child"
+            :options="productRegionOptions"
+            :filter="regionCascaderFilter"
+            placeholder="地区"
+          />
           <n-select v-if="mode === 'specs'" v-model:value="query.attr_type" clearable :options="options.attributeTypes" placeholder="属性类型" />
+          <n-cascader
+            v-if="mode === 'specs'"
+            v-model:value="query.category_id"
+            clearable
+            filterable
+            :show-path="false"
+            check-strategy="child"
+            :options="options.categoryTree"
+            placeholder="适用分类"
+          />
           <n-select v-if="mode === 'configs'" v-model:value="query.product_id" clearable filterable :options="options.products" placeholder="关联产品" />
           <n-select v-if="mode === 'pricing'" v-model:value="query.product_id" clearable filterable :options="options.products" placeholder="关联产品" />
           <n-select v-if="mode === 'pricing'" v-model:value="query.price_type" clearable :options="options.priceTypes" placeholder="价格类型" />
@@ -65,8 +94,17 @@
             :options="options.categoryTree"
             placeholder="适用分类"
           />
-          <n-button secondary @click="resetQuery">重置</n-button>
-          <n-button type="primary" @click="loadPage">搜索</n-button>
+          </div>
+          <div class="filter-actions">
+            <n-button class="filter-action-button" secondary @click="resetQuery">
+              <template #icon><TheIcon icon="mdi:reload" :size="16" /></template>
+              重置
+            </n-button>
+            <n-button class="filter-action-button" type="primary" @click="loadPage">
+              <template #icon><TheIcon icon="mdi:magnify" :size="16" /></template>
+              搜索
+            </n-button>
+          </div>
         </div>
 
         <div class="table-wrap">
@@ -128,7 +166,7 @@
           <n-grid responsive="screen" cols="1 m:2" :x-gap="16" :y-gap="2">
             <template v-if="mode === 'products'">
               <n-form-item-gi label="产品名称" required><n-input v-model:value="editor.form.name" /></n-form-item-gi>
-              <n-form-item-gi label="产品编码"><n-input v-model:value="editor.form.code" placeholder="留空自动生成" /></n-form-item-gi>
+              <n-form-item-gi label="产品编码"><n-input v-model:value="editor.form.code" :disabled="Boolean(editor.form.id)" placeholder="留空自动生成" /></n-form-item-gi>
               <n-form-item-gi label="产品分类">
                 <n-cascader
                   v-model:value="editor.form.category_id"
@@ -136,6 +174,7 @@
                   filterable
                   check-strategy="child"
                   :options="options.categoryTree"
+                  :disabled="Boolean(editor.form.id)"
                   placeholder="请选择产品分类"
                 />
               </n-form-item-gi>
@@ -149,6 +188,7 @@
                   check-strategy="child"
                   :options="productRegionOptions"
                   :filter="regionCascaderFilter"
+                  :disabled="Boolean(editor.form.id)"
                   placeholder="从 POP 点选择国家 / 地区"
                 />
               </n-form-item-gi>
@@ -159,6 +199,17 @@
             <template v-else-if="mode === 'specs'">
               <n-form-item-gi label="属性名称" required><n-input v-model:value="editor.form.name" /></n-form-item-gi>
               <n-form-item-gi label="属性编码" required><n-input v-model:value="editor.form.code" /></n-form-item-gi>
+              <n-form-item-gi label="适用分类" required>
+                <n-cascader
+                  v-model:value="editor.form.category_ids"
+                  filterable
+                  multiple
+                  :show-path="false"
+                  check-strategy="child"
+                  :options="options.categoryTree"
+                  placeholder="请选择适用分类"
+                />
+              </n-form-item-gi>
               <n-form-item-gi label="属性类型"><n-select v-model:value="editor.form.attr_type" :options="options.attributeTypes" /></n-form-item-gi>
               <n-form-item-gi label="单位"><n-input v-model:value="editor.form.unit" /></n-form-item-gi>
               <n-form-item-gi label="必填"><n-switch v-model:value="editor.form.required" /></n-form-item-gi>
@@ -169,7 +220,15 @@
 
             <template v-else-if="mode === 'configs'">
               <n-form-item-gi label="关联产品" required><n-select v-model:value="editor.form.product_id" filterable :options="options.products" /></n-form-item-gi>
-              <n-form-item-gi label="规格属性" required><n-select v-model:value="editor.form.attribute_id" filterable :options="options.attributes" /></n-form-item-gi>
+              <n-form-item-gi label="规格属性" required>
+                <n-select
+                  v-model:value="editor.form.attribute_id"
+                  filterable
+                  :disabled="!editor.form.product_id"
+                  :options="configAttributeOptions"
+                  :placeholder="editor.form.product_id ? '请选择规格属性' : '请先选择关联产品'"
+                />
+              </n-form-item-gi>
               <n-form-item-gi label="排序"><n-input-number v-model:value="editor.form.order" :min="0" /></n-form-item-gi>
               <n-form-item-gi label="必填"><n-switch v-model:value="editor.form.required" /></n-form-item-gi>
               <n-form-item-gi label="默认值"><n-input v-model:value="editor.form.default_value" /></n-form-item-gi>
@@ -256,21 +315,32 @@ const pageTitle = computed(() => modeMeta[props.mode]?.title || '产品中心')
 const addText = computed(() => modeMeta[props.mode]?.add || '新增')
 const addIcon = computed(() => modeMeta[props.mode]?.icon || 'mdi:plus')
 const keywordPlaceholder = computed(() => modeMeta[props.mode]?.keyword || '搜索')
-const showKeyword = computed(() => props.mode !== 'configs')
+const showKeyword = computed(() => !['configs', 'products', 'specs'].includes(props.mode))
 const scrollX = computed(() => (props.mode === 'pricing' ? 1280 : props.mode === 'products' ? 1180 : 980))
 const selectedCategoryKeys = computed(() => (query.category_id ? [query.category_id] : []))
 const topCategoryOptions = computed(() => options.categories.filter((item) => !item.parent_id))
 const productRegionOptions = computed(() => {
   const tree = buildPopRegionOptions()
-  if (editor.form.region && !findCascaderValue(tree, editor.form.region)) {
-    tree.unshift({ label: editor.form.region, value: editor.form.region })
-  }
+  ;[editor.form.region, query.region].filter(Boolean).forEach((region) => {
+    if (!findCascaderValue(tree, region)) tree.unshift({ label: region, value: region })
+  })
   return tree
 })
 const productBillingModeOptions = computed(() => {
   if (props.mode !== 'products') return options.billingModes
   const allowedValues = billingModesForCategory(editor.form.category_id)
   return options.billingModes.filter((item) => allowedValues.includes(item.value))
+})
+const configAttributeOptions = computed(() => {
+  if (props.mode !== 'configs') return options.attributes
+  const allowedCategoryIds = specAttributeCategoryIdsForProduct(editor.form.product_id)
+  if (!allowedCategoryIds.length) return []
+  const rows = options.attributes.filter((item) => attributeCategoryIds(item).some((id) => allowedCategoryIds.includes(id)))
+  if (editor.form.attribute_id && !rows.some((item) => item.value === editor.form.attribute_id)) {
+    const current = options.attributes.find((item) => item.value === editor.form.attribute_id)
+    if (current) rows.unshift(current)
+  }
+  return rows
 })
 
 const loading = ref(false)
@@ -280,7 +350,7 @@ const expandedCategoryKeys = ref([])
 const popRegions = ref([])
 const editorInitializing = ref(false)
 const pagination = reactive({ page: 1, pageSize: 20, itemCount: 0, pageSizes: [20, 50, 100] })
-const query = reactive({ keyword: '', category_id: null, status: null, attr_type: null, product_id: null, price_type: null, customer_id: null })
+const query = reactive({ keyword: '', category_id: null, status: null, region: null, attr_type: null, product_id: null, price_type: null, customer_id: null })
 const options = reactive({
   categoryTree: [],
   categories: [],
@@ -328,6 +398,26 @@ function renderTag(text, type = 'default') {
   return h(NTag, { size: 'small', round: true, type }, { default: () => text || '-' })
 }
 
+const categoryTagTypes = ['info', 'success', 'warning', 'error', 'primary', 'default']
+
+function categoryTagType(name) {
+  const text = String(name || '')
+  let hash = 0
+  for (let index = 0; index < text.length; index += 1) hash += text.charCodeAt(index)
+  return categoryTagTypes[hash % categoryTagTypes.length]
+}
+
+function renderCategoryTags(row) {
+  const names = Array.isArray(row.category_names) && row.category_names.length
+    ? row.category_names
+    : String(row.category_name || '')
+        .split(/[、,，]/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+  if (!names.length) return '-'
+  return h('div', { class: 'category-tags' }, names.map((name) => renderTag(name, categoryTagType(name))))
+}
+
 function actionButtons(row) {
   return h('div', { class: 'table-actions' }, [
     h(NButton, { size: 'small', secondary: true, type: 'info', onClick: () => openEditor(row) }, { icon: () => h(TheIcon, { icon: 'mdi:pencil', size: 15 }) }),
@@ -350,6 +440,7 @@ const productColumns = [
 const attributeColumns = [
   { title: '属性名称', key: 'name', width: 180 },
   { title: '属性编码', key: 'code', width: 150 },
+  { title: '适用分类', key: 'category_name', width: 300, render: renderCategoryTags },
   { title: '属性类型', key: 'attr_type_label', width: 120 },
   { title: '单位', key: 'unit', width: 100 },
   { title: '必填', key: 'required', width: 90, render: (row) => renderTag(row.required ? '是' : '否', row.required ? 'warning' : 'default') },
@@ -398,7 +489,7 @@ function emptyCategory() {
 
 function emptyForm() {
   if (props.mode === 'products') return { id: null, name: '', code: '', category_id: query.category_id, status: 'active', region: '', billing_mode: 'fixed', description: '' }
-  if (props.mode === 'specs') return { id: null, name: '', code: '', attr_type: 'text', unit: '', required: false, options: '', description: '', status: true }
+  if (props.mode === 'specs') return { id: null, name: '', code: '', category_id: query.category_id, category_ids: query.category_id ? [query.category_id] : [], attr_type: 'text', unit: '', required: false, options: '', description: '', status: true }
   if (props.mode === 'configs') return { id: null, product_id: query.product_id, attribute_id: null, order: 0, default_value: '', value_range: '', required: false }
   if (props.mode === 'pricing') return { id: null, product_id: query.product_id, price_type: query.price_type || 'standard', customer_id: null, customer_name: '', billing_mode: 'fixed', billing_unit: 'month', currency: 'USD', amount: 0, min_amount: null, tier_rules: '', bandwidth_rule: '', effective_date: null, expiry_date: null, status: 'active', remark: '' }
   return { id: null, name: '', category_id: query.category_id, template_type: 'product', description: '', config: '', status: true }
@@ -438,8 +529,8 @@ async function loadPage() {
   loading.value = true
   try {
     let res
-    if (props.mode === 'products') res = await api.productCenterApi.listProducts(pageParams({ keyword: query.keyword, category_id: query.category_id || undefined, status: query.status || '' }))
-    else if (props.mode === 'specs') res = await api.productCenterApi.listAttributes(pageParams({ keyword: query.keyword, attr_type: query.attr_type || '' }))
+    if (props.mode === 'products') res = await api.productCenterApi.listProducts(pageParams({ category_id: query.category_id || undefined, status: query.status || '', region: query.region || '' }))
+    else if (props.mode === 'specs') res = await api.productCenterApi.listAttributes(pageParams({ keyword: query.keyword, attr_type: query.attr_type || '', category_id: query.category_id || undefined }))
     else if (props.mode === 'configs') res = await api.productCenterApi.listSpecConfigs(pageParams({ product_id: query.product_id || undefined }))
     else if (props.mode === 'pricing') res = await api.productCenterApi.listPrices(pageParams({ keyword: query.keyword, product_id: query.product_id || undefined, price_type: query.price_type || '' }))
     else res = await api.productCenterApi.listTemplates(pageParams({ keyword: query.keyword, category_id: query.category_id || undefined }))
@@ -457,7 +548,7 @@ async function refreshAll() {
 }
 
 function resetQuery() {
-  Object.assign(query, { keyword: '', category_id: null, status: null, attr_type: null, product_id: null, price_type: null, customer_id: null })
+  Object.assign(query, { keyword: '', category_id: null, status: null, region: null, attr_type: null, product_id: null, price_type: null, customer_id: null })
   pagination.page = 1
   loadPage()
 }
@@ -512,6 +603,10 @@ async function deleteSelectedCategory() {
 function openEditor(row = null) {
   editorInitializing.value = true
   editor.form = row ? { ...emptyForm(), ...row } : emptyForm()
+  if (props.mode === 'specs') {
+    editor.form.category_ids = attributeCategoryIds(editor.form)
+    editor.form.category_id = editor.form.category_ids[0] || null
+  }
   if (!row) applyProductBillingDefault()
   editor.show = true
   nextTick(() => {
@@ -520,21 +615,56 @@ function openEditor(row = null) {
 }
 
 function getCategory(categoryId) {
-  return categories.value.find((item) => item.id === categoryId)
+  return [...categories.value, ...options.categories].find((item) => String(item.id || item.value) === String(categoryId))
+}
+
+function getProduct(productId) {
+  return options.products.find((item) => String(item.value) === String(productId))
 }
 
 function categoryPathNames(categoryId) {
   const names = []
   let category = getCategory(categoryId)
   while (category) {
-    names.unshift(category.name)
+    names.unshift(category.name || category.label)
     category = getCategory(category.parent_id)
   }
   return names
 }
 
+function categoryPathIds(categoryId) {
+  const ids = []
+  let category = getCategory(categoryId)
+  while (category) {
+    const id = Number(category.id || category.value)
+    if (id) ids.unshift(id)
+    category = getCategory(category.parent_id)
+  }
+  return ids
+}
+
 function categoryIncludes(categoryId, names) {
   return categoryPathNames(categoryId).some((name) => names.includes(name))
+}
+
+function specAttributeCategoryIdsForProduct(productId) {
+  const product = getProduct(productId)
+  if (!product?.category_id) return []
+  return categoryPathIds(product.category_id)
+}
+
+function attributeCategoryIds(attribute = {}) {
+  const values = Array.isArray(attribute.category_ids) && attribute.category_ids.length ? attribute.category_ids : [attribute.category_id]
+  return values.map((item) => Number(item)).filter(Boolean)
+}
+
+function ensureConfigAttributeFitsProduct() {
+  if (props.mode !== 'configs' || !editor.form.product_id || !editor.form.attribute_id) return
+  const allowedCategoryIds = specAttributeCategoryIdsForProduct(editor.form.product_id)
+  const selected = options.attributes.find((item) => item.value === editor.form.attribute_id)
+  if (selected && allowedCategoryIds.length && !attributeCategoryIds(selected).some((id) => allowedCategoryIds.includes(id))) {
+    editor.form.attribute_id = null
+  }
 }
 
 function text(value, fallback = '-') {
@@ -726,7 +856,9 @@ async function saveEditor() {
       if (payload.id) await api.productCenterApi.updateProduct(payload.id, payload)
       else await api.productCenterApi.createProduct(payload)
     } else if (props.mode === 'specs') {
-      if (!payload.name || !payload.code) return window.$message?.warning('请填写属性名称和编码')
+      payload.category_ids = attributeCategoryIds(payload)
+      payload.category_id = payload.category_ids[0] || null
+      if (!payload.name || !payload.code || !payload.category_ids.length) return window.$message?.warning('请填写属性名称、编码和适用分类')
       if (payload.id) await api.productCenterApi.updateAttribute(payload.id, payload)
       else await api.productCenterApi.createAttribute(payload)
     } else if (props.mode === 'configs') {
@@ -765,6 +897,11 @@ watch(() => props.mode, () => {
 watch(() => editor.form.category_id, () => {
   if (editorInitializing.value) return
   applyProductBillingDefault()
+})
+
+watch(() => editor.form.product_id, () => {
+  if (editorInitializing.value) return
+  ensureConfigAttributeFitsProduct()
 })
 
 onMounted(refreshAll)
@@ -822,11 +959,32 @@ onMounted(refreshAll)
   font-weight: 700;
 }
 .filter-row {
-  display: grid;
+  display: flex;
   flex-shrink: 0;
-  grid-template-columns: minmax(240px, 1.4fr) repeat(3, minmax(150px, 1fr)) 78px 78px;
+  align-items: center;
+  justify-content: space-between;
   gap: 10px;
   margin: 16px 0;
+}
+.filter-controls {
+  display: grid;
+  flex: 1;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  min-width: 0;
+  max-width: 760px;
+}
+.filter-actions {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.filter-action-button {
+  min-width: 92px;
+  height: 34px;
+  font-weight: 600;
 }
 .table-wrap {
   display: flex;
@@ -861,6 +1019,12 @@ onMounted(refreshAll)
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+.category-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 0;
 }
 .category-actions {
   flex-shrink: 0;
@@ -920,7 +1084,15 @@ onMounted(refreshAll)
     max-height: 240px;
   }
   .filter-row {
-    grid-template-columns: 1fr 1fr;
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .filter-controls {
+    max-width: none;
+    grid-template-columns: 1fr;
+  }
+  .filter-actions {
+    justify-content: flex-end;
   }
   :deep(.product-modal) {
     width: calc(100vw - 24px);

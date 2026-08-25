@@ -44,6 +44,14 @@ class ProductItem(BaseModel, TimestampMixin):
 class ProductSpecAttribute(BaseModel, TimestampMixin):
     name = fields.CharField(max_length=120, description="属性名称", index=True)
     code = fields.CharField(max_length=80, description="属性编码", index=True, unique=True)
+    category = fields.ForeignKeyField(
+        "models.ProductCategory",
+        related_name="spec_attributes",
+        null=True,
+        on_delete=fields.SET_NULL,
+        description="适用产品分类",
+    )
+    category_ids = fields.JSONField(default=list, description="适用产品分类ID列表")
     attr_type = fields.CharField(max_length=30, default="text", description="属性类型", index=True)
     unit = fields.CharField(max_length=40, null=True, description="单位")
     required = fields.BooleanField(default=False, description="是否必填", index=True)
