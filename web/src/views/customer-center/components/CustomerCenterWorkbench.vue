@@ -39,19 +39,22 @@
           <n-button type="primary" @click="loadPage">搜索</n-button>
         </div>
 
+        <div class="crm-table-wrap">
         <n-data-table
           remote
           striped
+          flex-height
           :loading="loading"
           :columns="columns"
           :data="rows"
           :pagination="false"
           :row-key="(row) => row.id"
           :row-props="mode === 'customers' ? customerRowProps : undefined"
-          :scroll-x="scrollX"
+            :scroll-x="scrollX"
         >
           <template #empty><n-empty description="暂无数据" /></template>
         </n-data-table>
+        </div>
         <div class="crm-pagination">
           <span>共 {{ pagination.itemCount }} 条</span>
           <n-pagination
@@ -74,7 +77,6 @@
                 <span class="eyebrow">客户详情</span>
                 <strong>{{ detail?.legal_name || detail?.name || '-' }}</strong>
               </div>
-              <n-button size="small" secondary @click="openCustomerModal(detail)">编辑客户</n-button>
             </div>
           </template>
           <n-spin :show="detailLoading">
@@ -97,13 +99,13 @@
                   <div class="text-block"><b>备注</b><p>{{ detail.remark || '-' }}</p></div>
                 </n-tab-pane>
                 <n-tab-pane name="contacts" tab="客户联系人">
-                  <SubTable title="客户联系人" :columns="contactColumns" :data="detail.contacts || []" @add="openContactModal()" />
+                  <SubTable title="客户联系人" :columns="readonlyColumns(contactColumns)" :data="detail.contacts || []" />
                 </n-tab-pane>
                 <n-tab-pane name="contracts" tab="客户合同">
-                  <SubTable title="客户合同" :columns="contractColumns" :data="detail.contracts || []" @add="openContractModal()" />
+                  <SubTable title="客户合同" :columns="readonlyColumns(contractColumns)" :data="detail.contracts || []" />
                 </n-tab-pane>
                 <n-tab-pane name="bills" tab="客户账单">
-                  <SubTable title="客户账单" :columns="billColumns" :data="detail.bills || []" @add="openBillModal()" />
+                  <SubTable title="客户账单" :columns="readonlyColumns(billColumns)" :data="detail.bills || []" />
                 </n-tab-pane>
               </n-tabs>
             </div>
@@ -404,17 +406,19 @@ const ModalFooter = defineComponent({
 
 const SubTable = defineComponent({
   props: { title: String, columns: Array, data: Array },
-  emits: ['add'],
-  setup(componentProps, { emit }) {
+  setup(componentProps) {
     return () => h('div', { class: 'sub-table' }, [
       h('div', { class: 'sub-table__head' }, [
         h('strong', componentProps.title),
-        h(NButton, { size: 'small', type: 'primary', onClick: () => emit('add') }, () => '新增'),
       ]),
       h(NDataTable, { columns: componentProps.columns, data: componentProps.data, pagination: false, scrollX: 940 }),
     ])
   },
 })
+
+function readonlyColumns(columns = []) {
+  return columns.filter((column) => column.key !== 'actions')
+}
 
 function optionize(rows = []) {
   return rows.map((item) => ({ label: item.legal_name || item.name, value: item.id }))
@@ -874,11 +878,15 @@ onMounted(() => {
 </script>
 
 <style scoped>
+:deep(.app-page-shell) {
+  overflow: hidden;
+}
 .crm-page {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  min-height: calc(100vh - 120px);
+  height: 100%;
+  min-height: 0;
 }
 .eyebrow {
   color: #607089;
@@ -889,11 +897,24 @@ onMounted(() => {
   display: flex;
   flex: 1;
   flex-direction: column;
-  min-height: 680px;
+  min-height: 0;
   padding: 18px;
   border: 1px solid #e7edf4;
   border-radius: 8px;
   background: #fff;
+}
+.crm-table-wrap {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.crm-table-wrap :deep(.n-data-table) {
+  width: 100%;
+  height: 100%;
+}
+.crm-table-wrap :deep(.n-data-table .n-data-table-base-table) {
+  min-height: 0;
 }
 .crm-panel__head,
 .sub-table__head,
@@ -919,6 +940,7 @@ onMounted(() => {
 }
 .crm-pagination {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
   padding-top: 14px;
@@ -935,48 +957,85 @@ onMounted(() => {
 .detail-body {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
+  padding-bottom: 18px;
+}
+.detail-title {
+  width: 100%;
+}
+.detail-title .eyebrow {
+  display: block;
+  margin-bottom: 6px;
+}
+.detail-title strong {
+  display: block;
+  color: #0f172a;
+  font-size: 20px;
+  line-height: 1.35;
+  letter-spacing: 0;
 }
 .detail-metrics,
 .info-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(140px, 1fr));
-  gap: 10px;
+  gap: 12px;
 }
 .detail-metrics article,
 .info-grid article {
-  padding: 12px;
+  min-height: 92px;
+  padding: 14px 16px;
   border: 1px solid #e7edf4;
   border-radius: 8px;
-  background: #f8fafc;
+  background: linear-gradient(180deg, #fbfdff 0%, #f7faff 100%);
 }
 .detail-metrics span,
 .info-grid span {
   display: block;
   color: #64748b;
   font-size: 12px;
+  font-weight: 600;
 }
 .detail-metrics strong,
 .info-grid strong {
   display: block;
-  margin-top: 4px;
+  margin-top: 8px;
   color: #0f172a;
+  font-size: 16px;
+  line-height: 1.55;
+  word-break: break-word;
 }
 .text-block {
-  margin-top: 12px;
-  padding: 12px;
+  margin-top: 14px;
+  padding: 16px;
   border: 1px solid #e7edf4;
   border-radius: 8px;
-  background: #fff;
+  background: #fbfdff;
+}
+.text-block b {
+  color: #334155;
+  font-size: 13px;
 }
 .text-block p {
   margin: 8px 0 0;
+  color: #0f172a;
+  line-height: 1.7;
   white-space: pre-wrap;
 }
 .sub-table {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+.sub-table__head {
+  padding-top: 2px;
+}
+.sub-table__head strong {
+  color: #0f172a;
+  font-size: 15px;
+}
+:deep(.n-drawer .n-drawer-header) {
+  border-bottom: 1px solid #edf2f7;
+  background: #fbfdff;
 }
 :deep(.crm-modal) {
   width: min(920px, 92vw);
