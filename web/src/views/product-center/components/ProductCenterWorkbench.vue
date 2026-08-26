@@ -352,11 +352,7 @@ const scrollX = computed(() => {
 const selectedCategoryKeys = computed(() => (query.category_id ? [query.category_id] : []))
 const topCategoryOptions = computed(() => options.categories.filter((item) => !item.parent_id))
 const productRegionOptions = computed(() => {
-  const tree = buildPopRegionOptions()
-  ;[editor.form.region, query.region].filter(Boolean).forEach((region) => {
-    if (!findCascaderValue(tree, region)) tree.unshift({ label: region, value: region })
-  })
-  return tree
+  return buildPopRegionOptions()
 })
 const productBillingModeOptions = computed(() => {
   if (props.mode !== 'products') return options.billingModes
@@ -946,9 +942,7 @@ function fieldText(value) {
 }
 
 function displayRegion(value) {
-  const valueText = fieldText(value)
-  if (!valueText) return ''
-  return translateLocationPath(valueText) || translateCountry(valueText) || translateCity(valueText) || valueText
+  return fieldText(value)
 }
 
 function translateRegionAlias(value) {
@@ -1059,11 +1053,19 @@ function sortCascaderTree(nodes) {
 }
 
 function buildPopRegionOptions() {
-  const roots = []
-  popRegions.value
+  return popRegions.value
     .filter((region) => region.status !== false)
-    .forEach((region) => ensureRegionPath(roots, popRegionPathParts(region)))
-  return sortCascaderTree(roots)
+    .map((region) => {
+      const label = fieldText(region.name) || [fieldText(region.country), fieldText(region.city)].filter(Boolean).join(' / ')
+      return {
+        label,
+        value: label,
+        region: label,
+        searchText: uniqueValues([label, region.code, region.country, region.city]).join(' '),
+      }
+    })
+    .filter((region) => region.value)
+    .sort((left, right) => String(left.label || '').localeCompare(String(right.label || ''), 'zh-Hans-CN'))
 }
 
 function findCascaderValue(nodes = [], value) {

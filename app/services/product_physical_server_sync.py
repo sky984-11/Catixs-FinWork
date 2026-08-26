@@ -32,7 +32,7 @@ def text(value: Any, default: str = "") -> str:
 
 
 def normalize_region_text(value: Any) -> str:
-    return re.sub(r"[\s,，、/\\|()（）-]+", "", text(value).lower())
+    return re.sub(r"\s+", " ", text(value).lower()).strip()
 
 
 def number_from_text(value: Any) -> str:
@@ -107,25 +107,10 @@ async def is_physical_server_product(product: ProductItem) -> bool:
     return PHYSICAL_SERVER_CATEGORY_NAME in await category_path_names(product.category_id)
 
 
-def region_candidates(region: AssetRegion | None) -> set[str]:
-    if not region:
-        return set()
-    values = {
-        region.name,
-        region.country,
-        region.city,
-        " / ".join([item for item in [region.country, region.city] if item]),
-        " / ".join([item for item in [region.country, region.city, region.name] if item]),
-    }
-    return {normalize_region_text(item) for item in values if normalize_region_text(item)}
-
-
 async def product_matches_region(product: ProductItem, region: AssetRegion | None) -> bool:
-    product_region = normalize_region_text(product.region)
-    if not product_region:
+    if not region:
         return False
-    candidates = region_candidates(region)
-    return product_region in candidates or any(product_region in item or item in product_region for item in candidates)
+    return normalize_region_text(product.region) == normalize_region_text(region.name)
 
 
 def row_source(row: dict) -> tuple[int | None, str]:
