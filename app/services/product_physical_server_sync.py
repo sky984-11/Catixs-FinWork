@@ -1,0 +1,260 @@
+import hashlib
+import json
+import re
+from typing import Any
+
+from app.api.v1.resources.resources import device_to_sales_rows, is_free_device_status
+from app.models.asset import AssetDevice, AssetRegion
+from app.models.product_center import ProductCategory, ProductItem, ProductSpecAttribute, ProductSpecConfig
+
+PHYSICAL_SERVER_SOURCE = "physical_server"
+PHYSICAL_SERVER_CATEGORY_NAME = "物理服务器"
+DEFAULT_PHYSICAL_SERVER_CODES = {"server_model", "cpu", "memory", "storage"}
+ATTRIBUTE_ALIASES = {
+    "server_model": ("物理服务器型号", "服务器型号", "server_model", "model", "型号"),
+    "brand": ("品牌", "brand"),
+    "model": ("型号", "model"),
+    "cpu": ("CPU核心数", "CPU Cores", "cpu_cores", "cores", "cpu", "CPU"),
+    "cpu_model": ("CPU型号", "CPU Model", "cpu_model", "processor", "Processor"),
+    "cpu_count": ("CPU数量", "CPU颗数", "cpu_count"),
+    "memory": ("内存总数", "内存容量", "内存大小", "内存", "memory", "Memory", "ram", "RAM"),
+    "storage": ("磁盘总数", "硬盘总数", "磁盘", "硬盘", "storage", "Storage", "disk", "Disk"),
+    "cabinet": ("机柜", "cabinet"),
+    "location": ("位置", "机房", "location"),
+    "u_position": ("U位", "u_position"),
+    "status": ("状态", "status"),
+}
+
+
+def text(value: Any, default: str = "") -> str:
+    value = "" if value is None else str(value).strip()
+    return value or default
+
+
+def normalize_region_text(value: Any) -> str:
+    return re.sub(r"[\s,，、/\\|()（）-]+", "", text(value).lower())
+
+
+def number_from_text(value: Any) -> str:
+    raw = text(value)
+    if not raw:
+        return ""
+    match = re.search(r"(\d+(?:\.\d+)?)", raw.replace(",", ""))
+    if not match:
+        return ""
+    number = float(match.group(1))
+    return str(int(number)) if number.is_integer() else f"{number:g}"
+
+
+def capacity_to_gb(value: Any) -> str:
+    raw = text(value)
+    if not raw:
+        return ""
+    total = 0.0
+    for amount, unit in re.findall(r"(\d+(?:\.\d+)?)\s*(tb|t|gb|g|gib|tib)", raw, re.IGNORECASE):
+        size = float(amount)
+        unit_text = unit.lower()
+        total += size * 1024 if unit_text.startswith("t") else size
+    if total:
+        return str(int(total)) if total.is_integer() else f"{total:g}"
+    return number_from_text(raw)
+
+
+def sync_hash(value: Any) -> str:
+    return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+async def category_path_names(category_id: int | None) -> list[str]:
+    names: list[str] = []
+    current_id = category_id
+    while current_id:
+        category = await ProductCategory.get_or_none(id=current_id)
+        if not category:
+            break
+        names.insert(0, category.name)
+        current_id = category.parent_id
+    return names
+
+
+async def category_path_ids(category_id: int | None) -> list[int]:
+    ids: list[int] = []
+    current_id = category_id
+    while current_id:
+        category = await ProductCategory.get_or_none(id=current_id)
+        if not category:
+            break
+        ids.insert(0, int(category.id))
+        current_id = category.parent_id
+    return ids
+
+
+def normalize_category_ids(values: Any, fallback: int | None = None) -> list[int]:
+    ids: list[int] = []
+    raw_values = values if isinstance(values, list) else []
+    for value in raw_values:
+        try:
+            item = int(value)
+        except (TypeError, ValueError):
+            continue
+        if item > 0 and item not in ids:
+            ids.append(item)
+    if not ids and fallback:
+        ids.append(int(fallback))
+    return ids
+
+
+async def is_physical_server_product(product: ProductItem) -> bool:
+    return PHYSICAL_SERVER_CATEGORY_NAME in await category_path_names(product.category_id)
+
+
+def region_candidates(region: AssetRegion | None) -> set[str]:
+    if not region:
+        return set()
+    values = {
+        region.name,
+        region.country,
+        region.city,
+        " / ".join([item for item in [region.country, region.city] if item]),
+        " / ".join([item for item in [region.country, region.city, region.name] if item]),
+    }
+    return {normalize_region_text(item) for item in values if normalize_region_text(item)}
+
+
+async def product_matches_region(product: ProductItem, region: AssetRegion | None) -> bool:
+    product_region = normalize_region_text(product.region)
+    if not product_region:
+        return False
+    candidates = region_candidates(region)
+    return product_region in candidates or any(product_region in item or item in product_region for item in candidates)
+
+
+def row_source(row: dict) -> tuple[int | None, str]:
+    parent_id = row.get("parent_id") or row.get("id")
+    try:
+        source_id = int(parent_id)
+    except (TypeError, ValueError):
+        source_id = None
+    if row.get("is_four_node"):
+        return source_id, f"device:{source_id}:node:{text(row.get('node_name'))}"
+    return source_id, f"device:{source_id}"
+
+
+def row_attribute_value(row: dict, attribute: ProductSpecAttribute) -> str:
+    attrs = row.get("attributes") if isinstance(row.get("attributes"), dict) else {}
+    code = text(attribute.code)
+    if code == "server_model":
+        server_model = " ".join([item for item in [text(row.get("brand")), text(row.get("model"))] if item]).strip()
+        return server_model or first_attr_value(attrs, ATTRIBUTE_ALIASES[code])
+    if code == "brand":
+        return text(row.get("brand")) or first_attr_value(attrs, ATTRIBUTE_ALIASES[code])
+    if code == "model":
+        return text(row.get("model")) or first_attr_value(attrs, ATTRIBUTE_ALIASES[code])
+    if code == "cabinet":
+        return text(row.get("cabinet")) or first_attr_value(attrs, ATTRIBUTE_ALIASES[code])
+    if code == "location":
+        return text(row.get("location")) or first_attr_value(attrs, ATTRIBUTE_ALIASES[code])
+    if code == "u_position":
+        return text(row.get("u_position")) or first_attr_value(attrs, ATTRIBUTE_ALIASES[code])
+    if code == "status":
+        return "空闲" if is_free_device_status(row.get("status")) else text(row.get("status"))
+    aliases = ATTRIBUTE_ALIASES.get(code, ())
+    raw = first_attr_value(attrs, (code, attribute.name, *aliases))
+    if code in {"cpu", "cpu_count"} or attribute.attr_type == "number":
+        return capacity_to_gb(raw) if code in {"memory", "storage"} else number_from_text(raw)
+    if code in {"memory", "storage"}:
+        return capacity_to_gb(raw)
+    return raw
+
+
+def first_attr_value(attrs: dict, keys: tuple[str, ...]) -> str:
+    normalized = {normalize_region_text(key): value for key, value in attrs.items()}
+    for key in keys:
+        direct = text(attrs.get(key))
+        if direct:
+            return direct
+        normalized_value = normalized.get(normalize_region_text(key))
+        if text(normalized_value):
+            return text(normalized_value)
+    return ""
+
+
+async def product_spec_attributes(product: ProductItem) -> list[ProductSpecAttribute]:
+    product_category_ids = await category_path_ids(product.category_id)
+    rows = await ProductSpecAttribute.filter(status=True).order_by("category_id", "name")
+    matched = []
+    for attribute in rows:
+        attr_category_ids = normalize_category_ids(attribute.category_ids, attribute.category_id)
+        if attr_category_ids and set(attr_category_ids).isdisjoint(product_category_ids):
+            continue
+        if not attr_category_ids and attribute.code not in DEFAULT_PHYSICAL_SERVER_CODES:
+            continue
+        matched.append(attribute)
+    return matched
+
+
+async def sync_product_physical_server_specs(product: ProductItem) -> dict[str, int]:
+    if not await is_physical_server_product(product):
+        return {"products": 0, "devices": 0, "configs": 0, "removed": 0}
+
+    attributes = await product_spec_attributes(product)
+    if not attributes:
+        return {"products": 1, "devices": 0, "configs": 0, "removed": 0}
+
+    devices = await AssetDevice.filter(type=0).select_related("region", "location", "cabinet").order_by(
+        "region__name", "location__name", "cabinet__name", "u_position", "name"
+    )
+    rows: list[dict] = []
+    for device in devices:
+        if not await product_matches_region(product, device.region):
+            continue
+        rows.extend([row for row in device_to_sales_rows(device) if is_free_device_status(row.get("status"))])
+
+    current_keys = set()
+    config_count = 0
+    for row in rows:
+        source_id, source_key = row_source(row)
+        if not source_key:
+            continue
+        current_keys.add(source_key)
+        for attribute in attributes:
+            value = row_attribute_value(row, attribute)
+            if not text(value):
+                continue
+            payload = {
+                "order": 0,
+                "default_value": text(value)[:255],
+                "value_range": text(row.get("config"))[:500] or None,
+                "required": bool(attribute.required),
+                "source_id": source_id,
+                "sync_hash": sync_hash({"code": attribute.code, "value": value, "source": source_key}),
+                "auto_sync": True,
+            }
+            await ProductSpecConfig.update_or_create(
+                defaults=payload,
+                product_id=product.id,
+                attribute_id=attribute.id,
+                source_type=PHYSICAL_SERVER_SOURCE,
+                source_key=source_key,
+            )
+            config_count += 1
+
+    stale_query = ProductSpecConfig.filter(product_id=product.id, source_type=PHYSICAL_SERVER_SOURCE, auto_sync=True)
+    removed = await (stale_query.exclude(source_key__in=list(current_keys)).delete() if current_keys else stale_query.delete())
+    return {"products": 1, "devices": len(rows), "configs": config_count, "removed": int(removed or 0)}
+
+
+async def sync_physical_server_specs(product_id: int | None = None, region_id: int | None = None) -> dict[str, int]:
+    query = ProductItem.filter(status="active")
+    if product_id:
+        query = query.filter(id=product_id)
+    products = await query.order_by("name")
+
+    target_region = await AssetRegion.get_or_none(id=region_id) if region_id else None
+    summary = {"products": 0, "devices": 0, "configs": 0, "removed": 0}
+    for product in products:
+        if target_region and not await product_matches_region(product, target_region):
+            continue
+        result = await sync_product_physical_server_specs(product)
+        for key in summary:
+            summary[key] += int(result.get(key) or 0)
+    return summary

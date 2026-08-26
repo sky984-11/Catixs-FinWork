@@ -80,6 +80,12 @@ class ProductSpecConfig(BaseModel, TimestampMixin):
     default_value = fields.CharField(max_length=255, null=True, description="默认值")
     value_range = fields.CharField(max_length=500, null=True, description="可选范围")
     required = fields.BooleanField(default=False, description="是否必填", index=True)
+    source_type = fields.CharField(max_length=40, null=True, description="配置来源类型", index=True)
+    source_id = fields.BigIntField(null=True, description="配置来源ID", index=True)
+    source_key = fields.CharField(max_length=160, null=True, description="配置来源唯一键", index=True)
+    sync_hash = fields.CharField(max_length=64, null=True, description="同步内容哈希")
+    auto_sync = fields.BooleanField(default=False, description="是否自动同步", index=True)
+    synced_at = fields.DatetimeField(null=True, description="最近同步时间")
 
     class Meta:
         table = "product_spec_config"

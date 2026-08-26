@@ -73,6 +73,7 @@ from app.schemas.assets import (
     AssetRegionUpdate,
 )
 from app.schemas.base import Success, SuccessExtra
+from app.services.product_physical_server_sync import sync_physical_server_specs
 from app.settings.config import settings
 
 router = APIRouter()
@@ -2029,6 +2030,7 @@ async def create_device(device_in: AssetDeviceCreate):
     await prepare_device_attributes_for_save(device_in)
     normalize_four_node_status_for_save(device_in)
     obj = await asset_device_controller.create_device(device_in)
+    await sync_physical_server_specs(region_id=obj.region_id)
     return Success(data=await device_to_dict(obj, can_view_secrets=await can_view_device_secrets()), msg="Created Successfully")
 
 
@@ -2040,12 +2042,17 @@ async def update_device(device_in: AssetDeviceUpdate):
     await prepare_device_attributes_for_save(device_in)
     normalize_four_node_status_for_save(device_in)
     obj = await asset_device_controller.update_device(id=device_in.id, obj_in=device_in)
+    await sync_physical_server_specs(region_id=obj.region_id)
     return Success(data=await device_to_dict(obj, can_view_secrets=await can_view_device_secrets()), msg="Updated Successfully")
 
 
 @router.delete("/device/delete", summary="删除设备")
 async def delete_device(device_id: int = Query(...)):
+    device = await AssetDevice.get_or_none(id=device_id)
+    region_id = device.region_id if device else None
     await asset_device_controller.remove(id=device_id)
+    if region_id:
+        await sync_physical_server_specs(region_id=region_id)
     return Success(msg="Deleted Successfully")
 
 

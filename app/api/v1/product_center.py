@@ -1,12 +1,14 @@
 from datetime import date
 from decimal import Decimal
 from typing import Any
+from uuid import uuid4
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 from tortoise.expressions import Q
 
 from app.models.customer_center import CrmCustomer
+from app.models.asset import AssetDevice
 from app.models.product_center import (
     ProductCategory,
     ProductItem,
@@ -16,6 +18,7 @@ from app.models.product_center import (
     ProductTemplate,
 )
 from app.schemas.base import Fail, Success, SuccessExtra
+from app.services.product_physical_server_sync import sync_physical_server_specs
 
 router = APIRouter()
 
@@ -81,13 +84,24 @@ class AttributePayload(BaseModel):
     status: bool = True
 
 
-class SpecConfigPayload(BaseModel):
-    product_id: int
+class SpecConfigItemPayload(BaseModel):
     attribute_id: int
     order: int = 0
     default_value: str | None = Field(None, max_length=255)
     value_range: str | None = Field(None, max_length=500)
     required: bool = False
+
+
+class SpecConfigPayload(BaseModel):
+    product_id: int
+    attribute_id: int | None = None
+    source_key: str | None = Field(None, max_length=160)
+    config_ids: list[int] = Field(default_factory=list)
+    order: int = 0
+    default_value: str | None = Field(None, max_length=255)
+    value_range: str | None = Field(None, max_length=500)
+    required: bool = False
+    configs: list[SpecConfigItemPayload] = Field(default_factory=list)
 
 
 class PricePayload(BaseModel):
@@ -163,6 +177,14 @@ def prepare_attribute_payload(payload: AttributePayload) -> dict[str, Any]:
     data["category_ids"] = ids
     data["category_id"] = ids[0] if ids else None
     return data
+
+
+def validate_product_payload(data: dict[str, Any]) -> str | None:
+    if not data.get("category_id"):
+        return "请选择产品分类"
+    if not str(data.get("region") or "").strip():
+        return "请选择地区"
+    return None
 
 
 def delete_block_msg(target: str, refs: list[str]) -> str:
@@ -605,12 +627,109 @@ async def spec_config_dict(config: ProductSpecConfig) -> dict[str, Any]:
     data = await config.to_dict()
     product = await config.product
     attribute = await config.attribute
+    data["product_id"] = config.product_id
+    data["attribute_id"] = config.attribute_id
     data["product_name"] = product.name
     data["attribute_name"] = attribute.name
     data["attribute_code"] = attribute.code
     data["attr_type_label"] = label_of(ATTRIBUTE_TYPES, attribute.attr_type)
     data["unit"] = attribute.unit
+    data["source_label"] = "机柜资源自动同步" if data.get("source_type") == "physical_server" else "手动维护"
     return data
+
+
+def spec_config_group_key(item: dict[str, Any]) -> str:
+    source_type = item.get("source_type") or ("manual" if not item.get("auto_sync") else "auto")
+    source_key = item.get("source_key") or item.get("source_id")
+    if source_key:
+        return f'{item.get("product_id")}:{source_type}:{source_key}'
+    if item.get("auto_sync"):
+        return f'{item.get("product_id")}:{source_type}:{item.get("id")}'
+    return f'{item.get("product_id")}:manual:ungrouped'
+
+
+def spec_config_attr_value(item: dict[str, Any]) -> str:
+    value = item.get("default_value")
+    if value is None or value == "":
+        value = item.get("value_range")
+    return str(value or "").strip()
+
+
+def physical_server_node_position(source_key: str | None) -> str:
+    marker = ":node:"
+    if not source_key or marker not in source_key:
+        return ""
+    return source_key.split(marker, 1)[1].strip()
+
+
+async def spec_config_group_name(items: list[dict[str, Any]]) -> str:
+    first = items[0]
+    if first.get("source_type") == "physical_server" and first.get("source_id"):
+        device = await AssetDevice.get_or_none(id=first.get("source_id"))
+        device_name = str(device.name or "").strip() if device else ""
+        if device_name:
+            position = physical_server_node_position(first.get("source_key"))
+            return f"{device_name} {position}".strip() if position else device_name
+
+    values = {item.get("attribute_code"): spec_config_attr_value(item) for item in items}
+    parts = []
+    for code in ("cpu_model", "cpu_num", "cpu_core", "mem_total", "disk_total"):
+        if values.get(code):
+            parts.append(values[code])
+    if parts:
+        return " / ".join(parts)
+    source_key = str(first.get("source_key") or first.get("source_id") or "").strip()
+    if source_key:
+        return source_key
+    return f'{first.get("product_name") or ""} 规格'
+
+
+def spec_config_group_summary(items: list[dict[str, Any]]) -> str:
+    chunks = []
+    for item in sorted(items, key=lambda row: (row.get("order") or 0, row.get("id") or 0)):
+        value = spec_config_attr_value(item)
+        unit = item.get("unit") or ""
+        if value and unit and not value.endswith(str(unit)):
+            value = f"{value} {unit}"
+        chunks.append(f'{item.get("attribute_name") or item.get("attribute_code")}：{value or "-"}')
+    return " / ".join(chunks)
+
+
+async def spec_config_group_dict(items: list[dict[str, Any]]) -> dict[str, Any]:
+    first = items[0]
+    sorted_items = sorted(items, key=lambda row: (row.get("order") or 0, row.get("id") or 0))
+    attrs = [
+        {
+            "id": item.get("id"),
+            "attribute_id": item.get("attribute_id"),
+            "name": item.get("attribute_name"),
+            "code": item.get("attribute_code"),
+            "type": item.get("attr_type_label"),
+            "default_value": item.get("default_value"),
+            "value_range": item.get("value_range"),
+            "value": spec_config_attr_value(item),
+            "unit": item.get("unit") or "",
+            "order": item.get("order") or 0,
+            "required": bool(item.get("required")),
+        }
+        for item in sorted_items
+    ]
+    group_key = spec_config_group_key(first)
+    return {
+        "id": group_key,
+        "is_group": True,
+        "product_id": first.get("product_id"),
+        "product_name": first.get("product_name"),
+        "spec_name": await spec_config_group_name(sorted_items),
+        "attribute_summary": spec_config_group_summary(sorted_items),
+        "attributes": attrs,
+        "source_type": first.get("source_type"),
+        "source_id": first.get("source_id"),
+        "source_key": first.get("source_key"),
+        "source_label": first.get("source_label"),
+        "auto_sync": any(item.get("auto_sync") for item in sorted_items),
+        "config_ids": [item.get("id") for item in sorted_items],
+    }
 
 
 async def price_dict(price: ProductPrice) -> dict[str, Any]:
@@ -759,16 +878,32 @@ async def list_products(
 @router.post("/products", summary="新增产品")
 async def create_product(payload: ProductPayload):
     data = compact(payload.model_dump())
+    if error := validate_product_payload(data):
+        return Fail(msg=error)
     if not data.get("code"):
         data["code"] = await next_code(ProductItem, "PROD")
     product = await ProductItem.create(**data)
+    await sync_physical_server_specs(product_id=product.id)
     return Success(msg="产品已创建", data=await product_dict(product))
 
 
 @router.put("/products/{product_id}", summary="编辑产品")
 async def update_product(product_id: int, payload: ProductPayload):
-    await ProductItem.filter(id=product_id).update(**compact(payload.model_dump(exclude_unset=True)))
-    return Success(msg="产品已更新", data=await product_dict(await ProductItem.get(id=product_id)))
+    data = compact(payload.model_dump(exclude_unset=True))
+    if error := validate_product_payload(data):
+        return Fail(msg=error)
+    await ProductItem.filter(id=product_id).update(**data)
+    product = await ProductItem.get(id=product_id)
+    await sync_physical_server_specs(product_id=product.id)
+    return Success(msg="产品已更新", data=await product_dict(product))
+
+
+@router.post("/products/{product_id}/sync-physical-servers", summary="同步物理服务器规格配置")
+async def sync_product_physical_servers(product_id: int):
+    if not await ProductItem.filter(id=product_id).exists():
+        return Fail(msg="产品不存在")
+    summary = await sync_physical_server_specs(product_id=product_id)
+    return Success(msg="物理服务器规格配置已同步", data=summary)
 
 
 @router.delete("/products/{product_id}", summary="删除产品")
@@ -840,28 +975,142 @@ async def delete_attribute(attribute_id: int):
 
 @router.get("/spec-configs", summary="产品规格配置列表")
 async def list_spec_configs(page: int = Query(1), page_size: int = Query(20), product_id: int | None = Query(None)):
+    await sync_physical_server_specs(product_id=product_id)
     q = Q()
     if product_id:
         q &= Q(product_id=product_id)
-    total = await ProductSpecConfig.filter(q).count()
-    rows = await ProductSpecConfig.filter(q).order_by("product_id", "order", "id").offset((page - 1) * page_size).limit(page_size)
-    return SuccessExtra(data=[await spec_config_dict(item) for item in rows], total=total, page=page, page_size=page_size)
+    rows = await ProductSpecConfig.filter(q).order_by("product_id", "source_type", "source_key", "order", "id")
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        item = await spec_config_dict(row)
+        grouped.setdefault(spec_config_group_key(item), []).append(item)
+    group_rows = [await spec_config_group_dict(items) for items in grouped.values()]
+    group_rows.sort(key=lambda item: (item.get("product_name") or "", item.get("spec_name") or "", item.get("id") or ""))
+    total = len(group_rows)
+    start = (page - 1) * page_size
+    return SuccessExtra(data=group_rows[start : start + page_size], total=total, page=page, page_size=page_size)
 
 
 @router.post("/spec-configs", summary="新增产品规格配置")
 async def create_spec_config(payload: SpecConfigPayload):
-    config = await ProductSpecConfig.create(**compact(payload.model_dump()))
-    return Success(msg="产品规格配置已创建", data=await spec_config_dict(config))
+    if payload.configs:
+        items = payload.configs
+    elif payload.attribute_id:
+        items = [
+            SpecConfigItemPayload(
+                attribute_id=payload.attribute_id,
+                order=payload.order,
+                default_value=payload.default_value,
+                value_range=payload.value_range,
+                required=payload.required,
+            )
+        ]
+    else:
+        items = []
+    items = [item for item in items if item.attribute_id]
+    if not items:
+        return Fail(msg="请至少添加一个规格属性")
+    source_key = f"manual-{uuid4().hex}"
+    created: list[ProductSpecConfig] = []
+    for index, item in enumerate(items):
+        data = compact(item.model_dump())
+        data["product_id"] = payload.product_id
+        data["order"] = data.get("order") or index
+        data["source_type"] = "manual"
+        data["source_key"] = source_key
+        data["auto_sync"] = False
+        created.append(await ProductSpecConfig.create(**data))
+    return Success(msg="产品规格配置已创建", data=await spec_config_group_dict([await spec_config_dict(item) for item in created]))
+
+
+def spec_config_item_payloads(payload: SpecConfigPayload) -> list[SpecConfigItemPayload]:
+    if payload.configs:
+        return [item for item in payload.configs if item.attribute_id]
+    if payload.attribute_id:
+        return [
+            SpecConfigItemPayload(
+                attribute_id=payload.attribute_id,
+                order=payload.order,
+                default_value=payload.default_value,
+                value_range=payload.value_range,
+                required=payload.required,
+            )
+        ]
+    return []
+
+
+async def get_manual_spec_group(payload: SpecConfigPayload):
+    q = ProductSpecConfig.filter(product_id=payload.product_id, auto_sync=False)
+    if payload.source_key:
+        q = q.filter(source_key=payload.source_key)
+    elif payload.config_ids:
+        q = q.filter(id__in=payload.config_ids)
+    else:
+        return []
+    rows = await q.order_by("order", "id")
+    return rows
+
+
+@router.post("/spec-config-groups/update", summary="编辑产品规格配置组")
+async def update_spec_config_group(payload: SpecConfigPayload):
+    existed = await get_manual_spec_group(payload)
+    if not existed:
+        return Fail(msg="规格配置不存在或为自动同步数据，不能编辑")
+    items = spec_config_item_payloads(payload)
+    if not items:
+        return Fail(msg="请至少添加一个规格属性")
+    source_key = payload.source_key or existed[0].source_key or f"manual-{uuid4().hex}"
+    ids = [item.id for item in existed]
+    await ProductSpecConfig.filter(id__in=ids).delete()
+    created: list[ProductSpecConfig] = []
+    for index, item in enumerate(items):
+        data = compact(item.model_dump())
+        data["product_id"] = payload.product_id
+        data["order"] = data.get("order") or index
+        data["source_type"] = "manual"
+        data["source_key"] = source_key
+        data["auto_sync"] = False
+        created.append(await ProductSpecConfig.create(**data))
+    return Success(msg="产品规格配置已更新", data=await spec_config_group_dict([await spec_config_dict(item) for item in created]))
+
+
+@router.post("/spec-config-groups/delete", summary="删除产品规格配置组")
+async def delete_spec_config_group(payload: SpecConfigPayload):
+    existed = await get_manual_spec_group(payload)
+    if not existed:
+        return Fail(msg="规格配置不存在或为自动同步数据，不能删除")
+    await ProductSpecConfig.filter(id__in=[item.id for item in existed]).delete()
+    return Success(msg="产品规格配置已删除")
 
 
 @router.put("/spec-configs/{config_id}", summary="编辑产品规格配置")
 async def update_spec_config(config_id: int, payload: SpecConfigPayload):
-    await ProductSpecConfig.filter(id=config_id).update(**compact(payload.model_dump(exclude_unset=True)))
+    config = await ProductSpecConfig.get_or_none(id=config_id)
+    if not config:
+        return Fail(msg="规格配置不存在")
+    if config.auto_sync:
+        return Fail(msg="自动同步的规格配置不能手动编辑")
+    data = compact(
+        {
+            "product_id": payload.product_id,
+            "attribute_id": payload.attribute_id,
+            "order": payload.order,
+            "default_value": payload.default_value,
+            "value_range": payload.value_range,
+            "required": payload.required,
+        }
+    )
+    await ProductSpecConfig.filter(id=config_id).update(**{key: value for key, value in data.items() if value is not None})
     return Success(msg="产品规格配置已更新", data=await spec_config_dict(await ProductSpecConfig.get(id=config_id)))
 
 
 @router.delete("/spec-configs/{config_id}", summary="删除产品规格配置")
 async def delete_spec_config(config_id: int):
+    config = await ProductSpecConfig.get_or_none(id=config_id)
+    if not config:
+        return Fail(msg="规格配置不存在")
+    if config.auto_sync:
+        return Fail(msg="自动同步的规格配置不能手动删除")
     await ProductSpecConfig.filter(id=config_id).delete()
     return Success(msg="产品规格配置已删除")
 

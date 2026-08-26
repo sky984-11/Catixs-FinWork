@@ -167,7 +167,7 @@
             <template v-if="mode === 'products'">
               <n-form-item-gi label="产品名称" required><n-input v-model:value="editor.form.name" /></n-form-item-gi>
               <n-form-item-gi label="产品编码"><n-input v-model:value="editor.form.code" :disabled="Boolean(editor.form.id)" placeholder="留空自动生成" /></n-form-item-gi>
-              <n-form-item-gi label="产品分类">
+              <n-form-item-gi label="产品分类" required>
                 <n-cascader
                   v-model:value="editor.form.category_id"
                   clearable
@@ -179,7 +179,7 @@
                 />
               </n-form-item-gi>
               <n-form-item-gi label="产品状态"><n-select v-model:value="editor.form.status" :options="options.productStatuses" /></n-form-item-gi>
-              <n-form-item-gi label="地区">
+              <n-form-item-gi label="地区" required>
                 <n-cascader
                   v-model:value="editor.form.region"
                   clearable
@@ -219,30 +219,45 @@
             </template>
 
             <template v-else-if="mode === 'configs'">
-              <n-form-item-gi label="关联产品" required><n-select v-model:value="editor.form.product_id" filterable :options="options.products" /></n-form-item-gi>
-              <n-form-item-gi label="规格属性" required>
-                <n-select
-                  v-model:value="editor.form.attribute_id"
-                  filterable
-                  :disabled="!editor.form.product_id"
-                  :options="configAttributeOptions"
-                  :placeholder="editor.form.product_id ? '请选择规格属性' : '请先选择关联产品'"
-                />
+              <n-form-item-gi label="关联产品" required :span="2">
+                <n-select v-model:value="editor.form.product_id" filterable :options="options.products" @update:value="handleConfigProductChange" />
               </n-form-item-gi>
-              <n-form-item-gi label="默认值">
-                <n-input-number v-if="selectedConfigAttrType === 'number'" v-model:value="editor.form.default_value" clearable :placeholder="configValuePlaceholder" />
-                <n-select v-else-if="selectedConfigAttrType === 'select'" v-model:value="editor.form.default_value" clearable filterable :options="selectedConfigAttrOptions" :placeholder="configValuePlaceholder" />
-                <n-select v-else-if="selectedConfigAttrType === 'multi_select'" v-model:value="editor.form.default_value" multiple clearable filterable :options="selectedConfigAttrOptions" :placeholder="configValuePlaceholder" />
-                <n-switch v-else-if="selectedConfigAttrType === 'switch'" v-model:value="editor.form.default_value" />
-                <n-date-picker v-else-if="selectedConfigAttrType === 'date'" v-model:formatted-value="editor.form.default_value" value-format="yyyy-MM-dd" type="date" clearable :placeholder="configValuePlaceholder" />
-                <n-input v-else v-model:value="editor.form.default_value" :placeholder="configValuePlaceholder" />
+              <n-form-item-gi label="规格属性集合" required :span="2">
+                <div class="spec-config-lines">
+                  <div v-for="(line, index) in editor.form.configs" :key="line.key" class="spec-config-line">
+                    <div class="spec-config-line-head">
+                      <strong>属性 {{ index + 1 }}</strong>
+                      <n-button quaternary circle type="error" :disabled="editor.form.configs.length <= 1" @click="removeConfigLine(index)">
+                        <template #icon><TheIcon icon="mdi:trash-can-outline" size="16" /></template>
+                      </n-button>
+                    </div>
+                    <div class="spec-config-line-grid">
+                      <n-select
+                        v-model:value="line.attribute_id"
+                        filterable
+                        :disabled="!editor.form.product_id"
+                        :options="configAttributeOptions"
+                        :placeholder="editor.form.product_id ? '请选择规格属性' : '请先选择关联产品'"
+                        @update:value="normalizeConfigLineValues(line, true)"
+                      />
+                      <n-input-number v-if="configLineAttrType(line) === 'number'" v-model:value="line.default_value" clearable :placeholder="configLineValuePlaceholder(line)" />
+                      <n-select v-else-if="configLineAttrType(line) === 'select'" v-model:value="line.default_value" clearable filterable :options="configLineAttrOptions(line)" :placeholder="configLineValuePlaceholder(line)" />
+                      <n-select v-else-if="configLineAttrType(line) === 'multi_select'" v-model:value="line.default_value" multiple clearable filterable :options="configLineAttrOptions(line)" :placeholder="configLineValuePlaceholder(line)" />
+                      <n-switch v-else-if="configLineAttrType(line) === 'switch'" v-model:value="line.default_value" />
+                      <n-date-picker v-else-if="configLineAttrType(line) === 'date'" v-model:formatted-value="line.default_value" value-format="yyyy-MM-dd" type="date" clearable :placeholder="configLineValuePlaceholder(line)" />
+                      <n-input v-else v-model:value="line.default_value" :placeholder="configLineValuePlaceholder(line)" />
+                      <n-select v-if="['select', 'multi_select'].includes(configLineAttrType(line))" v-model:value="line.value_range" multiple clearable filterable :options="configLineAttrOptions(line)" placeholder="可选范围，不限制则留空" />
+                      <n-input v-else v-model:value="line.value_range" :placeholder="configLineRangePlaceholder(line)" />
+                      <n-input-number v-model:value="line.order" :min="0" placeholder="排序" />
+                      <div class="spec-config-required"><span>必填</span><n-switch v-model:value="line.required" /></div>
+                    </div>
+                  </div>
+                  <n-button secondary type="info" :disabled="!editor.form.product_id" @click="addConfigLine">
+                    <template #icon><TheIcon icon="mdi:plus" size="16" /></template>
+                    添加属性
+                  </n-button>
+                </div>
               </n-form-item-gi>
-              <n-form-item-gi label="可选范围">
-                <n-select v-if="['select', 'multi_select'].includes(selectedConfigAttrType)" v-model:value="editor.form.value_range" multiple clearable filterable :options="selectedConfigAttrOptions" placeholder="不限制则留空" />
-                <n-input v-else v-model:value="editor.form.value_range" :placeholder="configRangePlaceholder" />
-              </n-form-item-gi>
-              <n-form-item-gi label="排序"><n-input-number v-model:value="editor.form.order" :min="0" /></n-form-item-gi>
-              <n-form-item-gi label="必填"><n-switch v-model:value="editor.form.required" /></n-form-item-gi>
             </template>
 
             <template v-else-if="mode === 'pricing'">
@@ -331,6 +346,7 @@ const scrollX = computed(() => {
   if (props.mode === 'pricing') return 1280
   if (props.mode === 'products') return 1180
   if (props.mode === 'specs') return 1280
+  if (props.mode === 'configs') return 1420
   return 980
 })
 const selectedCategoryKeys = computed(() => (query.category_id ? [query.category_id] : []))
@@ -468,6 +484,30 @@ function renderCategoryTags(row) {
   return h('div', { class: 'category-tags' }, names.map((name) => renderCategoryTag(name, categoryTagType(name))))
 }
 
+function renderSpecConfigAttributes(row) {
+  const attrs = Array.isArray(row.attributes) ? row.attributes : []
+  if (!attrs.length) return row.attribute_summary || '-'
+  return h(
+    'div',
+    { class: 'config-attribute-tags' },
+    attrs.map((item) => {
+      const value = item.value || '-'
+      const unit = item.unit && value !== '-' && !String(value).endsWith(item.unit) ? ` ${item.unit}` : ''
+      return h(
+        'span',
+        { class: 'config-attribute-tag' },
+        [
+          h(
+            NTag,
+            { size: 'small', round: true, type: categoryTagType(item.code || item.name) },
+            { default: () => `${item.name || item.code}: ${value}${unit}` }
+          ),
+        ]
+      )
+    })
+  )
+}
+
 function actionButtons(row) {
   return h('div', { class: 'table-actions' }, [
     h(NButton, { size: 'small', secondary: true, type: 'info', style: { marginRight: '12px' }, onClick: () => openEditor(row) }, { icon: () => h(TheIcon, { icon: 'mdi:pencil', size: 15 }) }),
@@ -476,6 +516,11 @@ function actionButtons(row) {
       default: () => '确认删除？',
     }),
   ])
+}
+
+function configActionButtons(row) {
+  if (row.auto_sync) return null
+  return actionButtons(row)
 }
 
 const productColumns = [
@@ -498,12 +543,10 @@ const attributeColumns = [
 ]
 const configColumns = [
   { title: '关联产品', key: 'product_name', width: 220, ellipsis: { tooltip: true } },
-  { title: '属性名称', key: 'attribute_name', width: 160 },
-  { title: '属性编码', key: 'attribute_code', width: 140 },
-  { title: '类型', key: 'attr_type_label', width: 100 },
-  { title: '默认值', key: 'default_value', width: 140 },
-  { title: '可选范围', key: 'value_range', width: 180, ellipsis: { tooltip: true } },
-  { title: '操作', key: 'actions', width: 100, fixed: 'right', render: actionButtons },
+  { title: '规格名称', key: 'spec_name', width: 300, ellipsis: { tooltip: true } },
+  { title: '规格属性', key: 'attribute_summary', minWidth: 620, render: renderSpecConfigAttributes },
+  { title: '来源', key: 'source_label', width: 150, render: (row) => renderTag(row.source_label, row.auto_sync ? 'success' : 'default') },
+  { title: '操作', key: 'actions', width: 100, fixed: 'right', render: configActionButtons },
 ]
 const priceColumns = [
   { title: '产品名称', key: 'product_name', width: 220, ellipsis: { tooltip: true } },
@@ -540,9 +583,13 @@ function emptyCategory() {
 function emptyForm() {
   if (props.mode === 'products') return { id: null, name: '', code: '', category_id: query.category_id, status: 'active', region: '', billing_mode: 'fixed', description: '' }
   if (props.mode === 'specs') return { id: null, name: '', code: '', category_id: query.category_id, category_ids: query.category_id ? [query.category_id] : [], attr_type: 'text', unit: '', required: false, options: '', description: '', status: true }
-  if (props.mode === 'configs') return { id: null, product_id: query.product_id, attribute_id: null, order: 0, default_value: '', value_range: '', required: false }
+  if (props.mode === 'configs') return { id: null, product_id: query.product_id, configs: [emptyConfigLine()] }
   if (props.mode === 'pricing') return { id: null, product_id: query.product_id, price_type: query.price_type || 'standard', customer_id: null, customer_name: '', billing_mode: 'fixed', billing_unit: 'month', currency: 'USD', amount: 0, min_amount: null, tier_rules: '', bandwidth_rule: '', effective_date: null, expiry_date: null, status: 'active', remark: '' }
   return { id: null, name: '', category_id: query.category_id, template_type: 'product', description: '', config: '', status: true }
+}
+
+function emptyConfigLine() {
+  return { key: `${Date.now()}-${Math.random()}`, attribute_id: null, order: 0, default_value: '', value_range: '', required: false }
 }
 
 async function loadOptions() {
@@ -657,12 +704,37 @@ function openEditor(row = null) {
     editor.form.category_ids = attributeCategoryIds(editor.form)
     editor.form.category_id = editor.form.category_ids[0] || null
   }
-  if (props.mode === 'configs') normalizeConfigEditorValues(false)
+  if (props.mode === 'configs') {
+    if (row) {
+      editor.form = specConfigGroupToForm(row)
+    }
+    ;(editor.form.configs || []).forEach((line) => normalizeConfigLineValues(line))
+  }
   if (!row) applyProductBillingDefault()
   editor.show = true
   nextTick(() => {
     editorInitializing.value = false
   })
+}
+
+function specConfigGroupToForm(row = {}) {
+  const attrs = Array.isArray(row.attributes) ? row.attributes : []
+  return {
+    id: row.id,
+    product_id: row.product_id,
+    source_key: row.source_key,
+    config_ids: row.config_ids || [],
+    configs: attrs.length
+      ? attrs.map((item, index) => ({
+          key: `${item.id || index}-${Date.now()}`,
+          attribute_id: item.attribute_id,
+          order: item.order ?? index,
+          default_value: item.default_value ?? item.value ?? '',
+          value_range: item.value_range ?? '',
+          required: Boolean(item.required),
+        }))
+      : [emptyConfigLine()],
+  }
 }
 
 function getCategory(categoryId) {
@@ -743,6 +815,78 @@ function parseMultiValue(value) {
     // fall through to delimiter parsing
   }
   return textValue.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean)
+}
+
+function configLineAttribute(line = {}) {
+  if (!line.attribute_id) return null
+  return options.attributes.find((item) => String(item.value) === String(line.attribute_id)) || null
+}
+
+function configLineAttrType(line = {}) {
+  return configLineAttribute(line)?.attr_type || 'text'
+}
+
+function configLineAttrOptions(line = {}) {
+  return parseAttributeOptions(configLineAttribute(line)?.options)
+}
+
+function configLineValuePlaceholder(line = {}) {
+  const attribute = configLineAttribute(line)
+  const type = configLineAttrType(line)
+  const attrOptions = configLineAttrOptions(line)
+  if (!attribute) return '请先选择规格属性'
+  if (type === 'number') return `请输入数字${attribute.unit ? `，单位 ${attribute.unit}` : ''}`
+  if (['select', 'multi_select'].includes(type)) return attrOptions.length ? '请选择默认值' : '请先在规格属性中维护可选值'
+  if (type === 'date') return '请选择日期'
+  if (type === 'resource_ref') return '请输入资源引用'
+  return '请输入默认值'
+}
+
+function configLineRangePlaceholder(line = {}) {
+  const type = configLineAttrType(line)
+  if (type === 'number') return '例如：1-100，或填写允许的数字范围'
+  if (type === 'date') return '例如：2026-01-01 至 2026-12-31'
+  if (type === 'switch') return '开关类型通常无需填写'
+  return '不限制则留空'
+}
+
+function normalizeConfigLineValues(line, reset = false) {
+  const type = configLineAttrType(line)
+  if (reset) {
+    line.default_value = type === 'switch' ? false : type === 'number' ? null : type === 'multi_select' ? [] : ''
+    line.value_range = ['select', 'multi_select'].includes(type) ? [] : ''
+    return
+  }
+  if (type === 'multi_select') {
+    line.default_value = parseMultiValue(line.default_value)
+    line.value_range = parseMultiValue(line.value_range)
+  } else if (type === 'select') {
+    line.default_value = Array.isArray(line.default_value) ? line.default_value[0] || null : line.default_value || null
+    line.value_range = parseMultiValue(line.value_range)
+  } else if (type === 'switch') {
+    line.default_value = line.default_value === true || ['true', '1', 'yes', '是'].includes(String(line.default_value).toLowerCase())
+    line.value_range = Array.isArray(line.value_range) ? line.value_range.join(', ') : line.value_range || ''
+  } else if (type === 'number') {
+    const numberValue = Number(line.default_value)
+    line.default_value = Number.isFinite(numberValue) ? numberValue : null
+    line.value_range = Array.isArray(line.value_range) ? line.value_range.join(', ') : line.value_range || ''
+  } else {
+    line.default_value = Array.isArray(line.default_value) ? line.default_value.join(', ') : line.default_value || ''
+    line.value_range = Array.isArray(line.value_range) ? line.value_range.join(', ') : line.value_range || ''
+  }
+}
+
+function addConfigLine() {
+  editor.form.configs.push(emptyConfigLine())
+}
+
+function removeConfigLine(index) {
+  if (editor.form.configs.length <= 1) return
+  editor.form.configs.splice(index, 1)
+}
+
+function handleConfigProductChange() {
+  editor.form.configs = [emptyConfigLine()]
 }
 
 function normalizeConfigEditorValues(reset = false) {
@@ -975,6 +1119,8 @@ async function saveEditor() {
     const payload = { ...editor.form }
     if (props.mode === 'products') {
       if (!payload.name) return window.$message?.warning('请填写产品名称')
+      if (!payload.category_id) return window.$message?.warning('请选择产品分类')
+      if (!payload.region) return window.$message?.warning('请选择地区')
       if (payload.id) await api.productCenterApi.updateProduct(payload.id, payload)
       else await api.productCenterApi.createProduct(payload)
     } else if (props.mode === 'specs') {
@@ -984,10 +1130,21 @@ async function saveEditor() {
       if (payload.id) await api.productCenterApi.updateAttribute(payload.id, payload)
       else await api.productCenterApi.createAttribute(payload)
     } else if (props.mode === 'configs') {
-      if (!payload.product_id || !payload.attribute_id) return window.$message?.warning('请选择产品和规格属性')
-      payload.default_value = serializeConfigValue(payload.default_value)
-      payload.value_range = serializeConfigValue(payload.value_range)
-      if (payload.id) await api.productCenterApi.updateSpecConfig(payload.id, payload)
+      const configLines = (payload.configs || []).filter((line) => line.attribute_id)
+      if (!payload.product_id || !configLines.length) return window.$message?.warning('请选择产品并至少添加一个规格属性')
+      const ids = configLines.map((line) => line.attribute_id)
+      if (new Set(ids).size !== ids.length) return window.$message?.warning('同一个规格中不能重复选择相同属性')
+      payload.configs = configLines.map((line, index) => {
+        normalizeConfigLineValues(line)
+        return {
+          attribute_id: line.attribute_id,
+          order: line.order ?? index,
+          default_value: serializeConfigValue(line.default_value),
+          value_range: serializeConfigValue(line.value_range),
+          required: Boolean(line.required),
+        }
+      })
+      if (payload.source_key || payload.config_ids?.length) await api.productCenterApi.updateSpecConfigGroup(payload)
       else await api.productCenterApi.createSpecConfig(payload)
     } else if (props.mode === 'pricing') {
       if (!payload.product_id) return window.$message?.warning('请选择产品')
@@ -1008,7 +1165,10 @@ async function saveEditor() {
 async function deleteRow(row) {
   if (props.mode === 'products') await api.productCenterApi.deleteProduct(row.id)
   else if (props.mode === 'specs') await api.productCenterApi.deleteAttribute(row.id)
-  else if (props.mode === 'configs') await api.productCenterApi.deleteSpecConfig(row.id)
+  else if (props.mode === 'configs') {
+    if (row.auto_sync) return
+    await api.productCenterApi.deleteSpecConfigGroup({ product_id: row.product_id, source_key: row.source_key, config_ids: row.config_ids || [] })
+  }
   else if (props.mode === 'pricing') await api.productCenterApi.deletePrice(row.id)
   else await api.productCenterApi.deleteTemplate(row.id)
   window.$message?.success('删除成功')
@@ -1159,6 +1319,48 @@ onMounted(refreshAll)
   flex-wrap: wrap;
   gap: 0;
   padding: 3px 0;
+}
+.config-attribute-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 5px 0;
+}
+.config-attribute-tag {
+  display: inline-flex;
+  max-width: 100%;
+}
+.spec-config-lines {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 12px;
+}
+.spec-config-line {
+  padding: 14px;
+  border: 1px solid #e7edf4;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.spec-config-line-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  color: #26364f;
+}
+.spec-config-line-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.1fr) minmax(160px, 1fr) minmax(160px, 1fr) 110px 90px;
+  gap: 10px;
+  align-items: center;
+}
+.spec-config-required {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  color: #607089;
 }
 .category-actions {
   flex-shrink: 0;

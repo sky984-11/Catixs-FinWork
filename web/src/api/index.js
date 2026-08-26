@@ -355,6 +355,8 @@ export default {
     createSpecConfig: (data = {}) => request.post('/product-center/spec-configs', data),
     updateSpecConfig: (id, data = {}) => request.put(`/product-center/spec-configs/${id}`, data),
     deleteSpecConfig: (id) => request.delete(`/product-center/spec-configs/${id}`),
+    updateSpecConfigGroup: (data = {}) => request.post('/product-center/spec-config-groups/update', data),
+    deleteSpecConfigGroup: (data = {}) => request.post('/product-center/spec-config-groups/delete', data),
     listPrices: (params = {}) => request.get('/product-center/prices', { params }),
     createPrice: (data = {}) => request.post('/product-center/prices', data),
     updatePrice: (id, data = {}) => request.put(`/product-center/prices/${id}`, data),

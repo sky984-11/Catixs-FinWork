@@ -2199,18 +2199,23 @@ async def ensure_customer_center_columns():
 async def ensure_product_center_columns():
     if settings.DB_TYPE == "sqlite":
         conn = Tortoise.get_connection("sqlite")
-        try:
-            await conn.execute_script('ALTER TABLE "product_spec_attribute" ADD COLUMN "category_id" BIGINT;')
-        except OperationalError as exc:
-            message = str(exc).lower()
-            if "duplicate column" not in message and "no such table" not in message:
-                raise
-        try:
-            await conn.execute_script('ALTER TABLE "product_spec_attribute" ADD COLUMN "category_ids" JSON NOT NULL DEFAULT \'[]\';')
-        except OperationalError as exc:
-            message = str(exc).lower()
-            if "duplicate column" not in message and "no such table" not in message:
-                raise
+        statements = [
+            'ALTER TABLE "product_spec_attribute" ADD COLUMN "category_id" BIGINT;',
+            'ALTER TABLE "product_spec_attribute" ADD COLUMN "category_ids" JSON NOT NULL DEFAULT \'[]\';',
+            'ALTER TABLE "product_spec_config" ADD COLUMN "source_type" VARCHAR(40);',
+            'ALTER TABLE "product_spec_config" ADD COLUMN "source_id" BIGINT;',
+            'ALTER TABLE "product_spec_config" ADD COLUMN "source_key" VARCHAR(160);',
+            'ALTER TABLE "product_spec_config" ADD COLUMN "sync_hash" VARCHAR(64);',
+            'ALTER TABLE "product_spec_config" ADD COLUMN "auto_sync" BOOL NOT NULL DEFAULT 0;',
+            'ALTER TABLE "product_spec_config" ADD COLUMN "synced_at" TIMESTAMP;',
+        ]
+        for statement in statements:
+            try:
+                await conn.execute_script(statement)
+            except OperationalError as exc:
+                message = str(exc).lower()
+                if "duplicate column" not in message and "no such table" not in message:
+                    raise
         return
 
     if settings.DB_TYPE != "postgres":
@@ -2225,6 +2230,17 @@ async def ensure_product_center_columns():
             ADD COLUMN IF NOT EXISTS "category_ids" JSONB NOT NULL DEFAULT '[]';
         CREATE INDEX IF NOT EXISTS "idx_product_spec_attribute_category"
             ON "product_spec_attribute" ("category_id");
+        ALTER TABLE IF EXISTS "product_spec_config"
+            ADD COLUMN IF NOT EXISTS "source_type" VARCHAR(40),
+            ADD COLUMN IF NOT EXISTS "source_id" BIGINT,
+            ADD COLUMN IF NOT EXISTS "source_key" VARCHAR(160),
+            ADD COLUMN IF NOT EXISTS "sync_hash" VARCHAR(64),
+            ADD COLUMN IF NOT EXISTS "auto_sync" BOOLEAN NOT NULL DEFAULT FALSE,
+            ADD COLUMN IF NOT EXISTS "synced_at" TIMESTAMPTZ;
+        CREATE INDEX IF NOT EXISTS "idx_product_spec_config_source"
+            ON "product_spec_config" ("source_type", "source_key");
+        CREATE INDEX IF NOT EXISTS "idx_product_spec_config_auto_sync"
+            ON "product_spec_config" ("auto_sync");
         """
     )
 
