@@ -323,7 +323,7 @@
               :autosize="{ minRows: 3, maxRows: 6 }"
             />
           </n-form-item>
-          <n-checkbox v-model:checked="planEditor.form.notify">{{ planEditor.form.id ? '保存后发送飞书通知' : '创建后立即发送飞书通知' }}</n-checkbox>
+          <n-checkbox v-if="!planEditor.form.id" v-model:checked="planEditor.form.notify">创建后立即发送飞书通知</n-checkbox>
         </n-form>
         <template #footer>
           <div class="modal-actions compact-modal-actions">
@@ -829,7 +829,12 @@ const planColumns = [
           ? h(NButton, { size: 'tiny', type: 'primary', secondary: true, round: true, onClick: () => openPlanEditor(row) }, { default: () => '变更' })
           : null,
         row.status === 'pending'
-          ? h(NButton, { size: 'tiny', type: 'warning', secondary: true, round: true, onClick: () => cancelPlan(row) }, { default: () => '取消' })
+          ? renderDeleteConfirm({
+            title: `确认取消 ${row.customer || row.ticket || '这条运维计划'}？`,
+            actionText: '取消',
+            buttonProps: { size: 'tiny', type: 'warning', secondary: true, round: true },
+            onConfirm: () => cancelPlan(row),
+          })
           : null,
         row.remote_hands_id
           ? h(NButton, { size: 'tiny', secondary: true, round: true, onClick: () => { activeTab.value = 'remote' } }, { default: () => '查看记录' })
@@ -1807,7 +1812,7 @@ function renderSettlementSwitch(row) {
 
 function renderDeleteConfirm({ title, actionText, onConfirm, buttonProps = {} }) {
   return h(NPopconfirm, {
-    positiveText: '删除',
+    positiveText: actionText,
     negativeText: '取消',
     onPositiveClick: onConfirm,
   }, {

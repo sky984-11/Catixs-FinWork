@@ -39,37 +39,54 @@ def format_datetime(value: datetime | None) -> str:
     return value.strftime("%Y-%m-%d %H:%M") if value else ""
 
 
-def build_plan_card(plan: RemoteHandsPlan) -> dict[str, Any]:
+def build_plan_card(
+    plan: RemoteHandsPlan,
+    *,
+    title: str = "运维计划",
+    template: str = "blue",
+    extra_elements: list[dict[str, Any]] | None = None,
+    include_detail: bool = True,
+) -> dict[str, Any]:
     detail_url = f"{settings.get_web_base_url()}/remote-assistance"
     site = " / ".join(item for item in [text(plan.region), text(plan.site), text(plan.rack)] if item)
     engineer = " / ".join(item for item in [text(plan.engineer_name), text(plan.engineer_wechat or plan.engineer_contact)] if item)
     creator = text(getattr(plan, "created_by_name", "")) or "-"
+    elements = [
+        {"tag": "div", "text": {"tag": "lark_md", "content": f"**客户：** {plan.customer}"}},
+        {"tag": "div", "text": {"tag": "lark_md", "content": f"**工单：** {plan.ticket or '-'}"}},
+        {"tag": "div", "text": {"tag": "lark_md", "content": f"**创建人：** {creator}"}},
+    ]
+    if include_detail:
+        elements.extend(
+            [
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"**位置：** {site or '-'}"}},
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"**工程师：** {engineer or '-'}"}},
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"**计划时间：** {format_datetime(plan.planned_at) or '-'}"}},
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"**说明：** {plan.note or '-'}"}},
+            ]
+        )
+    if extra_elements:
+        elements.extend(extra_elements)
+    elements.append(
+        {
+            "tag": "action",
+            "actions": [
+                {
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": "查看运维计划"},
+                    "url": detail_url,
+                    "type": "primary",
+                }
+            ],
+        }
+    )
     return {
         "config": {"wide_screen_mode": True},
         "header": {
-            "template": "blue",
-            "title": {"tag": "plain_text", "content": "运维计划"},
+            "template": template,
+            "title": {"tag": "plain_text", "content": title},
         },
-        "elements": [
-            {"tag": "div", "text": {"tag": "lark_md", "content": f"**客户：** {plan.customer}"}},
-            {"tag": "div", "text": {"tag": "lark_md", "content": f"**工单：** {plan.ticket or '-'}"}},
-            {"tag": "div", "text": {"tag": "lark_md", "content": f"**创建人：** {creator}"}},
-            {"tag": "div", "text": {"tag": "lark_md", "content": f"**位置：** {site or '-'}"}},
-            {"tag": "div", "text": {"tag": "lark_md", "content": f"**工程师：** {engineer or '-'}"}},
-            {"tag": "div", "text": {"tag": "lark_md", "content": f"**计划时间：** {format_datetime(plan.planned_at) or '-'}"}},
-            {"tag": "div", "text": {"tag": "lark_md", "content": f"**说明：** {plan.note or '-'}"}},
-            {
-                "tag": "action",
-                "actions": [
-                    {
-                        "tag": "button",
-                        "text": {"tag": "plain_text", "content": "查看运维计划"},
-                        "url": detail_url,
-                        "type": "primary",
-                    }
-                ],
-            },
-        ],
+        "elements": elements,
     }
 
 
@@ -85,8 +102,16 @@ async def send_card_to_user(user: User, card: dict[str, Any]) -> tuple[bool, str
     return ok, f"{user.alias or user.username} {'已发送' if ok else '发送失败'}"
 
 
-async def notify_remote_hands_plan(plan: RemoteHandsPlan) -> tuple[bool, str]:
-    assignee_ids = int_list(plan.assignee_ids) or int_list(plan.assignee_id)
+async def notify_remote_hands_plan(
+    plan: RemoteHandsPlan,
+    *,
+    title: str = "运维计划",
+    template: str = "blue",
+    extra_elements: list[dict[str, Any]] | None = None,
+    include_detail: bool = True,
+    recipient_ids: list[int] | None = None,
+) -> tuple[bool, str]:
+    assignee_ids = int_list(recipient_ids) or int_list(plan.assignee_ids) or int_list(plan.assignee_id)
     if not assignee_ids:
         return False, "未选择通知负责人"
     users = await User.filter(id__in=assignee_ids, is_active=True)
@@ -95,7 +120,18 @@ async def notify_remote_hands_plan(plan: RemoteHandsPlan) -> tuple[bool, str]:
     if not ordered_users:
         return False, "通知负责人不存在或未启用"
 
-    card = build_plan_card(plan)
+    if not text(getattr(plan, "created_by_name", "")) and getattr(plan, "created_by_id", None):
+        creator = await User.get_or_none(id=plan.created_by_id)
+        if creator:
+            plan.created_by_name = text(creator.alias) or text(creator.username) or text(creator.email)
+
+    card = build_plan_card(
+        plan,
+        title=title,
+        template=template,
+        extra_elements=extra_elements,
+        include_detail=include_detail,
+    )
     results = [await send_card_to_user(user, card) for user in ordered_users]
     success_count = sum(1 for ok, _ in results if ok)
     message = "；".join(message for _, message in results)

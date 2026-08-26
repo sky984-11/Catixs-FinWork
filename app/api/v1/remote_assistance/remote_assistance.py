@@ -148,6 +148,10 @@ def _format_datetime(value: datetime | None) -> str | None:
     return value.strftime("%Y-%m-%dT%H:%M")
 
 
+def _display_datetime(value: datetime | None) -> str:
+    return value.strftime("%Y-%m-%d %H:%M") if value else "-"
+
+
 def _clean_text(value: Any) -> str:
     return str(value or "").strip()
 
@@ -164,6 +168,79 @@ def _work_minutes_between(start: datetime | None, end: datetime | None) -> int:
     if end < start:
         raise ValueError("离场时间不能早于到场时间")
     return max(int((end - start).total_seconds() // 60), 0)
+
+
+def _plan_snapshot(plan: RemoteHandsPlan) -> dict[str, Any]:
+    return {
+        "customer": plan.customer,
+        "ticket": plan.ticket,
+        "engineer_name": plan.engineer_name,
+        "engineer_contact": plan.engineer_contact,
+        "engineer_wechat": plan.engineer_wechat,
+        "engineer_group": plan.engineer_group,
+        "assignee_names": plan.assignee_names,
+        "assignee_ids": int_list(plan.assignee_ids) or int_list(plan.assignee_id),
+        "region": plan.region,
+        "site": plan.site,
+        "rack": plan.rack,
+        "planned_at": _naive_datetime(plan.planned_at),
+        "note": plan.note,
+    }
+
+
+def _plan_value_for_compare(value: Any) -> str:
+    if isinstance(value, datetime):
+        return _display_datetime(_naive_datetime(value))
+    if isinstance(value, list):
+        return ",".join(str(item) for item in value)
+    return _clean_text(value) or "-"
+
+
+def _plan_change_rows(before: dict[str, Any], after: dict[str, Any]) -> list[dict[str, str]]:
+    labels = {
+        "customer": "客户",
+        "ticket": "工单",
+        "engineer_name": "工程师",
+        "engineer_contact": "工程师联系方式",
+        "engineer_wechat": "工程师 TG/微信",
+        "engineer_group": "工程师群组",
+        "assignee_names": "通知接收人",
+        "region": "地区",
+        "site": "机房",
+        "rack": "机柜/位置",
+        "planned_at": "计划时间",
+        "note": "说明",
+    }
+    rows = []
+    for key, label in labels.items():
+        old_value = _plan_value_for_compare(before.get(key))
+        new_value = _plan_value_for_compare(after.get(key))
+        if old_value != new_value:
+            rows.append({"label": label, "old": old_value, "new": new_value})
+    return rows
+
+
+def _plan_change_elements(changes: list[dict[str, str]], operator_name: str = "") -> list[dict[str, Any]]:
+    elements: list[dict[str, Any]] = []
+    if operator_name:
+        elements.append({"tag": "div", "text": {"tag": "lark_md", "content": f"**操作人：** {operator_name}"}})
+    if not changes:
+        elements.append({"tag": "div", "text": {"tag": "lark_md", "content": "**变更内容：** 无字段变化"}})
+        return elements
+    content = "\n".join(
+        f"- **{item['label']}：** {item['old']} → {item['new']}"
+        for item in changes
+    )
+    elements.append({"tag": "div", "text": {"tag": "lark_md", "content": f"**变更内容：**\n{content}"}})
+    return elements
+
+
+async def _save_plan_notify_result(plan: RemoteHandsPlan, ok: bool, message: str) -> None:
+    plan.notify_status = "sent" if ok else "failed"
+    plan.notify_message = message[:500]
+    plan.notified_at = _now_naive() if ok else plan.notified_at
+    _normalize_plan_datetimes(plan)
+    await plan.save(update_fields=["notify_status", "notify_message", "notified_at", "updated_at"])
 
 
 def _is_settled_from_item(item: RemoteHands) -> bool:
@@ -416,7 +493,7 @@ async def create_plan_compat(payload: RemoteHandsPlanPayload, current_user: User
 async def _create_plan(payload: RemoteHandsPlanPayload, current_user: User | None = None):
     try:
         data = await _plan_payload_data(payload)
-        if current_user:
+        if current_user is not None:
             data["created_by_id"] = current_user.id
             data["created_by_name"] = _user_display_name(current_user) or None
         logger.info(
@@ -435,24 +512,21 @@ async def _create_plan(payload: RemoteHandsPlanPayload, current_user: User | Non
         plan = await RemoteHandsPlan.create(**data)
         if payload.notify:
             ok, message = await notify_remote_hands_plan(plan)
-            plan.notify_status = "sent" if ok else "failed"
-            plan.notify_message = message[:500]
-            plan.notified_at = _now_naive() if ok else None
-            _normalize_plan_datetimes(plan)
-            await plan.save(update_fields=["notify_status", "notify_message", "notified_at", "updated_at"])
+            await _save_plan_notify_result(plan, ok, message)
         return Success(msg="运维计划已创建", data=await _plan_to_dict(plan))
     except Exception as exc:
         return Fail(msg=f"新增运维计划失败: {exc}")
 
 
 @router.put("/plans/{plan_id}", summary="变更运维计划")
-async def update_plan(plan_id: int, payload: RemoteHandsPlanPayload):
+async def update_plan(plan_id: int, payload: RemoteHandsPlanPayload, current_user: User = DependAuth):
     try:
         plan = await RemoteHandsPlan.get_or_none(id=plan_id)
         if not plan:
             return Fail(msg="运维计划不存在")
         if plan.status != "pending":
             return Fail(msg="只有待执行的运维计划才能变更")
+        before = _plan_snapshot(plan)
         data = await _plan_payload_data(payload)
         logger.info(
             "remote assistance update plan parsed: plan_id={}, customer={}, site={}, raw_planned_at={}, parsed_planned_at={}",
@@ -471,13 +545,23 @@ async def update_plan(plan_id: int, payload: RemoteHandsPlanPayload):
         for key, value in data.items():
             setattr(plan, key, value)
         plan.reminder_notified_at = None
-        if payload.notify:
-            ok, message = await notify_remote_hands_plan(plan)
-            plan.notify_status = "sent" if ok else "failed"
-            plan.notify_message = message[:500]
-            plan.notified_at = _now_naive() if ok else plan.notified_at
         _normalize_plan_datetimes(plan)
         await plan.save()
+        after = _plan_snapshot(plan)
+        changes = _plan_change_rows(before, after)
+        if changes:
+            recipient_ids = int_list(before.get("assignee_ids")) + [
+                item for item in int_list(after.get("assignee_ids")) if item not in int_list(before.get("assignee_ids"))
+            ]
+            ok, message = await notify_remote_hands_plan(
+                plan,
+                title="运维计划变更",
+                template="orange",
+                extra_elements=_plan_change_elements(changes, _user_display_name(current_user)),
+                include_detail=False,
+                recipient_ids=recipient_ids,
+            )
+            await _save_plan_notify_result(plan, ok, message)
         return Success(msg="运维计划已变更", data=await _plan_to_dict(plan))
     except Exception as exc:
         return Fail(msg=f"变更运维计划失败: {exc}")
@@ -490,11 +574,7 @@ async def notify_plan(plan_id: int):
         if not plan:
             return Fail(msg="运维计划不存在")
         ok, message = await notify_remote_hands_plan(plan)
-        plan.notify_status = "sent" if ok else "failed"
-        plan.notify_message = message[:500]
-        plan.notified_at = _now_naive() if ok else plan.notified_at
-        _normalize_plan_datetimes(plan)
-        await plan.save(update_fields=["notify_status", "notify_message", "notified_at", "updated_at"])
+        await _save_plan_notify_result(plan, ok, message)
         return Success(msg=message, data=await _plan_to_dict(plan))
     except Exception as exc:
         return Fail(msg=f"发送运维计划通知失败: {exc}")
@@ -541,7 +621,7 @@ async def complete_plan(plan_id: int, payload: RemoteHandsPlanCompletePayload):
 
 
 @router.post("/plans/{plan_id}/cancel", summary="取消运维计划")
-async def cancel_plan(plan_id: int):
+async def cancel_plan(plan_id: int, current_user: User = DependAuth):
     try:
         plan = await RemoteHandsPlan.get_or_none(id=plan_id)
         if not plan:
@@ -552,6 +632,16 @@ async def cancel_plan(plan_id: int):
             return Success(msg="运维计划已取消", data=await _plan_to_dict(plan))
         plan.status = "cancelled"
         await plan.save(update_fields=["status", "updated_at"])
+        ok, message = await notify_remote_hands_plan(
+            plan,
+            title="运维计划取消",
+            template="red",
+            extra_elements=[
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"**操作人：** {_user_display_name(current_user) or '-'}"}},
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"**取消时间：** {_display_datetime(_now_naive())}"}},
+            ],
+        )
+        await _save_plan_notify_result(plan, ok, message)
         return Success(msg="运维计划已取消", data=await _plan_to_dict(plan))
     except Exception as exc:
         return Fail(msg=f"取消运维计划失败: {exc}")
