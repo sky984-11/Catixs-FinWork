@@ -491,7 +491,7 @@ function renderSpecConfigAttributes(row) {
       const unit = item.unit && value !== '-' && !String(value).endsWith(item.unit) ? ` ${item.unit}` : ''
       return h(
         'span',
-        { class: 'config-attribute-tag' },
+        { class: 'config-attribute-tag', style: { marginRight: '8px', marginBottom: '6px' } },
         [
           h(
             NTag,
@@ -1372,7 +1372,7 @@ onMounted(refreshAll)
 .category-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 0;
+  gap: 6px 8px;
   padding: 3px 0;
 }
 .config-attribute-tags {
@@ -1384,6 +1384,8 @@ onMounted(refreshAll)
 .config-attribute-tag {
   display: inline-flex;
   max-width: 100%;
+  margin-right: 8px;
+  margin-bottom: 6px;
 }
 .spec-config-lines {
   display: flex;
