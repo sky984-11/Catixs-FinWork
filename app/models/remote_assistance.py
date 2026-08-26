@@ -110,7 +110,7 @@ class RemoteHandsPlan(BaseModel, TimestampMixin):
     assignee_ids = fields.JSONField(default=list, description="assignee ids")
     assignee_name = fields.CharField(max_length=100, null=True, description="assignee name")
     assignee_names = fields.CharField(max_length=500, null=True, description="assignee names")
-    created_by_id = fields.BigIntField(null=True, description="creator user id", index=True)
+    created_by_id = fields.BigIntField(null=True, description="creator user id")
     created_by_name = fields.CharField(max_length=100, null=True, description="creator user name")
     region = fields.CharField(max_length=180, null=True, description="region", index=True)
     site = fields.CharField(max_length=180, null=True, description="site", index=True)
