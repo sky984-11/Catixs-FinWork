@@ -917,8 +917,11 @@ async def update_product(product_id: int, payload: ProductPayload):
 
 @router.post("/products/{product_id}/sync-physical-servers", summary="同步物理服务器规格配置")
 async def sync_product_physical_servers(product_id: int):
-    if not await ProductItem.filter(id=product_id).exists():
+    product = await ProductItem.get_or_none(id=product_id)
+    if not product:
         return Fail(msg="产品不存在")
+    if product.status != "active":
+        return Fail(msg="产品已下架，规格配置不会同步")
     summary = await sync_physical_server_specs(product_id=product_id)
     return Success(msg="物理服务器规格配置已同步", data=summary)
 
@@ -992,8 +995,14 @@ async def delete_attribute(attribute_id: int):
 
 @router.get("/spec-configs", summary="产品规格配置列表")
 async def list_spec_configs(page: int = Query(1), page_size: int = Query(20), product_id: int | None = Query(None)):
+    if product_id:
+        product = await ProductItem.get_or_none(id=product_id)
+        if not product or product.status != "active":
+            return SuccessExtra(data=[], total=0, page=page, page_size=page_size)
     await sync_physical_server_specs(product_id=product_id)
+    active_product_ids = await ProductItem.filter(status="active").values_list("id", flat=True)
     q = Q()
+    q &= Q(product_id__in=active_product_ids)
     if product_id:
         q &= Q(product_id=product_id)
     rows = await ProductSpecConfig.filter(q).order_by("product_id", "source_type", "source_key", "order", "id")
