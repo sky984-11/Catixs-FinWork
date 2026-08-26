@@ -153,13 +153,19 @@ async def notify_due_remote_hands_plans(now: datetime | None = None) -> int:
     sent_count = 0
     for plan in plans:
         try:
+            claimed = await RemoteHandsPlan.filter(
+                id=plan.id,
+                reminder_notified_at=None,
+            ).update(reminder_notified_at=now)
+            if not claimed:
+                continue
+            plan.reminder_notified_at = now
             ok, message = await notify_remote_hands_plan(plan)
             plan.notify_status = "sent" if ok else "failed"
             plan.notify_message = message[:500]
             if ok:
                 plan.notified_at = now
                 sent_count += 1
-            plan.reminder_notified_at = now
             await plan.save(
                 update_fields=[
                     "notify_status",

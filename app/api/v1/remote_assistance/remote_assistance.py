@@ -236,11 +236,14 @@ def _plan_change_elements(changes: list[dict[str, str]], operator_name: str = ""
 
 
 async def _save_plan_notify_result(plan: RemoteHandsPlan, ok: bool, message: str) -> None:
+    now = _now_naive()
     plan.notify_status = "sent" if ok else "failed"
     plan.notify_message = message[:500]
-    plan.notified_at = _now_naive() if ok else plan.notified_at
+    plan.notified_at = now if ok else plan.notified_at
+    if ok and plan.planned_at and now < _naive_datetime(plan.planned_at) <= now + timedelta(days=1):
+        plan.reminder_notified_at = plan.reminder_notified_at or now
     _normalize_plan_datetimes(plan)
-    await plan.save(update_fields=["notify_status", "notify_message", "notified_at", "updated_at"])
+    await plan.save(update_fields=["notify_status", "notify_message", "notified_at", "reminder_notified_at", "updated_at"])
 
 
 def _is_settled_from_item(item: RemoteHands) -> bool:
