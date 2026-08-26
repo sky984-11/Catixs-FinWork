@@ -9,7 +9,7 @@ COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 COPY web/ ./
-RUN pnpm run build
+RUN npm run build
 
 
 FROM python:3.11-slim-bookworm

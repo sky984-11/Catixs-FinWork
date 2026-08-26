@@ -21,10 +21,10 @@ export function createVitePlugins(viteEnv, isBuild) {
     plugins.push(viteCompression({ algorithm: viteEnv.VITE_COMPRESS_TYPE || 'gzip' }))
   }
 
-  if (isBuild) {
+  if (isBuild && process.env.VITE_ANALYZE === 'true') {
     plugins.push(
       visualizer({
-        open: true,
+        open: false,
         gzipSize: true,
         brotliSize: true,
       }),
