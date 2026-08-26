@@ -187,8 +187,8 @@
                   show-path
                   check-strategy="child"
                   :options="productRegionOptions"
-                  :filter="regionCascaderFilter"
                   :disabled="Boolean(editor.form.id)"
+                  :filter="regionCascaderFilter"
                   placeholder="从 POP 点选择国家 / 地区"
                 />
               </n-form-item-gi>
@@ -1053,19 +1053,72 @@ function sortCascaderTree(nodes) {
 }
 
 function buildPopRegionOptions() {
-  return popRegions.value
+  const countryNodes = new Map()
+  popRegions.value
     .filter((region) => region.status !== false)
-    .map((region) => {
-      const label = fieldText(region.name) || [fieldText(region.country), fieldText(region.city)].filter(Boolean).join(' / ')
-      return {
-        label,
-        value: label,
-        region: label,
-        searchText: uniqueValues([label, region.code, region.country, region.city]).join(' '),
+    .forEach((region) => {
+      const rawValue = fieldText(region.name) || [fieldText(region.country), fieldText(region.city)].filter(Boolean).join(' / ')
+      if (!rawValue) return
+      const countryLabel = regionCountryLabel(region)
+      const cityLabel = regionCityLabel(region)
+      const countryKey = normalizeSearchText(countryLabel || rawValue)
+      if (!countryKey) return
+      if (!countryNodes.has(countryKey)) {
+        countryNodes.set(countryKey, {
+          label: countryLabel || rawValue,
+          value: `country:${countryKey}`,
+          region: '',
+          searchText: uniqueValues([countryLabel, region.country, rawValue]).join(' '),
+          children: [],
+        })
       }
+      const parent = countryNodes.get(countryKey)
+      parent.searchText = uniqueValues([parent.searchText, rawValue, region.code, region.country]).join(' ')
+      parent.children.push({
+        label: cityLabel || rawValue,
+        value: rawValue,
+        region: rawValue,
+        searchText: uniqueValues([
+          countryLabel,
+          cityLabel,
+          rawValue,
+          region.code,
+          region.country,
+          region.city,
+          translateLocationPath(rawValue),
+        ]).join(' '),
+      })
     })
-    .filter((region) => region.value)
+  return [...countryNodes.values()]
+    .map((node) => ({
+      ...node,
+      children: node.children
+        .sort((left, right) => String(left.label || '').localeCompare(String(right.label || ''), 'zh-Hans-CN'))
+        .map((child) => ({ ...child, children: undefined })),
+    }))
     .sort((left, right) => String(left.label || '').localeCompare(String(right.label || ''), 'zh-Hans-CN'))
+}
+
+function regionNameParts(region = {}) {
+  const nameParts = fieldText(region.name)
+    .split('/')
+    .map((item) => item.trim())
+    .filter(Boolean)
+  return {
+    country: fieldText(region.country) || nameParts[0] || '',
+    city: fieldText(region.city) || nameParts.slice(1).join(' / ') || '',
+  }
+}
+
+function regionCountryLabel(region = {}) {
+  const { country } = regionNameParts(region)
+  return translateCountry(country) || translateLocationPath(country) || country
+}
+
+function regionCityLabel(region = {}) {
+  const { city } = regionNameParts(region)
+  if (!city) return translateLocationPath(fieldText(region.name)) || fieldText(region.name)
+  return translateLocationPath(city) || translateCity(city) || city
 }
 
 function findCascaderValue(nodes = [], value) {

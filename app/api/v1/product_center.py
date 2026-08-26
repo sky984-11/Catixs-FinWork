@@ -848,8 +848,25 @@ async def delete_category(category_id: int):
         refs.append(f"产品模板 {template_count} 个")
     if refs:
         return Fail(msg=delete_block_msg("产品分类", refs))
+    await delete_category_spec_attributes(category_id)
     await ProductCategory.filter(id=category_id).delete()
     return Success(msg="产品分类已删除")
+
+
+async def delete_category_spec_attributes(category_id: int) -> None:
+    attributes = await ProductSpecAttribute.all()
+    for attribute in attributes:
+        ids = attribute_category_ids(attribute)
+        if int(category_id) not in ids:
+            continue
+        remaining_ids = [item for item in ids if item != int(category_id)]
+        if remaining_ids:
+            await ProductSpecAttribute.filter(id=attribute.id).update(
+                category_ids=remaining_ids,
+                category_id=remaining_ids[0],
+            )
+        else:
+            await ProductSpecAttribute.filter(id=attribute.id).delete()
 
 
 @router.get("/products", summary="产品列表")
@@ -909,10 +926,10 @@ async def sync_product_physical_servers(product_id: int):
 @router.delete("/products/{product_id}", summary="删除产品")
 async def delete_product(product_id: int):
     refs = []
-    config_count = await ProductSpecConfig.filter(product_id=product_id).count()
+    config_count = await ProductSpecConfig.filter(product_id=product_id, auto_sync=False).count()
     price_count = await ProductPrice.filter(product_id=product_id).count()
     if config_count:
-        refs.append(f"规格配置中的关联配置 {config_count} 条")
+        refs.append(f"规格配置中的手动配置 {config_count} 条")
     if price_count:
         refs.append(f"定价管理中的价格记录 {price_count} 条")
     if refs:
