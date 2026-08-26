@@ -8,6 +8,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.log import logger
+from app.core.dependency import DependAuth
 from app.models.asset import AssetLocation
 from app.models.admin import User
 from app.models.remote_assistance import RemoteEngineer, RemoteHands, RemoteHandsPlan
@@ -149,6 +150,12 @@ def _format_datetime(value: datetime | None) -> str | None:
 
 def _clean_text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _user_display_name(user: User | None) -> str:
+    if not user:
+        return ""
+    return _clean_text(user.alias) or _clean_text(user.username) or _clean_text(user.email)
 
 
 def _work_minutes_between(start: datetime | None, end: datetime | None) -> int:
@@ -300,6 +307,8 @@ async def _plan_to_dict(item: RemoteHandsPlan) -> dict[str, Any]:
         "assignee_ids": int_list(item.assignee_ids) or int_list(item.assignee_id),
         "assignee_name": item.assignee_name or "",
         "assignee_names": item.assignee_names or item.assignee_name or "",
+        "created_by_id": item.created_by_id,
+        "created_by_name": item.created_by_name or "",
         "region": item.region or "",
         "site": item.site or "",
         "rack": item.rack or "",
@@ -395,18 +404,21 @@ async def create_remote_hands(payload: RemoteHandsPayload):
 
 
 @router.post("/plans", summary="新增运维计划")
-async def create_plan(payload: RemoteHandsPlanPayload):
-    return await _create_plan(payload)
+async def create_plan(payload: RemoteHandsPlanPayload, current_user: User = DependAuth):
+    return await _create_plan(payload, current_user)
 
 
 @router.post("/plans/create", summary="新增运维计划")
-async def create_plan_compat(payload: RemoteHandsPlanPayload):
-    return await _create_plan(payload)
+async def create_plan_compat(payload: RemoteHandsPlanPayload, current_user: User = DependAuth):
+    return await _create_plan(payload, current_user)
 
 
-async def _create_plan(payload: RemoteHandsPlanPayload):
+async def _create_plan(payload: RemoteHandsPlanPayload, current_user: User | None = None):
     try:
         data = await _plan_payload_data(payload)
+        if current_user:
+            data["created_by_id"] = current_user.id
+            data["created_by_name"] = _user_display_name(current_user) or None
         logger.info(
             "remote assistance create plan parsed: customer={}, site={}, raw_planned_at={}, parsed_planned_at={}",
             data["customer"],

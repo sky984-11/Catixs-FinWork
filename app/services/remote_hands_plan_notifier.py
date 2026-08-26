@@ -43,6 +43,7 @@ def build_plan_card(plan: RemoteHandsPlan) -> dict[str, Any]:
     detail_url = f"{settings.get_web_base_url()}/remote-assistance"
     site = " / ".join(item for item in [text(plan.region), text(plan.site), text(plan.rack)] if item)
     engineer = " / ".join(item for item in [text(plan.engineer_name), text(plan.engineer_wechat or plan.engineer_contact)] if item)
+    creator = text(getattr(plan, "created_by_name", "")) or "-"
     return {
         "config": {"wide_screen_mode": True},
         "header": {
@@ -52,6 +53,7 @@ def build_plan_card(plan: RemoteHandsPlan) -> dict[str, Any]:
         "elements": [
             {"tag": "div", "text": {"tag": "lark_md", "content": f"**客户：** {plan.customer}"}},
             {"tag": "div", "text": {"tag": "lark_md", "content": f"**工单：** {plan.ticket or '-'}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**创建人：** {creator}"}},
             {"tag": "div", "text": {"tag": "lark_md", "content": f"**位置：** {site or '-'}"}},
             {"tag": "div", "text": {"tag": "lark_md", "content": f"**工程师：** {engineer or '-'}"}},
             {"tag": "div", "text": {"tag": "lark_md", "content": f"**计划时间：** {format_datetime(plan.planned_at) or '-'}"}},

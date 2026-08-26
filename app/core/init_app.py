@@ -2034,6 +2034,10 @@ async def ensure_remote_assistance_datetime_columns():
             ALTER TABLE IF EXISTS "remote_hands"
                 ADD COLUMN IF NOT EXISTS "is_settled" BOOLEAN NOT NULL DEFAULT FALSE;
 
+            ALTER TABLE IF EXISTS "remote_hands_plan"
+                ADD COLUMN IF NOT EXISTS "created_by_id" BIGINT,
+                ADD COLUMN IF NOT EXISTS "created_by_name" VARCHAR(100);
+
             UPDATE "remote_hands"
             SET "is_settled" = TRUE
             WHERE COALESCE("ops_settlement_status", '') = 'settled'
