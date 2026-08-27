@@ -277,6 +277,9 @@ export default {
     addNode: (data = {}) => request.post('/pve/nodes/add', data),
     updateNode: (remote, data = {}) => request.put(`/pve/nodes/remote/${encodeURIComponent(remote)}`, data),
     deleteNode: (remote) => request.delete(`/pve/nodes/remote/${encodeURIComponent(remote)}`),
+    nodeBindingOptions: (params = {}) => request.get('/pve/nodes/binding-options', { params }),
+    updateNodeBinding: (remote, data = {}) =>
+      request.put(`/pve/nodes/remote/${encodeURIComponent(remote)}/binding`, data),
     nodeRemark: (remote, params = {}) =>
       request.get(`/pve/nodes/remote/${encodeURIComponent(remote)}/remark`, { params }),
     updateNodeRemark: (remote, data = {}) =>

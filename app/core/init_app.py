@@ -1473,6 +1473,50 @@ async def ensure_asset_columns():
     )
 
 
+async def ensure_pve_node_binding_table():
+    if settings.DB_TYPE == "sqlite":
+        conn = Tortoise.get_connection("sqlite")
+        await conn.execute_script(
+            """
+            CREATE TABLE IF NOT EXISTS "pve_node_binding" (
+                "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                "created_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "updated_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "remote" VARCHAR(100) NOT NULL UNIQUE,
+                "region_id" BIGINT,
+                "location_id" BIGINT,
+                "device_id" BIGINT,
+                "remark" VARCHAR(500)
+            );
+            CREATE INDEX IF NOT EXISTS "idx_pve_node_b_remote" ON "pve_node_binding" ("remote");
+            """
+        )
+        return
+
+    if settings.DB_TYPE != "postgres":
+        return
+
+    conn = Tortoise.get_connection("postgres")
+    await conn.execute_script(
+        """
+        CREATE TABLE IF NOT EXISTS "pve_node_binding" (
+            "id" BIGSERIAL NOT NULL PRIMARY KEY,
+            "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "updated_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "remote" VARCHAR(100) NOT NULL UNIQUE,
+            "region_id" BIGINT REFERENCES "asset_region" ("id") ON DELETE SET NULL,
+            "location_id" BIGINT REFERENCES "asset_location" ("id") ON DELETE SET NULL,
+            "device_id" BIGINT REFERENCES "asset_device" ("id") ON DELETE SET NULL,
+            "remark" VARCHAR(500)
+        );
+        CREATE INDEX IF NOT EXISTS "idx_pve_node_b_remote" ON "pve_node_binding" ("remote");
+        CREATE INDEX IF NOT EXISTS "idx_pve_node_b_region" ON "pve_node_binding" ("region_id");
+        CREATE INDEX IF NOT EXISTS "idx_pve_node_b_location" ON "pve_node_binding" ("location_id");
+        CREATE INDEX IF NOT EXISTS "idx_pve_node_b_device" ON "pve_node_binding" ("device_id");
+        """
+    )
+
+
 async def ensure_bill_columns():
     if settings.DB_TYPE != "postgres":
         return
@@ -2406,6 +2450,7 @@ async def init_db():
     await ensure_customer_center_columns()
     await ensure_product_center_columns()
     await ensure_asset_columns()
+    await ensure_pve_node_binding_table()
     await ensure_bill_columns()
     await ensure_project_columns()
     await ensure_requirement_columns()

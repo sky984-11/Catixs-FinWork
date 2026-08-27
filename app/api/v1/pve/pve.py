@@ -11,9 +11,11 @@ from urllib.parse import quote, urlparse
 import httpx
 from fastapi import APIRouter, Query, Request, Response
 from pydantic import BaseModel
+from tortoise.expressions import Q
 
 from app.schemas.base import Fail, Success
 from app.core.dependency import AuthControl
+from app.models.asset import AssetDevice, AssetLocation, AssetRegion, PveNodeBinding
 from app.settings.config import settings
 from app.utils.zabbix_api import sync_pve_host_to_zabbix
 
@@ -976,6 +978,61 @@ class PDMRemoteRemarkRequest(BaseModel):
     host: str | None = None
 
 
+class PveNodeBindingRequest(BaseModel):
+    region_id: int | None = None
+    location_id: int | None = None
+    device_id: int | None = None
+    remark: str = ""
+
+
+def text_value(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def region_label(region: AssetRegion | None) -> str:
+    if not region:
+        return ""
+    parts = [text_value(region.country), text_value(region.city)]
+    label = " / ".join(part for part in parts if part)
+    return label or text_value(region.name)
+
+
+async def pve_node_binding_to_dict(binding: PveNodeBinding | None) -> dict[str, Any]:
+    if not binding:
+        return {
+            "region_id": None,
+            "region_name": "",
+            "location_id": None,
+            "location_name": "",
+            "device_id": None,
+            "device_name": "",
+            "device_asset_no": "",
+            "device_mgmt_ip": "",
+            "binding_remark": "",
+        }
+    region = await binding.region if binding.region_id else None
+    location = await binding.location if binding.location_id else None
+    device = await binding.device if binding.device_id else None
+    return {
+        "region_id": binding.region_id,
+        "region_name": region_label(region),
+        "location_id": binding.location_id,
+        "location_name": text_value(location.name) if location else "",
+        "device_id": binding.device_id,
+        "device_name": text_value(device.name) if device else "",
+        "device_asset_no": text_value(device.asset_no) if device else "",
+        "device_mgmt_ip": text_value(device.mgmt_ip) if device else "",
+        "binding_remark": text_value(binding.remark),
+    }
+
+
+async def pve_node_binding_map(remotes: list[str]) -> dict[str, dict[str, Any]]:
+    if not remotes:
+        return {}
+    bindings = await PveNodeBinding.filter(remote__in=remotes).select_related("region", "location", "device")
+    return {binding.remote: await pve_node_binding_to_dict(binding) for binding in bindings}
+
+
 def percent(value: Any) -> float:
     try:
         number = float(value or 0)
@@ -1850,8 +1907,117 @@ async def list_nodes():
     except Exception as exc:
         return Fail(msg=f"读取 PDM 数据失败: {error_detail(exc)}")
     result = resource_groups(data, remote_addresses, remote_summaries, remote_details)
+    binding_map = await pve_node_binding_map([str(item.get("remote") or item.get("value") or "") for item in result])
+    for item in result:
+        item.update(binding_map.get(str(item.get("remote") or item.get("value") or ""), {}))
     _PVE_NODES_RESPONSE_CACHE = (time.time(), result)
     return Success(data=result)
+
+
+@router.get("/nodes/binding-options", summary="PVE node binding options")
+async def node_binding_options(
+    region_id: int | None = Query(None),
+    location_id: int | None = Query(None),
+):
+    regions = await AssetRegion.filter(status=True).order_by("country", "city", "name")
+    location_query = AssetLocation.filter(status=True, type=1).select_related("region").order_by("region__country", "region__city", "name")
+    device_query = AssetDevice.filter(type=0).select_related("region", "location", "cabinet").order_by(
+        "region__country",
+        "region__city",
+        "location__name",
+        "cabinet__name",
+        "name",
+    )
+    if region_id:
+        location_query = location_query.filter(region_id=region_id)
+        device_query = device_query.filter(region_id=region_id)
+    if location_id:
+        device_query = device_query.filter(Q(location_id=location_id) | Q(cabinet__location_id=location_id))
+    locations, devices = await asyncio.gather(location_query, device_query)
+    return Success(
+        data={
+            "regions": [
+                {
+                    "label": region_label(region),
+                    "value": region.id,
+                    "name": region.name,
+                    "code": region.code,
+                    "country": region.country or "",
+                    "city": region.city or "",
+                }
+                for region in regions
+            ],
+            "locations": [
+                {
+                    "label": f"{region_label(location.region)} / {location.name}" if location.region else location.name,
+                    "value": location.id,
+                    "region_id": location.region_id,
+                    "name": location.name,
+                }
+                for location in locations
+            ],
+            "devices": [
+                {
+                    "label": text_value(device.name) or text_value(device.asset_no) or f"Device #{device.id}",
+                    "value": device.id,
+                    "region_id": device.region_id,
+                    "location_id": device.cabinet.location_id if device.cabinet else device.location_id,
+                    "device_location_id": device.location_id,
+                    "cabinet_id": device.cabinet_id,
+                    "name": device.name,
+                    "asset_no": device.asset_no,
+                    "mgmt_ip": device.mgmt_ip or "",
+                    "brand": device.brand or "",
+                    "model": device.model or "",
+                    "u_position": device.u_position,
+                    "u_height": device.u_height,
+                    "cabinet_name": device.cabinet.name if device.cabinet else "",
+                }
+                for device in devices
+            ],
+        }
+    )
+
+
+@router.put("/nodes/remote/{remote}/binding", summary="Update PVE node asset binding")
+async def update_node_binding(remote: str, payload: PveNodeBindingRequest):
+    global _PVE_NODES_RESPONSE_CACHE
+
+    remote = text_value(remote)
+    if not remote:
+        return Fail(msg="保存节点关联失败: 缺少 Remote")
+
+    region = await AssetRegion.get_or_none(id=payload.region_id) if payload.region_id else None
+    location = await AssetLocation.get_or_none(id=payload.location_id) if payload.location_id else None
+    device = await AssetDevice.get_or_none(id=payload.device_id).select_related("cabinet") if payload.device_id else None
+    if payload.location_id and not location:
+        return Fail(msg="保存节点关联失败: 机房不存在")
+    if payload.device_id and not device:
+        return Fail(msg="保存节点关联失败: 物理设备不存在")
+    if location and region and location.region_id != region.id:
+        return Fail(msg="保存节点关联失败: 机房不属于所选地区")
+    device_location_id = device.cabinet.location_id if device and device.cabinet else (device.location_id if device else None)
+    if device and region and device.region_id != region.id and not (location and location.region_id == region.id and device_location_id == location.id):
+        return Fail(msg="保存节点关联失败: 物理设备不属于所选地区")
+    if device and location and device_location_id != location.id:
+        return Fail(msg="保存节点关联失败: 物理设备不属于所选机房")
+    if device:
+        region = region or await device.region
+        location = location or await device.location
+    elif location:
+        region = region or await location.region
+
+    binding, _created = await PveNodeBinding.update_or_create(
+        remote=remote,
+        defaults={
+            "region_id": region.id if region else None,
+            "location_id": location.id if location else None,
+            "device_id": device.id if device else None,
+            "remark": text_value(payload.remark) or None,
+        },
+    )
+    _PVE_NODES_RESPONSE_CACHE = None
+    return Success(msg="节点关联已保存", data=await pve_node_binding_to_dict(binding))
 
 
 @router.get("/vms", summary="PDM virtual machine list")
@@ -1992,7 +2158,7 @@ async def grafana_proxy(path: str, request: Request, token: str = Query("")):
 
 @router.post("/nodes/add", summary="Add PVE remote to PDM")
 async def add_pve_remote(payload: PDMAddRemoteRequest):
-    global _PDM_RESOURCE_CACHE
+    global _PDM_RESOURCE_CACHE, _PVE_NODES_RESPONSE_CACHE
 
     authid = (payload.authid or f"{settings.PVE_CREATE_SSH_USER}@pam").strip()
     token = payload.token or settings.PVE_CREATE_SSH_PASSWORD
@@ -2039,6 +2205,7 @@ async def add_pve_remote(payload: PDMAddRemoteRequest):
         except Exception as save_exc:
             raise RuntimeError(f"写入 PDM Remote 配置失败: {error_detail(save_exc)}") from save_exc
         _PDM_RESOURCE_CACHE = []
+        _PVE_NODES_RESPONSE_CACHE = None
     except Exception as exc:
         return Fail(msg=f"添加 PVE 节点失败: {error_detail(exc)}")
 
@@ -2065,7 +2232,7 @@ async def add_pve_remote(payload: PDMAddRemoteRequest):
 
 @router.put("/nodes/remote/{remote}", summary="Update PVE remote")
 async def update_pve_remote(remote: str, payload: PDMUpdateRemoteRequest):
-    global _PDM_RESOURCE_CACHE
+    global _PDM_RESOURCE_CACHE, _PVE_NODES_RESPONSE_CACHE
 
     if not payload.hostname:
         return Fail(msg="编辑 PVE 节点失败: 请填写节点 IP")
@@ -2088,6 +2255,7 @@ async def update_pve_remote(remote: str, payload: PDMUpdateRemoteRequest):
 
         await pdm_put(f"/remotes/remote/{quote(actual_remote, safe='')}", remote_payload)
         _PDM_RESOURCE_CACHE = []
+        _PVE_NODES_RESPONSE_CACHE = None
         remote = actual_remote
     except Exception as exc:
         return Fail(msg=f"编辑 PVE 节点失败: {error_detail(exc)}")
@@ -2097,11 +2265,13 @@ async def update_pve_remote(remote: str, payload: PDMUpdateRemoteRequest):
 
 @router.delete("/nodes/remote/{remote}", summary="Delete PVE remote")
 async def delete_pve_remote(remote: str):
-    global _PDM_RESOURCE_CACHE
+    global _PDM_RESOURCE_CACHE, _PVE_NODES_RESPONSE_CACHE
 
     try:
         await pdm_delete(f"/remotes/remote/{quote(remote, safe='')}")
+        await PveNodeBinding.filter(remote=remote).delete()
         _PDM_RESOURCE_CACHE = []
+        _PVE_NODES_RESPONSE_CACHE = None
     except Exception as exc:
         return Fail(msg=f"删除 PVE 节点失败: {error_detail(exc)}")
 

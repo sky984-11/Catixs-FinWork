@@ -39,7 +39,7 @@
                   >
                     <span>
                       <strong>{{ node.label }}</strong>
-                      <em>{{ nodeStatusText(node) }}</em>
+                      <em>{{ nodeMetaText(node) }}</em>
                     </span>
                     <n-tag size="small" round :type="nodeVmCountTagType(node)">
                       {{ node.vm_count ?? '-' }}
@@ -48,6 +48,9 @@
                 </template>
                 <div class="node-tooltip">
                   <span>IP：{{ nodeAddress(node) }}</span>
+                  <span v-if="node.region_name">地区：{{ node.region_name }}</span>
+                  <span v-if="node.location_name">机房：{{ node.location_name }}</span>
+                  <span v-if="node.device_name">物理设备：{{ node.device_name }}</span>
                   <span v-if="nodeTooltipRemark(node)">备注：{{ nodeTooltipRemark(node) }}</span>
                 </div>
               </n-tooltip>
@@ -569,6 +572,29 @@
             <n-form-item label="节点 IP" required>
               <n-input v-model:value="editNodeModal.form.hostname" placeholder="例如 10.4.10.12" />
             </n-form-item>
+            <n-form-item label="关联位置">
+              <n-cascader
+                v-model:value="editNodeModal.form.location_key"
+                :options="nodeLocationCascaderOptions"
+                :filter="nodeLocationCascaderFilter"
+                clearable
+                filterable
+                show-path
+                placeholder="选择地区 / 机房"
+                @update:value="handleNodeLocationPathChange"
+              />
+            </n-form-item>
+            <n-form-item label="物理设备">
+              <n-select
+                v-model:value="editNodeModal.form.device_id"
+                :options="nodeDeviceOptions"
+                clearable
+                :disabled="!editNodeModal.form.location_id"
+                filterable
+                placeholder="请先选择上方关联位置"
+                @update:value="handleNodeDeviceChange"
+              />
+            </n-form-item>
             <n-form-item label="备注">
               <n-input
                 v-model:value="editNodeModal.form.remark"
@@ -749,6 +775,7 @@ import api from '@/api'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import CButton from '@/components/public/CButton.vue'
 import NoVncConsole from './NoVncConsole.vue'
+import { translateCity, translateCountry, translateLocationPath } from '@/utils/location-i18n'
 
 const message = useMessage()
 const dialog = useDialog()
@@ -820,8 +847,18 @@ const editNodeModal = reactive({
     hostname: '',
     originalHostname: '',
     fingerprint: '',
+    region_id: null,
+    location_id: null,
+    location_key: null,
+    device_id: null,
     remark: '',
   },
+})
+
+const nodeBindingOptions = reactive({
+  regions: [],
+  locations: [],
+  devices: [],
 })
 
 const nodeMenu = reactive({
@@ -884,7 +921,7 @@ const vmAddNodeModalStyle = {
 }
 
 const vmEditNodeModalStyle = {
-  width: '560px',
+  width: '640px',
   maxWidth: 'calc(100vw - 32px)',
 }
 
@@ -915,10 +952,49 @@ const filteredNodes = computed(() => {
   const keyword = filters.nodeKeyword.trim().toLowerCase()
   if (!keyword) return nodeOptions.value
   return nodeOptions.value.filter((node) =>
-    [node.label, node.remote, node.ip, node.address, node.status].some((value) =>
+    [node.label, node.remote, node.ip, node.address, node.status, node.region_name, node.location_name, node.device_name].some((value) =>
       String(value || '').toLowerCase().includes(keyword)
     )
   )
+})
+
+const nodeLocationCascaderOptions = computed(() => {
+  const roots = []
+  const regionMap = new Map(nodeBindingOptions.regions.map((region) => [Number(region.value), region]))
+  nodeBindingOptions.locations.forEach((location) => {
+    const region = regionMap.get(Number(location.region_id))
+    const locationName = fieldText(location.name || location.label)
+    if (!region || !locationName) return
+    const regionText = displayRegion(region.label || [region.country, region.city].filter(Boolean).join(' / ') || region.name)
+    const parent = ensureNodeCascaderPath(roots, regionPathParts(regionText), 'region')
+    const value = nodeLocationKey(location.value)
+    if (parent.children.some((item) => item.value === value)) return
+    parent.children.push({
+      label: locationName,
+      value,
+      region_id: location.region_id,
+      location_id: location.value,
+      site: locationName,
+      region: regionText,
+      searchText: uniqueValues([regionText, locationName, location.label, region.name, region.code, region.country, region.city]).join(' '),
+    })
+  })
+  return sortNodeCascaderTree(roots)
+})
+
+const nodeDeviceOptions = computed(() => {
+  const regionId = editNodeModal.form.region_id
+  const locationId = editNodeModal.form.location_id
+  return nodeBindingOptions.devices
+    .filter((item) => {
+      if (regionId && Number(item.region_id) !== Number(regionId)) return false
+      if (locationId && Number(item.location_id) !== Number(locationId)) return false
+      return true
+    })
+    .map((item) => ({
+      ...item,
+      label: physicalDeviceOptionLabel(item),
+    }))
 })
 
 const nodeMenuOptions = computed(() => [
@@ -1783,6 +1859,144 @@ function handleNodeMenuSelect(key) {
   }
 }
 
+async function loadNodeBindingOptions() {
+  try {
+    const res = await api.virtualMachineApi.nodeBindingOptions()
+    nodeBindingOptions.regions = res.data?.regions || []
+    nodeBindingOptions.locations = res.data?.locations || []
+    nodeBindingOptions.devices = res.data?.devices || []
+  } catch (error) {
+    message.error(error.message || '读取节点关联选项失败')
+  }
+}
+
+function nodeLocationKey(value) {
+  return value ? `location:${value}` : null
+}
+
+function fieldText(value) {
+  if (value == null) return ''
+  if (typeof value === 'object') {
+    return String(value.name || value.label || value.title || value.value || value.code || value.id || '').trim()
+  }
+  return String(value).trim()
+}
+
+function displayRegion(value) {
+  const text = fieldText(value)
+  if (!text) return ''
+  return translateLocationPath(text) || translateCountry(text) || translateCity(text) || text
+}
+
+function regionPathParts(value) {
+  const parts = displayRegion(value)
+    .split(/[\/,，、;；\\]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+  return parts.length ? parts : [displayRegion(value)].filter(Boolean)
+}
+
+function ensureNodeCascaderPath(roots, parts, valuePrefix) {
+  let children = roots
+  let current = null
+  const path = []
+  parts.forEach((part) => {
+    path.push(part)
+    const value = `${valuePrefix}:${path.join('/')}`
+    let node = children.find((item) => item.value === value)
+    if (!node) {
+      node = {
+        label: part,
+        value,
+        searchText: path.join(' '),
+        children: [],
+      }
+      children.push(node)
+    }
+    current = node
+    children = node.children
+  })
+  return current || { children: roots }
+}
+
+function sortNodeCascaderTree(nodes) {
+  return nodes
+    .sort((left, right) => String(left.label || '').localeCompare(String(right.label || ''), 'zh-Hans-CN'))
+    .map((node) => ({
+      ...node,
+      children: node.children?.length ? sortNodeCascaderTree(node.children) : undefined,
+    }))
+}
+
+function uniqueValues(values) {
+  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))]
+}
+
+function normalizeNodeSearchText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[\s　]+/g, '')
+    .replace(/[\/,，、;；_-]+/g, '')
+    .trim()
+}
+
+function nodeLocationCascaderFilter(pattern, option, path = []) {
+  const keyword = normalizeNodeSearchText(pattern)
+  if (!keyword) return true
+  const options = Array.isArray(path) && path.length ? path : [option]
+  const text = options
+    .flatMap((item) => [item?.label, item?.value, item?.region, item?.site, item?.searchText])
+    .filter(Boolean)
+    .join(' ')
+  return normalizeNodeSearchText(text).includes(keyword)
+}
+
+function physicalDeviceOptionLabel(device) {
+  const name = fieldText(device?.name || device?.label)
+  const model = [device?.brand, device?.model].map(fieldText).filter(Boolean).join(' ')
+  const uText = device?.u_position
+    ? (device?.u_height && Number(device.u_height) > 1 ? `U${device.u_position}/${device.u_height}U` : `U${device.u_position}`)
+    : ''
+  const details = uniqueValues([
+    fieldText(device?.asset_no) && fieldText(device?.asset_no) !== name ? `资产 ${fieldText(device.asset_no)}` : '',
+    model,
+    fieldText(device?.mgmt_ip) ? `IP ${fieldText(device.mgmt_ip)}` : '',
+    uText,
+    fieldText(device?.cabinet_name) ? `机柜 ${fieldText(device.cabinet_name)}` : '',
+  ])
+  return details.length ? `${name || '服务器设备'}（${details.join(' / ')}）` : (name || '服务器设备')
+}
+
+function parseNodeLocationKey(value) {
+  const text = String(value || '')
+  if (!text.startsWith('location:')) return null
+  const id = Number(text.split(':')[1])
+  return Number.isFinite(id) ? id : null
+}
+
+function handleNodeLocationPathChange(value, option) {
+  const locationId = parseNodeLocationKey(value)
+  const location = nodeBindingOptions.locations.find((item) => Number(item.value) === Number(locationId))
+  editNodeModal.form.location_id = location?.value || null
+  editNodeModal.form.region_id = option?.region_id || location?.region_id || null
+  if (
+    editNodeModal.form.device_id &&
+    !nodeBindingOptions.devices.some((item) => (
+      Number(item.value) === Number(editNodeModal.form.device_id) &&
+      Number(item.location_id) === Number(editNodeModal.form.location_id)
+    ))
+  ) {
+    editNodeModal.form.device_id = null
+  }
+}
+
+function handleNodeDeviceChange(deviceId) {
+  const device = nodeBindingOptions.devices.find((item) => Number(item.value) === Number(deviceId))
+  if (!device) return
+  editNodeModal.form.region_id = editNodeModal.form.region_id || device.region_id || null
+  editNodeModal.form.location_id = editNodeModal.form.location_id || device.location_id || null
+}
+
 async function openEditNodeModal(node) {
   const remote = node.remote || node.value || ''
   const host = nodeAddress(node) === '-' ? '' : nodeAddress(node)
@@ -1791,9 +2005,14 @@ async function openEditNodeModal(node) {
     hostname: host,
     originalHostname: host,
     fingerprint: node.fingerprint || '',
+    region_id: node.region_id || null,
+    location_id: node.location_id || null,
+    location_key: node.location_id ? nodeLocationKey(node.location_id) : null,
+    device_id: node.device_id || null,
     remark: '',
   }
   editNodeModal.show = true
+  loadNodeBindingOptions()
   if (!remote) return
 
   editNodeModal.loading = true
@@ -1826,6 +2045,11 @@ async function submitEditNode() {
     await api.virtualMachineApi.updateNodeRemark(editNodeModal.form.remote, {
       remark: editNodeModal.form.remark || '',
       host: editNodeModal.form.hostname || editNodeModal.form.originalHostname || undefined,
+    })
+    await api.virtualMachineApi.updateNodeBinding(editNodeModal.form.remote, {
+      region_id: editNodeModal.form.region_id || null,
+      location_id: editNodeModal.form.location_id || null,
+      device_id: editNodeModal.form.device_id || null,
     })
     nodeRemarkCache[editNodeModal.form.remote] = { loading: false, remark: editNodeModal.form.remark || '' }
     message.success(res.msg || 'PVE 节点已更新')
@@ -2303,6 +2527,13 @@ function nodeStatusText(node) {
     return String(node.error).includes('timeout') ? '连接超时' : '连接失败'
   }
   return nodeAddress(node)
+}
+
+function nodeMetaText(node) {
+  if (!node) return '-'
+  if (node.error) return nodeStatusText(node)
+  const meta = [node.region_name, node.location_name, node.device_name].filter(Boolean).join(' / ')
+  return meta || nodeStatusText(node)
 }
 
 function nodeVmCountTagType(node) {

@@ -78,6 +78,35 @@ class AssetDevice(BaseModel, TimestampMixin):
         table = "asset_device"
 
 
+class PveNodeBinding(BaseModel, TimestampMixin):
+    remote = fields.CharField(max_length=100, unique=True, description="PDM Remote ID", index=True)
+    region = fields.ForeignKeyField(
+        "models.AssetRegion",
+        related_name="pve_node_bindings",
+        null=True,
+        on_delete=fields.SET_NULL,
+        description="关联地区",
+    )
+    location = fields.ForeignKeyField(
+        "models.AssetLocation",
+        related_name="pve_node_bindings",
+        null=True,
+        on_delete=fields.SET_NULL,
+        description="关联机房",
+    )
+    device = fields.ForeignKeyField(
+        "models.AssetDevice",
+        related_name="pve_node_bindings",
+        null=True,
+        on_delete=fields.SET_NULL,
+        description="关联物理设备",
+    )
+    remark = fields.CharField(max_length=500, null=True, description="关联备注")
+
+    class Meta:
+        table = "pve_node_binding"
+
+
 class AssetDeviceBrand(BaseModel, TimestampMixin):
     name = fields.CharField(max_length=100, description="品牌名称", unique=True, index=True)
     sort = fields.IntField(default=0, description="排序")
