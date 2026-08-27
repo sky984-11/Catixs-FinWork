@@ -2245,6 +2245,39 @@ async def ensure_customer_center_columns():
 
 
 async def ensure_product_center_columns():
+    async def backfill_product_spec_config_snapshots():
+        from app.models.product_center import ProductCategory, ProductItem, ProductSpecConfig
+
+        async def snapshot_category_sort_key(category_id: int | None) -> str:
+            if not category_id:
+                return "9999.9999.999999"
+            nodes: list[ProductCategory] = []
+            current_id = category_id
+            while current_id:
+                category = await ProductCategory.get_or_none(id=current_id)
+                if not category:
+                    break
+                nodes.insert(0, category)
+                current_id = category.parent_id
+            if not nodes:
+                return "9999.9999.999999"
+            return ".".join(f"{int(item.order or 0):04d}.{int(item.id):06d}" for item in nodes)
+
+        product_ids = await ProductSpecConfig.filter(
+            Q(product_display_name__isnull=True) | Q(product_category_sort__isnull=True)
+        ).distinct().values_list("product_id", flat=True)
+        for product_id in product_ids:
+            product = await ProductItem.get_or_none(id=product_id)
+            if not product:
+                continue
+            category = await ProductCategory.get_or_none(id=product.category_id) if product.category_id else None
+            await ProductSpecConfig.filter(product_id=product_id).update(
+                product_display_name=product.name or "",
+                product_category_name=category.name if category else "",
+                product_category_sort=await snapshot_category_sort_key(product.category_id),
+                product_region_name=product.region or "",
+            )
+
     if settings.DB_TYPE == "sqlite":
         conn = Tortoise.get_connection("sqlite")
         statements = [
@@ -2256,6 +2289,10 @@ async def ensure_product_center_columns():
             'ALTER TABLE "product_spec_config" ADD COLUMN "sync_hash" VARCHAR(64);',
             'ALTER TABLE "product_spec_config" ADD COLUMN "auto_sync" BOOL NOT NULL DEFAULT 0;',
             'ALTER TABLE "product_spec_config" ADD COLUMN "synced_at" TIMESTAMP;',
+            'ALTER TABLE "product_spec_config" ADD COLUMN "product_display_name" VARCHAR(160);',
+            'ALTER TABLE "product_spec_config" ADD COLUMN "product_category_name" VARCHAR(120);',
+            'ALTER TABLE "product_spec_config" ADD COLUMN "product_category_sort" VARCHAR(120);',
+            'ALTER TABLE "product_spec_config" ADD COLUMN "product_region_name" VARCHAR(100);',
         ]
         for statement in statements:
             try:
@@ -2264,6 +2301,7 @@ async def ensure_product_center_columns():
                 message = str(exc).lower()
                 if "duplicate column" not in message and "no such table" not in message:
                     raise
+        await backfill_product_spec_config_snapshots()
         return
 
     if settings.DB_TYPE != "postgres":
@@ -2284,13 +2322,20 @@ async def ensure_product_center_columns():
             ADD COLUMN IF NOT EXISTS "source_key" VARCHAR(160),
             ADD COLUMN IF NOT EXISTS "sync_hash" VARCHAR(64),
             ADD COLUMN IF NOT EXISTS "auto_sync" BOOLEAN NOT NULL DEFAULT FALSE,
-            ADD COLUMN IF NOT EXISTS "synced_at" TIMESTAMPTZ;
+            ADD COLUMN IF NOT EXISTS "synced_at" TIMESTAMPTZ,
+            ADD COLUMN IF NOT EXISTS "product_display_name" VARCHAR(160),
+            ADD COLUMN IF NOT EXISTS "product_category_name" VARCHAR(120),
+            ADD COLUMN IF NOT EXISTS "product_category_sort" VARCHAR(120),
+            ADD COLUMN IF NOT EXISTS "product_region_name" VARCHAR(100);
         CREATE INDEX IF NOT EXISTS "idx_product_spec_config_source"
             ON "product_spec_config" ("source_type", "source_key");
         CREATE INDEX IF NOT EXISTS "idx_product_spec_config_auto_sync"
             ON "product_spec_config" ("auto_sync");
+        CREATE INDEX IF NOT EXISTS "idx_product_spec_config_product_sort"
+            ON "product_spec_config" ("product_category_sort", "product_display_name");
         """
     )
+    await backfill_product_spec_config_snapshots()
 
 
 async def ensure_pre_schema_columns():

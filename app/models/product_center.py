@@ -86,6 +86,10 @@ class ProductSpecConfig(BaseModel, TimestampMixin):
     sync_hash = fields.CharField(max_length=64, null=True, description="同步内容哈希")
     auto_sync = fields.BooleanField(default=False, description="是否自动同步", index=True)
     synced_at = fields.DatetimeField(null=True, description="最近同步时间")
+    product_display_name = fields.CharField(max_length=160, null=True, description="产品名称快照", index=True)
+    product_category_name = fields.CharField(max_length=120, null=True, description="产品分类快照", index=True)
+    product_category_sort = fields.CharField(max_length=120, null=True, description="产品分类排序键", index=True)
+    product_region_name = fields.CharField(max_length=100, null=True, description="产品地区快照", index=True)
 
     class Meta:
         table = "product_spec_config"

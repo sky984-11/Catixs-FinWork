@@ -176,6 +176,55 @@ async def category_names(category_ids: list[int]) -> list[str]:
     return [names_by_id[item] for item in category_ids if item in names_by_id]
 
 
+async def category_sort_key(category_id: int | None) -> str:
+    if not category_id:
+        return "9999.9999.999999"
+    nodes: list[ProductCategory] = []
+    current_id = category_id
+    while current_id:
+        category = await ProductCategory.get_or_none(id=current_id)
+        if not category:
+            break
+        nodes.insert(0, category)
+        current_id = category.parent_id
+    if not nodes:
+        return "9999.9999.999999"
+    parts = [f"{int(item.order or 0):04d}.{int(item.id):06d}" for item in nodes]
+    return ".".join(parts)
+
+
+async def product_sort_key(product: ProductItem) -> tuple[str, str, str]:
+    return (
+        await category_sort_key(product.category_id),
+        str(product.name or "").casefold(),
+        str(product.id or ""),
+    )
+
+
+async def product_snapshot(product_id: int) -> dict[str, str]:
+    product = await ProductItem.get_or_none(id=product_id)
+    if not product:
+        return {
+            "product_display_name": "",
+            "product_category_name": "",
+            "product_category_sort": "9999.9999.999999",
+            "product_region_name": "",
+        }
+    category = await product.category if product.category_id else None
+    return {
+        "product_display_name": product.name or "",
+        "product_category_name": category.name if category else "",
+        "product_category_sort": await category_sort_key(product.category_id),
+        "product_region_name": product.region or "",
+    }
+
+
+async def refresh_product_spec_config_snapshots(product_id: int) -> dict[str, str]:
+    snapshot = await product_snapshot(product_id)
+    await ProductSpecConfig.filter(product_id=product_id).update(**snapshot)
+    return snapshot
+
+
 def prepare_attribute_payload(payload: AttributePayload) -> dict[str, Any]:
     data = compact(payload.model_dump())
     ids = normalize_category_ids(data.pop("category_ids", None), data.get("category_id"))
@@ -630,12 +679,17 @@ async def attribute_dict(attribute: ProductSpecAttribute) -> dict[str, Any]:
 
 async def spec_config_dict(config: ProductSpecConfig) -> dict[str, Any]:
     data = await config.to_dict()
-    product = await config.product
     attribute = await config.attribute
     data["product_id"] = config.product_id
     data["attribute_id"] = config.attribute_id
-    data["product_name"] = product.name
-    data["product_region"] = product.region or ""
+    if not data.get("product_display_name") or not data.get("product_category_sort"):
+        snapshot = await product_snapshot(config.product_id)
+        for key, value in snapshot.items():
+            data[key] = data.get(key) or value
+    data["product_name"] = data.get("product_display_name") or ""
+    data["product_category_name"] = data.get("product_category_name") or ""
+    data["product_category_sort"] = data.get("product_category_sort") or "9999.9999.999999"
+    data["product_region"] = data.get("product_region_name") or ""
     data["attribute_name"] = attribute.name
     data["attribute_code"] = attribute.code
     data["attr_type_label"] = label_of(ATTRIBUTE_TYPES, attribute.attr_type)
@@ -733,6 +787,8 @@ async def spec_config_group_dict(items: list[dict[str, Any]]) -> dict[str, Any]:
         "is_group": True,
         "product_id": first.get("product_id"),
         "product_name": first.get("product_name"),
+        "product_category_name": first.get("product_category_name"),
+        "product_category_sort": first.get("product_category_sort"),
         "spec_name": await spec_config_group_name(sorted_items),
         "attribute_summary": spec_config_group_summary(sorted_items),
         "attributes": attrs,
@@ -769,14 +825,25 @@ async def options():
     await seed_categories()
     await seed_spec_attributes()
     categories = await ProductCategory.filter(status=True).order_by("level", "order", "name")
-    products = await ProductItem.filter(status="active").order_by("name").values("id", "name", "code", "billing_mode", "category_id")
+    products = await ProductItem.filter(status="active").all()
+    product_sort_keys = {item.id: await product_sort_key(item) for item in products}
+    products.sort(key=lambda item: product_sort_keys.get(item.id, ("", "", "")))
     attributes = await ProductSpecAttribute.filter(status=True).order_by("category_id", "name").values("id", "name", "code", "attr_type", "unit", "options", "category_id", "category_ids")
     customers = await CrmCustomer.filter(status=True).order_by("name").values("id", "name", "legal_name")
     return Success(
         data={
             "categories": [{"label": item.name, "value": item.id, "parent_id": item.parent_id} for item in categories],
             "category_tree": await category_tree(),
-            "products": [{"label": item["name"], "value": item["id"], "code": item["code"], "billing_mode": item["billing_mode"], "category_id": item["category_id"]} for item in products],
+            "products": [
+                {
+                    "label": item.name,
+                    "value": item.id,
+                    "code": item.code,
+                    "billing_mode": item.billing_mode,
+                    "category_id": item.category_id,
+                }
+                for item in products
+            ],
             "attributes": [
                 {
                     "label": f'{item["name"]} ({item["code"]})',
@@ -900,8 +967,11 @@ async def list_products(
         q &= Q(status=status)
     if region:
         q &= Q(region=region)
-    total = await ProductItem.filter(q).count()
-    rows = await ProductItem.filter(q).order_by("category_id", "name").offset((page - 1) * page_size).limit(page_size)
+    all_rows = await ProductItem.filter(q).all()
+    sort_keys = {item.id: await product_sort_key(item) for item in all_rows}
+    all_rows.sort(key=lambda item: sort_keys.get(item.id, ("", "", "")))
+    total = len(all_rows)
+    rows = all_rows[(page - 1) * page_size : page * page_size]
     return SuccessExtra(data=[await product_dict(item) for item in rows], total=total, page=page, page_size=page_size)
 
 
@@ -924,6 +994,7 @@ async def update_product(product_id: int, payload: ProductPayload):
         return Fail(msg=error)
     await ProductItem.filter(id=product_id).update(**data)
     product = await ProductItem.get(id=product_id)
+    await refresh_product_spec_config_snapshots(product.id)
     await sync_product_auto_specs(product_id=product.id)
     return Success(msg="产品已更新", data=await product_dict(product))
 
@@ -1006,25 +1077,56 @@ async def delete_attribute(attribute_id: int):
     return Success(msg="规格属性已删除")
 
 
+SPEC_CONFIG_SORT_FIELDS = {
+    "product_category_sort": "product_category_sort",
+    "product_name": "product_name",
+    "spec_name": "spec_name",
+    "attribute_summary": "attribute_summary",
+    "source_label": "source_label",
+}
+
+
 @router.get("/spec-configs", summary="产品规格配置列表")
-async def list_spec_configs(page: int = Query(1), page_size: int = Query(20), product_id: int | None = Query(None)):
+async def list_spec_configs(
+    page: int = Query(1),
+    page_size: int = Query(20),
+    product_id: int | None = Query(None),
+    sort_field: str = Query("product_category_sort"),
+    sort_order: str = Query("ascend"),
+):
     if product_id:
         product = await ProductItem.get_or_none(id=product_id)
         if not product or product.status != "active":
             return SuccessExtra(data=[], total=0, page=page, page_size=page_size)
-    await sync_product_auto_specs(product_id=product_id)
     active_product_ids = await ProductItem.filter(status="active").values_list("id", flat=True)
     q = Q()
     q &= Q(product_id__in=active_product_ids)
     if product_id:
         q &= Q(product_id=product_id)
-    rows = await ProductSpecConfig.filter(q).order_by("product_id", "source_type", "source_key", "order", "id")
+    rows = await ProductSpecConfig.filter(q).select_related("attribute").order_by(
+        "product_category_sort",
+        "product_display_name",
+        "source_type",
+        "source_key",
+        "order",
+        "id",
+    )
     grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         item = await spec_config_dict(row)
         grouped.setdefault(spec_config_group_key(item), []).append(item)
     group_rows = [await spec_config_group_dict(items) for items in grouped.values()]
-    group_rows.sort(key=lambda item: (item.get("product_name") or "", item.get("spec_name") or "", item.get("id") or ""))
+    field = SPEC_CONFIG_SORT_FIELDS.get(sort_field) or "product_category_sort"
+    reverse = sort_order == "descend"
+    group_rows.sort(
+        key=lambda item: (
+            str(item.get(field) or "").casefold(),
+            str(item.get("product_name") or "").casefold(),
+            str(item.get("spec_name") or "").casefold(),
+            str(item.get("id") or ""),
+        ),
+        reverse=reverse,
+    )
     total = len(group_rows)
     start = (page - 1) * page_size
     return SuccessExtra(data=group_rows[start : start + page_size], total=total, page=page, page_size=page_size)
@@ -1050,6 +1152,7 @@ async def create_spec_config(payload: SpecConfigPayload):
     if not items:
         return Fail(msg="请至少添加一个规格属性")
     source_key = f"manual-{uuid4().hex}"
+    snapshot = await product_snapshot(payload.product_id)
     created: list[ProductSpecConfig] = []
     for index, item in enumerate(items):
         data = compact(item.model_dump())
@@ -1058,6 +1161,7 @@ async def create_spec_config(payload: SpecConfigPayload):
         data["source_type"] = "manual"
         data["source_key"] = source_key
         data["auto_sync"] = False
+        data.update(snapshot)
         created.append(await ProductSpecConfig.create(**data))
     return Success(msg="产品规格配置已创建", data=await spec_config_group_dict([await spec_config_dict(item) for item in created]))
 
@@ -1099,6 +1203,7 @@ async def update_spec_config_group(payload: SpecConfigPayload):
     if not items:
         return Fail(msg="请至少添加一个规格属性")
     source_key = payload.source_key or existed[0].source_key or f"manual-{uuid4().hex}"
+    snapshot = await product_snapshot(payload.product_id)
     ids = [item.id for item in existed]
     await ProductSpecConfig.filter(id__in=ids).delete()
     created: list[ProductSpecConfig] = []
@@ -1109,6 +1214,7 @@ async def update_spec_config_group(payload: SpecConfigPayload):
         data["source_type"] = "manual"
         data["source_key"] = source_key
         data["auto_sync"] = False
+        data.update(snapshot)
         created.append(await ProductSpecConfig.create(**data))
     return Success(msg="产品规格配置已更新", data=await spec_config_group_dict([await spec_config_dict(item) for item in created]))
 
@@ -1139,6 +1245,7 @@ async def update_spec_config(config_id: int, payload: SpecConfigPayload):
             "required": payload.required,
         }
     )
+    data.update(await product_snapshot(payload.product_id))
     await ProductSpecConfig.filter(id=config_id).update(**{key: value for key, value in data.items() if value is not None})
     return Success(msg="产品规格配置已更新", data=await spec_config_dict(await ProductSpecConfig.get(id=config_id)))
 

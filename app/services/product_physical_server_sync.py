@@ -130,6 +130,32 @@ async def category_path_ids(category_id: int | None) -> list[int]:
     return ids
 
 
+async def category_sort_key(category_id: int | None) -> str:
+    if not category_id:
+        return "9999.9999.999999"
+    nodes: list[ProductCategory] = []
+    current_id = category_id
+    while current_id:
+        category = await ProductCategory.get_or_none(id=current_id)
+        if not category:
+            break
+        nodes.insert(0, category)
+        current_id = category.parent_id
+    if not nodes:
+        return "9999.9999.999999"
+    return ".".join(f"{int(item.order or 0):04d}.{int(item.id):06d}" for item in nodes)
+
+
+async def product_snapshot(product: ProductItem) -> dict[str, str]:
+    category = await ProductCategory.get_or_none(id=product.category_id) if product.category_id else None
+    return {
+        "product_display_name": text(product.name),
+        "product_category_name": text(category.name) if category else "",
+        "product_category_sort": await category_sort_key(product.category_id),
+        "product_region_name": text(product.region),
+    }
+
+
 def normalize_category_ids(values: Any, fallback: int | None = None) -> list[int]:
     ids: list[int] = []
     raw_values = values if isinstance(values, list) else []
@@ -339,6 +365,7 @@ async def sync_product_cloud_vm_specs(product: ProductItem) -> dict[str, int]:
 
     current_keys = set()
     config_count = 0
+    snapshot = await product_snapshot(product)
     if matched_groups:
         source_region_id = next((int(item.get("region_id")) for item in matched_groups if item.get("region_id")), None)
         source_key = cloud_source_key(product, source_region_id)
@@ -376,6 +403,7 @@ async def sync_product_cloud_vm_specs(product: ProductItem) -> dict[str, int]:
                 "source_id": source_region_id,
                 "sync_hash": sync_hash({"code": attribute.code, "value": value, "source": source_key, "summary": summary}),
                 "auto_sync": True,
+                **snapshot,
             }
             await ProductSpecConfig.update_or_create(
                 defaults=payload,
@@ -410,6 +438,7 @@ async def sync_product_physical_server_specs(product: ProductItem) -> dict[str, 
 
     current_keys = set()
     config_count = 0
+    snapshot = await product_snapshot(product)
     for row in rows:
         source_id, source_key = row_source(row)
         if not source_key:
@@ -427,6 +456,7 @@ async def sync_product_physical_server_specs(product: ProductItem) -> dict[str, 
                 "source_id": source_id,
                 "sync_hash": sync_hash({"code": attribute.code, "value": value, "source": source_key}),
                 "auto_sync": True,
+                **snapshot,
             }
             await ProductSpecConfig.update_or_create(
                 defaults=payload,

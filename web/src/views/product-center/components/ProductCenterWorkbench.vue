@@ -118,6 +118,7 @@
             :pagination="false"
             :row-key="(row) => row.id"
             :scroll-x="scrollX"
+            @update:sorter="handleSorterChange"
           >
             <template #empty><n-empty description="暂无数据" /></template>
           </n-data-table>
@@ -398,6 +399,7 @@ const expandedCategoryKeys = ref([])
 const popRegions = ref([])
 const editorInitializing = ref(false)
 const pagination = reactive({ page: 1, pageSize: 20, itemCount: 0, pageSizes: [20, 50, 100] })
+const configSortState = reactive({ columnKey: 'product_category_sort', order: 'ascend' })
 const query = reactive({ keyword: '', category_id: null, status: null, region: null, attr_type: null, product_id: null, price_type: null, customer_id: null })
 const options = reactive({
   categoryTree: [],
@@ -519,6 +521,13 @@ function configActionButtons(row) {
   return actionButtons(row)
 }
 
+function configSortProps(key) {
+  return {
+    sorter: true,
+    sortOrder: props.mode === 'configs' && configSortState.columnKey === key ? configSortState.order : false,
+  }
+}
+
 const productColumns = [
   { title: '产品名称', key: 'name', width: 220, ellipsis: { tooltip: true } },
   { title: '产品编码', key: 'code', width: 130 },
@@ -537,13 +546,13 @@ const attributeColumns = [
   { title: '必填', key: 'required', width: 70, render: (row) => renderTag(row.required ? '是' : '否', row.required ? 'warning' : 'default') },
   { title: '操作', key: 'actions', width: 100, fixed: 'right', render: actionButtons },
 ]
-const configColumns = [
-  { title: '关联产品', key: 'product_name', width: 220, ellipsis: { tooltip: true } },
-  { title: '规格名称', key: 'spec_name', width: 300, ellipsis: { tooltip: true } },
-  { title: '规格属性', key: 'attribute_summary', minWidth: 620, render: renderSpecConfigAttributes },
-  { title: '来源', key: 'source_label', width: 150, render: (row) => renderTag(row.source_label, row.auto_sync ? 'success' : 'default') },
+const configColumns = computed(() => [
+  { title: '关联产品', key: 'product_name', width: 220, ellipsis: { tooltip: true }, ...configSortProps('product_name') },
+  { title: '规格名称', key: 'spec_name', width: 300, ellipsis: { tooltip: true }, ...configSortProps('spec_name') },
+  { title: '规格属性', key: 'attribute_summary', minWidth: 620, render: renderSpecConfigAttributes, ...configSortProps('attribute_summary') },
+  { title: '来源', key: 'source_label', width: 150, render: (row) => renderTag(row.source_label, row.auto_sync ? 'success' : 'default'), ...configSortProps('source_label') },
   { title: '操作', key: 'actions', width: 100, fixed: 'right', render: configActionButtons },
-]
+])
 const priceColumns = [
   { title: '产品名称', key: 'product_name', width: 220, ellipsis: { tooltip: true } },
   { title: '价格类型', key: 'price_type_label', width: 120, render: (row) => renderTag(row.price_type_label, row.price_type === 'customer' ? 'warning' : 'success') },
@@ -566,7 +575,7 @@ const templateColumns = [
 const columns = computed(() => {
   if (props.mode === 'products') return productColumns
   if (props.mode === 'specs') return attributeColumns
-  if (props.mode === 'configs') return configColumns
+  if (props.mode === 'configs') return configColumns.value
   if (props.mode === 'pricing') return priceColumns
   return templateColumns
 })
@@ -624,7 +633,11 @@ async function loadPage() {
     let res
     if (props.mode === 'products') res = await api.productCenterApi.listProducts(pageParams({ category_id: query.category_id || undefined, status: query.status || '', region: query.region || '' }))
     else if (props.mode === 'specs') res = await api.productCenterApi.listAttributes(pageParams({ keyword: query.keyword, attr_type: query.attr_type || '', category_id: query.category_id || undefined }))
-    else if (props.mode === 'configs') res = await api.productCenterApi.listSpecConfigs(pageParams({ product_id: query.product_id || undefined }))
+    else if (props.mode === 'configs') res = await api.productCenterApi.listSpecConfigs(pageParams({
+      product_id: query.product_id || undefined,
+      sort_field: configSortState.columnKey || 'product_category_sort',
+      sort_order: configSortState.order || 'ascend',
+    }))
     else if (props.mode === 'pricing') res = await api.productCenterApi.listPrices(pageParams({ keyword: query.keyword, product_id: query.product_id || undefined, price_type: query.price_type || '' }))
     else res = await api.productCenterApi.listTemplates(pageParams({ keyword: query.keyword, category_id: query.category_id || undefined }))
     rows.value = res.data || []
@@ -648,6 +661,20 @@ function resetQuery() {
 
 function handlePageSizeChange(size) {
   pagination.pageSize = size
+  pagination.page = 1
+  loadPage()
+}
+
+function handleSorterChange(sorter) {
+  if (props.mode !== 'configs') return
+  const activeSorter = Array.isArray(sorter) ? sorter.find((item) => item.order) : sorter
+  if (!activeSorter?.order) {
+    configSortState.columnKey = 'product_category_sort'
+    configSortState.order = 'ascend'
+  } else {
+    configSortState.columnKey = activeSorter.columnKey || activeSorter.key || 'product_category_sort'
+    configSortState.order = activeSorter.order
+  }
   pagination.page = 1
   loadPage()
 }
