@@ -18,7 +18,12 @@ from app.models.product_center import (
     ProductTemplate,
 )
 from app.schemas.base import Fail, Success, SuccessExtra
-from app.services.product_physical_server_sync import sync_physical_server_specs
+from app.services.product_physical_server_sync import (
+    CLOUD_VM_SOURCE,
+    PHYSICAL_SERVER_SOURCE,
+    sync_physical_server_specs,
+    sync_product_auto_specs,
+)
 
 router = APIRouter()
 
@@ -630,11 +635,16 @@ async def spec_config_dict(config: ProductSpecConfig) -> dict[str, Any]:
     data["product_id"] = config.product_id
     data["attribute_id"] = config.attribute_id
     data["product_name"] = product.name
+    data["product_region"] = product.region or ""
     data["attribute_name"] = attribute.name
     data["attribute_code"] = attribute.code
     data["attr_type_label"] = label_of(ATTRIBUTE_TYPES, attribute.attr_type)
     data["unit"] = attribute.unit
-    data["source_label"] = "机柜资源自动同步" if data.get("source_type") == "physical_server" else "手动维护"
+    source_labels = {
+        PHYSICAL_SERVER_SOURCE: "机柜资源自动同步",
+        CLOUD_VM_SOURCE: "云资源自动同步",
+    }
+    data["source_label"] = source_labels.get(data.get("source_type"), "手动维护")
     return data
 
 
@@ -664,12 +674,15 @@ def physical_server_node_position(source_key: str | None) -> str:
 
 async def spec_config_group_name(items: list[dict[str, Any]]) -> str:
     first = items[0]
-    if first.get("source_type") == "physical_server" and first.get("source_id"):
+    if first.get("source_type") == PHYSICAL_SERVER_SOURCE and first.get("source_id"):
         device = await AssetDevice.get_or_none(id=first.get("source_id"))
         device_name = str(device.name or "").strip() if device else ""
         if device_name:
             position = physical_server_node_position(first.get("source_key"))
             return f"{device_name} {position}".strip() if position else device_name
+    if first.get("source_type") == CLOUD_VM_SOURCE:
+        region_name = str(first.get("product_region") or first.get("source_key") or "").strip()
+        return f"{region_name} 云资源汇总".strip() if region_name else "云资源汇总"
 
     values = {item.get("attribute_code"): spec_config_attr_value(item) for item in items}
     parts = []
@@ -900,7 +913,7 @@ async def create_product(payload: ProductPayload):
     if not data.get("code"):
         data["code"] = await next_code(ProductItem, "PROD")
     product = await ProductItem.create(**data)
-    await sync_physical_server_specs(product_id=product.id)
+    await sync_product_auto_specs(product_id=product.id)
     return Success(msg="产品已创建", data=await product_dict(product))
 
 
@@ -911,7 +924,7 @@ async def update_product(product_id: int, payload: ProductPayload):
         return Fail(msg=error)
     await ProductItem.filter(id=product_id).update(**data)
     product = await ProductItem.get(id=product_id)
-    await sync_physical_server_specs(product_id=product.id)
+    await sync_product_auto_specs(product_id=product.id)
     return Success(msg="产品已更新", data=await product_dict(product))
 
 
@@ -999,7 +1012,7 @@ async def list_spec_configs(page: int = Query(1), page_size: int = Query(20), pr
         product = await ProductItem.get_or_none(id=product_id)
         if not product or product.status != "active":
             return SuccessExtra(data=[], total=0, page=page, page_size=page_size)
-    await sync_physical_server_specs(product_id=product_id)
+    await sync_product_auto_specs(product_id=product_id)
     active_product_ids = await ProductItem.filter(status="active").values_list("id", flat=True)
     q = Q()
     q &= Q(product_id__in=active_product_ids)
