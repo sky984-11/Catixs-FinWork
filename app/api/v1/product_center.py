@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from tortoise.expressions import Q
 
 from app.models.customer_center import CrmCustomer
-from app.models.asset import AssetDevice
+from app.models.asset import AssetDevice, AssetRegion
 from app.models.product_center import (
     ProductCategory,
     ProductItem,
@@ -726,6 +726,39 @@ def physical_server_node_position(source_key: str | None) -> str:
     return source_key.split(marker, 1)[1].strip()
 
 
+REGION_DISPLAY_ALIASES = {
+    "tokyo": "东京",
+    "japan / tokyo": "东京",
+    "frankfurt": "法兰克福",
+    "frankfurt am main": "法兰克福",
+    "london": "伦敦",
+    "hong kong": "香港",
+    "shenzhen": "深圳",
+    "taiwan": "台湾",
+    "philippines": "菲律宾",
+}
+
+
+def region_display_name(value: str | None) -> str:
+    text = str(value or "").strip()
+    normalized = text.casefold().replace("\\", "/")
+    normalized = " / ".join(item.strip() for item in normalized.split("/") if item.strip())
+    return REGION_DISPLAY_ALIASES.get(normalized) or REGION_DISPLAY_ALIASES.get(normalized.replace(" ", "")) or text
+
+
+def region_leaf_name(value: str | None) -> str:
+    parts = [item.strip() for item in str(value or "").replace("\\", "/").split("/") if item.strip()]
+    return region_display_name(parts[-1] if parts else str(value or "").strip())
+
+
+async def cloud_spec_region_name(item: dict[str, Any]) -> str:
+    source_id = item.get("source_id")
+    region = await AssetRegion.get_or_none(id=source_id) if source_id else None
+    if region:
+        return region_display_name(region.city or region.name or region.code)
+    return region_leaf_name(item.get("product_region") or item.get("source_key"))
+
+
 async def spec_config_group_name(items: list[dict[str, Any]]) -> str:
     first = items[0]
     if first.get("source_type") == PHYSICAL_SERVER_SOURCE and first.get("source_id"):
@@ -735,7 +768,7 @@ async def spec_config_group_name(items: list[dict[str, Any]]) -> str:
             position = physical_server_node_position(first.get("source_key"))
             return f"{device_name} {position}".strip() if position else device_name
     if first.get("source_type") == CLOUD_VM_SOURCE:
-        region_name = str(first.get("product_region") or first.get("source_key") or "").strip()
+        region_name = await cloud_spec_region_name(first)
         return f"{region_name} 云资源汇总".strip() if region_name else "云资源汇总"
 
     values = {item.get("attribute_code"): spec_config_attr_value(item) for item in items}
