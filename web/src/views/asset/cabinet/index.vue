@@ -692,6 +692,8 @@ const ipmiLogs = ref([])
 const regions = ref([])
 const locations = ref([])
 const cabinets = ref([])
+const REGION_POINT_CACHE_KEY = 'finwork:cabinet-region-points:v1'
+const geocodedRegionPoints = ref(loadGeocodedRegionPoints())
 const rackDevices = ref([])
 const devicePlatformTree = ref([])
 const devicePlatformLoaded = ref(false)
@@ -735,6 +737,7 @@ const rackContextMenu = reactive({
 let mapInstance = null
 let mapTileLayer = null
 let mapMarkerLayer = null
+const geocodingRegions = new Set()
 
 const deviceTypeOptions = [
   { label: '服务器', value: 0 },
@@ -781,6 +784,7 @@ const knownRegionPoints = [
   { keys: ['HK', 'HONG KONG', '香港'], lat: 22.3193, lng: 114.1694 },
   { keys: ['SG', 'SINGAPORE', '新加坡'], lat: 1.3521, lng: 103.8198 },
   { keys: ['JP', 'JAPAN', '东京', '日本'], lat: 35.6762, lng: 139.6503 },
+  { keys: ['KR', 'KOREA', 'SOUTH KOREA', 'SEOUL', '韩国', '首尔'], lat: 37.5665, lng: 126.978 },
   { keys: ['TW', 'TAIWAN', '台湾'], lat: 25.033, lng: 121.5654 },
   { keys: ['SH', 'SHA', 'SHANGHAI', 'SHANG HAI', '上海'], lat: 31.2304, lng: 121.4737 },
   { keys: ['SZ', 'SHENZHEN', '深圳'], lat: 22.5431, lng: 114.0579 },
@@ -1263,10 +1267,92 @@ function isSecretAttributeKey(key) {
   return ['password', '密码', 'secret', 'token', 'ipmi'].some((item) => normalizedKey.includes(item.toLowerCase()))
 }
 
+function regionCacheKey(region) {
+  return String(region?.id || region?.code || region?.name || '').trim()
+}
+
+function loadGeocodedRegionPoints() {
+  if (typeof window === 'undefined') return {}
+  try {
+    const raw = window.localStorage?.getItem(REGION_POINT_CACHE_KEY)
+    const parsed = raw ? JSON.parse(raw) : {}
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function saveGeocodedRegionPoints(points) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage?.setItem(REGION_POINT_CACHE_KEY, JSON.stringify(points || {}))
+  } catch {
+    // Ignore storage quota or privacy mode failures; the map can still use fallback coordinates.
+  }
+}
+
+function validPoint(point) {
+  const lat = Number(point?.lat)
+  const lng = Number(point?.lng)
+  return Number.isFinite(lat) && Number.isFinite(lng) && lat >= -85 && lat <= 85 && lng >= -180 && lng <= 180
+}
+
+function regionGeocodeQuery(region) {
+  const country = String(region?.country || '').trim()
+  const city = String(region?.city || '').trim()
+  const name = String(region?.name || '').trim()
+  const code = String(region?.code || '').trim()
+  if (country && city) return `${city}, ${country}`
+  return [name, code].filter(Boolean).join(', ')
+}
+
+async function geocodeRegionPoint(region) {
+  const key = regionCacheKey(region)
+  const query = regionGeocodeQuery(region)
+  if (!key || !query || geocodedRegionPoints.value[key] || geocodingRegions.has(key)) return
+  geocodingRegions.add(key)
+  try {
+    const params = new URLSearchParams({
+      format: 'jsonv2',
+      limit: '1',
+      q: query,
+    })
+    const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
+      headers: { Accept: 'application/json' },
+    })
+    if (!response.ok) return
+    const rows = await response.json()
+    const first = Array.isArray(rows) ? rows[0] : null
+    const point = { lat: Number(first?.lat), lng: Number(first?.lon) }
+    if (!validPoint(point)) return
+    geocodedRegionPoints.value = {
+      ...geocodedRegionPoints.value,
+      [key]: point,
+    }
+    saveGeocodedRegionPoints(geocodedRegionPoints.value)
+  } catch {
+    // Network geocoding is best-effort; unresolved regions keep their deterministic fallback point.
+  } finally {
+    geocodingRegions.delete(key)
+  }
+}
+
+function resolveMissingRegionPoints() {
+  mapRegionNodes.value.forEach((node) => {
+    const key = regionCacheKey(node.region)
+    if (!key || geocodedRegionPoints.value[key]) return
+    const text = `${node.region.code || ''} ${node.region.name || ''} ${node.region.country || ''} ${node.region.city || ''} ${node.region.remark || ''}`.toUpperCase()
+    const hasKnownPoint = knownRegionPoints.some((item) => item.keys.some((itemKey) => text.includes(itemKey.toUpperCase())))
+    if (!hasKnownPoint) geocodeRegionPoint(node.region)
+  })
+}
+
 function regionPoint(region, index) {
-  const text = `${region.code || ''} ${region.name || ''} ${region.remark || ''}`.toUpperCase()
+  const text = `${region.code || ''} ${region.name || ''} ${region.country || ''} ${region.city || ''} ${region.remark || ''}`.toUpperCase()
   const matched = knownRegionPoints.find((item) => item.keys.some((key) => text.includes(key.toUpperCase())))
   if (matched) return { lat: matched.lat, lng: matched.lng }
+  const cached = geocodedRegionPoints.value[regionCacheKey(region)]
+  if (validPoint(cached)) return cached
   return { lat: 38 - Math.floor(index / 8) * 12, lng: -145 + (index % 8) * 42 }
 }
 
@@ -1389,6 +1475,7 @@ async function loadData() {
     regions.value = regionRes.data || []
     locations.value = locationRes.data || []
     cabinets.value = cabinetRes.data || []
+    resolveMissingRegionPoints()
     applyRouteSelection()
   } finally {
     loading.value = false
@@ -2288,7 +2375,11 @@ function openRouteDeviceDetail(deviceId) {
   nextTick(() => openDeviceDetail(target))
 }
 
-watch(mapRegionNodes, () => renderMapMarkers(true))
+watch(mapRegionNodes, () => {
+  resolveMissingRegionPoints()
+  renderMapMarkers(true)
+})
+watch(geocodedRegionPoints, () => renderMapMarkers(true), { deep: true })
 watch(viewMode, (mode) => {
   if (mode === 'map') ensureMap()
 })
