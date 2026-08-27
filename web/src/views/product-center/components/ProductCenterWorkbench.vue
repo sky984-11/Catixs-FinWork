@@ -247,9 +247,6 @@
                       <n-switch v-else-if="configLineAttrType(line) === 'switch'" v-model:value="line.default_value" />
                       <n-date-picker v-else-if="configLineAttrType(line) === 'date'" v-model:formatted-value="line.default_value" value-format="yyyy-MM-dd" type="date" clearable :placeholder="configLineValuePlaceholder(line)" />
                       <n-input v-else v-model:value="line.default_value" :placeholder="configLineValuePlaceholder(line)" />
-                      <n-select v-if="['select', 'multi_select'].includes(configLineAttrType(line))" v-model:value="line.value_range" multiple clearable filterable :options="configLineAttrOptions(line)" placeholder="可选范围，不限制则留空" />
-                      <n-input v-else v-model:value="line.value_range" :placeholder="configLineRangePlaceholder(line)" />
-                      <n-input-number v-model:value="line.order" :min="0" placeholder="排序" />
                       <div class="spec-config-required"><span>必填</span><n-switch v-model:value="line.required" /></div>
                     </div>
                   </div>
@@ -1220,9 +1217,9 @@ async function saveEditor() {
         normalizeConfigLineValues(line)
         return {
           attribute_id: line.attribute_id,
-          order: line.order ?? index,
+          order: index,
           default_value: serializeConfigValue(line.default_value),
-          value_range: serializeConfigValue(line.value_range),
+          value_range: '',
           required: Boolean(line.required),
         }
       })
@@ -1435,16 +1432,29 @@ onMounted(refreshAll)
 }
 .spec-config-line-grid {
   display: grid;
-  grid-template-columns: minmax(180px, 1.1fr) minmax(160px, 1fr) minmax(160px, 1fr) 110px 90px;
-  gap: 10px;
+  grid-template-columns: minmax(240px, 1.2fr) minmax(220px, 1fr) 120px;
+  gap: 10px 12px;
   align-items: center;
+}
+.spec-config-line-grid > * {
+  min-width: 0;
 }
 .spec-config-required {
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
   color: #607089;
+}
+.spec-config-required :deep(.n-switch) {
+  flex-shrink: 0;
+}
+@media (max-width: 1280px) {
+  .spec-config-line-grid {
+    grid-template-columns: 1fr;
+  }
 }
 .category-actions {
   flex-shrink: 0;
