@@ -1,21 +1,33 @@
 ﻿<template>
   <AppPage :show-footer="false">
     <div class="vm-page">
-      <section class="vm-layout">
-        <aside class="vm-sidebar">
+      <section class="vm-layout" :class="{ 'node-sidebar-collapsed': nodeSidebarCollapsed }">
+        <aside class="vm-sidebar" :class="{ collapsed: nodeSidebarCollapsed }">
           <div class="panel-head">
-            <div>
+            <div v-if="!nodeSidebarCollapsed">
               <span class="eyebrow">PDM DATACENTER</span>
               <h2>节点列表</h2>
             </div>
-            <n-button type="primary" secondary circle @click="openAddNodeModal">
-              <template #icon>
-                <TheIcon icon="mdi:server-plus" :size="18" />
-              </template>
-            </n-button>
+            <div class="node-panel-actions">
+              <n-button
+                quaternary
+                circle
+                :title="nodeSidebarCollapsed ? '展开节点列表' : '收起节点列表'"
+                @click="nodeSidebarCollapsed = !nodeSidebarCollapsed"
+              >
+                <template #icon>
+                  <TheIcon :icon="nodeSidebarCollapsed ? 'mdi:chevron-double-right' : 'mdi:chevron-double-left'" :size="18" />
+                </template>
+              </n-button>
+              <n-button v-if="!nodeSidebarCollapsed" type="primary" secondary circle @click="openAddNodeModal">
+                <template #icon>
+                  <TheIcon icon="mdi:server-plus" :size="18" />
+                </template>
+              </n-button>
+            </div>
           </div>
 
-          <n-input v-model:value="filters.nodeKeyword" clearable placeholder="搜索节点 / Remote" class="side-search">
+          <n-input v-if="!nodeSidebarCollapsed" v-model:value="filters.nodeKeyword" clearable placeholder="搜索节点 / Remote" class="side-search">
             <template #prefix>
               <TheIcon icon="mdi:magnify" :size="18" />
             </template>
@@ -34,14 +46,16 @@
                   <button
                     class="side-list-item"
                     :class="{ active: selectedNode?.value === node.value }"
+                    :title="node.label"
                     @click="selectNode(node)"
                     @contextmenu.prevent.stop="openNodeContextMenu($event, node)"
                   >
-                    <span>
+                    <TheIcon v-if="nodeSidebarCollapsed" icon="mdi:server-network" :size="20" />
+                    <span v-else>
                       <strong>{{ node.label }}</strong>
                       <em>{{ nodeMetaText(node) }}</em>
                     </span>
-                    <n-tag size="small" round :type="nodeVmCountTagType(node)">
+                    <n-tag v-if="!nodeSidebarCollapsed" size="small" round :type="nodeVmCountTagType(node)">
                       {{ node.vm_count ?? '-' }}
                     </n-tag>
                   </button>
@@ -805,6 +819,7 @@ const filters = reactive({
   nodeKeyword: '',
 })
 
+const nodeSidebarCollapsed = ref(false)
 const nodeOptions = ref([])
 const selectedNode = ref(null)
 const vmList = ref([])
@@ -2661,6 +2676,11 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
   gap: 16px;
+  transition: grid-template-columns 0.2s ease;
+}
+
+.vm-layout.node-sidebar-collapsed {
+  grid-template-columns: 64px minmax(0, 1fr);
 }
 
 .vm-sidebar,
@@ -2679,6 +2699,11 @@ onBeforeUnmount(() => {
   flex-direction: column;
   overflow: hidden;
   padding: 16px;
+  transition: padding 0.2s ease;
+}
+
+.vm-sidebar.collapsed {
+  padding: 12px 8px;
 }
 
 .vm-main {
@@ -2694,6 +2719,16 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 14px;
+}
+
+.vm-sidebar.collapsed .panel-head {
+  justify-content: center;
+}
+
+.node-panel-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .panel-head h2 {
@@ -2752,6 +2787,27 @@ onBeforeUnmount(() => {
   cursor: pointer;
   padding: 10px 12px;
   text-align: left;
+}
+
+.vm-sidebar.collapsed .side-list {
+  align-items: center;
+  padding-right: 0;
+}
+
+.vm-sidebar.collapsed .side-list-item {
+  width: 42px;
+  height: 42px;
+  justify-content: center;
+  padding: 0;
+}
+
+.vm-sidebar.collapsed .side-list-item :deep(svg) {
+  color: #64748b;
+}
+
+.vm-sidebar.collapsed .side-list-item.active :deep(svg),
+.vm-sidebar.collapsed .side-list-item:hover :deep(svg) {
+  color: #fb5b2f;
 }
 
 .side-list-item:hover,
@@ -3263,7 +3319,8 @@ html.dark .task-float-button {
 }
 
 @media (max-width: 960px) {
-  .vm-layout {
+  .vm-layout,
+  .vm-layout.node-sidebar-collapsed {
     grid-template-columns: 1fr;
   }
 
@@ -3271,12 +3328,22 @@ html.dark .task-float-button {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .vm-sidebar {
+  .vm-sidebar,
+  .vm-sidebar.collapsed {
     min-height: auto;
+    padding: 16px;
   }
 
   .side-list {
     max-height: 360px;
+  }
+
+  .vm-sidebar.collapsed .side-list {
+    align-items: stretch;
+  }
+
+  .vm-sidebar.collapsed .side-list-item {
+    width: 100%;
   }
 }
 
@@ -3290,7 +3357,8 @@ html.dark .task-float-button {
     gap: 10px;
   }
 
-  .vm-sidebar {
+  .vm-sidebar,
+  .vm-sidebar.collapsed {
     height: auto;
     max-height: none;
     padding: 12px;
@@ -3310,6 +3378,10 @@ html.dark .task-float-button {
 
   .side-list-item {
     min-width: 164px;
+  }
+
+  .vm-sidebar.collapsed .side-list-item {
+    min-width: 42px;
   }
 
   .summary-band {
