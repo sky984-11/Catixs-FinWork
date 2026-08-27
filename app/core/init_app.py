@@ -2293,6 +2293,8 @@ async def ensure_product_center_columns():
             'ALTER TABLE "product_spec_config" ADD COLUMN "product_category_name" VARCHAR(120);',
             'ALTER TABLE "product_spec_config" ADD COLUMN "product_category_sort" VARCHAR(120);',
             'ALTER TABLE "product_spec_config" ADD COLUMN "product_region_name" VARCHAR(100);',
+            'ALTER TABLE "product_price" ADD COLUMN "spec_config_key" VARCHAR(200);',
+            'ALTER TABLE "product_price" ADD COLUMN "spec_config_name" VARCHAR(200);',
         ]
         for statement in statements:
             try:
@@ -2327,12 +2329,17 @@ async def ensure_product_center_columns():
             ADD COLUMN IF NOT EXISTS "product_category_name" VARCHAR(120),
             ADD COLUMN IF NOT EXISTS "product_category_sort" VARCHAR(120),
             ADD COLUMN IF NOT EXISTS "product_region_name" VARCHAR(100);
+        ALTER TABLE IF EXISTS "product_price"
+            ADD COLUMN IF NOT EXISTS "spec_config_key" VARCHAR(200),
+            ADD COLUMN IF NOT EXISTS "spec_config_name" VARCHAR(200);
         CREATE INDEX IF NOT EXISTS "idx_product_spec_config_source"
             ON "product_spec_config" ("source_type", "source_key");
         CREATE INDEX IF NOT EXISTS "idx_product_spec_config_auto_sync"
             ON "product_spec_config" ("auto_sync");
         CREATE INDEX IF NOT EXISTS "idx_product_spec_config_product_sort"
             ON "product_spec_config" ("product_category_sort", "product_display_name");
+        CREATE INDEX IF NOT EXISTS "idx_product_price_spec_config"
+            ON "product_price" ("spec_config_key");
         """
     )
     await backfill_product_spec_config_snapshots()

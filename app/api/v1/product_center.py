@@ -110,7 +110,9 @@ class SpecConfigPayload(BaseModel):
 
 
 class PricePayload(BaseModel):
-    product_id: int
+    product_id: int | None = None
+    spec_config_key: str | None = Field(None, max_length=200)
+    spec_config_name: str | None = Field(None, max_length=200)
     price_type: str = "standard"
     customer_id: int | None = None
     customer_name: str | None = Field(None, max_length=160)
@@ -834,10 +836,50 @@ async def spec_config_group_dict(items: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+async def spec_config_groups(product_id: int | None = None) -> list[dict[str, Any]]:
+    active_product_ids = await ProductItem.filter(status="active").values_list("id", flat=True)
+    q = Q(product_id__in=active_product_ids)
+    if product_id:
+        q &= Q(product_id=product_id)
+    rows = await ProductSpecConfig.filter(q).select_related("attribute").order_by(
+        "product_category_sort",
+        "product_display_name",
+        "source_type",
+        "source_key",
+        "order",
+        "id",
+    )
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        item = await spec_config_dict(row)
+        grouped.setdefault(spec_config_group_key(item), []).append(item)
+    group_rows = [await spec_config_group_dict(items) for items in grouped.values()]
+    group_rows.sort(
+        key=lambda item: (
+            str(item.get("product_category_sort") or "").casefold(),
+            str(item.get("product_name") or "").casefold(),
+            str(item.get("spec_name") or "").casefold(),
+            str(item.get("id") or ""),
+        )
+    )
+    return group_rows
+
+
+async def get_spec_config_group(group_key: str | None) -> dict[str, Any] | None:
+    if not group_key:
+        return None
+    for group in await spec_config_groups():
+        if str(group.get("id")) == str(group_key):
+            return group
+    return None
+
+
 async def price_dict(price: ProductPrice) -> dict[str, Any]:
     data = await price.to_dict()
     product = await price.product
     data["product_name"] = product.name
+    data["spec_config_key"] = data.get("spec_config_key") or ""
+    data["spec_config_name"] = data.get("spec_config_name") or ""
     data["price_type_label"] = label_of(PRICE_TYPES, data.get("price_type"))
     data["billing_mode_label"] = label_of(BILLING_MODES, data.get("billing_mode"))
     data["billing_unit_label"] = label_of(BILLING_UNITS, data.get("billing_unit"))
@@ -876,6 +918,20 @@ async def options():
                     "category_id": item.category_id,
                 }
                 for item in products
+            ],
+            "spec_configs": [
+                {
+                    "label": f'{item.get("product_name") or "-"} / {item.get("spec_name") or "-"}',
+                    "value": item.get("id"),
+                    "product_id": item.get("product_id"),
+                    "product_name": item.get("product_name"),
+                    "spec_name": item.get("spec_name"),
+                    "billing_mode": next(
+                        (product.billing_mode for product in products if product.id == item.get("product_id")),
+                        "fixed",
+                    ),
+                }
+                for item in await spec_config_groups()
             ],
             "attributes": [
                 {
@@ -1131,24 +1187,7 @@ async def list_spec_configs(
         product = await ProductItem.get_or_none(id=product_id)
         if not product or product.status != "active":
             return SuccessExtra(data=[], total=0, page=page, page_size=page_size)
-    active_product_ids = await ProductItem.filter(status="active").values_list("id", flat=True)
-    q = Q()
-    q &= Q(product_id__in=active_product_ids)
-    if product_id:
-        q &= Q(product_id=product_id)
-    rows = await ProductSpecConfig.filter(q).select_related("attribute").order_by(
-        "product_category_sort",
-        "product_display_name",
-        "source_type",
-        "source_key",
-        "order",
-        "id",
-    )
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for row in rows:
-        item = await spec_config_dict(row)
-        grouped.setdefault(spec_config_group_key(item), []).append(item)
-    group_rows = [await spec_config_group_dict(items) for items in grouped.values()]
+    group_rows = await spec_config_groups(product_id=product_id)
     field = SPEC_CONFIG_SORT_FIELDS.get(sort_field) or "product_category_sort"
     reverse = sort_order == "descend"
     group_rows.sort(
@@ -1295,36 +1334,59 @@ async def delete_spec_config(config_id: int):
 
 
 @router.get("/prices", summary="产品价格列表")
-async def list_prices(page: int = Query(1), page_size: int = Query(20), product_id: int | None = Query(None), price_type: str = Query(""), keyword: str = Query("")):
+async def list_prices(
+    page: int = Query(1),
+    page_size: int = Query(20),
+    product_id: int | None = Query(None),
+    spec_config_key: str = Query(""),
+    price_type: str = Query(""),
+    keyword: str = Query(""),
+):
     q = Q()
     if product_id:
         q &= Q(product_id=product_id)
+    if spec_config_key:
+        q &= Q(spec_config_key=spec_config_key)
     if price_type:
         q &= Q(price_type=price_type)
     if keyword:
         product_ids = await ProductItem.filter(Q(name__contains=keyword) | Q(code__contains=keyword)).values_list("id", flat=True)
-        q &= Q(customer_name__contains=keyword) | Q(product_id__in=product_ids)
+        q &= Q(customer_name__contains=keyword) | Q(spec_config_name__contains=keyword) | Q(product_id__in=product_ids)
     total = await ProductPrice.filter(q).count()
-    rows = await ProductPrice.filter(q).order_by("product_id", "price_type", "-id").offset((page - 1) * page_size).limit(page_size)
+    rows = await ProductPrice.filter(q).order_by("product_id", "spec_config_name", "price_type", "-id").offset((page - 1) * page_size).limit(page_size)
     return SuccessExtra(data=[await price_dict(item) for item in rows], total=total, page=page, page_size=page_size)
+
+
+async def price_payload_data(payload: PricePayload) -> tuple[dict[str, Any] | None, str | None]:
+    data = compact(payload.model_dump())
+    if data.get("spec_config_key"):
+        group = await get_spec_config_group(data.get("spec_config_key"))
+        if not group:
+            return None, "请选择有效的规格配置"
+        data["product_id"] = group.get("product_id")
+        data["spec_config_name"] = group.get("spec_name") or data.get("spec_config_name")
+    if not data.get("product_id"):
+        return None, "请选择规格配置"
+    if data.get("price_type") == "customer" and data.get("customer_id") and not data.get("customer_name"):
+        customer = await CrmCustomer.filter(id=data["customer_id"]).first()
+        data["customer_name"] = customer.legal_name or customer.name if customer else None
+    return data, None
 
 
 @router.post("/prices", summary="新增产品价格")
 async def create_price(payload: PricePayload):
-    data = compact(payload.model_dump())
-    if data.get("price_type") == "customer" and data.get("customer_id") and not data.get("customer_name"):
-        customer = await CrmCustomer.filter(id=data["customer_id"]).first()
-        data["customer_name"] = customer.legal_name or customer.name if customer else None
+    data, error = await price_payload_data(payload)
+    if error:
+        return Fail(msg=error)
     price = await ProductPrice.create(**data)
     return Success(msg="产品价格已创建", data=await price_dict(price))
 
 
 @router.put("/prices/{price_id}", summary="编辑产品价格")
 async def update_price(price_id: int, payload: PricePayload):
-    data = compact(payload.model_dump(exclude_unset=True))
-    if data.get("price_type") == "customer" and data.get("customer_id") and not data.get("customer_name"):
-        customer = await CrmCustomer.filter(id=data["customer_id"]).first()
-        data["customer_name"] = customer.legal_name or customer.name if customer else None
+    data, error = await price_payload_data(payload)
+    if error:
+        return Fail(msg=error)
     await ProductPrice.filter(id=price_id).update(**data)
     return Success(msg="产品价格已更新", data=await price_dict(await ProductPrice.get(id=price_id)))
 

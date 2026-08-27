@@ -102,6 +102,8 @@ class ProductPrice(BaseModel, TimestampMixin):
         on_delete=fields.CASCADE,
         description="关联产品",
     )
+    spec_config_key = fields.CharField(max_length=200, null=True, description="规格配置组键", index=True)
+    spec_config_name = fields.CharField(max_length=200, null=True, description="规格配置名称", index=True)
     price_type = fields.CharField(max_length=30, default="standard", description="价格类型", index=True)
     customer_id = fields.BigIntField(null=True, description="客户ID", index=True)
     customer_name = fields.CharField(max_length=160, null=True, description="客户名称", index=True)

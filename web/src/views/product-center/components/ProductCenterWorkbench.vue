@@ -83,7 +83,7 @@
             placeholder="适用分类"
           />
           <n-select v-if="mode === 'configs'" v-model:value="query.product_id" clearable filterable :options="options.products" placeholder="关联产品" />
-          <n-select v-if="mode === 'pricing'" v-model:value="query.product_id" clearable filterable :options="options.products" placeholder="关联产品" />
+          <n-select v-if="mode === 'pricing'" v-model:value="query.spec_config_key" clearable filterable :options="options.specConfigs" placeholder="关联规格配置" />
           <n-select v-if="mode === 'pricing'" v-model:value="query.price_type" clearable :options="options.priceTypes" placeholder="价格类型" />
           <n-cascader
             v-if="mode === 'templates'"
@@ -259,7 +259,7 @@
             </template>
 
             <template v-else-if="mode === 'pricing'">
-              <n-form-item-gi label="关联产品" required><n-select v-model:value="editor.form.product_id" filterable :options="options.products" /></n-form-item-gi>
+              <n-form-item-gi label="关联规格配置" required :span="2"><n-select v-model:value="editor.form.spec_config_key" filterable :options="options.specConfigs" @update:value="handlePricingSpecConfigChange" /></n-form-item-gi>
               <n-form-item-gi label="价格类型"><n-select v-model:value="editor.form.price_type" :options="options.priceTypes" /></n-form-item-gi>
               <n-form-item-gi v-if="editor.form.price_type === 'customer'" label="客户"><n-select v-model:value="editor.form.customer_id" clearable filterable :options="options.customers" /></n-form-item-gi>
               <n-form-item-gi label="计费模式"><n-select v-model:value="editor.form.billing_mode" :options="options.billingModes" /></n-form-item-gi>
@@ -397,11 +397,12 @@ const popRegions = ref([])
 const editorInitializing = ref(false)
 const pagination = reactive({ page: 1, pageSize: 20, itemCount: 0, pageSizes: [20, 50, 100] })
 const configSortState = reactive({ columnKey: 'product_category_sort', order: 'ascend' })
-const query = reactive({ keyword: '', category_id: null, status: null, region: null, attr_type: null, product_id: null, price_type: null, customer_id: null })
+const query = reactive({ keyword: '', category_id: null, status: null, region: null, attr_type: null, product_id: null, spec_config_key: null, price_type: null, customer_id: null })
 const options = reactive({
   categoryTree: [],
   categories: [],
   products: [],
+  specConfigs: [],
   attributes: [],
   customers: [],
   productStatuses: [],
@@ -552,6 +553,7 @@ const configColumns = computed(() => [
 ])
 const priceColumns = [
   { title: '产品名称', key: 'product_name', width: 220, ellipsis: { tooltip: true } },
+  { title: '规格配置', key: 'spec_config_name', width: 260, ellipsis: { tooltip: true } },
   { title: '价格类型', key: 'price_type_label', width: 120, render: (row) => renderTag(row.price_type_label, row.price_type === 'customer' ? 'warning' : 'success') },
   { title: '客户', key: 'customer_name', width: 180, ellipsis: { tooltip: true } },
   { title: '计费模式', key: 'billing_mode_label', width: 120 },
@@ -586,7 +588,7 @@ function emptyForm() {
   if (props.mode === 'products') return { id: null, name: '', code: '', category_id: query.category_id, status: 'active', region: '', billing_mode: 'fixed', description: '' }
   if (props.mode === 'specs') return { id: null, name: '', code: '', category_id: query.category_id, category_ids: query.category_id ? [query.category_id] : [], attr_type: 'text', unit: '', required: false, options: '', description: '', status: true }
   if (props.mode === 'configs') return { id: null, product_id: query.product_id, configs: [emptyConfigLine()] }
-  if (props.mode === 'pricing') return { id: null, product_id: query.product_id, price_type: query.price_type || 'standard', customer_id: null, customer_name: '', billing_mode: 'fixed', billing_unit: 'month', currency: 'USD', amount: 0, min_amount: null, tier_rules: '', bandwidth_rule: '', effective_date: null, expiry_date: null, status: 'active', remark: '' }
+  if (props.mode === 'pricing') return { id: null, product_id: null, spec_config_key: query.spec_config_key, spec_config_name: '', price_type: query.price_type || 'standard', customer_id: null, customer_name: '', billing_mode: 'fixed', billing_unit: 'month', currency: 'USD', amount: 0, min_amount: null, tier_rules: '', bandwidth_rule: '', effective_date: null, expiry_date: null, status: 'active', remark: '' }
   return { id: null, name: '', category_id: query.category_id, template_type: 'product', description: '', config: '', status: true }
 }
 
@@ -604,6 +606,7 @@ async function loadOptions() {
   expandedCategoryKeys.value = getTreeKeys(options.categoryTree)
   options.categories = data.categories || []
   options.products = data.products || []
+  options.specConfigs = data.spec_configs || []
   options.attributes = data.attributes || []
   options.customers = data.customers || []
   options.productStatuses = data.product_statuses || []
@@ -635,7 +638,7 @@ async function loadPage() {
       sort_field: configSortState.columnKey || 'product_category_sort',
       sort_order: configSortState.order || 'ascend',
     }))
-    else if (props.mode === 'pricing') res = await api.productCenterApi.listPrices(pageParams({ keyword: query.keyword, product_id: query.product_id || undefined, price_type: query.price_type || '' }))
+    else if (props.mode === 'pricing') res = await api.productCenterApi.listPrices(pageParams({ keyword: query.keyword, spec_config_key: query.spec_config_key || '', price_type: query.price_type || '' }))
     else res = await api.productCenterApi.listTemplates(pageParams({ keyword: query.keyword, category_id: query.category_id || undefined }))
     rows.value = res.data || []
     pagination.itemCount = res.total || 0
@@ -651,7 +654,7 @@ async function refreshAll() {
 }
 
 function resetQuery() {
-  Object.assign(query, { keyword: '', category_id: null, status: null, region: null, attr_type: null, product_id: null, price_type: null, customer_id: null })
+  Object.assign(query, { keyword: '', category_id: null, status: null, region: null, attr_type: null, product_id: null, spec_config_key: null, price_type: null, customer_id: null })
   pagination.page = 1
   loadPage()
 }
@@ -907,6 +910,17 @@ function removeConfigLine(index) {
 
 function handleConfigProductChange() {
   editor.form.configs = [emptyConfigLine()]
+}
+
+function getSpecConfigOption(specConfigKey) {
+  return options.specConfigs.find((item) => String(item.value) === String(specConfigKey))
+}
+
+function handlePricingSpecConfigChange(value) {
+  const specConfig = getSpecConfigOption(value)
+  editor.form.product_id = specConfig?.product_id || null
+  editor.form.spec_config_name = specConfig?.spec_name || ''
+  if (specConfig?.billing_mode) editor.form.billing_mode = specConfig.billing_mode
 }
 
 function normalizeConfigEditorValues(reset = false) {
@@ -1226,7 +1240,12 @@ async function saveEditor() {
       if (payload.source_key || payload.config_ids?.length) await api.productCenterApi.updateSpecConfigGroup(payload)
       else await api.productCenterApi.createSpecConfig(payload)
     } else if (props.mode === 'pricing') {
-      if (!payload.product_id) return window.$message?.warning('请选择产品')
+      if (!payload.spec_config_key) return window.$message?.warning('请选择规格配置')
+      const specConfig = getSpecConfigOption(payload.spec_config_key)
+      if (specConfig) {
+        payload.product_id = specConfig.product_id
+        payload.spec_config_name = specConfig.spec_name
+      }
       if (payload.id) await api.productCenterApi.updatePrice(payload.id, payload)
       else await api.productCenterApi.createPrice(payload)
     } else {
