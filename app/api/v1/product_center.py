@@ -904,7 +904,7 @@ async def options():
     product_sort_keys = {item.id: await product_sort_key(item) for item in products}
     products.sort(key=lambda item: product_sort_keys.get(item.id, ("", "", "")))
     attributes = await ProductSpecAttribute.filter(status=True).order_by("category_id", "name").values("id", "name", "code", "attr_type", "unit", "options", "category_id", "category_ids")
-    customers = await CrmCustomer.filter(status=True).order_by("name").values("id", "name", "legal_name")
+    customers = await CrmCustomer.filter(status=True).exclude(lifecycle="terminated").order_by("name").values("id", "name", "legal_name")
     return Success(
         data={
             "categories": [{"label": item.name, "value": item.id, "parent_id": item.parent_id} for item in categories],
@@ -1367,8 +1367,17 @@ async def price_payload_data(payload: PricePayload) -> tuple[dict[str, Any] | No
         data["spec_config_name"] = group.get("spec_name") or data.get("spec_config_name")
     if not data.get("product_id"):
         return None, "请选择规格配置"
+    product = await ProductItem.get_or_none(id=data.get("product_id"))
+    if not product:
+        return None, "关联产品不存在"
+    data["billing_mode"] = product.billing_mode or "fixed"
+    data.pop("min_amount", None)
+    data.pop("tier_rules", None)
+    data.pop("bandwidth_rule", None)
     if data.get("price_type") == "customer" and data.get("customer_id") and not data.get("customer_name"):
-        customer = await CrmCustomer.filter(id=data["customer_id"]).first()
+        customer = await CrmCustomer.filter(id=data["customer_id"], status=True).exclude(lifecycle="terminated").first()
+        if not customer:
+            return None, "请选择有效客户，已终止客户不能用于定价"
         data["customer_name"] = customer.legal_name or customer.name if customer else None
     return data, None
 

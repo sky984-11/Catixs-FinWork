@@ -13,7 +13,7 @@ from app.models.customer_center import (
     CrmCustomerContract,
     CrmSigningEntity,
 )
-from app.schemas.base import Success, SuccessExtra
+from app.schemas.base import Fail, Success, SuccessExtra
 
 router = APIRouter()
 
@@ -138,6 +138,12 @@ def normalize_contact_data(values: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
+async def customer_selectable(customer_id: int | None) -> bool:
+    if not customer_id:
+        return False
+    return await CrmCustomer.filter(id=customer_id, status=True).exclude(lifecycle="terminated").exists()
+
+
 async def next_customer_code() -> str:
     prefix = f"CUS{date.today():%Y%m%d}"
     latest = await CrmCustomer.filter(customer_code__startswith=prefix).order_by("-customer_code").first()
@@ -200,7 +206,7 @@ async def bill_dict(bill: CrmCustomerBill) -> dict[str, Any]:
 @router.get("/options", summary="客户中心选项")
 async def options():
     signing_entities = await CrmSigningEntity.filter(status=True).order_by("name")
-    customers = await CrmCustomer.filter(status=True).order_by("name").values("id", "name", "legal_name")
+    customers = await CrmCustomer.filter(status=True).exclude(lifecycle="terminated").order_by("name").values("id", "name", "legal_name")
     return Success(
         data={
             "signing_entities": [await item.to_dict() for item in signing_entities],
@@ -344,13 +350,19 @@ async def list_contacts(page: int = Query(1), page_size: int = Query(20), keywor
 
 @router.post("/contacts", summary="新增联系人")
 async def create_contact(payload: ContactPayload):
-    contact = await CrmCustomerContact.create(**normalize_contact_data(payload.model_dump()))
+    data = normalize_contact_data(payload.model_dump())
+    if not await customer_selectable(data.get("customer_id")):
+        return Fail(msg="请选择有效客户，已终止客户不能继续维护联系人")
+    contact = await CrmCustomerContact.create(**data)
     return Success(msg="联系人已创建", data=await contact_dict(contact))
 
 
 @router.put("/contacts/{contact_id}", summary="编辑联系人")
 async def update_contact(contact_id: int, payload: ContactPayload):
-    await CrmCustomerContact.filter(id=contact_id).update(**normalize_contact_data(payload.model_dump(exclude_unset=True)))
+    data = normalize_contact_data(payload.model_dump(exclude_unset=True))
+    if data.get("customer_id") and not await customer_selectable(data.get("customer_id")):
+        return Fail(msg="请选择有效客户，已终止客户不能继续维护联系人")
+    await CrmCustomerContact.filter(id=contact_id).update(**data)
     contact = await CrmCustomerContact.get(id=contact_id)
     return Success(msg="联系人已更新", data=await contact_dict(contact))
 
@@ -380,13 +392,19 @@ async def list_contracts(page: int = Query(1), page_size: int = Query(20), keywo
 
 @router.post("/contracts", summary="新增合同")
 async def create_contract(payload: ContractPayload):
-    contract = await CrmCustomerContract.create(**compact(payload.model_dump()))
+    data = compact(payload.model_dump())
+    if not await customer_selectable(data.get("customer_id")):
+        return Fail(msg="请选择有效客户，已终止客户不能继续维护合同")
+    contract = await CrmCustomerContract.create(**data)
     return Success(msg="合同已创建", data=await contract_dict(contract))
 
 
 @router.put("/contracts/{contract_id}", summary="编辑合同")
 async def update_contract(contract_id: int, payload: ContractPayload):
-    await CrmCustomerContract.filter(id=contract_id).update(**compact(payload.model_dump(exclude_unset=True)))
+    data = compact(payload.model_dump(exclude_unset=True))
+    if data.get("customer_id") and not await customer_selectable(data.get("customer_id")):
+        return Fail(msg="请选择有效客户，已终止客户不能继续维护合同")
+    await CrmCustomerContract.filter(id=contract_id).update(**data)
     contract = await CrmCustomerContract.get(id=contract_id)
     return Success(msg="合同已更新", data=await contract_dict(contract))
 
@@ -409,13 +427,19 @@ async def list_bills(page: int = Query(1), page_size: int = Query(20), customer_
 
 @router.post("/bills", summary="新增账单")
 async def create_bill(payload: BillPayload):
-    bill = await CrmCustomerBill.create(**compact(payload.model_dump()))
+    data = compact(payload.model_dump())
+    if not await customer_selectable(data.get("customer_id")):
+        return Fail(msg="请选择有效客户，已终止客户不能继续维护账单")
+    bill = await CrmCustomerBill.create(**data)
     return Success(msg="账单已创建", data=await bill_dict(bill))
 
 
 @router.put("/bills/{bill_id}", summary="编辑账单")
 async def update_bill(bill_id: int, payload: BillPayload):
-    await CrmCustomerBill.filter(id=bill_id).update(**compact(payload.model_dump(exclude_unset=True)))
+    data = compact(payload.model_dump(exclude_unset=True))
+    if data.get("customer_id") and not await customer_selectable(data.get("customer_id")):
+        return Fail(msg="请选择有效客户，已终止客户不能继续维护账单")
+    await CrmCustomerBill.filter(id=bill_id).update(**data)
     bill = await CrmCustomerBill.get(id=bill_id)
     return Success(msg="账单已更新", data=await bill_dict(bill))
 

@@ -261,16 +261,16 @@
             <template v-else-if="mode === 'pricing'">
               <n-form-item-gi label="关联规格配置" required :span="2"><n-select v-model:value="editor.form.spec_config_key" filterable :options="options.specConfigs" @update:value="handlePricingSpecConfigChange" /></n-form-item-gi>
               <n-form-item-gi label="价格类型"><n-select v-model:value="editor.form.price_type" :options="options.priceTypes" /></n-form-item-gi>
-              <n-form-item-gi v-if="editor.form.price_type === 'customer'" label="客户"><n-select v-model:value="editor.form.customer_id" clearable filterable :options="options.customers" /></n-form-item-gi>
-              <n-form-item-gi label="计费模式"><n-select v-model:value="editor.form.billing_mode" :options="options.billingModes" /></n-form-item-gi>
+              <n-form-item-gi label="客户"><n-select v-model:value="editor.form.customer_id" clearable filterable :options="options.customers" @update:value="handlePricingCustomerChange" /></n-form-item-gi>
               <n-form-item-gi label="计费单位"><n-select v-model:value="editor.form.billing_unit" :options="options.billingUnits" /></n-form-item-gi>
-              <n-form-item-gi label="币种"><n-select v-model:value="editor.form.currency" :options="options.currencies" /></n-form-item-gi>
-              <n-form-item-gi label="价格"><n-input-number v-model:value="editor.form.amount" :min="0" /></n-form-item-gi>
-              <n-form-item-gi label="最低售价"><n-input-number v-model:value="editor.form.min_amount" :min="0" clearable /></n-form-item-gi>
+              <n-form-item-gi label="价格">
+                <div class="price-amount-field">
+                  <n-select v-model:value="editor.form.currency" :options="options.currencies" />
+                  <n-input-number v-model:value="editor.form.amount" :min="0" />
+                </div>
+              </n-form-item-gi>
               <n-form-item-gi label="生效日期"><n-date-picker v-model:formatted-value="editor.form.effective_date" value-format="yyyy-MM-dd" type="date" clearable /></n-form-item-gi>
               <n-form-item-gi label="失效日期"><n-date-picker v-model:formatted-value="editor.form.expiry_date" value-format="yyyy-MM-dd" type="date" clearable /></n-form-item-gi>
-              <n-form-item-gi label="阶梯规则" :span="2"><n-input v-model:value="editor.form.tier_rules" type="textarea" /></n-form-item-gi>
-              <n-form-item-gi label="带宽规则" :span="2"><n-input v-model:value="editor.form.bandwidth_rule" type="textarea" /></n-form-item-gi>
               <n-form-item-gi label="备注" :span="2"><n-input v-model:value="editor.form.remark" type="textarea" /></n-form-item-gi>
             </template>
 
@@ -556,7 +556,6 @@ const priceColumns = [
   { title: '规格配置', key: 'spec_config_name', width: 260, ellipsis: { tooltip: true } },
   { title: '价格类型', key: 'price_type_label', width: 120, render: (row) => renderTag(row.price_type_label, row.price_type === 'customer' ? 'warning' : 'success') },
   { title: '客户', key: 'customer_name', width: 180, ellipsis: { tooltip: true } },
-  { title: '计费模式', key: 'billing_mode_label', width: 120 },
   { title: '计费单位', key: 'billing_unit_label', width: 110 },
   { title: '价格', key: 'amount', width: 120, render: (row) => `${row.currency || ''} ${row.amount ?? 0}` },
   { title: '生效日期', key: 'effective_date', width: 120 },
@@ -588,7 +587,7 @@ function emptyForm() {
   if (props.mode === 'products') return { id: null, name: '', code: '', category_id: query.category_id, status: 'active', region: '', billing_mode: 'fixed', description: '' }
   if (props.mode === 'specs') return { id: null, name: '', code: '', category_id: query.category_id, category_ids: query.category_id ? [query.category_id] : [], attr_type: 'text', unit: '', required: false, options: '', description: '', status: true }
   if (props.mode === 'configs') return { id: null, product_id: query.product_id, configs: [emptyConfigLine()] }
-  if (props.mode === 'pricing') return { id: null, product_id: null, spec_config_key: query.spec_config_key, spec_config_name: '', price_type: query.price_type || 'standard', customer_id: null, customer_name: '', billing_mode: 'fixed', billing_unit: 'month', currency: 'USD', amount: 0, min_amount: null, tier_rules: '', bandwidth_rule: '', effective_date: null, expiry_date: null, status: 'active', remark: '' }
+  if (props.mode === 'pricing') return { id: null, product_id: null, spec_config_key: query.spec_config_key, spec_config_name: '', price_type: query.price_type || 'standard', customer_id: null, customer_name: '', billing_mode: 'fixed', billing_unit: 'month', currency: 'USD', amount: 0, effective_date: null, expiry_date: null, status: 'active', remark: '' }
   return { id: null, name: '', category_id: query.category_id, template_type: 'product', description: '', config: '', status: true }
 }
 
@@ -923,6 +922,10 @@ function handlePricingSpecConfigChange(value) {
   if (specConfig?.billing_mode) editor.form.billing_mode = specConfig.billing_mode
 }
 
+function handlePricingCustomerChange(value) {
+  if (value) editor.form.price_type = 'customer'
+}
+
 function normalizeConfigEditorValues(reset = false) {
   if (props.mode !== 'configs') return
   const type = selectedConfigAttrType.value
@@ -1245,7 +1248,11 @@ async function saveEditor() {
       if (specConfig) {
         payload.product_id = specConfig.product_id
         payload.spec_config_name = specConfig.spec_name
+        payload.billing_mode = specConfig.billing_mode || payload.billing_mode
       }
+      delete payload.min_amount
+      delete payload.tier_rules
+      delete payload.bandwidth_rule
       if (payload.id) await api.productCenterApi.updatePrice(payload.id, payload)
       else await api.productCenterApi.createPrice(payload)
     } else {
@@ -1520,6 +1527,12 @@ onMounted(refreshAll)
 .modal-form :deep(textarea.n-input__textarea-el) {
   min-height: 76px;
 }
+.price-amount-field {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  width: 100%;
+  gap: 8px;
+}
 .modal-footer {
   width: 100%;
   justify-content: flex-end;
@@ -1556,6 +1569,9 @@ onMounted(refreshAll)
   :deep(.product-modal .n-card__footer) {
     padding-left: 16px;
     padding-right: 16px;
+  }
+  .price-amount-field {
+    grid-template-columns: 96px minmax(0, 1fr);
   }
 }
 </style>
