@@ -411,7 +411,7 @@ async def ensure_product_center_menu():
             "component": "/product-center/configs",
         },
         {
-            "name": "定价管理",
+            "name": "客户价格",
             "path": "pricing",
             "order": 4,
             "icon": "mdi:cash-multiple",

@@ -264,10 +264,10 @@
               <n-form-item-gi label="客户"><n-select v-model:value="editor.form.customer_id" clearable filterable :options="options.customers" @update:value="handlePricingCustomerChange" /></n-form-item-gi>
               <n-form-item-gi label="计费单位"><n-select v-model:value="editor.form.billing_unit" :options="options.billingUnits" /></n-form-item-gi>
               <n-form-item-gi label="价格">
-                <div class="price-amount-field">
-                  <n-select v-model:value="editor.form.currency" :options="options.currencies" />
+                <n-input-group class="price-amount-field">
                   <n-input-number v-model:value="editor.form.amount" :min="0" />
-                </div>
+                  <n-select v-model:value="editor.form.currency" class="price-currency-select" :options="options.currencies" />
+                </n-input-group>
               </n-form-item-gi>
               <n-form-item-gi label="生效日期"><n-date-picker v-model:formatted-value="editor.form.effective_date" value-format="yyyy-MM-dd" type="date" clearable /></n-form-item-gi>
               <n-form-item-gi label="失效日期"><n-date-picker v-model:formatted-value="editor.form.expiry_date" value-format="yyyy-MM-dd" type="date" clearable /></n-form-item-gi>
@@ -331,7 +331,7 @@ const modeMeta = {
   products: { title: '产品管理', keyword: '搜索产品名称 / 编码 / 地区', add: '新增产品', icon: 'mdi:plus-box-outline' },
   specs: { title: '规格管理', keyword: '搜索属性名称 / 编码 / 单位', add: '新增属性', icon: 'mdi:tune-variant' },
   configs: { title: '规格配置', keyword: '', add: '新增配置', icon: 'mdi:playlist-plus' },
-  pricing: { title: '定价管理', keyword: '搜索产品 / 客户', add: '新增价格', icon: 'mdi:cash-plus' },
+  pricing: { title: '客户价格', keyword: '搜索产品 / 客户', add: '新增价格', icon: 'mdi:cash-plus' },
   templates: { title: '产品模板', keyword: '搜索模板名称 / 说明', add: '新增模板', icon: 'mdi:file-plus-outline' },
 }
 
@@ -1528,10 +1528,22 @@ onMounted(refreshAll)
   min-height: 76px;
 }
 .price-amount-field {
-  display: grid;
-  grid-template-columns: 110px minmax(0, 1fr);
   width: 100%;
-  gap: 8px;
+}
+.price-amount-field :deep(.n-input-number) {
+  flex: 1;
+}
+.price-currency-select {
+  width: 96px !important;
+  flex: 0 0 96px;
+}
+.price-amount-field :deep(.n-input-number .n-input) {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.price-currency-select :deep(.n-base-selection) {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
 }
 .modal-footer {
   width: 100%;
@@ -1571,7 +1583,11 @@ onMounted(refreshAll)
     padding-right: 16px;
   }
   .price-amount-field {
-    grid-template-columns: 96px minmax(0, 1fr);
+    display: flex;
+  }
+  .price-currency-select {
+    width: 84px !important;
+    flex-basis: 84px;
   }
 }
 </style>

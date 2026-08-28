@@ -1107,7 +1107,7 @@ async def delete_product(product_id: int):
     if config_count:
         refs.append(f"规格配置中的手动配置 {config_count} 条")
     if price_count:
-        refs.append(f"定价管理中的价格记录 {price_count} 条")
+        refs.append(f"客户价格中的价格记录 {price_count} 条")
     if refs:
         return Fail(msg=delete_block_msg("产品", refs))
     await ProductItem.filter(id=product_id).delete()
