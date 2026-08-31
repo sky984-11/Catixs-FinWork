@@ -15,7 +15,8 @@ from tortoise.expressions import Q
 
 from app.schemas.base import Fail, Success
 from app.core.dependency import AuthControl
-from app.models.asset import AssetDevice, AssetLocation, AssetRegion, PveNodeBinding
+from app.models.asset import AssetDevice, AssetLocation, AssetRegion, CloudDhcpLease, PveNodeBinding, PveVmMetadata
+from app.models.customer_center import CrmCustomer
 from app.settings.config import settings
 from app.utils.zabbix_api import sync_pve_host_to_zabbix
 
@@ -949,6 +950,8 @@ class VMConfigUpdateRequest(BaseModel):
     memory_gb: float | None = None
     disk_gb: float | None = None
     disk_key: str | None = None
+    customer_id: int | None = None
+    customer_name: str | None = None
     networks: list[VMNetworkDeviceRequest] = []
 
 
@@ -1031,6 +1034,54 @@ async def pve_node_binding_map(remotes: list[str]) -> dict[str, dict[str, Any]]:
         return {}
     bindings = await PveNodeBinding.filter(remote__in=remotes).select_related("region", "location", "device")
     return {binding.remote: await pve_node_binding_to_dict(binding) for binding in bindings}
+
+
+async def selectable_customer(customer_id: int | None) -> CrmCustomer | None:
+    if not customer_id:
+        return None
+    return await CrmCustomer.filter(id=customer_id, status=True).exclude(lifecycle="terminated").first()
+
+
+async def vm_metadata_map(vms: list[dict[str, Any]]) -> dict[tuple[str, int], PveVmMetadata]:
+    keys = [
+        (str(vm.get("remote") or ""), int(vm.get("vmid") or 0))
+        for vm in vms
+        if vm.get("remote") and vm.get("vmid")
+    ]
+    if not keys:
+        return {}
+    remotes = sorted({remote for remote, _vmid in keys})
+    vmids = sorted({vmid for _remote, vmid in keys})
+    rows = await PveVmMetadata.filter(remote__in=remotes, vmid__in=vmids)
+    wanted = set(keys)
+    return {(row.remote, row.vmid): row for row in rows if (row.remote, row.vmid) in wanted}
+
+
+async def apply_vm_metadata(vms: list[dict[str, Any]]) -> None:
+    metadata = await vm_metadata_map(vms)
+    for vm in vms:
+        key = (str(vm.get("remote") or ""), int(vm.get("vmid") or 0))
+        item = metadata.get(key)
+        vm["customer_id"] = item.customer_id if item else None
+        vm["customer_name"] = item.customer_name if item else ""
+
+
+async def upsert_vm_metadata(payload: Any, vm_name: str | None = None) -> None:
+    customer = await selectable_customer(payload.customer_id)
+    if payload.customer_id and not customer:
+        raise ValueError("所选客户不存在或已终止")
+    if not payload.customer_id:
+        await PveVmMetadata.filter(remote=payload.remote, vmid=payload.vmid).delete()
+        return
+    await PveVmMetadata.update_or_create(
+        remote=payload.remote,
+        vmid=payload.vmid,
+        defaults={
+            "vm_name": vm_name,
+            "customer_id": customer.id,
+            "customer_name": customer.legal_name or customer.name,
+        },
+    )
 
 
 def percent(value: Any) -> float:
@@ -2040,6 +2091,7 @@ async def list_vms(
     if node:
         vms = [vm for vm in vms if vm.get("remote") == node]
     apply_cached_vm_remarks(vms)
+    await apply_vm_metadata(vms)
     vms.sort(key=lambda row: (str(row.get("remote") or ""), str(row.get("node") or ""), int(row.get("vmid") or 0)))
     summary = {
         "total": len(vms),
@@ -2496,6 +2548,8 @@ async def delete_vm(payload: VMDeleteRequest):
         detail = (error or output or "未知错误").strip()
         return Fail(msg=f"删除虚拟机失败: {detail}")
 
+    await PveVmMetadata.filter(remote=payload.remote, vmid=payload.vmid).delete()
+    await CloudDhcpLease.filter(remote=payload.remote, vmid=payload.vmid, status="reserved").update(status="released")
     _PDM_RESOURCE_CACHE = []
     return Success(msg="虚拟机删除任务已提交", data={"remote": payload.remote, "vmid": payload.vmid})
 
@@ -2549,6 +2603,7 @@ async def vm_config(
         return Fail(msg=f"读取虚拟机配置失败: {error_detail(exc)}")
 
     cores_per_socket, sockets, total_cores = vm_cpu_topology(config)
+    metadata = await PveVmMetadata.filter(remote=remote, vmid=vmid).first()
     return Success(
         data={
             "remote": remote,
@@ -2564,6 +2619,8 @@ async def vm_config(
             "disk_key": disks[0]["key"] if disks else "",
             "networks": networks,
             "bridges": sorted(set(bridges)) or ["vmbr10", "vmbr20"],
+            "customer_id": metadata.customer_id if metadata else None,
+            "customer_name": metadata.customer_name if metadata else "",
         }
     )
 
@@ -2674,13 +2731,18 @@ async def update_vm_config(payload: VMConfigUpdateRequest):
                         )
                     )
 
+        vm_name = str(current.get("name") or "")
         if not commands:
+            await upsert_vm_metadata(payload, vm_name=vm_name)
             return Success(msg="没有需要更新的配置")
 
         command = " && ".join(commands)
         code, output, error = await asyncio.to_thread(ssh_execute_pve, host, command)
         if code != 0:
             return Fail(msg=f"编辑虚拟机配置失败: {error or output}")
+        await upsert_vm_metadata(payload, vm_name=vm_name)
+    except ValueError as exc:
+        return Fail(msg=str(exc))
     except Exception as exc:
         return Fail(msg=f"编辑虚拟机配置失败: {error_detail(exc)}")
 

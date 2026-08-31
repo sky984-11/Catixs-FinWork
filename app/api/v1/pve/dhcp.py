@@ -1,4 +1,6 @@
+import asyncio
 import ipaddress
+import platform
 from datetime import date, datetime
 from typing import Any
 
@@ -124,6 +126,23 @@ async def pool_counts(pool: CloudDhcpPool) -> dict[str, Any]:
     }
 
 
+async def ping_ip(ip: str, timeout_seconds: float = 1.0) -> bool:
+    system = platform.system().lower()
+    if system == "windows":
+        args = ["ping", "-n", "1", "-w", str(int(timeout_seconds * 1000)), ip]
+    else:
+        args = ["ping", "-c", "1", "-W", str(max(1, int(timeout_seconds))), ip]
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        return await asyncio.wait_for(process.wait(), timeout=timeout_seconds + 1) == 0
+    except Exception:
+        return False
+
+
 async def pool_dict(pool: CloudDhcpPool) -> dict[str, Any]:
     data = await pool.to_dict()
     data.update(await pool_counts(pool))
@@ -181,15 +200,40 @@ async def allocate_dhcp_for_price(
             return await CloudDhcpLease.get(id=existing.id)
     pools = await active_pools_for_region(product.region, pool_id=pool_id)
     for pool in pools:
-        counts = await pool_counts(pool)
-        if not counts["next_ip"]:
+        addresses = ip_range(pool.start_ip, pool.end_ip)
+        used_ips = set(
+            await CloudDhcpLease.filter(pool_id=pool.id, status=ACTIVE_LEASE_STATUS).values_list("ip", flat=True)
+        )
+        next_ip = ""
+        for candidate in addresses:
+            if candidate in used_ips:
+                continue
+            if await ping_ip(candidate):
+                await CloudDhcpLease.update_or_create(
+                    pool_id=pool.id,
+                    ip=candidate,
+                    defaults={
+                        "vlan": pool.vlan,
+                        "gateway": pool.gateway,
+                        "cidr": pool.cidr,
+                        "lease_source": "ping_occupied",
+                        "status": ACTIVE_LEASE_STATUS,
+                        "remark": "Ping reachable before DHCP allocation",
+                    },
+                )
+                used_ips.add(candidate)
+                continue
+            next_ip = candidate
+            break
+        if not next_ip:
             continue
         lease, _ = await CloudDhcpLease.update_or_create(
             pool_id=pool.id,
-            ip=counts["next_ip"],
+            ip=next_ip,
             defaults={
                 "product_id": product.id,
                 "price_id": price.id,
+                "lease_source": "price",
                 "vlan": pool.vlan,
                 "gateway": pool.gateway,
                 "cidr": pool.cidr,
@@ -230,7 +274,7 @@ async def build_pool_data(payload: DhcpPoolPayload) -> dict[str, Any]:
     data["region_id"] = region.id if region else None
     data["location_id"] = location.id if location else None
     data["region_name"] = f"{region.country or ''} / {region.city or region.name or ''}".strip(" /") if region else data["region_code"]
-    data["cidr"] = data.get("cidr") or cidr_from_gateway(data["gateway"])
+    data["cidr"] = cidr_from_gateway(data["gateway"])
     return data
 
 
@@ -243,19 +287,48 @@ async def reserve_dhcp_lease(
     memory_gb: int = 2,
     disk_gb: int = 20,
     expiry_date: Any | None = None,
+    remote: str | None = None,
+    vmid: int | None = None,
     remark: str | None = None,
 ) -> CloudDhcpLease | None:
     pools = await active_pools_for_region(pool_id=pool_id)
     if not pools:
         return None
     pool = pools[0]
-    counts = await pool_counts(pool)
-    if not counts["next_ip"]:
+    addresses = ip_range(pool.start_ip, pool.end_ip)
+    used_ips = set(
+        await CloudDhcpLease.filter(pool_id=pool.id, status=ACTIVE_LEASE_STATUS).values_list("ip", flat=True)
+    )
+    next_ip = ""
+    for candidate in addresses:
+        if candidate in used_ips:
+            continue
+        if await ping_ip(candidate):
+            await CloudDhcpLease.update_or_create(
+                pool_id=pool.id,
+                ip=candidate,
+                defaults={
+                    "vlan": pool.vlan,
+                    "gateway": pool.gateway,
+                    "cidr": pool.cidr,
+                    "lease_source": "ping_occupied",
+                    "status": ACTIVE_LEASE_STATUS,
+                    "remark": "Ping reachable before DHCP allocation",
+                },
+            )
+            used_ips.add(candidate)
+            continue
+        next_ip = candidate
+        break
+    if not next_ip:
         return None
     lease, _ = await CloudDhcpLease.update_or_create(
         pool_id=pool.id,
-        ip=counts["next_ip"],
+        ip=next_ip,
         defaults={
+            "remote": remote,
+            "vmid": vmid,
+            "lease_source": "vm_create",
             "vlan": pool.vlan,
             "gateway": pool.gateway,
             "cidr": pool.cidr,

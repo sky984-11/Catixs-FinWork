@@ -1581,6 +1581,9 @@ async def ensure_cloud_dhcp_tables():
                 "product_id" BIGINT,
                 "price_id" BIGINT,
                 "ip" VARCHAR(64) NOT NULL,
+                "remote" VARCHAR(100),
+                "vmid" INT,
+                "lease_source" VARCHAR(40) NOT NULL DEFAULT 'manual',
                 "vlan" INT NOT NULL,
                 "gateway" VARCHAR(64) NOT NULL,
                 "cidr" VARCHAR(64) NOT NULL,
@@ -1597,7 +1600,21 @@ async def ensure_cloud_dhcp_tables():
             CREATE INDEX IF NOT EXISTS "idx_cloud_dhcp_pool_vlan" ON "cloud_dhcp_pool" ("vlan");
             CREATE INDEX IF NOT EXISTS "idx_cloud_dhcp_lease_pool" ON "cloud_dhcp_lease" ("pool_id");
             CREATE INDEX IF NOT EXISTS "idx_cloud_dhcp_lease_price" ON "cloud_dhcp_lease" ("price_id");
+            CREATE INDEX IF NOT EXISTS "idx_cloud_dhcp_lease_remote_vmid" ON "cloud_dhcp_lease" ("remote", "vmid");
+            CREATE INDEX IF NOT EXISTS "idx_cloud_dhcp_lease_source" ON "cloud_dhcp_lease" ("lease_source");
             CREATE UNIQUE INDEX IF NOT EXISTS "uid_cloud_dhcp_lease_pool_ip" ON "cloud_dhcp_lease" ("pool_id", "ip");
+            CREATE TABLE IF NOT EXISTS "pve_vm_metadata" (
+                "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                "created_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "updated_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "remote" VARCHAR(100) NOT NULL,
+                "vmid" INT NOT NULL,
+                "vm_name" VARCHAR(160),
+                "customer_id" BIGINT,
+                "customer_name" VARCHAR(160),
+                "remark" VARCHAR(500)
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "uid_pve_vm_metadata_remote_vmid" ON "pve_vm_metadata" ("remote", "vmid");
             """
         )
         return
@@ -1634,6 +1651,9 @@ async def ensure_cloud_dhcp_tables():
             "product_id" BIGINT REFERENCES "product_item" ("id") ON DELETE SET NULL,
             "price_id" BIGINT REFERENCES "product_price" ("id") ON DELETE SET NULL,
             "ip" VARCHAR(64) NOT NULL,
+            "remote" VARCHAR(100),
+            "vmid" INT,
+            "lease_source" VARCHAR(40) NOT NULL DEFAULT 'manual',
             "vlan" INT NOT NULL,
             "gateway" VARCHAR(64) NOT NULL,
             "cidr" VARCHAR(64) NOT NULL,
@@ -1647,14 +1667,32 @@ async def ensure_cloud_dhcp_tables():
             "remark" VARCHAR(500)
         );
         ALTER TABLE IF EXISTS "cloud_dhcp_lease"
-            ADD COLUMN IF NOT EXISTS "expiry_date" DATE;
+            ADD COLUMN IF NOT EXISTS "expiry_date" DATE,
+            ADD COLUMN IF NOT EXISTS "remote" VARCHAR(100),
+            ADD COLUMN IF NOT EXISTS "vmid" INT,
+            ADD COLUMN IF NOT EXISTS "lease_source" VARCHAR(40) NOT NULL DEFAULT 'manual';
         ALTER TABLE IF EXISTS "cloud_dhcp_pool"
             ADD COLUMN IF NOT EXISTS "location_id" BIGINT REFERENCES "asset_location" ("id") ON DELETE SET NULL;
         CREATE INDEX IF NOT EXISTS "idx_cloud_dhcp_pool_region" ON "cloud_dhcp_pool" ("region_code");
         CREATE INDEX IF NOT EXISTS "idx_cloud_dhcp_pool_vlan" ON "cloud_dhcp_pool" ("vlan");
         CREATE INDEX IF NOT EXISTS "idx_cloud_dhcp_lease_pool" ON "cloud_dhcp_lease" ("pool_id");
         CREATE INDEX IF NOT EXISTS "idx_cloud_dhcp_lease_price" ON "cloud_dhcp_lease" ("price_id");
+        CREATE INDEX IF NOT EXISTS "idx_cloud_dhcp_lease_remote_vmid" ON "cloud_dhcp_lease" ("remote", "vmid");
+        CREATE INDEX IF NOT EXISTS "idx_cloud_dhcp_lease_source" ON "cloud_dhcp_lease" ("lease_source");
         CREATE UNIQUE INDEX IF NOT EXISTS "uid_cloud_dhcp_lease_pool_ip" ON "cloud_dhcp_lease" ("pool_id", "ip");
+        CREATE TABLE IF NOT EXISTS "pve_vm_metadata" (
+            "id" BIGSERIAL NOT NULL PRIMARY KEY,
+            "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "updated_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "remote" VARCHAR(100) NOT NULL,
+            "vmid" INT NOT NULL,
+            "vm_name" VARCHAR(160),
+            "customer_id" BIGINT,
+            "customer_name" VARCHAR(160),
+            "remark" VARCHAR(500)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS "uid_pve_vm_metadata_remote_vmid" ON "pve_vm_metadata" ("remote", "vmid");
+        CREATE INDEX IF NOT EXISTS "idx_pve_vm_metadata_customer" ON "pve_vm_metadata" ("customer_id");
         """
     )
 

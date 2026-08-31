@@ -13,6 +13,8 @@ from pydantic import BaseModel, Field
 from app.schemas.base import Fail, Success
 from app.settings.config import settings
 from app.api.v1.pve.dhcp import release_dhcp_lease, reserve_dhcp_lease
+from app.models.asset import CloudDhcpLease, PveVmMetadata
+from app.models.customer_center import CrmCustomer
 
 router = APIRouter()
 
@@ -39,6 +41,8 @@ class VMCreateRequest(BaseModel):
     memory_gb: int
     disk_gb: int
     password: str
+    customer_id: int | None = None
+    customer_name: str | None = None
     network: VMNetworkConfig
     expire_at: Any | None = None
 
@@ -402,6 +406,25 @@ async def verify_vm_exists(host: str, vm_name: str, attempts: int = 12, delay: f
     return False
 
 
+async def find_vm_by_name(host: str, vm_name: str, attempts: int = 12, delay: float = 5) -> dict[str, Any] | None:
+    quoted_name = shlex.quote(vm_name)
+    command = f"qm list | awk -v name={quoted_name} 'NR > 1 && $2 == name {{print $1\" \"$2}}'"
+    for _ in range(attempts):
+        exit_status, stdout, _stderr = await run_remote_script(host, command)
+        if exit_status == 0 and stdout.strip():
+            parts = stdout.strip().split()
+            if parts and parts[0].isdigit():
+                return {"vmid": int(parts[0]), "name": " ".join(parts[1:])}
+        await asyncio.sleep(delay)
+    return None
+
+
+async def selectable_customer(customer_id: int | None) -> CrmCustomer | None:
+    if not customer_id:
+        return None
+    return await CrmCustomer.filter(id=customer_id, status=True).exclude(lifecycle="terminated").first()
+
+
 def shell_join(parts: list[Any]) -> str:
     return " ".join(shlex.quote(str(part)) for part in parts if part is not None)
 
@@ -549,6 +572,11 @@ async def create_vm(payload: VMCreateRequest):
     ssh_host = payload.region
     stdout = ""
     reserved_lease_id = None
+    customer = await selectable_customer(payload.customer_id)
+    if payload.customer_id and not customer:
+        return Fail(msg="所选客户不存在或已终止")
+    if customer:
+        payload.customer_name = customer.legal_name or customer.name
     try:
         if payload.network.mode == "dhcp" and payload.network.dhcp_pool_id:
             lease = await reserve_dhcp_lease(
@@ -559,6 +587,7 @@ async def create_vm(payload: VMCreateRequest):
                 memory_gb=payload.memory_gb,
                 disk_gb=payload.disk_gb,
                 expiry_date=payload.expire_at,
+                remote=payload.region,
                 remark=payload.description or "",
             )
             if not lease:
@@ -592,7 +621,8 @@ async def create_vm(payload: VMCreateRequest):
         if exit_status != 0:
             await release_dhcp_lease(reserved_lease_id)
             return Fail(msg=fail_message("创建虚拟机失败", stdout, stderr))
-        if not await verify_vm_exists(ssh_host, payload.vm_name):
+        created_vm = await find_vm_by_name(ssh_host, payload.vm_name)
+        if not created_vm:
             await release_dhcp_lease(reserved_lease_id)
             return Fail(
                 msg=fail_message(
@@ -600,6 +630,19 @@ async def create_vm(payload: VMCreateRequest):
                     stdout,
                     f"已在 {ssh_host} 执行创建脚本，但 qm list 未找到名称为 {payload.vm_name} 的虚拟机",
                 )
+            )
+        created_vmid = created_vm["vmid"]
+        if reserved_lease_id:
+            await CloudDhcpLease.filter(id=reserved_lease_id).update(remote=payload.region, vmid=created_vmid)
+        if customer:
+            await PveVmMetadata.update_or_create(
+                remote=payload.region,
+                vmid=created_vmid,
+                defaults={
+                    "vm_name": payload.vm_name,
+                    "customer_id": customer.id,
+                    "customer_name": customer.legal_name or customer.name,
+                },
             )
     except Exception as exc:
         await release_dhcp_lease(reserved_lease_id)
@@ -611,6 +654,7 @@ async def create_vm(payload: VMCreateRequest):
         data={
             "region": payload.region,
             "ssh_host": ssh_host,
+            "vmid": created_vmid,
             "vm_name": payload.vm_name,
             "task": stdout,
             "config": payload.model_dump(),

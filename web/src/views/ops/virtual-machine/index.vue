@@ -291,6 +291,16 @@
                   <n-button class="random-addon-button" ghost type="primary" @click="refreshCreateVmName">随机</n-button>
                 </n-input-group>
               </n-form-item-gi>
+              <n-form-item-gi label="所属客户">
+                <n-select
+                  v-model:value="createModal.form.customer_id"
+                  :options="customerOptions"
+                  clearable
+                  filterable
+                  placeholder="选择客户"
+                  @update:value="handleCreateCustomerChange"
+                />
+              </n-form-item-gi>
               <n-form-item-gi label="存储位置">
                 <n-select
                   v-model:value="createModal.form.storage"
@@ -836,6 +846,7 @@ const filters = reactive({
 
 const nodeSidebarCollapsed = ref(false)
 const nodeOptions = ref([])
+const customerOptions = ref([])
 const selectedNode = ref(null)
 const vmList = ref([])
 let vmIpRequestId = 0
@@ -1220,6 +1231,16 @@ const columns = [
     },
   },
   {
+    title: '客户',
+    key: 'customer_name',
+    width: 180,
+    ellipsis: { tooltip: true },
+    cellProps: noVncCellProps,
+    render(row) {
+      return row.customer_name || '-'
+    },
+  },
+  {
     title: '状态',
     key: 'status',
     width: 110,
@@ -1300,7 +1321,7 @@ const columns = [
   {
     title: '操作',
     key: 'actions',
-    width: 430,
+    width: 400,
     fixed: 'right',
     className: 'vm-actions-column',
     render(row) {
@@ -1580,6 +1601,8 @@ function createEmptyVmForm() {
     region: '',
     storage: '',
     vm_name: generateRandomVmName(),
+    customer_id: null,
+    customer_name: '',
     description: '',
     expire_at: null,
     os_selection: null,
@@ -1779,6 +1802,7 @@ async function openCreateModal() {
     ...createEmptyVmForm(),
     region: createTarget,
   }
+  loadCustomerOptions()
   loadCreateDhcpPools()
   const cached = createOptionsCache.get(createModal.form.region)
   if (cached?.data) {
@@ -1866,7 +1890,23 @@ function resetCreateModalForNext() {
     region,
     storage,
   }
+  createModal.form.customer_id = null
+  createModal.form.customer_name = ''
   createModal.form.network.dhcp_pool_id = dhcpPools.find((item) => Number(item.available_count || 0) > 0)?.value || null
+}
+
+async function loadCustomerOptions() {
+  if (customerOptions.value.length) return
+  try {
+    const res = await api.customerCenterApi.options()
+    customerOptions.value = res.data?.customers || []
+  } catch (error) {
+    message.error(error.message || '读取客户列表失败')
+  }
+}
+
+function handleCreateCustomerChange(value, option) {
+  createModal.form.customer_name = value ? option?.label || '' : ''
 }
 
 function buildCreateVmDescription() {

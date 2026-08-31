@@ -153,6 +153,9 @@ class CloudDhcpLease(BaseModel, TimestampMixin):
         on_delete=fields.SET_NULL,
     )
     ip = fields.CharField(max_length=64, description="Allocated IP", index=True)
+    remote = fields.CharField(max_length=100, null=True, description="PVE remote", index=True)
+    vmid = fields.IntField(null=True, description="VMID", index=True)
+    lease_source = fields.CharField(max_length=40, default="manual", description="Lease source", index=True)
     vlan = fields.IntField(description="VLAN", index=True)
     gateway = fields.CharField(max_length=64, description="Gateway")
     cidr = fields.CharField(max_length=64, description="CIDR")
@@ -168,6 +171,19 @@ class CloudDhcpLease(BaseModel, TimestampMixin):
     class Meta:
         table = "cloud_dhcp_lease"
         unique_together = (("pool", "ip"),)
+
+
+class PveVmMetadata(BaseModel, TimestampMixin):
+    remote = fields.CharField(max_length=100, description="PVE remote", index=True)
+    vmid = fields.IntField(description="VMID", index=True)
+    vm_name = fields.CharField(max_length=160, null=True, description="VM name", index=True)
+    customer_id = fields.BigIntField(null=True, description="Customer ID", index=True)
+    customer_name = fields.CharField(max_length=160, null=True, description="Customer name", index=True)
+    remark = fields.CharField(max_length=500, null=True, description="Remark")
+
+    class Meta:
+        table = "pve_vm_metadata"
+        unique_together = (("remote", "vmid"),)
 
 
 class AssetDeviceBrand(BaseModel, TimestampMixin):

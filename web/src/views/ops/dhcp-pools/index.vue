@@ -219,7 +219,13 @@ function emptyForm() {
 }
 
 function placeText(row) {
-  return [row.region_name || row.region_code || '', row.location_name || ''].filter(Boolean).join(' / ') || '-'
+  return [regionWithoutCountry(row.region_name || row.region_code), row.location_name || ''].filter(Boolean).join(' / ') || '-'
+}
+
+function regionWithoutCountry(value) {
+  const parts = String(value || '').split('/').map((item) => item.trim()).filter(Boolean)
+  if (parts.length >= 2) return parts.slice(1).join(' / ')
+  return parts[0] || ''
 }
 
 async function loadBindingOptions() {
@@ -261,7 +267,7 @@ function openEditor(row = null) {
 
 async function savePool() {
   const payload = { ...editor.form }
-  delete payload.cidr
+  payload.cidr = payload.gateway
   if (!payload.name || (!payload.region_id && !payload.region_code) || !payload.vlan || !payload.gateway || !payload.start_ip || !payload.end_ip) {
     message.warning('请填写池名称、地区/机房、VLAN、网关和 IP 段')
     return

@@ -28,6 +28,16 @@
           <n-card title="基础资源" :bordered="false">
             <n-form label-placement="left" label-width="110">
               <n-grid :cols="baseResourceCols" :x-gap="18">
+                <n-form-item-gi label="所属客户">
+                  <n-select
+                    v-model:value="form.customer_id"
+                    :options="customerOptions"
+                    clearable
+                    filterable
+                    placeholder="选择客户"
+                    @update:value="handleCustomerChange"
+                  />
+                </n-form-item-gi>
                 <n-form-item-gi label="CPU 核心">
                   <n-input-number v-model:value="form.cores" :min="1" :max="256" class="full-width" />
                 </n-form-item-gi>
@@ -115,6 +125,7 @@ const saving = ref(false)
 const rebooting = ref(false)
 const config = ref(null)
 const deletedNetworks = ref([])
+const customerOptions = ref([])
 
 const remote = computed(() => String(route.query.remote || ''))
 const vmid = computed(() => Number(route.query.vmid || 0))
@@ -126,6 +137,8 @@ const form = reactive({
   memory_gb: 1,
   disk_key: '',
   disk_gb: 0,
+  customer_id: null,
+  customer_name: '',
   networks: [],
 })
 
@@ -183,6 +196,8 @@ async function fetchConfig() {
     form.memory_gb = config.value.memory_gb || 1
     form.disk_key = config.value.disk_key || config.value.disks?.[0]?.key || ''
     form.disk_gb = config.value.disk_gb || config.value.disks?.[0]?.size_gb || 0
+    form.customer_id = config.value.customer_id || null
+    form.customer_name = config.value.customer_name || ''
     form.networks = (config.value.networks || []).map(normalizeNetwork)
     deletedNetworks.value = []
   } catch (error) {
@@ -208,6 +223,20 @@ function removeNetwork(index) {
   }
 }
 
+async function loadCustomerOptions() {
+  if (customerOptions.value.length) return
+  try {
+    const res = await api.customerCenterApi.options()
+    customerOptions.value = res.data?.customers || []
+  } catch (error) {
+    message.error(error.message || '读取客户列表失败')
+  }
+}
+
+function handleCustomerChange(value, option) {
+  form.customer_name = value ? option?.label || '' : ''
+}
+
 function buildPayload() {
   return {
     remote: remote.value,
@@ -218,6 +247,8 @@ function buildPayload() {
     memory_gb: form.memory_gb,
     disk_key: form.disk_key,
     disk_gb: form.disk_gb,
+    customer_id: form.customer_id || null,
+    customer_name: form.customer_name || '',
     networks: [
       ...form.networks.map((network) => ({
         key: network.key || undefined,
@@ -272,7 +303,10 @@ async function rebootVm() {
   }
 }
 
-onMounted(fetchConfig)
+onMounted(() => {
+  fetchConfig()
+  loadCustomerOptions()
+})
 </script>
 
 <style scoped>
