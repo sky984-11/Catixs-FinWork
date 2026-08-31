@@ -259,9 +259,42 @@
             </template>
 
             <template v-else-if="mode === 'pricing'">
-              <n-form-item-gi label="关联规格配置" required :span="2"><n-select v-model:value="editor.form.spec_config_key" filterable :options="options.specConfigs" @update:value="handlePricingSpecConfigChange" /></n-form-item-gi>
-              <n-form-item-gi label="价格类型"><n-select v-model:value="editor.form.price_type" :options="options.priceTypes" /></n-form-item-gi>
-              <n-form-item-gi label="客户"><n-select v-model:value="editor.form.customer_id" clearable filterable :options="options.customers" @update:value="handlePricingCustomerChange" /></n-form-item-gi>
+              <n-form-item-gi label="关联产品" required :span="2"><n-select v-model:value="editor.form.product_id" filterable :options="options.products" @update:value="handlePricingProductChange" /></n-form-item-gi>
+              <n-form-item-gi v-if="isPricingCloudProduct" label="操作系统" required>
+                <n-cascader
+                  v-model:value="editor.form.os_key"
+                  clearable
+                  filterable
+                  check-strategy="child"
+                  :options="cloudOsOptions"
+                  placeholder="请选择操作系统"
+                  @update:value="handlePricingOsChange"
+                />
+              </n-form-item-gi>
+              <n-form-item-gi v-if="isPricingCloudProduct" label="云主机规格" required>
+                <div class="cloud-price-specs">
+                  <n-input-number v-model:value="editor.form.spec_values.cpu_core" :min="1" placeholder="CPU 核心数" />
+                  <n-input-number v-model:value="editor.form.spec_values.mem_total" :min="1" placeholder="内存 GB" />
+                  <n-input-number v-model:value="editor.form.spec_values.disk_total" :min="1" placeholder="磁盘 GB" />
+                </div>
+              </n-form-item-gi>
+              <n-form-item-gi v-if="isPricingCloudProduct" label="DHCP 池" required>
+                <div class="dhcp-price-field">
+                  <n-select
+                    v-model:value="editor.form.dhcp_pool_id"
+                    filterable
+                    :loading="dhcpLoading"
+                    :options="options.dhcpPools"
+                    placeholder="根据产品地区选择 DHCP 池"
+                  />
+                  <div v-if="selectedDhcpPool" class="dhcp-pool-hint">
+                    VLAN {{ selectedDhcpPool.vlan }} · 下一个 IP {{ selectedDhcpPool.next_ip || '-' }} · 剩余 {{ selectedDhcpPool.available_count || 0 }} / {{ selectedDhcpPool.total_count || 0 }}
+                  </div>
+                </div>
+              </n-form-item-gi>
+              <n-form-item-gi v-else label="关联规格配置" required :span="2"><n-select v-model:value="editor.form.spec_config_key" filterable :options="pricingSpecConfigOptions" @update:value="handlePricingSpecConfigChange" /></n-form-item-gi>
+              <n-form-item-gi label="价格类型"><n-select v-model:value="editor.form.price_type" :options="options.priceTypes" @update:value="handlePricingTypeChange" /></n-form-item-gi>
+              <n-form-item-gi v-if="editor.form.price_type === 'customer'" label="客户"><n-select v-model:value="editor.form.customer_id" clearable filterable :options="options.customers" @update:value="handlePricingCustomerChange" /></n-form-item-gi>
               <n-form-item-gi label="计费单位"><n-select v-model:value="editor.form.billing_unit" :options="options.billingUnits" /></n-form-item-gi>
               <n-form-item-gi label="价格">
                 <n-input-group class="price-amount-field">
@@ -311,6 +344,7 @@ import {
   NFormItemGi,
   NGrid,
   NInput,
+  NInputGroup,
   NInputNumber,
   NPagination,
   NPopconfirm,
@@ -331,7 +365,7 @@ const modeMeta = {
   products: { title: '产品管理', keyword: '搜索产品名称 / 编码 / 地区', add: '新增产品', icon: 'mdi:plus-box-outline' },
   specs: { title: '规格管理', keyword: '搜索属性名称 / 编码 / 单位', add: '新增属性', icon: 'mdi:tune-variant' },
   configs: { title: '规格配置', keyword: '', add: '新增配置', icon: 'mdi:playlist-plus' },
-  pricing: { title: '客户价格', keyword: '搜索产品 / 客户', add: '新增价格', icon: 'mdi:cash-plus' },
+  pricing: { title: '价格管理', keyword: '搜索产品 / 客户', add: '新增价格', icon: 'mdi:cash-plus' },
   templates: { title: '产品模板', keyword: '搜索模板名称 / 说明', add: '新增模板', icon: 'mdi:file-plus-outline' },
 }
 
@@ -395,6 +429,7 @@ const categories = ref([])
 const expandedCategoryKeys = ref([])
 const popRegions = ref([])
 const editorInitializing = ref(false)
+const dhcpLoading = ref(false)
 const pagination = reactive({ page: 1, pageSize: 20, itemCount: 0, pageSizes: [20, 50, 100] })
 const configSortState = reactive({ columnKey: 'product_category_sort', order: 'ascend' })
 const query = reactive({ keyword: '', category_id: null, status: null, region: null, attr_type: null, product_id: null, spec_config_key: null, price_type: null, customer_id: null })
@@ -411,6 +446,7 @@ const options = reactive({
   billingUnits: [],
   attributeTypes: [],
   currencies: [],
+  dhcpPools: [],
 })
 const categoryModal = reactive({ show: false, loading: false, form: emptyCategory() })
 const editor = reactive({ show: false, loading: false, form: emptyForm() })
@@ -506,7 +542,7 @@ function renderSpecConfigAttributes(row) {
 
 function actionButtons(row) {
   return h('div', { class: 'table-actions' }, [
-    h(NButton, { size: 'small', secondary: true, type: 'info', style: { marginRight: '12px' }, onClick: () => openEditor(row) }, { icon: () => h(TheIcon, { icon: 'mdi:pencil', size: 15 }) }),
+    h(NButton, { size: 'small', secondary: true, type: 'info', onClick: () => openEditor(row) }, { icon: () => h(TheIcon, { icon: 'mdi:pencil', size: 15 }) }),
     h(NPopconfirm, { onPositiveClick: () => deleteRow(row) }, {
       trigger: () => h(NButton, { size: 'small', secondary: true, type: 'error' }, { icon: () => h(TheIcon, { icon: 'mdi:trash-can-outline', size: 15 }) }),
       default: () => '确认删除？',
@@ -578,6 +614,52 @@ const columns = computed(() => {
   return templateColumns
 })
 const editorTitle = computed(() => `${editor.form.id ? '编辑' : '新增'}${pageTitle.value.replace('管理', '').replace('配置', '配置')}`)
+const pricingProduct = computed(() => getProduct(editor.form.product_id))
+const isPricingCloudProduct = computed(() => isCategoryMatch(pricingProduct.value?.category_id, ['云主机']))
+const selectedDhcpPool = computed(() => options.dhcpPools.find((item) => String(item.value) === String(editor.form.dhcp_pool_id)))
+const pricingSpecConfigOptions = computed(() => {
+  const productId = editor.form.product_id
+  if (!productId) return []
+  return options.specConfigs.filter((item) => String(item.product_id) === String(productId))
+})
+
+const cloudOsOptions = [
+  {
+    label: 'Debian',
+    value: 'debian',
+    children: [
+      { label: '13 (trixie)', value: 'debian:13' },
+      { label: '12 (Bookworm)', value: 'debian:12' },
+      { label: '11 (Bullseye)', value: 'debian:11' },
+    ],
+  },
+  {
+    label: 'Ubuntu',
+    value: 'ubuntu',
+    children: [
+      { label: '25.04 LTS', value: 'ubuntu:25.04' },
+      { label: '24.04 LTS', value: 'ubuntu:24.04' },
+      { label: '22.04 LTS', value: 'ubuntu:22.04' },
+      { label: '20.04 LTS', value: 'ubuntu:20.04' },
+    ],
+  },
+  {
+    label: 'CentOS',
+    value: 'centos',
+    children: [{ label: '7.9', value: 'centos:7.9' }],
+  },
+]
+
+function todayText() {
+  const now = new Date()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${now.getFullYear()}-${month}-${day}`
+}
+
+function emptyCloudSpecValues() {
+  return { cpu_core: 2, mem_total: 2, disk_total: 20 }
+}
 
 function emptyCategory() {
   return { id: null, name: '', code: '', parent_id: null, order: 0, description: '', status: true }
@@ -587,7 +669,7 @@ function emptyForm() {
   if (props.mode === 'products') return { id: null, name: '', code: '', category_id: query.category_id, status: 'active', region: '', billing_mode: 'fixed', description: '' }
   if (props.mode === 'specs') return { id: null, name: '', code: '', category_id: query.category_id, category_ids: query.category_id ? [query.category_id] : [], attr_type: 'text', unit: '', required: false, options: '', description: '', status: true }
   if (props.mode === 'configs') return { id: null, product_id: query.product_id, configs: [emptyConfigLine()] }
-  if (props.mode === 'pricing') return { id: null, product_id: null, spec_config_key: query.spec_config_key, spec_config_name: '', price_type: query.price_type || 'standard', customer_id: null, customer_name: '', billing_mode: 'fixed', billing_unit: 'month', currency: 'USD', amount: 0, effective_date: null, expiry_date: null, status: 'active', remark: '' }
+  if (props.mode === 'pricing') return { id: null, product_id: null, spec_config_key: query.spec_config_key, spec_config_name: '', spec_values: emptyCloudSpecValues(), os_key: 'debian:12', os_type: 'debian', os_version: '12', dhcp_pool_id: null, price_type: query.price_type || 'standard', customer_id: null, customer_name: '', billing_mode: 'fixed', billing_unit: 'month', currency: 'USD', amount: 0, effective_date: todayText(), expiry_date: null, status: 'active', remark: '' }
   return { id: null, name: '', category_id: query.category_id, template_type: 'product', description: '', config: '', status: true }
 }
 
@@ -732,6 +814,21 @@ function openEditor(row = null) {
     }
     ;(editor.form.configs || []).forEach((line) => normalizeConfigLineValues(line))
   }
+  if (props.mode === 'pricing') {
+    editor.form.spec_values = pricingSpecValuesFromKey(editor.form.spec_config_key)
+    if (row?.dhcp_lease) {
+      editor.form.dhcp_pool_id = row.dhcp_lease.pool_id
+      editor.form.os_type = row.dhcp_lease.os_type || editor.form.os_type || 'debian'
+      editor.form.os_version = row.dhcp_lease.os_version || editor.form.os_version || '12'
+      editor.form.os_key = `${editor.form.os_type}:${editor.form.os_version}`
+      editor.form.spec_values = {
+        cpu_core: row.dhcp_lease.cpu_cores || editor.form.spec_values.cpu_core || 2,
+        mem_total: row.dhcp_lease.memory_gb || editor.form.spec_values.mem_total || 2,
+        disk_total: row.dhcp_lease.disk_gb || editor.form.spec_values.disk_total || 20,
+      }
+    }
+    loadPricingDhcpPools()
+  }
   if (!row) applyProductBillingDefault()
   editor.show = true
   nextTick(() => {
@@ -790,6 +887,11 @@ function categoryPathIds(categoryId) {
 
 function categoryIncludes(categoryId, names) {
   return categoryPathNames(categoryId).some((name) => names.includes(name))
+}
+
+function isCategoryMatch(categoryId, names) {
+  if (!categoryId) return false
+  return categoryIncludes(categoryId, names)
 }
 
 function specAttributeCategoryIdsForProduct(productId) {
@@ -911,6 +1013,54 @@ function handleConfigProductChange() {
   editor.form.configs = [emptyConfigLine()]
 }
 
+function handlePricingProductChange(value) {
+  const product = getProduct(value)
+  editor.form.spec_config_key = null
+  editor.form.spec_config_name = ''
+  editor.form.spec_values = emptyCloudSpecValues()
+  editor.form.billing_mode = product?.billing_mode || 'fixed'
+  editor.form.dhcp_pool_id = null
+  loadPricingDhcpPools()
+}
+
+function handlePricingOsChange(value) {
+  const [osType, osVersion] = String(value || '').split(':')
+  editor.form.os_type = osType || ''
+  editor.form.os_version = osVersion || ''
+}
+
+async function loadPricingDhcpPools() {
+  if (props.mode !== 'pricing') return
+  const product = getProduct(editor.form.product_id)
+  if (!product || !isCategoryMatch(product.category_id, ['云主机'])) {
+    options.dhcpPools = []
+    editor.form.dhcp_pool_id = null
+    return
+  }
+  dhcpLoading.value = true
+  try {
+    const res = await api.virtualMachineApi.dhcpPoolOptions({ region: product.region || product.label || '' })
+    options.dhcpPools = res.data || []
+    if (!editor.form.dhcp_pool_id && options.dhcpPools.length) {
+      editor.form.dhcp_pool_id = options.dhcpPools[0].value
+    }
+  } finally {
+    dhcpLoading.value = false
+  }
+}
+
+function pricingSpecValuesFromKey(specConfigKey) {
+  const specConfig = getSpecConfigOption(specConfigKey)
+  const values = emptyCloudSpecValues()
+  ;(specConfig?.attributes || []).forEach((item) => {
+    if (['cpu_core', 'mem_total', 'disk_total'].includes(item.code)) {
+      const numberValue = Number(item.value ?? item.default_value)
+      values[item.code] = Number.isFinite(numberValue) ? numberValue : null
+    }
+  })
+  return values
+}
+
 function getSpecConfigOption(specConfigKey) {
   return options.specConfigs.find((item) => String(item.value) === String(specConfigKey))
 }
@@ -919,7 +1069,15 @@ function handlePricingSpecConfigChange(value) {
   const specConfig = getSpecConfigOption(value)
   editor.form.product_id = specConfig?.product_id || null
   editor.form.spec_config_name = specConfig?.spec_name || ''
+  editor.form.spec_values = pricingSpecValuesFromKey(value)
   if (specConfig?.billing_mode) editor.form.billing_mode = specConfig.billing_mode
+}
+
+function handlePricingTypeChange(value) {
+  if (value !== 'customer') {
+    editor.form.customer_id = null
+    editor.form.customer_name = ''
+  }
 }
 
 function handlePricingCustomerChange(value) {
@@ -1243,7 +1401,30 @@ async function saveEditor() {
       if (payload.source_key || payload.config_ids?.length) await api.productCenterApi.updateSpecConfigGroup(payload)
       else await api.productCenterApi.createSpecConfig(payload)
     } else if (props.mode === 'pricing') {
-      if (!payload.spec_config_key) return window.$message?.warning('请选择规格配置')
+      if (!payload.product_id) return window.$message?.warning('请选择产品')
+      const product = getProduct(payload.product_id)
+      const isCloudProduct = isCategoryMatch(product?.category_id, ['云主机'])
+      if (isCloudProduct) {
+        payload.spec_config_key = null
+        payload.spec_config_name = ''
+        handlePricingOsChange(payload.os_key)
+        payload.spec_values = {
+          cpu_core: Number(payload.spec_values?.cpu_core || 0),
+          mem_total: Number(payload.spec_values?.mem_total || 0),
+          disk_total: Number(payload.spec_values?.disk_total || 0),
+        }
+        if (!payload.spec_values.cpu_core || !payload.spec_values.mem_total || !payload.spec_values.disk_total) return window.$message?.warning('请填写云主机 CPU、内存和磁盘规格')
+        if (!payload.os_type || !payload.os_version) return window.$message?.warning('请选择操作系统')
+        if (!payload.dhcp_pool_id) return window.$message?.warning('请选择 DHCP 池')
+      } else if (!payload.spec_config_key) {
+        return window.$message?.warning('请选择规格配置')
+      }
+      if (payload.price_type !== 'customer') {
+        payload.customer_id = null
+        payload.customer_name = ''
+      } else if (!payload.customer_id) {
+        return window.$message?.warning('请选择客户')
+      }
       const specConfig = getSpecConfigOption(payload.spec_config_key)
       if (specConfig) {
         payload.product_id = specConfig.product_id
@@ -1417,7 +1598,8 @@ onMounted(refreshAll)
 .table-actions {
   display: inline-flex;
   align-items: center;
-  gap: 0;
+  gap: 8px;
+  white-space: nowrap;
 }
 .category-tags {
   display: flex;
@@ -1530,6 +1712,21 @@ onMounted(refreshAll)
 .price-amount-field {
   width: 100%;
 }
+.cloud-price-specs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+  gap: 10px;
+}
+.dhcp-price-field {
+  width: 100%;
+}
+.dhcp-pool-hint {
+  margin-top: 8px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.6;
+}
 .price-amount-field :deep(.n-input-number) {
   flex: 1;
 }
@@ -1584,6 +1781,9 @@ onMounted(refreshAll)
   }
   .price-amount-field {
     display: flex;
+  }
+  .cloud-price-specs {
+    grid-template-columns: 1fr;
   }
   .price-currency-select {
     width: 84px !important;

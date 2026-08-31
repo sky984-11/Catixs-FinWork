@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from app.schemas.base import Fail, Success
 from app.settings.config import settings
+from app.api.v1.pve.dhcp import release_dhcp_lease, reserve_dhcp_lease
 
 router = APIRouter()
 
@@ -23,6 +24,7 @@ class VMNetworkConfig(BaseModel):
     dns: str | None = None
     gw: str | None = None
     vlan: int | None = None
+    dhcp_pool_id: int | None = None
     rate_limit: float | None = None
 
 
@@ -38,6 +40,7 @@ class VMCreateRequest(BaseModel):
     disk_gb: int
     password: str
     network: VMNetworkConfig
+    expire_at: Any | None = None
 
 
 def pdm_api_url(path: str) -> str:
@@ -545,7 +548,27 @@ async def create_options(node_ip: str = Query(..., description="PVE node IP or P
 async def create_vm(payload: VMCreateRequest):
     ssh_host = payload.region
     stdout = ""
+    reserved_lease_id = None
     try:
+        if payload.network.mode == "dhcp" and payload.network.dhcp_pool_id:
+            lease = await reserve_dhcp_lease(
+                payload.network.dhcp_pool_id,
+                os_type=payload.os_type,
+                os_version=payload.os_version,
+                cpu_cores=payload.cpu_cores,
+                memory_gb=payload.memory_gb,
+                disk_gb=payload.disk_gb,
+                expiry_date=payload.expire_at,
+                remark=payload.description or "",
+            )
+            if not lease:
+                return Fail(msg="所选 DHCP 池没有可用地址")
+            reserved_lease_id = lease.id
+            payload.network.mode = "static"
+            payload.network.ip = f"{lease.ip}/{str(lease.cidr).split('/', 1)[1]}" if "/" in str(lease.cidr) else lease.ip
+            payload.network.gw = str(lease.gateway).split("/", 1)[0]
+            payload.network.dns = payload.network.dns or "8.8.8.8"
+            payload.network.vlan = lease.vlan
         ssh_host = await resolve_create_host(payload.region)
         command = create_vm_command(payload)
         logger.info(
@@ -567,8 +590,10 @@ async def create_vm(payload: VMCreateRequest):
             stderr,
         )
         if exit_status != 0:
+            await release_dhcp_lease(reserved_lease_id)
             return Fail(msg=fail_message("创建虚拟机失败", stdout, stderr))
         if not await verify_vm_exists(ssh_host, payload.vm_name):
+            await release_dhcp_lease(reserved_lease_id)
             return Fail(
                 msg=fail_message(
                     "创建虚拟机失败，目标 PVE 节点未发现新虚拟机",
@@ -577,6 +602,7 @@ async def create_vm(payload: VMCreateRequest):
                 )
             )
     except Exception as exc:
+        await release_dhcp_lease(reserved_lease_id)
         logger.exception("submit PVE VM create failed: region={} vm_name={}", payload.region, payload.vm_name)
         return Fail(msg=f"创建虚拟机失败: {exc}")
 

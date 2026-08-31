@@ -5,5 +5,5 @@
 <script setup>
 import ProductCenterWorkbench from '../components/ProductCenterWorkbench.vue'
 
-defineOptions({ name: '客户价格' })
+defineOptions({ name: '价格管理' })
 </script>

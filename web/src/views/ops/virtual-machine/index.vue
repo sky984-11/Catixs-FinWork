@@ -331,6 +331,21 @@
                   <n-radio-button value="static">静态 IP</n-radio-button>
                 </n-radio-group>
               </n-form-item-gi>
+              <n-form-item-gi v-if="createModal.form.network.mode === 'dhcp'" label="DHCP 池" required>
+                <div class="vm-create-dhcp-field">
+                  <n-select
+                    v-model:value="createModal.form.network.dhcp_pool_id"
+                    :options="createDhcpPoolOptions"
+                    :loading="createModal.dhcpLoading"
+                    clearable
+                    filterable
+                    placeholder="从 DHCP 池中选择"
+                  />
+                  <div v-if="selectedCreateDhcpPool" class="vm-create-dhcp-hint">
+                    VLAN {{ selectedCreateDhcpPool.vlan }} · {{ selectedCreateDhcpPool.next_ip || '-' }} · 剩余 {{ selectedCreateDhcpPool.available_count || 0 }} / {{ selectedCreateDhcpPool.total_count || 0 }}
+                  </div>
+                </div>
+              </n-form-item-gi>
               <n-form-item-gi label="速率限制">
                 <n-input-number
                   v-model:value="createModal.form.network.rate_limit"
@@ -840,6 +855,8 @@ const createModal = reactive({
   sshHost: '',
   storages: [],
   osOptions: [],
+  dhcpPools: [],
+  dhcpLoading: false,
   createdConfig: null,
   form: createEmptyVmForm(),
 })
@@ -1011,6 +1028,16 @@ const nodeDeviceOptions = computed(() => {
       label: physicalDeviceOptionLabel(item),
     }))
 })
+
+const createDhcpPoolOptions = computed(() => createModal.dhcpPools.map((item) => ({
+  ...item,
+  label: item.label || `${item.region_name || item.region_code || '-'} / VLAN ${item.vlan} (${item.available_count || 0} 可用)`,
+  value: item.value || item.id,
+})))
+
+const selectedCreateDhcpPool = computed(() =>
+  createDhcpPoolOptions.value.find((item) => String(item.value) === String(createModal.form.network.dhcp_pool_id))
+)
 
 const nodeMenuOptions = computed(() => [
   {
@@ -1564,6 +1591,7 @@ function createEmptyVmForm() {
     password: generateRandomPassword(),
     network: {
       mode: 'dhcp',
+      dhcp_pool_id: null,
       ip: '',
       mask: '255.255.255.0',
       dns: '8.8.8.8',
@@ -1680,6 +1708,26 @@ function applyCreateOptions(options) {
   createModal.form.storage = createModal.form.storage || createModal.storages[0]?.value || ''
 }
 
+async function loadCreateDhcpPools() {
+  createModal.dhcpLoading = true
+  try {
+    const params = selectedNode.value?.region_id
+      ? { region_id: selectedNode.value.region_id }
+      : { region: selectedNode.value?.region_name || selectedNode.value?.location_name || '' }
+    const res = await api.virtualMachineApi.dhcpPoolOptions(params)
+    createModal.dhcpPools = res.data || []
+    const currentExists = createModal.dhcpPools.some((item) => String(item.value || item.id) === String(createModal.form.network.dhcp_pool_id))
+    if (!currentExists) {
+      createModal.form.network.dhcp_pool_id = createModal.dhcpPools.find((item) => Number(item.available_count || 0) > 0)?.value || null
+    }
+  } catch (error) {
+    createModal.dhcpPools = []
+    message.error(error.message || '读取 DHCP 池失败')
+  } finally {
+    createModal.dhcpLoading = false
+  }
+}
+
 async function preloadCreateOptions(nodeValue, { silent = true } = {}) {
   if (!nodeValue) return null
 
@@ -1726,10 +1774,12 @@ async function openCreateModal() {
   createModal.sshHost = ''
   createModal.storages = []
   createModal.osOptions = []
+  createModal.dhcpPools = []
   createModal.form = {
     ...createEmptyVmForm(),
     region: createTarget,
   }
+  loadCreateDhcpPools()
   const cached = createOptionsCache.get(createModal.form.region)
   if (cached?.data) {
     applyCreateOptions(cached.data)
@@ -1761,6 +1811,7 @@ function validateCreateForm() {
   if (!createModal.form.os_type || !createModal.form.os_version) return '请选择操作系统'
   if (!createModal.form.storage) return '请选择存储位置'
   if (!createModal.form.password || createModal.form.password.length < 6) return 'root 密码不能少于 6 位'
+  if (createModal.form.network.mode === 'dhcp' && !createModal.form.network.dhcp_pool_id) return '请选择 DHCP 池'
   if (createModal.form.network.mode === 'static') {
     if (!createModal.form.network.ip) return '请输入静态 IP/掩码'
     if (!createModal.form.network.gw) return '请输入网关'
@@ -1802,17 +1853,20 @@ function resetCreateModalForNext() {
   const osOptions = createModal.osOptions
   const storages = createModal.storages
   const sshHost = createModal.sshHost
+  const dhcpPools = createModal.dhcpPools
 
   createModal.created = false
   createModal.createdConfig = null
   createModal.osOptions = osOptions
   createModal.storages = storages
   createModal.sshHost = sshHost
+  createModal.dhcpPools = dhcpPools
   createModal.form = {
     ...createEmptyVmForm(),
     region,
     storage,
   }
+  createModal.form.network.dhcp_pool_id = dhcpPools.find((item) => Number(item.available_count || 0) > 0)?.value || null
 }
 
 function buildCreateVmDescription() {
@@ -2935,6 +2989,20 @@ onBeforeUnmount(() => {
   justify-content: flex-end;
 }
 
+.vm-create-dhcp-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.vm-create-dhcp-hint {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .vm-list-footer {
   display: flex;
   align-items: center;
@@ -3415,7 +3483,6 @@ html.dark .task-float-button {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     margin-left: 0;
   }
-
   .vm-list-actions :deep(.n-button) {
     width: 100%;
   }

@@ -266,6 +266,7 @@ async def init_menus():
     await ensure_syslog_menu()
     await ensure_akvorado_menu()
     await ensure_cloud_host_menu()
+    await ensure_cloud_dhcp_menu()
     await ensure_remote_assistance_menu()
     await remove_disabled_feature_menus()
     await ensure_business_party_menu()
@@ -411,7 +412,7 @@ async def ensure_product_center_menu():
             "component": "/product-center/configs",
         },
         {
-            "name": "客户价格",
+            "name": "价格管理",
             "path": "pricing",
             "order": 4,
             "icon": "mdi:cash-multiple",
@@ -851,6 +852,38 @@ async def ensure_cloud_host_menu():
     await Menu.create(menu_type=MenuType.MENU, **values)
 
 
+async def ensure_cloud_dhcp_menu():
+    ops_menu = await get_service_module_menu("/ops")
+    menu = await Menu.filter(path="/ops/dhcp-pools").first()
+    if not menu:
+        menu = await Menu.filter(component="/ops/dhcp-pools").first()
+    values = {
+        "name": "DHCP池",
+        "path": "/ops/dhcp-pools",
+        "order": 6,
+        "parent_id": ops_menu.id,
+        "icon": "mdi:router-network",
+        "is_hidden": False,
+        "component": "/ops/dhcp-pools",
+        "keepalive": False,
+        "redirect": "",
+    }
+    if menu:
+        changed = False
+        for field, value in values.items():
+            if getattr(menu, field) != value:
+                setattr(menu, field, value)
+                changed = True
+        if menu.menu_type != MenuType.MENU:
+            menu.menu_type = MenuType.MENU
+            changed = True
+        if changed:
+            await menu.save()
+        return
+
+    await Menu.create(menu_type=MenuType.MENU, **values)
+
+
 async def ensure_ipam_menu():
     ops_menu = await get_service_module_menu("/ops")
     ipam_menu = await Menu.filter(path="/ipam").first()
@@ -887,7 +920,7 @@ async def ensure_remote_assistance_menu():
     values = {
         "name": "运维日志",
         "path": "/remote-assistance",
-        "order": 6,
+        "order": 7,
         "parent_id": ops_menu.id,
         "icon": "mdi:account-hard-hat-outline",
         "is_hidden": False,
@@ -1513,6 +1546,115 @@ async def ensure_pve_node_binding_table():
         CREATE INDEX IF NOT EXISTS "idx_pve_node_b_region" ON "pve_node_binding" ("region_id");
         CREATE INDEX IF NOT EXISTS "idx_pve_node_b_location" ON "pve_node_binding" ("location_id");
         CREATE INDEX IF NOT EXISTS "idx_pve_node_b_device" ON "pve_node_binding" ("device_id");
+        """
+    )
+
+
+async def ensure_cloud_dhcp_tables():
+    if settings.DB_TYPE == "sqlite":
+        conn = Tortoise.get_connection("sqlite")
+        await conn.execute_script(
+            """
+            CREATE TABLE IF NOT EXISTS "cloud_dhcp_pool" (
+                "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                "created_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "updated_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "name" VARCHAR(120) NOT NULL,
+                "region_id" BIGINT,
+                "location_id" BIGINT,
+                "region_code" VARCHAR(40) NOT NULL,
+                "region_name" VARCHAR(120),
+                "vlan" INT NOT NULL,
+                "gateway" VARCHAR(64) NOT NULL,
+                "cidr" VARCHAR(64) NOT NULL,
+                "start_ip" VARCHAR(64) NOT NULL,
+                "end_ip" VARCHAR(64) NOT NULL,
+                "dns" VARCHAR(120),
+                "status" INT NOT NULL DEFAULT 1,
+                "remark" VARCHAR(500)
+            );
+            CREATE TABLE IF NOT EXISTS "cloud_dhcp_lease" (
+                "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                "created_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "updated_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "pool_id" BIGINT NOT NULL,
+                "product_id" BIGINT,
+                "price_id" BIGINT,
+                "ip" VARCHAR(64) NOT NULL,
+                "vlan" INT NOT NULL,
+                "gateway" VARCHAR(64) NOT NULL,
+                "cidr" VARCHAR(64) NOT NULL,
+                "os_type" VARCHAR(40),
+                "os_version" VARCHAR(40),
+                "cpu_cores" INT NOT NULL DEFAULT 2,
+                "memory_gb" INT NOT NULL DEFAULT 2,
+                "disk_gb" INT NOT NULL DEFAULT 20,
+                "expiry_date" DATE,
+                "status" VARCHAR(30) NOT NULL DEFAULT 'reserved',
+                "remark" VARCHAR(500)
+            );
+            CREATE INDEX IF NOT EXISTS "idx_cloud_dhcp_pool_region" ON "cloud_dhcp_pool" ("region_code");
+            CREATE INDEX IF NOT EXISTS "idx_cloud_dhcp_pool_vlan" ON "cloud_dhcp_pool" ("vlan");
+            CREATE INDEX IF NOT EXISTS "idx_cloud_dhcp_lease_pool" ON "cloud_dhcp_lease" ("pool_id");
+            CREATE INDEX IF NOT EXISTS "idx_cloud_dhcp_lease_price" ON "cloud_dhcp_lease" ("price_id");
+            CREATE UNIQUE INDEX IF NOT EXISTS "uid_cloud_dhcp_lease_pool_ip" ON "cloud_dhcp_lease" ("pool_id", "ip");
+            """
+        )
+        return
+
+    if settings.DB_TYPE != "postgres":
+        return
+
+    conn = Tortoise.get_connection("postgres")
+    await conn.execute_script(
+        """
+        CREATE TABLE IF NOT EXISTS "cloud_dhcp_pool" (
+            "id" BIGSERIAL NOT NULL PRIMARY KEY,
+            "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "updated_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "name" VARCHAR(120) NOT NULL,
+            "region_id" BIGINT REFERENCES "asset_region" ("id") ON DELETE SET NULL,
+            "location_id" BIGINT REFERENCES "asset_location" ("id") ON DELETE SET NULL,
+            "region_code" VARCHAR(40) NOT NULL,
+            "region_name" VARCHAR(120),
+            "vlan" INT NOT NULL,
+            "gateway" VARCHAR(64) NOT NULL,
+            "cidr" VARCHAR(64) NOT NULL,
+            "start_ip" VARCHAR(64) NOT NULL,
+            "end_ip" VARCHAR(64) NOT NULL,
+            "dns" VARCHAR(120),
+            "status" BOOLEAN NOT NULL DEFAULT TRUE,
+            "remark" VARCHAR(500)
+        );
+        CREATE TABLE IF NOT EXISTS "cloud_dhcp_lease" (
+            "id" BIGSERIAL NOT NULL PRIMARY KEY,
+            "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "updated_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "pool_id" BIGINT NOT NULL REFERENCES "cloud_dhcp_pool" ("id") ON DELETE CASCADE,
+            "product_id" BIGINT REFERENCES "product_item" ("id") ON DELETE SET NULL,
+            "price_id" BIGINT REFERENCES "product_price" ("id") ON DELETE SET NULL,
+            "ip" VARCHAR(64) NOT NULL,
+            "vlan" INT NOT NULL,
+            "gateway" VARCHAR(64) NOT NULL,
+            "cidr" VARCHAR(64) NOT NULL,
+            "os_type" VARCHAR(40),
+            "os_version" VARCHAR(40),
+            "cpu_cores" INT NOT NULL DEFAULT 2,
+            "memory_gb" INT NOT NULL DEFAULT 2,
+            "disk_gb" INT NOT NULL DEFAULT 20,
+            "expiry_date" DATE,
+            "status" VARCHAR(30) NOT NULL DEFAULT 'reserved',
+            "remark" VARCHAR(500)
+        );
+        ALTER TABLE IF EXISTS "cloud_dhcp_lease"
+            ADD COLUMN IF NOT EXISTS "expiry_date" DATE;
+        ALTER TABLE IF EXISTS "cloud_dhcp_pool"
+            ADD COLUMN IF NOT EXISTS "location_id" BIGINT REFERENCES "asset_location" ("id") ON DELETE SET NULL;
+        CREATE INDEX IF NOT EXISTS "idx_cloud_dhcp_pool_region" ON "cloud_dhcp_pool" ("region_code");
+        CREATE INDEX IF NOT EXISTS "idx_cloud_dhcp_pool_vlan" ON "cloud_dhcp_pool" ("vlan");
+        CREATE INDEX IF NOT EXISTS "idx_cloud_dhcp_lease_pool" ON "cloud_dhcp_lease" ("pool_id");
+        CREATE INDEX IF NOT EXISTS "idx_cloud_dhcp_lease_price" ON "cloud_dhcp_lease" ("price_id");
+        CREATE UNIQUE INDEX IF NOT EXISTS "uid_cloud_dhcp_lease_pool_ip" ON "cloud_dhcp_lease" ("pool_id", "ip");
         """
     )
 
@@ -2503,6 +2645,7 @@ async def init_db():
     await ensure_product_center_columns()
     await ensure_asset_columns()
     await ensure_pve_node_binding_table()
+    await ensure_cloud_dhcp_tables()
     await ensure_bill_columns()
     await ensure_project_columns()
     await ensure_requirement_columns()

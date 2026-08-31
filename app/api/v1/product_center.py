@@ -18,6 +18,7 @@ from app.models.product_center import (
     ProductTemplate,
 )
 from app.schemas.base import Fail, Success, SuccessExtra
+from app.api.v1.pve.dhcp import allocate_dhcp_for_price, lease_dict_for_price, release_price_dhcp
 from app.services.product_physical_server_sync import (
     CLOUD_VM_SOURCE,
     PHYSICAL_SERVER_SOURCE,
@@ -113,6 +114,10 @@ class PricePayload(BaseModel):
     product_id: int | None = None
     spec_config_key: str | None = Field(None, max_length=200)
     spec_config_name: str | None = Field(None, max_length=200)
+    spec_values: dict[str, Any] | None = None
+    os_type: str | None = Field(None, max_length=40)
+    os_version: str | None = Field(None, max_length=40)
+    dhcp_pool_id: int | None = None
     price_type: str = "standard"
     customer_id: int | None = None
     customer_name: str | None = Field(None, max_length=160)
@@ -201,6 +206,22 @@ async def product_sort_key(product: ProductItem) -> tuple[str, str, str]:
         str(product.name or "").casefold(),
         str(product.id or ""),
     )
+
+
+async def product_category_names(product: ProductItem) -> list[str]:
+    names: list[str] = []
+    current_id = product.category_id
+    while current_id:
+        category = await ProductCategory.get_or_none(id=current_id)
+        if not category:
+            break
+        names.insert(0, category.name or "")
+        current_id = category.parent_id
+    return names
+
+
+async def product_is_category(product: ProductItem, names: set[str]) -> bool:
+    return any(name in names for name in await product_category_names(product))
 
 
 async def product_snapshot(product_id: int) -> dict[str, str]:
@@ -697,8 +718,8 @@ async def spec_config_dict(config: ProductSpecConfig) -> dict[str, Any]:
     data["attr_type_label"] = label_of(ATTRIBUTE_TYPES, attribute.attr_type)
     data["unit"] = attribute.unit
     source_labels = {
-        PHYSICAL_SERVER_SOURCE: "机柜资源自动同步",
-        CLOUD_VM_SOURCE: "云资源自动同步",
+        PHYSICAL_SERVER_SOURCE: "机柜资源",
+        CLOUD_VM_SOURCE: "云资源",
     }
     data["source_label"] = source_labels.get(data.get("source_type"), "手动维护")
     return data
@@ -874,6 +895,65 @@ async def get_spec_config_group(group_key: str | None) -> dict[str, Any] | None:
     return None
 
 
+def clean_spec_value(value: Any) -> str:
+    text = str(value or "").strip()
+    if text.endswith(".0"):
+        text = text[:-2]
+    return text
+
+
+async def get_product_spec_attribute(product: ProductItem, code: str) -> ProductSpecAttribute | None:
+    category_ids = []
+    current_id = product.category_id
+    while current_id:
+        category_ids.insert(0, current_id)
+        category = await ProductCategory.get_or_none(id=current_id)
+        current_id = category.parent_id if category else None
+    attrs = await ProductSpecAttribute.filter(code=code, status=True).all()
+    for attr in attrs:
+        ids = normalize_category_ids(attr.category_ids or [], attr.category_id)
+        if not ids or any(item in ids for item in category_ids):
+            return attr
+    return attrs[0] if attrs else None
+
+
+async def ensure_cloud_price_spec_group(product: ProductItem, values: dict[str, Any] | None) -> dict[str, Any] | None:
+    spec_values = {
+        "cpu_core": clean_spec_value((values or {}).get("cpu_core")),
+        "mem_total": clean_spec_value((values or {}).get("mem_total")),
+        "disk_total": clean_spec_value((values or {}).get("disk_total")),
+    }
+    if not all(spec_values.values()):
+        return None
+    source_key = f'price-cloud:{product.id}:{spec_values["cpu_core"]}c:{spec_values["mem_total"]}g:{spec_values["disk_total"]}g'
+    attrs = []
+    for index, code in enumerate(("cpu_core", "mem_total", "disk_total")):
+        attr = await get_product_spec_attribute(product, code)
+        if not attr:
+            return None
+        attrs.append((index, code, attr))
+    snapshot = await product_snapshot(product.id)
+    created_or_updated: list[ProductSpecConfig] = []
+    for index, code, attr in attrs:
+        config, _ = await ProductSpecConfig.update_or_create(
+            product_id=product.id,
+            attribute_id=attr.id,
+            source_key=source_key,
+            defaults={
+                "order": index,
+                "default_value": spec_values[code],
+                "value_range": "",
+                "required": True,
+                "source_type": "price_cloud_custom",
+                "source_id": None,
+                "auto_sync": False,
+                **snapshot,
+            },
+        )
+        created_or_updated.append(config)
+    return await spec_config_group_dict([await spec_config_dict(item) for item in created_or_updated])
+
+
 async def price_dict(price: ProductPrice) -> dict[str, Any]:
     data = await price.to_dict()
     product = await price.product
@@ -885,6 +965,7 @@ async def price_dict(price: ProductPrice) -> dict[str, Any]:
     data["billing_unit_label"] = label_of(BILLING_UNITS, data.get("billing_unit"))
     data["amount"] = float(data.get("amount") or 0)
     data["min_amount"] = float(data.get("min_amount") or 0) if data.get("min_amount") is not None else None
+    data["dhcp_lease"] = await lease_dict_for_price(price.id)
     return data
 
 
@@ -902,6 +983,7 @@ async def options():
     categories = await ProductCategory.filter(status=True).order_by("level", "order", "name")
     products = await ProductItem.filter(status="active").all()
     product_sort_keys = {item.id: await product_sort_key(item) for item in products}
+    product_category_map = {item.id: await product_category_names(item) for item in products}
     products.sort(key=lambda item: product_sort_keys.get(item.id, ("", "", "")))
     attributes = await ProductSpecAttribute.filter(status=True).order_by("category_id", "name").values("id", "name", "code", "attr_type", "unit", "options", "category_id", "category_ids")
     customers = await CrmCustomer.filter(status=True).exclude(lifecycle="terminated").order_by("name").values("id", "name", "legal_name")
@@ -915,7 +997,10 @@ async def options():
                     "value": item.id,
                     "code": item.code,
                     "billing_mode": item.billing_mode,
+                    "region": item.region,
                     "category_id": item.category_id,
+                    "category_path": product_category_map.get(item.id, []),
+                    "category_name": (product_category_map.get(item.id, []) or [""])[-1],
                 }
                 for item in products
             ],
@@ -926,6 +1011,9 @@ async def options():
                     "product_id": item.get("product_id"),
                     "product_name": item.get("product_name"),
                     "spec_name": item.get("spec_name"),
+                    "source_type": item.get("source_type"),
+                    "attributes": item.get("attributes") or [],
+                    "product_category_name": item.get("product_category_name"),
                     "billing_mode": next(
                         (product.billing_mode for product in products if product.id == item.get("product_id")),
                         "fixed",
@@ -1107,7 +1195,7 @@ async def delete_product(product_id: int):
     if config_count:
         refs.append(f"规格配置中的手动配置 {config_count} 条")
     if price_count:
-        refs.append(f"客户价格中的价格记录 {price_count} 条")
+        refs.append(f"价格管理中的价格记录 {price_count} 条")
     if refs:
         return Fail(msg=delete_block_msg("产品", refs))
     await ProductItem.filter(id=product_id).delete()
@@ -1359,6 +1447,10 @@ async def list_prices(
 
 async def price_payload_data(payload: PricePayload) -> tuple[dict[str, Any] | None, str | None]:
     data = compact(payload.model_dump())
+    spec_values = data.pop("spec_values", None)
+    data.pop("os_type", None)
+    data.pop("os_version", None)
+    data.pop("dhcp_pool_id", None)
     if data.get("spec_config_key"):
         group = await get_spec_config_group(data.get("spec_config_key"))
         if not group:
@@ -1366,10 +1458,19 @@ async def price_payload_data(payload: PricePayload) -> tuple[dict[str, Any] | No
         data["product_id"] = group.get("product_id")
         data["spec_config_name"] = group.get("spec_name") or data.get("spec_config_name")
     if not data.get("product_id"):
-        return None, "请选择规格配置"
+        return None, "请选择产品"
     product = await ProductItem.get_or_none(id=data.get("product_id"))
     if not product:
         return None, "关联产品不存在"
+    if not data.get("spec_config_key"):
+        if await product_is_category(product, {"云主机"}):
+            group = await ensure_cloud_price_spec_group(product, spec_values)
+            if not group:
+                return None, "请填写云主机 CPU、内存和磁盘规格，并确认规格属性已维护"
+            data["spec_config_key"] = group.get("id")
+            data["spec_config_name"] = group.get("spec_name") or data.get("spec_config_name")
+        else:
+            return None, "请选择规格配置"
     data["billing_mode"] = product.billing_mode or "fixed"
     data.pop("min_amount", None)
     data.pop("tier_rules", None)
@@ -1388,6 +1489,20 @@ async def create_price(payload: PricePayload):
     if error:
         return Fail(msg=error)
     price = await ProductPrice.create(**data)
+    product = await price.product
+    if await product_is_category(product, {"云主机"}):
+        lease = await allocate_dhcp_for_price(
+            price,
+            product,
+            payload.spec_values,
+            os_type=payload.os_type,
+            os_version=payload.os_version,
+            expiry_date=payload.expiry_date,
+            pool_id=payload.dhcp_pool_id,
+        )
+        if not lease:
+            await ProductPrice.filter(id=price.id).delete()
+            return Fail(msg="当前产品地区没有可用 DHCP 地址，请先维护 DHCP 池或释放地址")
     return Success(msg="产品价格已创建", data=await price_dict(price))
 
 
@@ -1397,11 +1512,28 @@ async def update_price(price_id: int, payload: PricePayload):
     if error:
         return Fail(msg=error)
     await ProductPrice.filter(id=price_id).update(**data)
-    return Success(msg="产品价格已更新", data=await price_dict(await ProductPrice.get(id=price_id)))
+    price = await ProductPrice.get(id=price_id)
+    product = await price.product
+    if await product_is_category(product, {"云主机"}):
+        lease = await allocate_dhcp_for_price(
+            price,
+            product,
+            payload.spec_values,
+            os_type=payload.os_type,
+            os_version=payload.os_version,
+            expiry_date=payload.expiry_date,
+            pool_id=payload.dhcp_pool_id,
+        )
+        if not lease:
+            return Fail(msg="当前产品地区没有可用 DHCP 地址，请先维护 DHCP 池或释放地址")
+    else:
+        await release_price_dhcp(price.id)
+    return Success(msg="产品价格已更新", data=await price_dict(price))
 
 
 @router.delete("/prices/{price_id}", summary="删除产品价格")
 async def delete_price(price_id: int):
+    await release_price_dhcp(price_id)
     await ProductPrice.filter(id=price_id).delete()
     return Success(msg="产品价格已删除")
 

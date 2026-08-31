@@ -107,6 +107,69 @@ class PveNodeBinding(BaseModel, TimestampMixin):
         table = "pve_node_binding"
 
 
+class CloudDhcpPool(BaseModel, TimestampMixin):
+    name = fields.CharField(max_length=120, description="DHCP pool name", index=True)
+    region = fields.ForeignKeyField(
+        "models.AssetRegion",
+        related_name="cloud_dhcp_pools",
+        null=True,
+        on_delete=fields.SET_NULL,
+        description="Related region",
+    )
+    location = fields.ForeignKeyField(
+        "models.AssetLocation",
+        related_name="cloud_dhcp_pools",
+        null=True,
+        on_delete=fields.SET_NULL,
+        description="Related location",
+    )
+    region_code = fields.CharField(max_length=40, description="Region code", index=True)
+    region_name = fields.CharField(max_length=120, null=True, description="Region name", index=True)
+    vlan = fields.IntField(description="VLAN", index=True)
+    gateway = fields.CharField(max_length=64, description="Gateway")
+    cidr = fields.CharField(max_length=64, description="CIDR")
+    start_ip = fields.CharField(max_length=64, description="Start IP")
+    end_ip = fields.CharField(max_length=64, description="End IP")
+    dns = fields.CharField(max_length=120, null=True, description="DNS")
+    status = fields.BooleanField(default=True, description="Enabled", index=True)
+    remark = fields.CharField(max_length=500, null=True, description="Remark")
+
+    class Meta:
+        table = "cloud_dhcp_pool"
+
+
+class CloudDhcpLease(BaseModel, TimestampMixin):
+    pool = fields.ForeignKeyField("models.CloudDhcpPool", related_name="leases", on_delete=fields.CASCADE)
+    product = fields.ForeignKeyField(
+        "models.ProductItem",
+        related_name="dhcp_leases",
+        null=True,
+        on_delete=fields.SET_NULL,
+    )
+    price = fields.ForeignKeyField(
+        "models.ProductPrice",
+        related_name="dhcp_leases",
+        null=True,
+        on_delete=fields.SET_NULL,
+    )
+    ip = fields.CharField(max_length=64, description="Allocated IP", index=True)
+    vlan = fields.IntField(description="VLAN", index=True)
+    gateway = fields.CharField(max_length=64, description="Gateway")
+    cidr = fields.CharField(max_length=64, description="CIDR")
+    os_type = fields.CharField(max_length=40, null=True, description="OS type")
+    os_version = fields.CharField(max_length=40, null=True, description="OS version")
+    cpu_cores = fields.IntField(default=2, description="CPU cores")
+    memory_gb = fields.IntField(default=2, description="Memory GB")
+    disk_gb = fields.IntField(default=20, description="Disk GB")
+    expiry_date = fields.DateField(null=True, description="Expiry date", index=True)
+    status = fields.CharField(max_length=30, default="reserved", description="Lease status", index=True)
+    remark = fields.CharField(max_length=500, null=True, description="Remark")
+
+    class Meta:
+        table = "cloud_dhcp_lease"
+        unique_together = (("pool", "ip"),)
+
+
 class AssetDeviceBrand(BaseModel, TimestampMixin):
     name = fields.CharField(max_length=100, description="品牌名称", unique=True, index=True)
     sort = fields.IntField(default=0, description="排序")
