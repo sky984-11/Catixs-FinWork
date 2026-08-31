@@ -74,12 +74,7 @@
             </n-gi>
             <n-gi>
               <n-form-item label="网关" required>
-                <n-input v-model:value="editor.form.gateway" placeholder="45.67.201.249/29" />
-              </n-form-item>
-            </n-gi>
-            <n-gi>
-              <n-form-item label="CIDR" required>
-                <n-input v-model:value="editor.form.cidr" placeholder="45.67.201.248/29" />
+                <n-input v-model:value="editor.form.gateway" placeholder="例如 192.0.2.1/29" />
               </n-form-item>
             </n-gi>
             <n-gi>
@@ -89,12 +84,12 @@
             </n-gi>
             <n-gi>
               <n-form-item label="开始 IP" required>
-                <n-input v-model:value="editor.form.start_ip" placeholder="45.67.201.250" />
+                <n-input v-model:value="editor.form.start_ip" placeholder="起始可分配 IP" />
               </n-form-item>
             </n-gi>
             <n-gi>
               <n-form-item label="结束 IP" required>
-                <n-input v-model:value="editor.form.end_ip" placeholder="45.67.201.254" />
+                <n-input v-model:value="editor.form.end_ip" placeholder="结束可分配 IP" />
               </n-form-item>
             </n-gi>
             <n-gi>
@@ -162,7 +157,6 @@ const columns = [
   { title: '地址池', key: 'range', width: 250, render: (row) => `${row.start_ip || '-'} - ${row.end_ip || '-'}` },
   { title: '网关', key: 'gateway', width: 170 },
   { title: '剩余', key: 'available_count', width: 120, render: (row) => `${row.available_count || 0} / ${row.total_count || 0}` },
-  { title: '下一个 IP', key: 'next_ip', width: 150, render: (row) => row.next_ip || '-' },
   {
     title: '状态',
     key: 'status',
@@ -216,7 +210,6 @@ function emptyForm() {
     location_key: null,
     vlan: 199,
     gateway: '',
-    cidr: '',
     start_ip: '',
     end_ip: '',
     dns: '8.8.8.8',
@@ -268,8 +261,9 @@ function openEditor(row = null) {
 
 async function savePool() {
   const payload = { ...editor.form }
-  if (!payload.name || (!payload.region_id && !payload.region_code) || !payload.vlan || !payload.gateway || !payload.cidr || !payload.start_ip || !payload.end_ip) {
-    message.warning('请填写池名称、地区/机房、VLAN、网关、CIDR 和 IP 段')
+  delete payload.cidr
+  if (!payload.name || (!payload.region_id && !payload.region_code) || !payload.vlan || !payload.gateway || !payload.start_ip || !payload.end_ip) {
+    message.warning('请填写池名称、地区/机房、VLAN、网关和 IP 段')
     return
   }
   editor.loading = true

@@ -21,7 +21,7 @@ class DhcpPoolPayload(BaseModel):
     location_id: int | None = None
     vlan: int
     gateway: str = Field(..., max_length=64)
-    cidr: str = Field(..., max_length=64)
+    cidr: str | None = Field(None, max_length=64)
     start_ip: str = Field(..., max_length=64)
     end_ip: str = Field(..., max_length=64)
     dns: str | None = Field(None, max_length=120)
@@ -71,12 +71,17 @@ def ip_range(start_ip: str, end_ip: str) -> list[str]:
 
 def validate_pool_ips(data: dict[str, Any]) -> str | None:
     try:
+        if "/" not in str(data["gateway"]):
+            return "网关必须包含掩码，例如 91.124.6.225/29"
         ipaddress.ip_interface(data["gateway"])
-        ipaddress.ip_network(data["cidr"], strict=False)
         ip_range(data["start_ip"], data["end_ip"])
     except ValueError as exc:
         return str(exc)
     return None
+
+
+def cidr_from_gateway(gateway: str) -> str:
+    return str(ipaddress.ip_interface(gateway).network)
 
 
 def expiry_remark(expiry_date: Any | None) -> str:
@@ -225,6 +230,7 @@ async def build_pool_data(payload: DhcpPoolPayload) -> dict[str, Any]:
     data["region_id"] = region.id if region else None
     data["location_id"] = location.id if location else None
     data["region_name"] = f"{region.country or ''} / {region.city or region.name or ''}".strip(" /") if region else data["region_code"]
+    data["cidr"] = data.get("cidr") or cidr_from_gateway(data["gateway"])
     return data
 
 
