@@ -833,7 +833,7 @@ async def ensure_cloud_host_menu():
         "icon": "mdi:server-network",
         "is_hidden": False,
         "component": "/ops/virtual-machine",
-        "keepalive": False,
+        "keepalive": True,
         "redirect": "",
     }
     if menu:
