@@ -14,7 +14,7 @@
             </template>
             重启虚拟机
           </n-button>
-          <n-button @click="router.back()">返回</n-button>
+          <n-button @click="goBackToList">返回</n-button>
           <n-button type="primary" :loading="saving" @click="saveConfig">保存配置</n-button>
         </n-space>
       </div>
@@ -131,6 +131,8 @@ const remote = computed(() => String(route.query.remote || ''))
 const vmid = computed(() => Number(route.query.vmid || 0))
 const vmType = computed(() => String(route.query.type || 'pve-qemu'))
 const vmName = computed(() => String(route.query.name || `VM ${vmid.value}`))
+const returnPath = computed(() => String(route.query.return_path || '/ops/virtual-machine'))
+const VM_EDIT_PATCH_STORAGE_KEY = 'ops.virtualMachine.editPatch'
 
 const form = reactive({
   cores: 1,
@@ -237,6 +239,32 @@ function handleCustomerChange(value, option) {
   form.customer_name = value ? option?.label || '' : ''
 }
 
+function rememberVmEditPatch(payload) {
+  try {
+    sessionStorage.setItem(
+      VM_EDIT_PATCH_STORAGE_KEY,
+      JSON.stringify({
+        ...payload,
+        remote: remote.value,
+        vmid: vmid.value,
+        type: vmType.value,
+        selected_node: route.query.selected_node || remote.value,
+      })
+    )
+  } catch (_error) {
+    // ignore storage failures
+  }
+}
+
+function goBackToList() {
+  router.replace({
+    path: returnPath.value,
+    query: {
+      selected_node: route.query.selected_node || remote.value,
+    },
+  })
+}
+
 function sameNumber(a, b) {
   return Math.abs(Number(a || 0) - Number(b || 0)) < 0.001
 }
@@ -322,6 +350,7 @@ async function saveConfig() {
       if (payload.networks?.length) config.value.networks = form.networks.map(comparableNetwork)
     }
     deletedNetworks.value = []
+    rememberVmEditPatch(payload)
   } catch (error) {
     message.error(error.message || '保存虚拟机配置失败')
   } finally {

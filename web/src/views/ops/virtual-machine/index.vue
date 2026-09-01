@@ -816,7 +816,7 @@
 
 <script setup>
 import { computed, h, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useWindowSize } from '@vueuse/core'
 import { Button as VanButton, Empty as VanEmpty, Skeleton as VanSkeleton, Tag as VanTag } from 'vant'
 import { NButton, NSpace, NTag, useDialog, useMessage } from 'naive-ui'
@@ -829,6 +829,7 @@ import { translateCity, translateCountry, translateLocationPath } from '@/utils/
 const message = useMessage()
 const dialog = useDialog()
 const router = useRouter()
+const route = useRoute()
 const { width: viewportWidth } = useWindowSize()
 const isMobileVmView = computed(() => viewportWidth.value <= 768)
 const createFormCols = computed(() => (isMobileVmView.value ? 1 : 2))
@@ -863,6 +864,9 @@ const poweringVmKeys = reactive({})
 const deletingVmKeys = reactive({})
 let vmIpRequestId = 0
 const VM_SELECTED_NODE_STORAGE_KEY = 'ops.virtualMachine.selectedNode'
+const VM_PAGE_CACHE_STORAGE_KEY = 'ops.virtualMachine.pageCache'
+const VM_EDIT_PATCH_STORAGE_KEY = 'ops.virtualMachine.editPatch'
+const VM_PAGE_CACHE_TTL = 5 * 60 * 1000
 const nodeRemarkCache = reactive({})
 const vmSummary = reactive({
   total: 0,
@@ -1170,6 +1174,8 @@ const consoleTitle = computed(() => {
 })
 
 function readRememberedNodeValue() {
+  const routeNode = String(route.query.selected_node || '').trim()
+  if (routeNode) return routeNode
   try {
     return localStorage.getItem(VM_SELECTED_NODE_STORAGE_KEY) || ''
   } catch (_error) {
@@ -1196,6 +1202,113 @@ function forgetSelectedNode() {
   } catch (_error) {
     // ignore storage failures
   }
+}
+
+function vmIdentity(row) {
+  return `${row?.remote || ''}|${row?.type || 'pve-qemu'}|${row?.vmid || ''}`
+}
+
+function gbToBytes(value) {
+  const number = Number(value)
+  if (!Number.isFinite(number) || number <= 0) return undefined
+  return Math.round(number * 1024 * 1024 * 1024)
+}
+
+function saveVmPageCache() {
+  try {
+    sessionStorage.setItem(
+      VM_PAGE_CACHE_STORAGE_KEY,
+      JSON.stringify({
+        cached_at: Date.now(),
+        selected_node: selectedNode.value?.value || '',
+        vms_node: selectedNode.value?.value || '',
+        nodes: nodeOptions.value,
+        vms: vmList.value,
+        summary: { ...vmSummary },
+        pagination: {
+          page: pagination.page,
+          pageSize: pagination.pageSize,
+          itemCount: pagination.itemCount,
+        },
+      })
+    )
+  } catch (_error) {
+    // ignore storage failures
+  }
+}
+
+function readVmPageCache() {
+  try {
+    const raw = sessionStorage.getItem(VM_PAGE_CACHE_STORAGE_KEY)
+    if (!raw) return null
+    const cache = JSON.parse(raw)
+    if (!cache?.cached_at || Date.now() - Number(cache.cached_at) > VM_PAGE_CACHE_TTL) {
+      sessionStorage.removeItem(VM_PAGE_CACHE_STORAGE_KEY)
+      return null
+    }
+    return cache
+  } catch (_error) {
+    return null
+  }
+}
+
+function buildVmRowPatch(patch) {
+  const rowPatch = {}
+  if (patch.vm_name || patch.name) rowPatch.name = patch.vm_name || patch.name
+  if (Object.prototype.hasOwnProperty.call(patch, 'customer_id')) rowPatch.customer_id = patch.customer_id || null
+  if (Object.prototype.hasOwnProperty.call(patch, 'customer_name')) rowPatch.customer_name = patch.customer_name || ''
+  if (patch.cores !== undefined) rowPatch.maxcpu = Number(patch.cores) || 0
+  const memoryBytes = gbToBytes(patch.memory_gb)
+  if (memoryBytes !== undefined) rowPatch.maxmem = memoryBytes
+  const diskBytes = gbToBytes(patch.disk_gb)
+  if (diskBytes !== undefined) rowPatch.maxdisk = diskBytes
+  return rowPatch
+}
+
+function applyPendingVmEditPatch() {
+  try {
+    const raw = sessionStorage.getItem(VM_EDIT_PATCH_STORAGE_KEY)
+    if (!raw) return false
+    sessionStorage.removeItem(VM_EDIT_PATCH_STORAGE_KEY)
+    const patch = JSON.parse(raw)
+    if (!patch?.remote || !patch?.vmid) return false
+    const patchNode = patch.selected_node || patch.remote
+    if (selectedNode.value?.value && patchNode && selectedNode.value.value !== patchNode) return false
+    const rowPatch = buildVmRowPatch(patch)
+    let changed = false
+    vmList.value = vmList.value.map((vm) => {
+      if (vmIdentity(vm) !== vmIdentity(patch)) return vm
+      changed = true
+      return { ...vm, ...rowPatch }
+    })
+    if (changed) {
+      tableRenderKey.value += 1
+      saveVmPageCache()
+    }
+    return changed
+  } catch (_error) {
+    return false
+  }
+}
+
+function hydrateVmPageFromCache() {
+  const cache = readVmPageCache()
+  if (!cache?.nodes?.length) return false
+  nodeOptions.value = cache.nodes || []
+  const selectedValue = readRememberedNodeValue() || cache.selected_node
+  selectedNode.value =
+    nodeOptions.value.find((node) => node.value === selectedValue || node.remote === selectedValue) ||
+    nodeOptions.value[0] ||
+    null
+  if ((cache.vms_node || '') !== (selectedNode.value?.value || '')) return false
+  vmList.value = (cache.vms || []).map((vm) => ({ ...vm, ip_loading: false }))
+  Object.assign(vmSummary, cache.summary || { total: vmList.value.length, running: 0, stopped: 0 })
+  pagination.page = Number(cache.pagination?.page || 1)
+  pagination.pageSize = Number(cache.pagination?.pageSize || pagination.pageSize)
+  pagination.itemCount = Number(cache.pagination?.itemCount || vmList.value.length)
+  applyPendingVmEditPatch()
+  tableRenderKey.value += 1
+  return true
 }
 
 function noVncCellProps() {
@@ -1413,6 +1526,8 @@ function openEditVm(row) {
       type: row.type || 'pve-qemu',
       node: row.node || '',
       name: row.name || `VM ${row.vmid}`,
+      return_path: '/ops/virtual-machine',
+      selected_node: selectedNode.value?.value || row.remote,
     },
   })
 }
@@ -2660,6 +2775,7 @@ async function fetchVms({ resetPage = true, silent = false } = {}) {
     }
     await nextTick()
     tableRenderKey.value += 1
+    saveVmPageCache()
   } catch (error) {
     vmIpRequestId += 1
     vmList.value = []
@@ -2851,6 +2967,9 @@ function formatTimestamp(value) {
 }
 
 onMounted(async () => {
+  if (hydrateVmPageFromCache()) {
+    return
+  }
   await fetchNodes()
   await fetchVms()
 })

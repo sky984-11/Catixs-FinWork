@@ -252,3 +252,9 @@ Docker is optional. The current recommended deployment path is Nixpacks. If Dock
             └── workbench  // 工作台页面
 ```
 
+### CODEX调教指南
+
+1. 一个会话一个任务
+2. 固定模型，不中途切换
+3. 一次说完 > 分多条
+4. 给精确路径 > 模糊搜索
