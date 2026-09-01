@@ -258,3 +258,31 @@ Docker is optional. The current recommended deployment path is Nixpacks. If Dock
 2. 固定模型，不中途切换
 3. 一次说完 > 分多条
 4. 给精确路径 > 模糊搜索
+
+#### 问答规范实例
+任务：
+修复订单取消后库存没有恢复的问题。
+
+技术栈：
+Go + Gin + PostgreSQL
+
+相关文件：
+src/service/order.go
+src/service/inventory.go
+src/repository/inventory.go
+
+约束：
+- 不修改数据库结构
+- 保持现有架构
+- 不引入新依赖
+
+验收：
+- CancelOrder() 正常恢复库存
+- 重复取消不会重复恢复
+- 相关测试通过
+
+请直接修改代码并运行测试。
+完成后只告诉我：
+1. 修改了什么
+2. 测试结果
+3. 是否还有风险
