@@ -240,7 +240,15 @@
                     <VanButton size="small" plain type="primary" icon="edit" @click.stop="openEditVm(vm)">
                       编辑
                     </VanButton>
-                    <VanButton size="small" plain type="danger" icon="delete-o" @click.stop="confirmDeleteVm(vm)">
+                    <VanButton
+                      size="small"
+                      plain
+                      type="danger"
+                      icon="delete-o"
+                      :loading="isVmDeleting(vm)"
+                      :disabled="isVmDeleting(vm)"
+                      @click.stop="confirmDeleteVm(vm)"
+                    >
                       删除
                     </VanButton>
                     <VanButton size="small" plain type="warning" icon="share-o" @click.stop="openMigration(vm)">
@@ -852,6 +860,7 @@ const customerOptions = ref([])
 const selectedNode = ref(null)
 const vmList = ref([])
 const poweringVmKeys = reactive({})
+const deletingVmKeys = reactive({})
 let vmIpRequestId = 0
 const VM_SELECTED_NODE_STORAGE_KEY = 'ops.virtualMachine.selectedNode'
 const nodeRemarkCache = reactive({})
@@ -1425,6 +1434,9 @@ function openNodeMonitor(node) {
 }
 
 function actionButton(label, icon, type, row, className = '', handler = null) {
+  const isPowerAction = label === '关机' || label === '开机'
+  const isDeleteAction = label === '删除'
+  const actionLoading = isPowerAction ? isVmPowering(row) : isDeleteAction ? isVmDeleting(row) : false
   return h(
     NButton,
     {
@@ -1433,11 +1445,11 @@ function actionButton(label, icon, type, row, className = '', handler = null) {
       round: true,
       secondary: true,
       type,
-      loading: label === '关机' || label === '开机' ? isVmPowering(row) : false,
-      disabled: label === '关机' || label === '开机' ? isVmPowering(row) : false,
+      loading: actionLoading,
+      disabled: actionLoading,
       onClick: (event) => {
         event.stopPropagation()
-        if ((label === '关机' || label === '开机') && isVmPowering(row)) return
+        if (actionLoading) return
         if (handler) {
           handler(row)
           return
@@ -1491,19 +1503,38 @@ function vmPowerKey(row) {
   return `${row.remote}:${row.vmid}`
 }
 
+function vmActionKey(row) {
+  return vmPowerKey(row)
+}
+
 function isVmPowering(row) {
-  const key = vmPowerKey(row)
+  const key = vmActionKey(row)
   return Boolean(key && poweringVmKeys[key])
 }
 
 function setVmPowering(row, value) {
-  const key = vmPowerKey(row)
+  const key = vmActionKey(row)
   if (!key) return
   if (value) {
     poweringVmKeys[key] = true
     return
   }
   delete poweringVmKeys[key]
+}
+
+function isVmDeleting(row) {
+  const key = vmActionKey(row)
+  return Boolean(key && deletingVmKeys[key])
+}
+
+function setVmDeleting(row, value) {
+  const key = vmActionKey(row)
+  if (!key) return
+  if (value) {
+    deletingVmKeys[key] = true
+    return
+  }
+  delete deletingVmKeys[key]
 }
 
 function findVmStatus(row) {
@@ -1563,7 +1594,9 @@ function handlePowerVm(row) {
       content: `确认关闭 ${row.name || `VM ${row.vmid}`} 吗？`,
       positiveText: '关机',
       negativeText: '取消',
-      onPositiveClick: () => executePowerVm(row),
+      onPositiveClick: () => {
+        executePowerVm(row)
+      },
     })
     return
   }
@@ -1628,26 +1661,33 @@ function confirmDeleteVm(row) {
     positiveText: '删除',
     negativeText: '取消',
     onPositiveClick: () => {
-      const payload = {
-        remote: row.remote,
-        vmid: row.vmid,
-        type: row.type,
-        node: row.node || undefined,
-        status: row.status,
-        name: row.name || '',
-      }
-      message.success('删除请求已发送，请稍后刷新列表查看')
-      api.virtualMachineApi
-        .deleteVm(payload)
-        .then(async () => {
-          await fetchVms()
-          await loadCreateDhcpPools()
-        })
-        .catch((error) => {
-          message.error(error.message || '删除虚拟机失败')
-        })
+      executeDeleteVm(row)
     },
   })
+}
+
+async function executeDeleteVm(row) {
+  if (isVmDeleting(row)) return
+  setVmDeleting(row, true)
+  const payload = {
+    remote: row.remote,
+    vmid: row.vmid,
+    type: row.type,
+    node: row.node || undefined,
+    status: row.status,
+    name: row.name || '',
+  }
+  message.loading('删除请求已发送，正在等待处理...', { duration: 1800 })
+  try {
+    await api.virtualMachineApi.deleteVm(payload)
+    await fetchVms()
+    await loadCreateDhcpPools()
+    message.success('删除完成')
+  } catch (error) {
+    message.error(error.message || '删除虚拟机失败')
+  } finally {
+    setVmDeleting(row, false)
+  }
 }
 
 function createEmptyVmForm() {
