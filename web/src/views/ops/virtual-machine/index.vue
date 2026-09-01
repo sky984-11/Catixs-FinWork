@@ -1054,7 +1054,7 @@ const nodeDeviceOptions = computed(() => {
 
 const createDhcpPoolOptions = computed(() => createModal.dhcpPools.map((item) => ({
   ...item,
-  label: item.label || `${item.region_name || item.region_code || '-'} / VLAN ${item.vlan} (${item.available_count || 0} 可用)`,
+  label: `VLAN ${item.vlan}`,
   value: item.value || item.id,
 })))
 

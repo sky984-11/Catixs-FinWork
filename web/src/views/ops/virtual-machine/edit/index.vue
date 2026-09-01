@@ -266,6 +266,7 @@ function buildPayload() {
     vmid: vmid.value,
     type: vmType.value,
     node: route.query.node || undefined,
+    vm_name: vmName.value,
     customer_id: form.customer_id || null,
     customer_name: form.customer_name || '',
     networks: [],

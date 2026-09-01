@@ -947,6 +947,7 @@ class VMConfigUpdateRequest(BaseModel):
     vmid: int
     type: str = "pve-qemu"
     node: str | None = None
+    vm_name: str | None = None
     cores: int | None = None
     memory_gb: float | None = None
     disk_gb: float | None = None
@@ -1079,21 +1080,64 @@ async def apply_vm_metadata(vms: list[dict[str, Any]]) -> None:
         item = metadata.get(key)
         vm["customer_id"] = item.customer_id if item else None
         vm["customer_name"] = item.customer_name if item else ""
+        if item:
+            vm["metadata_vm_name"] = item.vm_name
+            vm["metadata_cpu_cores"] = item.cpu_cores
+            vm["metadata_memory_gb"] = item.memory_gb
+            vm["metadata_disk_gb"] = item.disk_gb
+            if item.cpu_cores is not None:
+                vm["maxcpu"] = item.cpu_cores
+            if item.memory_gb is not None:
+                vm["maxmem"] = float(item.memory_gb) * 1024 * 1024 * 1024
+            if item.disk_gb is not None:
+                vm["maxdisk"] = float(item.disk_gb) * 1024 * 1024 * 1024
 
 
-async def upsert_vm_metadata(payload: Any, vm_name: str | None = None) -> None:
+async def sync_vm_spec_metadata_from_list(vms: list[dict[str, Any]]) -> None:
+    for vm in vms:
+        remote = str(vm.get("remote") or "")
+        vmid = int(vm.get("vmid") or 0)
+        if not remote or not vmid:
+            continue
+        defaults = {
+            "vm_name": str(vm.get("name") or ""),
+            "cpu_cores": int(float(vm.get("maxcpu") or 0)) or None,
+            "memory_gb": round(number_value(vm.get("maxmem")) / 1024 / 1024 / 1024, 2) or None,
+            "disk_gb": round(number_value(vm.get("maxdisk")) / 1024 / 1024 / 1024, 2) or None,
+        }
+        defaults = {key: value for key, value in defaults.items() if value is not None}
+        existing = await PveVmMetadata.filter(remote=remote, vmid=vmid).first()
+        if existing:
+            await PveVmMetadata.filter(id=existing.id).update(**defaults)
+        else:
+            await PveVmMetadata.create(remote=remote, vmid=vmid, **defaults)
+
+
+async def upsert_vm_metadata(payload: Any, vm_name: str | None = None, current_config: dict[str, Any] | None = None) -> None:
     customer = await selectable_customer(payload.customer_id)
     if payload.customer_id and not customer:
         raise ValueError("所选客户不存在或已终止")
-    if not payload.customer_id:
-        await PveVmMetadata.filter(remote=payload.remote, vmid=payload.vmid).delete()
-        return
     defaults = {
-        "customer_id": customer.id,
-        "customer_name": customer.legal_name or customer.name,
+        "customer_id": customer.id if customer else None,
+        "customer_name": customer.legal_name or customer.name if customer else "",
     }
     if vm_name is not None:
         defaults["vm_name"] = vm_name
+    elif getattr(payload, "vm_name", None):
+        defaults["vm_name"] = str(payload.vm_name)
+    if payload.cores is not None:
+        defaults["cpu_cores"] = int(payload.cores)
+    if payload.memory_gb is not None:
+        defaults["memory_gb"] = float(payload.memory_gb)
+    if payload.disk_gb is not None:
+        defaults["disk_gb"] = float(payload.disk_gb)
+    if current_config:
+        _cores_per_socket, _sockets, total_cores = vm_cpu_topology(current_config)
+        defaults.setdefault("cpu_cores", total_cores)
+        defaults.setdefault("memory_gb", round(number_value(current_config.get("memory")) / 1024, 2))
+        disks = vm_disk_devices(current_config)
+        if disks:
+            defaults.setdefault("disk_gb", disks[0]["size_gb"])
     await PveVmMetadata.update_or_create(
         remote=payload.remote,
         vmid=payload.vmid,
@@ -2117,6 +2161,7 @@ async def list_vms(
     if node:
         vms = [vm for vm in vms if vm.get("remote") == node]
     apply_cached_vm_remarks(vms)
+    await sync_vm_spec_metadata_from_list(vms)
     await apply_vm_metadata(vms)
     vms.sort(key=lambda row: (str(row.get("remote") or ""), str(row.get("node") or ""), int(row.get("vmid") or 0)))
     summary = {
@@ -2641,6 +2686,9 @@ async def vm_config(
             "bridges": bridges,
             "customer_id": metadata.customer_id if metadata else None,
             "customer_name": metadata.customer_name if metadata else "",
+            "metadata_cpu_cores": metadata.cpu_cores if metadata else None,
+            "metadata_memory_gb": metadata.memory_gb if metadata else None,
+            "metadata_disk_gb": metadata.disk_gb if metadata else None,
         }
     )
 
@@ -2771,14 +2819,14 @@ async def update_vm_config(payload: VMConfigUpdateRequest):
 
         vm_name = str(current.get("name") or "")
         if not commands:
-            await upsert_vm_metadata(payload, vm_name=vm_name)
+            await upsert_vm_metadata(payload, vm_name=vm_name, current_config=current)
             return Success(msg="没有需要更新的配置")
 
         command = " && ".join(commands)
         code, output, error = await asyncio.to_thread(ssh_execute_pve, host, command)
         if code != 0:
             return Fail(msg=f"编辑虚拟机配置失败: {error or output}")
-        await upsert_vm_metadata(payload, vm_name=vm_name)
+        await upsert_vm_metadata(payload, vm_name=vm_name, current_config=current)
     except ValueError as exc:
         return Fail(msg=str(exc))
     except Exception as exc:

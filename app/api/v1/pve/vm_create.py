@@ -425,7 +425,9 @@ async def selectable_customer(customer_id: int | None) -> CrmCustomer | None:
     return await CrmCustomer.filter(id=customer_id, status=True).exclude(lifecycle="terminated").first()
 
 
-def bridge_for_vm_ip(ip_value: str | None) -> str:
+def bridge_for_vm_network(ip_value: str | None, vlan: int | None = None) -> str:
+    if vlan == 10:
+        return "vmbr10"
     text = str(ip_value or "").split("/", 1)[0].strip()
     try:
         ip = ipaddress.ip_address(text)
@@ -487,7 +489,7 @@ def create_vm_command(payload: VMCreateRequest) -> str:
     if payload.network.mode == "dhcp":
         args.extend(["--bridge", "vmbr10"])
     else:
-        bridge = bridge_for_vm_ip(payload.network.ip)
+        bridge = bridge_for_vm_network(payload.network.ip, payload.network.vlan)
         args.extend(["--bridge", bridge])
         if payload.network.vlan and bridge != "vmbr10":
             args.extend(["--vlan", payload.network.vlan])
@@ -669,16 +671,18 @@ async def create_vm(payload: VMCreateRequest):
         metadata_remote = await remote_key_for_host(ssh_host, payload.region)
         if reserved_lease_id:
             await CloudDhcpLease.filter(id=reserved_lease_id).update(remote=metadata_remote, vmid=created_vmid)
-        if customer:
-            await PveVmMetadata.update_or_create(
-                remote=metadata_remote,
-                vmid=created_vmid,
-                defaults={
-                    "vm_name": payload.vm_name,
-                    "customer_id": customer.id,
-                    "customer_name": customer.legal_name or customer.name,
-                },
-            )
+        await PveVmMetadata.update_or_create(
+            remote=metadata_remote,
+            vmid=created_vmid,
+            defaults={
+                "vm_name": payload.vm_name,
+                "customer_id": customer.id if customer else None,
+                "customer_name": customer.legal_name or customer.name if customer else "",
+                "cpu_cores": int(payload.cpu_cores or 0),
+                "memory_gb": float(payload.memory_gb or 0),
+                "disk_gb": float(payload.disk_gb or 0),
+            },
+        )
     except Exception as exc:
         await release_dhcp_lease(reserved_lease_id)
         logger.exception("submit PVE VM create failed: region={} vm_name={}", payload.region, payload.vm_name)

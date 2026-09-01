@@ -1612,6 +1612,9 @@ async def ensure_cloud_dhcp_tables():
                 "vm_name" VARCHAR(160),
                 "customer_id" BIGINT,
                 "customer_name" VARCHAR(160),
+                "cpu_cores" INT,
+                "memory_gb" DOUBLE PRECISION,
+                "disk_gb" DOUBLE PRECISION,
                 "remark" VARCHAR(500)
             );
             CREATE UNIQUE INDEX IF NOT EXISTS "uid_pve_vm_metadata_remote_vmid" ON "pve_vm_metadata" ("remote", "vmid");
@@ -1689,8 +1692,15 @@ async def ensure_cloud_dhcp_tables():
             "vm_name" VARCHAR(160),
             "customer_id" BIGINT,
             "customer_name" VARCHAR(160),
+            "cpu_cores" INT,
+            "memory_gb" DOUBLE PRECISION,
+            "disk_gb" DOUBLE PRECISION,
             "remark" VARCHAR(500)
         );
+        ALTER TABLE IF EXISTS "pve_vm_metadata"
+            ADD COLUMN IF NOT EXISTS "cpu_cores" INT,
+            ADD COLUMN IF NOT EXISTS "memory_gb" DOUBLE PRECISION,
+            ADD COLUMN IF NOT EXISTS "disk_gb" DOUBLE PRECISION;
         CREATE UNIQUE INDEX IF NOT EXISTS "uid_pve_vm_metadata_remote_vmid" ON "pve_vm_metadata" ("remote", "vmid");
         CREATE INDEX IF NOT EXISTS "idx_pve_vm_metadata_customer" ON "pve_vm_metadata" ("customer_id");
         """

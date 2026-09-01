@@ -179,6 +179,9 @@ class PveVmMetadata(BaseModel, TimestampMixin):
     vm_name = fields.CharField(max_length=160, null=True, description="VM name", index=True)
     customer_id = fields.BigIntField(null=True, description="Customer ID", index=True)
     customer_name = fields.CharField(max_length=160, null=True, description="Customer name", index=True)
+    cpu_cores = fields.IntField(null=True, description="CPU cores")
+    memory_gb = fields.FloatField(null=True, description="Memory GB")
+    disk_gb = fields.FloatField(null=True, description="Disk GB")
     remark = fields.CharField(max_length=500, null=True, description="Remark")
 
     class Meta:
