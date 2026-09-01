@@ -456,7 +456,7 @@
         </div>
         <template #footer>
           <div class="modal-footer">
-            <span>{{ createModal.created ? '虚拟机已在目标 PVE 节点创建完成，请刷新列表查看。' : '创建时会通过 SSH 在目标节点执行 /root/create-vm.sh。' }}</span>
+            <span>{{ createModal.created ? '虚拟机已在目标 PVE 节点创建完成，请刷新列表查看。' : '创建时会通过 SSH 在目标节点执行平台内置创建脚本。' }}</span>
             <CButton
               v-if="!createModal.created"
               show-cancel

@@ -1,8 +1,6 @@
 import asyncio
 import ipaddress
 import shlex
-import time
-from uuid import uuid4
 from typing import Any
 
 import httpx
@@ -17,6 +15,143 @@ from app.models.asset import CloudDhcpLease, PveVmMetadata
 from app.models.customer_center import CrmCustomer
 
 router = APIRouter()
+
+
+PVE_CREATE_VM_SCRIPT = r'''#!/usr/bin/env bash
+
+set -e
+
+die() { echo "[ERROR] $1"; exit 1; }
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --ostype) OS_TYPE="$2"; shift 2 ;;
+    --version) OS_VERSION="$2"; shift 2 ;;
+    --name) HN="$2"; shift 2 ;;
+    --cores) CORE_COUNT="$2"; shift 2 ;;
+    --ram) RAM_SIZE="$2"; shift 2 ;;
+    --disk) DISK_SIZE="$2"; shift 2 ;;
+    --storage) STORAGE="$2"; shift 2 ;;
+    --bridge) BRG="$2"; shift 2 ;;
+    --rate) RATE_LIMIT="$2"; shift 2 ;;
+    --password) VM_PASSWORD="$2"; shift 2 ;;
+    --ip) CI_IP="$2"; shift 2 ;;
+    --gw) CI_GW="$2"; shift 2 ;;
+    --dns) CI_DNS="$2"; shift 2 ;;
+    --vlan) VLAN_TAG="$2"; shift 2 ;;
+    --description) DESCRIPTION="$2"; shift 2 ;;
+    --start) START_VM="$2"; shift 2 ;;
+    *) die "Unknown option: $1" ;;
+  esac
+done
+
+IMAGE_PATH=$(find /data/$OS_TYPE/$OS_VERSION/ -maxdepth 1 -type f)
+VMID=${VMID:-$(pvesh get /cluster/nextid)}
+HN=${HN:-debian12}
+CORE_COUNT=${CORE_COUNT:-2}
+RAM_SIZE=${RAM_SIZE:-2048}
+DISK_SIZE=${DISK_SIZE:-10G}
+BRG=${BRG:-vmbr0}
+STORAGE=${STORAGE:-local}
+START_VM=${START_VM:-yes}
+VM_PASSWORD=${VM_PASSWORD:-debian@123.}
+BIOS_TYPE="ovmf"
+if [[ "${OS_TYPE,,}" == "centos" && "$OS_VERSION" == 7* ]]; then
+  BIOS_TYPE="seabios"
+fi
+MAC="02:$(openssl rand -hex 5 | sed 's/\(..\)/\1:/g; s/.$//')"
+
+[[ -f "$IMAGE_PATH" ]] || die "Image not found: $IMAGE_PATH"
+
+SNIPPET_HASH=$(printf '%s-%s' "$VMID" "$(date +%Y%m%d%H%M%S%N)" | md5sum | awk '{print $1}')
+SNIPPET_ID="${SNIPPET_HASH:0:8}-${SNIPPET_HASH:8:4}-${SNIPPET_HASH:12:4}-${SNIPPET_HASH:16:4}-${SNIPPET_HASH:20:12}"
+CI_SNIPPET_NAME="guest-agent-${SNIPPET_ID}.yaml"
+CI_SNIPPET="/var/lib/vz/snippets/${CI_SNIPPET_NAME}"
+
+mkdir -p /var/lib/vz/snippets
+
+cat > "$CI_SNIPPET" <<EOF
+#cloud-config
+package_update: true
+package_upgrade: false
+
+ssh_pwauth: true
+disable_root: false
+
+users:
+  - name: root
+    shell: /bin/bash
+    lock_passwd: false
+
+chpasswd:
+  expire: false
+  list: |
+    root:${VM_PASSWORD}
+
+packages:
+  - qemu-guest-agent
+
+runcmd:
+  - sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+  - sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+  - systemctl restart sshd
+  - systemctl enable qemu-guest-agent
+  - systemctl start qemu-guest-agent
+  - touch /etc/cloud/cloud-init.disabled
+  - systemctl disable cloud-init cloud-init-local cloud-config cloud-final || true
+
+EOF
+
+NETCFG="ip=dhcp"
+[[ -n "$CI_IP" && -n "$CI_GW" ]] && NETCFG="ip=${CI_IP},gw=${CI_GW}"
+DNS_OPT=${CI_DNS:+-nameserver "$CI_DNS"}
+
+NET0="virtio,bridge=${BRG},macaddr=${MAC}"
+[[ -n "$VLAN_TAG" ]] && NET0="${NET0},tag=${VLAN_TAG}"
+[[ -n "$RATE_LIMIT" && "$RATE_LIMIT" != "0" ]] && NET0="${NET0},rate=${RATE_LIMIT}"
+
+cleanup() {
+  qm stop "$VMID" &>/dev/null || true
+  qm destroy "$VMID" &>/dev/null || true
+  rm -f "$CI_SNIPPET"
+}
+trap cleanup ERR
+
+qm create "$VMID" \
+  -name "$HN" \
+  -memory "$RAM_SIZE" \
+  -cores "$CORE_COUNT" \
+  -net0 "$NET0" \
+  -scsihw virtio-scsi-pci \
+  -bios "$BIOS_TYPE" \
+  -agent 1 \
+  -ostype l26 \
+  -onboot 1
+
+qm importdisk "$VMID" "$IMAGE_PATH" "$STORAGE" -format qcow2
+qm set "$VMID" \
+  -scsi0 "$STORAGE:$VMID/vm-$VMID-disk-0.qcow2" \
+  -scsi1 "$STORAGE:cloudinit" \
+  -boot order=scsi0 \
+  -serial0 socket
+
+qm set "$VMID" \
+  -ipconfig0 "$NETCFG" \
+  $DNS_OPT \
+  -cicustom "user=local:snippets/${CI_SNIPPET_NAME}"
+
+qm resize "$VMID" scsi0 "$DISK_SIZE"
+
+if [[ -n "$DESCRIPTION" ]]; then
+  qm set "$VMID" -description "$DESCRIPTION"
+fi
+
+if [[ "$START_VM" == "yes" ]]; then
+  qm start "$VMID"
+fi
+
+echo "$OS_TYPE $OS_VERSION VM created: VMID=$VMID"
+'''
 
 
 class VMNetworkConfig(BaseModel):
@@ -330,31 +465,12 @@ def ssh_execute(host: str, command: str) -> tuple[int, str, str]:
         client.close()
 
 
-def ssh_submit_background(host: str, command: str) -> tuple[int, str, str]:
+def _legacy_ssh_execute_script(host: str, script: str, args: list[Any]) -> tuple[int, str, str]:
+    return ssh_execute_inline_script(host, script, args)
     try:
         import paramiko
     except ImportError as exc:
         return -1, "", f"paramiko is not installed: {exc}"
-
-    task_id = f"{int(time.time())}-{uuid4().hex[:8]}"
-    log_file = f"/tmp/finwork-create-vm-{task_id}.log"
-    pid_file = f"/tmp/finwork-create-vm-{task_id}.pid"
-    background_command = (
-        "set -u; "
-        "cd /root || exit 1; "
-        "if [ ! -x ./create-vm.sh ]; then echo './create-vm.sh not found or not executable' >&2; exit 127; fi; "
-        f"nohup {command} > {shlex.quote(log_file)} 2>&1 < /dev/null & "
-        f"pid=$!; echo $pid > {shlex.quote(pid_file)}; "
-        "sleep 1; "
-        "if kill -0 $pid 2>/dev/null; then "
-        f"echo submitted pid=$pid log={shlex.quote(log_file)}; "
-        "else "
-        "wait $pid; status=$?; "
-        f"echo immediate_exit status=$status log={shlex.quote(log_file)}; "
-        f"tail -n 80 {shlex.quote(log_file)} 2>/dev/null; "
-        "exit $status; "
-        "fi"
-    )
 
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -388,11 +504,50 @@ async def run_remote_script(host: str, command: str) -> tuple[int, str, str]:
     return await asyncio.to_thread(ssh_execute, host, command)
 
 
-async def submit_remote_script(host: str, command: str) -> tuple[int, str, str]:
+async def _legacy_submit_remote_script(host: str, command: str) -> tuple[int, str, str]:
+    return await run_remote_script(host, command)
     try:
         return await asyncio.wait_for(asyncio.to_thread(ssh_submit_background, host, command), timeout=6)
     except asyncio.TimeoutError:
         return 0, "创建任务可能已提交，远端 SSH 未及时关闭通道", ""
+
+
+def ssh_execute_inline_script(host: str, script: str, args: list[Any]) -> tuple[int, str, str]:
+    try:
+        import paramiko
+    except ImportError as exc:
+        return -1, "", f"paramiko is not installed: {exc}"
+
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        client.connect(
+            host,
+            username=settings.PVE_CREATE_SSH_USER,
+            password=settings.PVE_CREATE_SSH_PASSWORD,
+            timeout=settings.PVE_CREATE_SSH_TIMEOUT,
+        )
+        command = f"cd /root && bash -s -- {shell_join(args)}"
+        stdin, stdout, stderr = client.exec_command(command)
+        stdin.write(script)
+        stdin.flush()
+        stdin.channel.shutdown_write()
+        exit_status = stdout.channel.recv_exit_status()
+        output = stdout.read().decode("utf-8", errors="replace")
+        error = stderr.read().decode("utf-8", errors="replace")
+        return exit_status, output, error
+    except Exception as exc:
+        return -1, "", str(exc)
+    finally:
+        client.close()
+
+
+async def run_remote_create_vm_script(host: str, args: list[Any]) -> tuple[int, str, str]:
+    return await asyncio.to_thread(ssh_execute_inline_script, host, PVE_CREATE_VM_SCRIPT, args)
+
+
+async def submit_remote_script(host: str, command: str) -> tuple[int, str, str]:
+    return await run_remote_script(host, command)
 
 
 async def verify_vm_exists(host: str, vm_name: str, attempts: int = 12, delay: float = 5) -> bool:
@@ -465,11 +620,10 @@ def shell_join(parts: list[Any]) -> str:
     return " ".join(shlex.quote(str(part)) for part in parts if part is not None)
 
 
-def create_vm_command(payload: VMCreateRequest) -> str:
+def create_vm_args(payload: VMCreateRequest) -> list[Any]:
     ram_mb = payload.memory_gb * 1024
     rate_limit = payload.network.rate_limit
     args: list[Any] = [
-        "./create-vm.sh",
         "--ostype",
         payload.os_type,
         "--version",
@@ -503,7 +657,7 @@ def create_vm_command(payload: VMCreateRequest) -> str:
         args.extend(["--ip", payload.network.ip or "", "--gw", payload.network.gw or "", "--dns", payload.network.dns or ""])
 
     args.extend(["--start", "yes"])
-    return shell_join(args)
+    return args
 
 
 def parse_storage_output(stdout: str) -> list[dict[str, Any]]:
@@ -635,7 +789,7 @@ async def create_vm(payload: VMCreateRequest):
             payload.network.dns = payload.network.dns or "8.8.8.8"
             payload.network.vlan = lease.vlan
         ssh_host = await resolve_create_host(payload.region)
-        command = create_vm_command(payload)
+        args = create_vm_args(payload)
         logger.info(
             "submit PVE VM create: region={} ssh_host={} vm_name={} storage={} os={}/{}",
             payload.region,
@@ -645,7 +799,7 @@ async def create_vm(payload: VMCreateRequest):
             payload.os_type,
             payload.os_version,
         )
-        exit_status, stdout, stderr = await run_remote_script(ssh_host, command)
+        exit_status, stdout, stderr = await run_remote_create_vm_script(ssh_host, args)
         logger.info(
             "PVE VM create submit result: vm_name={} ssh_host={} exit_status={} stdout={} stderr={}",
             payload.vm_name,
