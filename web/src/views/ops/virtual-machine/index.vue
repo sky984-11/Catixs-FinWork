@@ -231,6 +231,8 @@
                       plain
                       :type="mobileVmPowerType(vm)"
                       icon="power-o"
+                      :loading="isVmPowering(vm)"
+                      :disabled="isVmPowering(vm)"
                       @click.stop="handlePowerVm(vm)"
                     >
                       {{ mobileVmPowerText(vm) }}
@@ -849,6 +851,7 @@ const nodeOptions = ref([])
 const customerOptions = ref([])
 const selectedNode = ref(null)
 const vmList = ref([])
+const poweringVmKeys = reactive({})
 let vmIpRequestId = 0
 const VM_SELECTED_NODE_STORAGE_KEY = 'ops.virtualMachine.selectedNode'
 const nodeRemarkCache = reactive({})
@@ -1430,8 +1433,11 @@ function actionButton(label, icon, type, row, className = '', handler = null) {
       round: true,
       secondary: true,
       type,
+      loading: label === '关机' || label === '开机' ? isVmPowering(row) : false,
+      disabled: label === '关机' || label === '开机' ? isVmPowering(row) : false,
       onClick: (event) => {
         event.stopPropagation()
+        if ((label === '关机' || label === '开机') && isVmPowering(row)) return
         if (handler) {
           handler(row)
           return
@@ -1478,6 +1484,33 @@ function resolveVmExpire(row) {
   if (diff < 0) return { text, type: 'error' }
   if (diff <= 3 * 24 * 60 * 60 * 1000) return { text, type: 'warning' }
   return { text, type: 'success' }
+}
+
+function vmPowerKey(row) {
+  if (!row?.remote || row?.vmid == null) return ''
+  return `${row.remote}:${row.vmid}`
+}
+
+function isVmPowering(row) {
+  const key = vmPowerKey(row)
+  return Boolean(key && poweringVmKeys[key])
+}
+
+function setVmPowering(row, value) {
+  const key = vmPowerKey(row)
+  if (!key) return
+  if (value) {
+    poweringVmKeys[key] = true
+    return
+  }
+  delete poweringVmKeys[key]
+}
+
+function findVmStatus(row) {
+  const key = vmPowerKey(row)
+  if (!key) return ''
+  const current = vmList.value.find((item) => vmPowerKey(item) === key)
+  return current?.status || ''
 }
 
 function mobileVmIps(row) {
@@ -1538,28 +1571,45 @@ function handlePowerVm(row) {
   executePowerVm(row)
 }
 
-function executePowerVm(row) {
+async function waitVmPowerStatus(row, targetStatus, { attempts = 45, interval = 2000 } = {}) {
+  for (let index = 0; index < attempts; index += 1) {
+    await fetchVms({ resetPage: false, silent: true })
+    if (findVmStatus(row) === targetStatus) return true
+    await new Promise((resolve) => setTimeout(resolve, interval))
+  }
+  await fetchVms({ resetPage: false, silent: true })
+  return findVmStatus(row) === targetStatus
+}
+
+async function executePowerVm(row) {
   const isRunning = row.status === 'running'
   const action = isRunning ? 'stop' : 'start'
   const nextStatus = isRunning ? 'stopped' : 'running'
-  const previousStatus = row.status
   const text = isRunning ? '关机' : '开机'
 
-  row.status = nextStatus
-  message.success(`${text}请求已发送，请稍后刷新列表查看`)
-  api.virtualMachineApi
-    .powerVm({
+  if (isVmPowering(row)) return
+  setVmPowering(row, true)
+  message.loading(`${text}请求已发送，正在等待虚拟机状态更新...`, { duration: 1800 })
+  try {
+    await api.virtualMachineApi.powerVm({
       remote: row.remote,
       vmid: row.vmid,
       type: row.type,
       node: row.node || undefined,
       action,
     })
-    .then(() => fetchVms())
-    .catch((error) => {
-      row.status = previousStatus
-      message.error(error.message || `${text}失败`)
-    })
+    const completed = await waitVmPowerStatus(row, nextStatus)
+    if (completed) {
+      message.success(`${text}完成`)
+      return
+    }
+    message.warning(`${text}任务已提交，但状态还未更新，请稍后刷新确认`)
+  } catch (error) {
+    message.error(error.message || `${text}失败`)
+    await fetchVms({ resetPage: false, silent: true })
+  } finally {
+    setVmPowering(row, false)
+  }
 }
 
 function confirmDeleteVm(row) {
@@ -1584,11 +1634,15 @@ function confirmDeleteVm(row) {
         type: row.type,
         node: row.node || undefined,
         status: row.status,
+        name: row.name || '',
       }
       message.success('删除请求已发送，请稍后刷新列表查看')
       api.virtualMachineApi
         .deleteVm(payload)
-        .then(() => fetchVms())
+        .then(async () => {
+          await fetchVms()
+          await loadCreateDhcpPools()
+        })
         .catch((error) => {
           message.error(error.message || '删除虚拟机失败')
         })
@@ -1864,6 +1918,8 @@ async function submitCreateVm() {
     createModal.created = true
     message.success(res.msg || '虚拟机已创建')
     await refreshNodes()
+    await fetchVms()
+    await loadCreateDhcpPools()
   } catch (err) {
     message.error(err.message || '创建虚拟机失败')
   } finally {
@@ -2534,7 +2590,7 @@ async function refreshNodes() {
   await fetchVms()
 }
 
-async function fetchVms() {
+async function fetchVms({ resetPage = true, silent = false } = {}) {
   const requestNode = selectedNode.value?.value
   if (!selectedNode.value?.value) {
     vmIpRequestId += 1
@@ -2557,7 +2613,11 @@ async function fetchVms() {
     Object.assign(vmSummary, res.data?.summary || { total: 0, running: 0, stopped: 0 })
     syncSelectedNodeSummary(vmSummary)
     pagination.itemCount = vmList.value.length
-    pagination.page = 1
+    if (resetPage) {
+      pagination.page = 1
+    } else {
+      pagination.page = Math.min(pagination.page, Math.max(1, Math.ceil(pagination.itemCount / pagination.pageSize)))
+    }
     await nextTick()
     tableRenderKey.value += 1
   } catch (error) {
@@ -2566,7 +2626,9 @@ async function fetchVms() {
     Object.assign(vmSummary, { total: 0, running: 0, stopped: 0 })
     syncSelectedNodeSummary(vmSummary)
     pagination.itemCount = 0
-    message.error(error.message || '读取 PDM 虚拟机失败')
+    if (!silent) {
+      message.error(error.message || '读取 PDM 虚拟机失败')
+    }
   } finally {
     loading.vms = false
   }

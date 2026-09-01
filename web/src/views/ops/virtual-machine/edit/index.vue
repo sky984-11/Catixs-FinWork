@@ -237,19 +237,51 @@ function handleCustomerChange(value, option) {
   form.customer_name = value ? option?.label || '' : ''
 }
 
-function buildPayload() {
+function sameNumber(a, b) {
+  return Math.abs(Number(a || 0) - Number(b || 0)) < 0.001
+}
+
+function comparableNetwork(network) {
   return {
+    key: network.key || '',
+    model: network.model || 'virtio',
+    bridge: network.bridge || 'vmbr10',
+    vlan: network.vlan ?? null,
+    mtu: network.mtu ?? null,
+    rate: network.rate ?? null,
+    firewall: Boolean(network.firewall),
+  }
+}
+
+function networksChanged() {
+  if (deletedNetworks.value.length) return true
+  const current = (config.value?.networks || []).map(comparableNetwork)
+  const next = form.networks.map(comparableNetwork)
+  return JSON.stringify(current) !== JSON.stringify(next)
+}
+
+function buildPayload() {
+  const payload = {
     remote: remote.value,
     vmid: vmid.value,
     type: vmType.value,
     node: route.query.node || undefined,
-    cores: form.cores,
-    memory_gb: form.memory_gb,
-    disk_key: form.disk_key,
-    disk_gb: form.disk_gb,
     customer_id: form.customer_id || null,
     customer_name: form.customer_name || '',
-    networks: [
+    networks: [],
+  }
+  if (!sameNumber(form.cores, config.value?.total_cores || config.value?.cores || 0)) {
+    payload.cores = form.cores
+  }
+  if (!sameNumber(form.memory_gb, config.value?.memory_gb || 0)) {
+    payload.memory_gb = form.memory_gb
+  }
+  if (form.disk_key !== (config.value?.disk_key || '') || !sameNumber(form.disk_gb, config.value?.disk_gb || 0)) {
+    payload.disk_key = form.disk_key
+    payload.disk_gb = form.disk_gb
+  }
+  if (networksChanged()) {
+    payload.networks = [
       ...form.networks.map((network) => ({
         key: network.key || undefined,
         model: network.model || 'virtio',
@@ -261,8 +293,9 @@ function buildPayload() {
         firewall: Boolean(network.firewall),
       })),
       ...deletedNetworks.value,
-    ],
+    ]
   }
+  return payload
 }
 
 async function saveConfig() {
@@ -276,9 +309,18 @@ async function saveConfig() {
   }
   saving.value = true
   try {
-    const res = await api.virtualMachineApi.updateVmConfig(buildPayload())
+    const payload = buildPayload()
+    const res = await api.virtualMachineApi.updateVmConfig(payload)
     message.success(res.msg || '虚拟机配置已更新，重启后生效')
-    await fetchConfig()
+    if (config.value) {
+      config.value.customer_id = form.customer_id || null
+      config.value.customer_name = form.customer_name || ''
+      if (payload.cores !== undefined) config.value.total_cores = payload.cores
+      if (payload.memory_gb !== undefined) config.value.memory_gb = payload.memory_gb
+      if (payload.disk_gb !== undefined) config.value.disk_gb = payload.disk_gb
+      if (payload.networks?.length) config.value.networks = form.networks.map(comparableNetwork)
+    }
+    deletedNetworks.value = []
   } catch (error) {
     message.error(error.message || '保存虚拟机配置失败')
   } finally {

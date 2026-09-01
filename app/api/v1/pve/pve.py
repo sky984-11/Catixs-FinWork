@@ -919,6 +919,7 @@ class VMDeleteRequest(BaseModel):
     type: str = "pve-qemu"
     node: str | None = None
     status: str | None = None
+    name: str | None = None
 
 
 class VMPowerRequest(BaseModel):
@@ -1054,7 +1055,21 @@ async def vm_metadata_map(vms: list[dict[str, Any]]) -> dict[tuple[str, int], Pv
     vmids = sorted({vmid for _remote, vmid in keys})
     rows = await PveVmMetadata.filter(remote__in=remotes, vmid__in=vmids)
     wanted = set(keys)
-    return {(row.remote, row.vmid): row for row in rows if (row.remote, row.vmid) in wanted}
+    result = {(row.remote, row.vmid): row for row in rows if (row.remote, row.vmid) in wanted}
+    missing = [
+        vm
+        for vm in vms
+        if vm.get("remote") and vm.get("vmid") and (str(vm.get("remote") or ""), int(vm.get("vmid") or 0)) not in result
+    ]
+    if missing:
+        names = sorted({str(vm.get("name") or "") for vm in missing if vm.get("name")})
+        fallback_rows = await PveVmMetadata.filter(vmid__in=vmids, vm_name__in=names) if names else []
+        fallback = {(row.vmid, row.vm_name): row for row in fallback_rows}
+        for vm in missing:
+            item = fallback.get((int(vm.get("vmid") or 0), str(vm.get("name") or "")))
+            if item:
+                result[(str(vm.get("remote") or ""), int(vm.get("vmid") or 0))] = item
+    return result
 
 
 async def apply_vm_metadata(vms: list[dict[str, Any]]) -> None:
@@ -1073,15 +1088,26 @@ async def upsert_vm_metadata(payload: Any, vm_name: str | None = None) -> None:
     if not payload.customer_id:
         await PveVmMetadata.filter(remote=payload.remote, vmid=payload.vmid).delete()
         return
+    defaults = {
+        "customer_id": customer.id,
+        "customer_name": customer.legal_name or customer.name,
+    }
+    if vm_name is not None:
+        defaults["vm_name"] = vm_name
     await PveVmMetadata.update_or_create(
         remote=payload.remote,
         vmid=payload.vmid,
-        defaults={
-            "vm_name": vm_name,
-            "customer_id": customer.id,
-            "customer_name": customer.legal_name or customer.name,
-        },
+        defaults=defaults,
     )
+
+
+async def release_vm_dhcp_lease(remote: str, vmid: int, vm_name: str | None = None) -> None:
+    q = Q(remote=remote, vmid=vmid)
+    if vm_name:
+        metadata_rows = await PveVmMetadata.filter(vmid=vmid, vm_name=vm_name)
+        for item in metadata_rows:
+            q |= Q(remote=item.remote, vmid=vmid)
+    await CloudDhcpLease.filter(q, status="reserved").exclude(lease_source__in=["price", "ping_occupied"]).update(status="released")
 
 
 def percent(value: Any) -> float:
@@ -2548,8 +2574,11 @@ async def delete_vm(payload: VMDeleteRequest):
         detail = (error or output or "未知错误").strip()
         return Fail(msg=f"删除虚拟机失败: {detail}")
 
-    await PveVmMetadata.filter(remote=payload.remote, vmid=payload.vmid).delete()
-    await CloudDhcpLease.filter(remote=payload.remote, vmid=payload.vmid, status="reserved").update(status="released")
+    await release_vm_dhcp_lease(payload.remote, payload.vmid, payload.name)
+    metadata_q = Q(remote=payload.remote, vmid=payload.vmid)
+    if payload.name:
+        metadata_q |= Q(vmid=payload.vmid, vm_name=payload.name)
+    await PveVmMetadata.filter(metadata_q).delete()
     _PDM_RESOURCE_CACHE = []
     return Success(msg="虚拟机删除任务已提交", data={"remote": payload.remote, "vmid": payload.vmid})
 
@@ -2589,16 +2618,7 @@ async def vm_config(
         host, config = await vm_config_from_pve(remote, vmid, type)
         disks = vm_disk_devices(config)
         networks = vm_network_devices(config)
-        bridges: list[str] = []
-        code, output, _error = await asyncio.to_thread(
-            ssh_execute_pve,
-            host,
-            "pvesh get /nodes/$(hostname -s)/network --output-format json",
-        )
-        if code == 0:
-            for item in json.loads(output or "[]"):
-                if item.get("type") == "bridge" and item.get("iface"):
-                    bridges.append(str(item["iface"]))
+        bridges = sorted({str(item.get("bridge") or "") for item in networks if item.get("bridge")} | {"vmbr10", "vmbr20"})
     except Exception as exc:
         return Fail(msg=f"读取虚拟机配置失败: {error_detail(exc)}")
 
@@ -2618,7 +2638,7 @@ async def vm_config(
             "disk_gb": disks[0]["size_gb"] if disks else 0,
             "disk_key": disks[0]["key"] if disks else "",
             "networks": networks,
-            "bridges": sorted(set(bridges)) or ["vmbr10", "vmbr20"],
+            "bridges": bridges,
             "customer_id": metadata.customer_id if metadata else None,
             "customer_name": metadata.customer_name if metadata else "",
         }
@@ -2631,6 +2651,18 @@ async def update_vm_config(payload: VMConfigUpdateRequest):
         return Fail(msg="编辑虚拟机配置失败: 当前只支持 QEMU 虚拟机")
 
     try:
+        has_pve_changes = any(
+            [
+                payload.cores is not None,
+                payload.memory_gb is not None,
+                payload.disk_gb is not None,
+                bool(payload.networks),
+            ]
+        )
+        if not has_pve_changes:
+            await upsert_vm_metadata(payload)
+            return Success(msg="虚拟机配置已更新")
+
         host, current = await vm_config_from_pve(payload.remote, payload.vmid, payload.type)
         commands: list[str] = []
         set_args: list[str] = []
@@ -2644,7 +2676,10 @@ async def update_vm_config(payload: VMConfigUpdateRequest):
                 else:
                     set_args.extend(["--sockets", "1", "--cores", str(desired_total_cores)])
         if payload.memory_gb is not None:
-            set_args.extend(["--memory", str(max(1, int(float(payload.memory_gb) * 1024)))])
+            desired_memory_mb = max(1, int(float(payload.memory_gb) * 1024))
+            current_memory_mb = int(number_value(current.get("memory") or 0))
+            if desired_memory_mb != current_memory_mb:
+                set_args.extend(["--memory", str(desired_memory_mb)])
 
         current_networks = {item["key"]: item for item in vm_network_devices(current)}
         used_keys = set(current_networks.keys())
@@ -2660,8 +2695,11 @@ async def update_vm_config(payload: VMConfigUpdateRequest):
             if not key:
                 key = next_net_key(used_keys)
                 used_keys.add(key)
-            set_args.extend([f"--{key}", qemu_net_value(network)])
-            has_network_changes = True
+            desired_net = qemu_net_value(network)
+            current_net = current_networks.get(key)
+            if not current_net or str(current_net.get("raw") or "") != desired_net:
+                set_args.extend([f"--{key}", desired_net])
+                has_network_changes = True
         if delete_keys:
             set_args.extend(["--delete", ",".join(delete_keys)])
 

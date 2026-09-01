@@ -425,6 +425,40 @@ async def selectable_customer(customer_id: int | None) -> CrmCustomer | None:
     return await CrmCustomer.filter(id=customer_id, status=True).exclude(lifecycle="terminated").first()
 
 
+def bridge_for_vm_ip(ip_value: str | None) -> str:
+    text = str(ip_value or "").split("/", 1)[0].strip()
+    try:
+        ip = ipaddress.ip_address(text)
+    except ValueError:
+        return "vmbr20"
+    return "vmbr10" if ip in ipaddress.ip_network("10.0.0.0/8") else "vmbr20"
+
+
+async def remote_key_for_host(host: str, fallback: str) -> str:
+    host_ip = strip_cidr(host)
+    if not host_ip:
+        return fallback
+    for item in await pdm_remote_configs():
+        remote = remote_id(item)
+        if not remote:
+            continue
+        addresses = {
+            strip_cidr(remote_config_address(item)),
+            strip_cidr(str(item.get("address") or "")),
+            strip_cidr(str(item.get("ip") or "")),
+            strip_cidr(str(item.get("host") or "")),
+            strip_cidr(str(item.get("hostname") or "")),
+            strip_cidr(str(item.get("endpoint") or "")),
+            strip_cidr(str(item.get("server") or "")),
+        }
+        nodes = item.get("nodes")
+        if isinstance(nodes, list):
+            addresses.update(strip_cidr(parse_remote_node_entry(node).get("host")) for node in nodes)
+        if host_ip in {address for address in addresses if address}:
+            return remote
+    return fallback
+
+
 def shell_join(parts: list[Any]) -> str:
     return " ".join(shlex.quote(str(part)) for part in parts if part is not None)
 
@@ -453,9 +487,9 @@ def create_vm_command(payload: VMCreateRequest) -> str:
     if payload.network.mode == "dhcp":
         args.extend(["--bridge", "vmbr10"])
     else:
-        bridge = "vmbr10" if payload.network.vlan == 10 else "vmbr20"
+        bridge = bridge_for_vm_ip(payload.network.ip)
         args.extend(["--bridge", bridge])
-        if payload.network.vlan and payload.network.vlan != 10:
+        if payload.network.vlan and bridge != "vmbr10":
             args.extend(["--vlan", payload.network.vlan])
 
     if rate_limit:
@@ -632,11 +666,12 @@ async def create_vm(payload: VMCreateRequest):
                 )
             )
         created_vmid = created_vm["vmid"]
+        metadata_remote = await remote_key_for_host(ssh_host, payload.region)
         if reserved_lease_id:
-            await CloudDhcpLease.filter(id=reserved_lease_id).update(remote=payload.region, vmid=created_vmid)
+            await CloudDhcpLease.filter(id=reserved_lease_id).update(remote=metadata_remote, vmid=created_vmid)
         if customer:
             await PveVmMetadata.update_or_create(
-                remote=payload.region,
+                remote=metadata_remote,
                 vmid=created_vmid,
                 defaults={
                     "vm_name": payload.vm_name,
@@ -654,6 +689,7 @@ async def create_vm(payload: VMCreateRequest):
         data={
             "region": payload.region,
             "ssh_host": ssh_host,
+            "remote": metadata_remote,
             "vmid": created_vmid,
             "vm_name": payload.vm_name,
             "task": stdout,
