@@ -30,6 +30,7 @@ from app.api.v1.pve.vm_create import (
     resolve_create_host,
     run_remote_script,
 )
+from app.api.v1.pve.pve import VMPowerRequest, power_vm as power_pve_vm
 from app.services.product_physical_server_sync import (
     CLOUD_VM_SOURCE,
     PHYSICAL_SERVER_SOURCE,
@@ -1468,27 +1469,33 @@ async def price_payload_data(payload: PricePayload) -> tuple[dict[str, Any] | No
     data.pop("dhcp_pool_id", None)
     data.pop("vm_name", None)
     data.pop("vm_password", None)
+    spec_group = None
     if data.get("spec_config_key"):
         group = await get_spec_config_group(data.get("spec_config_key"))
-        if not group:
-            return None, "请选择有效的规格配置"
-        data["product_id"] = group.get("product_id")
-        data["spec_config_name"] = group.get("spec_name") or data.get("spec_config_name")
+        if group:
+            spec_group = group
+            data["product_id"] = group.get("product_id")
+            data["spec_config_name"] = group.get("spec_name") or data.get("spec_config_name")
     if not data.get("product_id"):
         return None, "请选择产品"
     product = await ProductItem.get_or_none(id=data.get("product_id"))
     if not product:
         return None, "关联产品不存在"
-    if not data.get("spec_config_key"):
-        if await product_is_category(product, {"云主机"}):
-            group = await ensure_cloud_price_spec_group(product, spec_values)
-            if not group:
-                return None, "请填写云主机 CPU、内存和磁盘规格，并确认规格属性已维护"
-            data["spec_config_key"] = group.get("id")
-            data["spec_config_name"] = group.get("spec_name") or data.get("spec_config_name")
-        else:
-            return None, "请选择规格配置"
+    if await product_is_category(product, {"云主机"}):
+        values = spec_values or {}
+        cpu_cores = int(values.get("cpu_core") or 0)
+        memory_gb = int(values.get("mem_total") or 0)
+        disk_gb = int(values.get("disk_total") or 0)
+        if not cpu_cores or not memory_gb or not disk_gb:
+            return None, "请填写云主机 CPU、内存和磁盘规格"
+        data["spec_config_key"] = f"cloud-price:{cpu_cores}:{memory_gb}:{disk_gb}"
+        data["spec_config_name"] = f"{cpu_cores}C / {memory_gb}G / {disk_gb}G"
+    elif not spec_group:
+        return None, "请选择有效的规格配置"
     data["billing_mode"] = product.billing_mode or "fixed"
+    if data.get("price_type") == "standard":
+        data["effective_date"] = None
+        data["expiry_date"] = None
     data.pop("min_amount", None)
     data.pop("tier_rules", None)
     data.pop("bandwidth_rule", None)
@@ -1665,9 +1672,22 @@ async def update_price(price_id: int, payload: PricePayload):
 
 @router.delete("/prices/{price_id}", summary="删除产品价格")
 async def delete_price(price_id: int):
+    price = await ProductPrice.get_or_none(id=price_id)
+    if not price:
+        return Fail(msg="价格记录不存在")
+    product = await price.product
+    if await product_is_category(product, {"云主机"}) and price.price_type == "customer":
+        lease = await CloudDhcpLease.filter(price_id=price.id).order_by("-id").first()
+        if lease and lease.remote and lease.vmid:
+            response = await power_pve_vm(
+                VMPowerRequest(remote=lease.remote, vmid=lease.vmid, type="pve-qemu", action="stop")
+            )
+            result = json.loads(response.body)
+            if result.get("code") != 200:
+                return Fail(msg=f"删除价格失败，关联虚拟机关机失败：{result.get('msg') or '未知错误'}")
     await release_price_dhcp(price_id)
-    await ProductPrice.filter(id=price_id).delete()
-    return Success(msg="产品价格已删除")
+    await price.delete()
+    return Success(msg="产品价格已删除，关联虚拟机关机请求已提交")
 
 
 @router.get("/templates", summary="产品模板列表")

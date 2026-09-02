@@ -303,8 +303,10 @@
                   <n-select v-model:value="editor.form.currency" class="price-currency-select" :options="options.currencies" />
                 </n-input-group>
               </n-form-item-gi>
-              <n-form-item-gi label="生效日期"><n-date-picker v-model:formatted-value="editor.form.effective_date" value-format="yyyy-MM-dd" type="date" clearable /></n-form-item-gi>
-              <n-form-item-gi label="失效日期"><n-date-picker v-model:formatted-value="editor.form.expiry_date" value-format="yyyy-MM-dd" type="date" clearable /></n-form-item-gi>
+              <template v-if="editor.form.price_type === 'customer'">
+                <n-form-item-gi label="生效日期"><n-date-picker v-model:formatted-value="editor.form.effective_date" value-format="yyyy-MM-dd" type="date" clearable /></n-form-item-gi>
+                <n-form-item-gi label="失效日期"><n-date-picker v-model:formatted-value="editor.form.expiry_date" value-format="yyyy-MM-dd" type="date" clearable /></n-form-item-gi>
+              </template>
               <n-form-item-gi label="备注" :span="2"><n-input v-model:value="editor.form.remark" type="textarea" /></n-form-item-gi>
             </template>
 
@@ -364,6 +366,7 @@ import {
   NSwitch,
   NTag,
   NTree,
+  NTooltip,
 } from 'naive-ui'
 import api from '@/api'
 import TheIcon from '@/components/icon/TheIcon.vue'
@@ -552,27 +555,42 @@ function renderSpecConfigAttributes(row) {
   )
 }
 
-function actionButtons(row) {
-  return h('div', { class: 'table-actions' }, [
-    h(NButton, { size: 'small', secondary: true, type: 'info', onClick: () => openEditor(row) }, { icon: () => h(TheIcon, { icon: 'mdi:pencil', size: 15 }) }),
-    h(NPopconfirm, { onPositiveClick: () => deleteRow(row) }, {
-      trigger: () => h(NButton, { size: 'small', secondary: true, type: 'error' }, { icon: () => h(TheIcon, { icon: 'mdi:trash-can-outline', size: 15 }) }),
-      default: () => '确认删除？',
+function actionIconButton(icon, label, type, onClick) {
+  return h('span', { class: 'table-action-item' }, [
+    h(NTooltip, { placement: 'top' }, {
+      trigger: () => h(NButton, { size: 'tiny', secondary: true, round: true, type, onClick }, { icon: () => h(TheIcon, { icon, size: 14 }) }),
+      default: () => label,
     }),
   ])
 }
 
-function priceActionButtons(row) {
-  const buttons = [h(NButton, { size: 'small', secondary: true, type: 'info', onClick: () => openEditor(row) }, { icon: () => h(TheIcon, { icon: 'mdi:pencil', size: 15 }) })]
-  if (row.price_type === 'standard') {
-    buttons.push(h(NButton, { size: 'small', secondary: true, type: 'primary', onClick: () => inheritPrice(row) }, { icon: () => h(TheIcon, { icon: 'mdi:content-copy', size: 15 }), default: () => '继承' }))
-  }
-  buttons.push(
+function deleteActionButton(row) {
+  const product = getProduct(row.product_id)
+  const shutsDownVm = props.mode === 'pricing' && row.price_type === 'customer' && isCategoryMatch(product?.category_id, ['云主机'])
+  return h('span', { class: 'table-action-item' }, [
     h(NPopconfirm, { onPositiveClick: () => deleteRow(row) }, {
-      trigger: () => h(NButton, { size: 'small', secondary: true, type: 'error' }, { icon: () => h(TheIcon, { icon: 'mdi:trash-can-outline', size: 15 }) }),
-      default: () => '确认删除？',
+      trigger: () => h(NTooltip, { placement: 'top' }, {
+        trigger: () => h(NButton, { size: 'tiny', secondary: true, round: true, type: 'error' }, { icon: () => h(TheIcon, { icon: 'mdi:trash-can-outline', size: 14 }) }),
+        default: () => '删除',
+      }),
+      default: () => (shutsDownVm ? '删除价格将关闭关联虚拟机，确认继续？' : '确认删除？'),
     }),
-  )
+  ])
+}
+
+function actionButtons(row) {
+  return h('div', { class: 'table-actions' }, [
+    actionIconButton('mdi:pencil', '编辑', 'info', () => openEditor(row)),
+    deleteActionButton(row),
+  ])
+}
+
+function priceActionButtons(row) {
+  const buttons = [actionIconButton('mdi:pencil', '编辑', 'info', () => openEditor(row))]
+  if (row.price_type === 'standard') {
+    buttons.push(actionIconButton('mdi:content-copy', '继承', 'primary', () => inheritPrice(row)))
+  }
+  buttons.push(deleteActionButton(row))
   return h('div', { class: 'table-actions' }, buttons)
 }
 
@@ -622,7 +640,7 @@ const priceColumns = [
   { title: '价格', key: 'amount', width: 120, render: (row) => `${row.currency || ''} ${row.amount ?? 0}` },
   { title: '生效日期', key: 'effective_date', width: 120 },
   { title: '失效日期', key: 'expiry_date', width: 120 },
-  { title: '操作', key: 'actions', width: 180, fixed: 'right', render: priceActionButtons },
+  { title: '操作', key: 'actions', width: 150, fixed: 'right', render: priceActionButtons },
 ]
 const templateColumns = [
   { title: '模板名称', key: 'name', width: 220 },
@@ -1100,6 +1118,14 @@ async function loadPricingDhcpPools() {
 function pricingSpecValuesFromKey(specConfigKey) {
   const specConfig = getSpecConfigOption(specConfigKey)
   const values = emptyCloudSpecValues()
+  const cloudPriceMatch = /^cloud-price:(\d+):(\d+):(\d+)$/.exec(String(specConfigKey || ''))
+  if (cloudPriceMatch) {
+    return {
+      cpu_core: Number(cloudPriceMatch[1]),
+      mem_total: Number(cloudPriceMatch[2]),
+      disk_total: Number(cloudPriceMatch[3]),
+    }
+  }
   ;(specConfig?.attributes || []).forEach((item) => {
     if (['cpu_core', 'mem_total', 'disk_total'].includes(item.code)) {
       const numberValue = Number(item.value ?? item.default_value)
@@ -1662,8 +1688,11 @@ onMounted(refreshAll)
 .table-actions {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   white-space: nowrap;
+}
+.table-action-item {
+  display: inline-flex;
 }
 .category-tags {
   display: flex;
