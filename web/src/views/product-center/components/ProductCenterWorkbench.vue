@@ -591,7 +591,7 @@ function priceActionButtons(row) {
     buttons.push(actionIconButton('mdi:content-copy', '继承', 'primary', () => inheritPrice(row)))
   }
   buttons.push(deleteActionButton(row))
-  return h('div', { class: 'table-actions' }, buttons)
+  return h('div', { class: 'table-actions pricing-table-actions' }, buttons)
 }
 
 function configActionButtons(row) {
@@ -1694,6 +1694,16 @@ onMounted(refreshAll)
 .table-action-item {
   display: inline-flex;
 }
+.pricing-table-actions {
+  gap: 10px;
+}
+:deep(.pricing-table-actions) {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+
 .category-tags {
   display: flex;
   flex-wrap: wrap;

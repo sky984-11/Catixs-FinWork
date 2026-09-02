@@ -30,7 +30,7 @@ from app.api.v1.pve.vm_create import (
     resolve_create_host,
     run_remote_script,
 )
-from app.api.v1.pve.pve import VMPowerRequest, power_vm as power_pve_vm
+from app.api.v1.pve.pve import VMPowerRequest, submit_vm_power
 from app.services.product_physical_server_sync import (
     CLOUD_VM_SOURCE,
     PHYSICAL_SERVER_SOURCE,
@@ -1679,8 +1679,9 @@ async def delete_price(price_id: int):
     if await product_is_category(product, {"云主机"}) and price.price_type == "customer":
         lease = await CloudDhcpLease.filter(price_id=price.id).order_by("-id").first()
         if lease and lease.remote and lease.vmid:
-            response = await power_pve_vm(
-                VMPowerRequest(remote=lease.remote, vmid=lease.vmid, type="pve-qemu", action="stop")
+            response = await submit_vm_power(
+                VMPowerRequest(remote=lease.remote, vmid=lease.vmid, type="pve-qemu", action="stop"),
+                allow_price_managed_stop=True,
             )
             result = json.loads(response.body)
             if result.get("code") != 200:

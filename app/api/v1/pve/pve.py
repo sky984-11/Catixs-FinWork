@@ -2628,14 +2628,23 @@ async def delete_vm(payload: VMDeleteRequest):
     return Success(msg="虚拟机删除任务已提交", data={"remote": payload.remote, "vmid": payload.vmid})
 
 
-@router.post("/vms/power", summary="Start or shutdown PDM virtual machine")
-async def power_vm(payload: VMPowerRequest):
+async def submit_vm_power(payload: VMPowerRequest, *, allow_price_managed_stop: bool = False):
     if not payload.remote or not payload.vmid:
         return Fail(msg="虚拟机操作失败: 缺少远程或 VMID")
 
     action = (payload.action or "").strip().lower()
     if action not in {"start", "stop"}:
         return Fail(msg="虚拟机操作失败: 不支持的操作")
+
+    if action == "stop" and not allow_price_managed_stop:
+        managed_lease = await CloudDhcpLease.filter(
+            remote=payload.remote,
+            vmid=payload.vmid,
+            lease_source="price",
+            status="reserved",
+        ).exclude(price_id=None).first()
+        if managed_lease:
+            return Fail(msg="该虚拟机由价格管理创建，请在价格管理中删除对应客户价格后关机")
 
     kind = guest_kind(payload.type)
     request_payload: dict[str, Any] = {}
@@ -2691,6 +2700,11 @@ async def vm_config(
             "metadata_disk_gb": metadata.disk_gb if metadata else None,
         }
     )
+
+
+@router.post("/vms/power", summary="Start or shutdown PDM virtual machine")
+async def power_vm(payload: VMPowerRequest):
+    return await submit_vm_power(payload)
 
 
 @router.post("/vms/config", summary="Update PVE virtual machine core config")
