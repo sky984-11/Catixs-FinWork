@@ -260,42 +260,10 @@
 
             <template v-else-if="mode === 'pricing'">
               <n-form-item-gi v-if="!isInheritedCloudPriceEdit" label="关联产品" required :span="2"><n-select v-model:value="editor.form.product_id" filterable :options="options.products" @update:value="handlePricingProductChange" /></n-form-item-gi>
-              <n-form-item-gi v-if="isPricingCloudProduct && !isInheritedCloudPriceEdit" label="操作系统" required>
-                <n-cascader
-                  v-model:value="editor.form.os_key"
-                  clearable
-                  filterable
-                  check-strategy="child"
-                  :options="cloudOsOptions"
-                  placeholder="请选择操作系统"
-                  @update:value="handlePricingOsChange"
-                />
-              </n-form-item-gi>
-              <n-form-item-gi v-if="isPricingCloudProduct && !isInheritedCloudPriceEdit" label="云主机规格" required :span="2">
-                <div class="cloud-price-specs">
-                  <div class="cloud-price-spec-item"><span>vCPU</span><n-input-number v-model:value="editor.form.spec_values.cpu_core" :min="1" :disabled="editor.inheriting" placeholder="核心数" /></div>
-                  <div class="cloud-price-spec-item"><span>内存</span><n-input-number v-model:value="editor.form.spec_values.mem_total" :min="1" :disabled="editor.inheriting" placeholder="GB" /></div>
-                  <div class="cloud-price-spec-item"><span>磁盘</span><n-input-number v-model:value="editor.form.spec_values.disk_total" :min="1" :disabled="editor.inheriting" placeholder="GB" /></div>
-                </div>
-              </n-form-item-gi>
-              <n-form-item-gi v-if="isPricingCloudProduct && editor.form.price_type === 'customer' && !isInheritedCloudPriceEdit" label="DHCP 池" required>
-                <div class="dhcp-price-field">
-                  <n-select
-                    v-model:value="editor.form.dhcp_pool_id"
-                    filterable
-                    :loading="dhcpLoading"
-                    :options="options.dhcpPools"
-                    placeholder="根据产品地区选择 DHCP 池"
-                  />
-                  <div v-if="selectedDhcpPool" class="dhcp-pool-hint">
-                    VLAN {{ selectedDhcpPool.vlan }} · 下一个 IP {{ selectedDhcpPool.next_ip || '-' }} · 剩余 {{ selectedDhcpPool.available_count || 0 }} / {{ selectedDhcpPool.total_count || 0 }}
-                  </div>
-                </div>
-              </n-form-item-gi>
-              <n-form-item-gi v-if="isPricingCloudProduct && !editor.form.id && editor.form.price_type === 'customer'" :span="2"><div class="cloud-create-hint">保存后将按产品地区匹配资源充足的 PVE 节点，自动生成虚拟机名称和初始密码；创建完成后可在提示框复制。</div></n-form-item-gi>
-              <n-form-item-gi v-if="!isPricingCloudProduct && !isInheritedCloudPriceEdit" label="关联规格配置" required :span="2"><n-select v-model:value="editor.form.spec_config_key" filterable :options="pricingSpecConfigOptions" @update:value="handlePricingSpecConfigChange" /></n-form-item-gi>
-              <n-form-item-gi v-if="!editor.inheriting && !isInheritedCloudPriceEdit" label="价格类型"><n-select v-model:value="editor.form.price_type" :options="options.priceTypes" @update:value="handlePricingTypeChange" /></n-form-item-gi>
-              <n-form-item-gi v-if="editor.form.price_type === 'customer' && !isInheritedCloudPriceEdit" label="客户"><n-select v-model:value="editor.form.customer_id" clearable filterable :options="options.customers" @update:value="handlePricingCustomerChange" /></n-form-item-gi>
+              <n-form-item-gi v-if="isPricingCloudProduct && !isInheritedCloudPriceEdit" label="关联云主机" required :span="2"><n-select v-model:value="editor.form.cloud_vm_key" filterable :loading="cloudVmLoading" :options="cloudVmOptions" placeholder="请选择当前产品地区的云主机" @update:value="handleCloudVmChange" /></n-form-item-gi>
+              <n-form-item-gi v-else-if="isPricingPhysicalServerProduct && !isInheritedCloudPriceEdit" label="关联物理服务器" required :span="2"><n-select v-model:value="editor.form.physical_device_key" filterable :loading="physicalDeviceLoading" :options="physicalDeviceOptions" placeholder="请选择当前产品地区使用中的物理服务器" @update:value="handlePhysicalDeviceChange" /></n-form-item-gi>
+              <n-form-item-gi v-else-if="!isInheritedCloudPriceEdit" label="关联规格配置" required :span="2"><n-select v-model:value="editor.form.spec_config_key" filterable :options="pricingSpecConfigOptions" @update:value="handlePricingSpecConfigChange" /></n-form-item-gi>
+              <n-form-item-gi v-if="!isInheritedCloudPriceEdit" label="客户" required><n-select v-model:value="editor.form.customer_id" clearable filterable :disabled="(isPricingCloudProduct || isPricingPhysicalServerProduct) && Boolean(editor.form.customer_id)" :options="options.customers" @update:value="handlePricingCustomerChange" /></n-form-item-gi>
               <n-form-item-gi v-if="!isInheritedCloudPriceEdit" label="计费单位"><n-select v-model:value="editor.form.billing_unit" :options="options.billingUnits" /></n-form-item-gi>
               <n-form-item-gi label="价格">
                 <n-input-group class="price-amount-field">
@@ -303,10 +271,10 @@
                   <n-select v-model:value="editor.form.currency" class="price-currency-select" :options="options.currencies" />
                 </n-input-group>
               </n-form-item-gi>
-              <template v-if="editor.form.price_type === 'customer' && !isInheritedCloudPriceEdit">
+              <template v-if="!isInheritedCloudPriceEdit">
                 <n-form-item-gi label="生效日期"><n-date-picker v-model:formatted-value="editor.form.effective_date" value-format="yyyy-MM-dd" type="date" clearable /></n-form-item-gi>
               </template>
-              <n-form-item-gi v-if="editor.form.price_type === 'customer'" label="失效日期"><n-date-picker v-model:formatted-value="editor.form.expiry_date" value-format="yyyy-MM-dd" type="date" clearable /></n-form-item-gi>
+              <n-form-item-gi label="失效日期"><n-date-picker v-model:formatted-value="editor.form.expiry_date" value-format="yyyy-MM-dd" type="date" clearable /></n-form-item-gi>
               <n-form-item-gi label="备注" :span="2"><n-input v-model:value="editor.form.remark" type="textarea" /></n-form-item-gi>
             </template>
 
@@ -459,6 +427,10 @@ const expandedCategoryKeys = ref([])
 const popRegions = ref([])
 const editorInitializing = ref(false)
 const dhcpLoading = ref(false)
+const cloudVmLoading = ref(false)
+const cloudVmOptions = ref([])
+const physicalDeviceLoading = ref(false)
+const physicalDeviceOptions = ref([])
 const pagination = reactive({ page: 1, pageSize: 20, itemCount: 0, pageSizes: [20, 50, 100] })
 const configSortState = reactive({ columnKey: 'product_category_sort', order: 'ascend' })
 const query = reactive({ keyword: '', category_id: null, status: null, region: null, attr_type: null, product_id: null, spec_config_key: null, price_type: null, customer_id: null })
@@ -582,15 +554,21 @@ function actionIconButton(icon, label, type, onClick) {
 }
 
 function deleteActionButton(row) {
-  const product = getProduct(row.product_id)
-  const shutsDownVm = props.mode === 'pricing' && row.price_type === 'customer' && isCategoryMatch(product?.category_id, ['云主机'])
+  const shutsDownVm = props.mode === 'pricing' && Boolean(row.cloud_vm_remote && row.cloud_vm_vmid)
+  const releasesPhysicalServer = props.mode === 'pricing' && Boolean(row.physical_device_id)
   return h('span', { class: 'table-action-item' }, [
     h(NPopconfirm, { onPositiveClick: () => deleteRow(row) }, {
       trigger: () => h(NTooltip, { placement: 'top' }, {
         trigger: () => h(NButton, { size: 'tiny', secondary: true, round: true, type: 'error' }, { icon: () => h(TheIcon, { icon: 'mdi:trash-can-outline', size: 14 }) }),
         default: () => '删除',
       }),
-      default: () => (shutsDownVm ? '删除价格将关闭关联虚拟机，确认继续？' : '确认删除？'),
+      default: () => (
+        shutsDownVm
+          ? '删除价格将关闭关联虚拟机，确认继续？'
+          : releasesPhysicalServer
+            ? '删除价格将把关联物理服务器标记为空闲，确认继续？'
+            : '确认删除？'
+      ),
     }),
   ])
 }
@@ -677,7 +655,14 @@ const columns = computed(() => {
 })
 const editorTitle = computed(() => `${editor.form.id ? '编辑' : '新增'}${pageTitle.value.replace('管理', '').replace('配置', '配置')}`)
 const pricingProduct = computed(() => getProduct(editor.form.product_id))
-const isPricingCloudProduct = computed(() => isCategoryMatch(pricingProduct.value?.category_id, ['云主机']))
+const isPricingCloudProduct = computed(() => (
+  isCategoryMatch(pricingProduct.value?.category_id, ['云主机'])
+  || options.specConfigs.some((item) => item.product_id === pricingProduct.value?.value && item.source_type === 'cloud_vm')
+))
+const isPricingPhysicalServerProduct = computed(() => (
+  isCategoryMatch(pricingProduct.value?.category_id, ['物理服务器'])
+  || options.specConfigs.some((item) => item.product_id === pricingProduct.value?.value && item.source_type === 'physical_server')
+))
 const isInheritedCloudPriceEdit = computed(() => props.mode === 'pricing' && Boolean(editor.form.id) && Boolean(editor.form.inherited_from_price_id) && isPricingCloudProduct.value)
 const selectedDhcpPool = computed(() => options.dhcpPools.find((item) => String(item.value) === String(editor.form.dhcp_pool_id)))
 const pricingSpecConfigOptions = computed(() => {
@@ -733,7 +718,7 @@ function emptyForm() {
   if (props.mode === 'products') return { id: null, name: '', code: '', category_id: query.category_id, status: 'active', region: '', billing_mode: 'fixed', description: '' }
   if (props.mode === 'specs') return { id: null, name: '', code: '', category_id: query.category_id, category_ids: query.category_id ? [query.category_id] : [], attr_type: 'text', unit: '', required: false, options: '', description: '', status: true }
   if (props.mode === 'configs') return { id: null, product_id: query.product_id, configs: [emptyConfigLine()] }
-  if (props.mode === 'pricing') return { id: null, product_id: null, spec_config_key: query.spec_config_key, spec_config_name: '', spec_values: emptyCloudSpecValues(), os_key: 'debian:12', os_type: 'debian', os_version: '12', dhcp_pool_id: null, price_type: query.price_type || 'standard', customer_id: null, customer_name: '', billing_mode: 'fixed', billing_unit: 'month', currency: 'USD', amount: 0, effective_date: todayText(), expiry_date: null, notify_enabled: false, notify_user_ids: [], notify_schedule: 'once', notify_at: null, status: 'active', remark: '' }
+  if (props.mode === 'pricing') return { id: null, product_id: null, spec_config_key: query.spec_config_key, spec_config_name: '', cloud_vm_key: null, cloud_vm_remote: '', cloud_vm_vmid: null, cloud_vm_name: '', physical_device_key: null, physical_device_id: null, physical_device_name: '', physical_device_node: '', price_type: 'customer', customer_id: null, customer_name: '', billing_mode: 'fixed', billing_unit: 'month', currency: 'USD', amount: 0, effective_date: todayText(), expiry_date: null, notify_enabled: false, notify_user_ids: [], notify_schedule: 'once', notify_at: null, status: 'active', remark: '' }
   return { id: null, name: '', category_id: query.category_id, template_type: 'product', description: '', config: '', status: true }
 }
 
@@ -893,7 +878,11 @@ function openEditor(row = null) {
         disk_total: row.dhcp_lease.disk_gb || editor.form.spec_values.disk_total || 20,
       }
     }
-    loadPricingDhcpPools()
+    editor.form.price_type = 'customer'
+    if (row?.cloud_vm_remote && row?.cloud_vm_vmid) editor.form.cloud_vm_key = [row.cloud_vm_remote, row.cloud_vm_vmid].join(':')
+    if (row?.physical_device_id) editor.form.physical_device_key = [row.physical_device_id, row.physical_device_node || ''].join(':')
+    loadCloudVmOptions()
+    loadPhysicalDeviceOptions()
   }
   if (!row) applyProductBillingDefault()
   editor.show = true
@@ -913,11 +902,11 @@ function inheritPrice(row) {
     price_type: 'customer',
     customer_id: null,
     customer_name: '',
-    dhcp_pool_id: null,
   }
-  editor.form.spec_values = pricingSpecValuesFromKey(row.spec_config_key)
   editor.form.billing_mode = getProduct(editor.form.product_id)?.billing_mode || editor.form.billing_mode || 'fixed'
-  loadPricingDhcpPools()
+  if (row.cloud_vm_remote && row.cloud_vm_vmid) editor.form.cloud_vm_key = [row.cloud_vm_remote, row.cloud_vm_vmid].join(':')
+  loadCloudVmOptions()
+  loadPhysicalDeviceOptions()
   editor.show = true
   nextTick(() => {
     editorInitializing.value = false
@@ -1134,10 +1123,19 @@ function handlePricingProductChange(value) {
   const product = getProduct(value)
   editor.form.spec_config_key = null
   editor.form.spec_config_name = ''
-  editor.form.spec_values = emptyCloudSpecValues()
   editor.form.billing_mode = product?.billing_mode || 'fixed'
-  editor.form.dhcp_pool_id = null
-  loadPricingDhcpPools()
+  editor.form.cloud_vm_key = null
+  editor.form.cloud_vm_remote = ''
+  editor.form.cloud_vm_vmid = null
+  editor.form.cloud_vm_name = ''
+  editor.form.physical_device_key = null
+  editor.form.physical_device_id = null
+  editor.form.physical_device_name = ''
+  editor.form.physical_device_node = ''
+  editor.form.customer_id = null
+  editor.form.customer_name = ''
+  loadCloudVmOptions()
+  loadPhysicalDeviceOptions()
 }
 
 function handlePricingOsChange(value) {
@@ -1207,6 +1205,52 @@ function handlePricingTypeChange(value) {
 
 function handlePricingCustomerChange(value) {
   if (value) editor.form.price_type = 'customer'
+}
+
+async function loadCloudVmOptions() {
+  if (props.mode !== 'pricing' || !isPricingCloudProduct.value || !editor.form.product_id) {
+    cloudVmOptions.value = []
+    return
+  }
+  cloudVmLoading.value = true
+  try {
+    const res = await api.productCenterApi.priceCloudVmOptions(editor.form.product_id)
+    cloudVmOptions.value = res.data || []
+  } finally {
+    cloudVmLoading.value = false
+  }
+}
+
+function handleCloudVmChange(value) {
+  const selected = cloudVmOptions.value.find((item) => item.value === value)
+  editor.form.cloud_vm_remote = selected?.remote || ''
+  editor.form.cloud_vm_vmid = selected?.vmid || null
+  editor.form.cloud_vm_name = selected?.name || ''
+  editor.form.customer_id = selected?.customer_id || null
+  editor.form.customer_name = selected?.customer_name || ''
+}
+
+async function loadPhysicalDeviceOptions() {
+  if (props.mode !== 'pricing' || !isPricingPhysicalServerProduct.value || !editor.form.product_id) {
+    physicalDeviceOptions.value = []
+    return
+  }
+  physicalDeviceLoading.value = true
+  try {
+    const res = await api.productCenterApi.pricePhysicalDeviceOptions(editor.form.product_id)
+    physicalDeviceOptions.value = res.data || []
+  } finally {
+    physicalDeviceLoading.value = false
+  }
+}
+
+function handlePhysicalDeviceChange(value) {
+  const selected = physicalDeviceOptions.value.find((item) => item.value === value)
+  editor.form.physical_device_id = selected?.id || null
+  editor.form.physical_device_name = selected?.name || ''
+  editor.form.physical_device_node = selected?.node_name || ''
+  editor.form.customer_id = selected?.customer_id || null
+  editor.form.customer_name = selected?.customer_name || ''
 }
 
 function normalizeConfigEditorValues(reset = false) {
@@ -1527,27 +1571,21 @@ async function saveEditor() {
       else await api.productCenterApi.createSpecConfig(payload)
     } else if (props.mode === 'pricing') {
       if (!payload.product_id) return window.$message?.warning('请选择产品')
-      const product = getProduct(payload.product_id)
-      const isCloudProduct = isCategoryMatch(product?.category_id, ['云主机'])
+      const isCloudProduct = isPricingCloudProduct.value
+      const isPhysicalServerProduct = isPricingPhysicalServerProduct.value
       if (isCloudProduct) {
         payload.spec_config_key = null
         payload.spec_config_name = ''
-        handlePricingOsChange(payload.os_key)
-        payload.spec_values = {
-          cpu_core: Number(payload.spec_values?.cpu_core || 0),
-          mem_total: Number(payload.spec_values?.mem_total || 0),
-          disk_total: Number(payload.spec_values?.disk_total || 0),
-        }
-        if (!payload.spec_values.cpu_core || !payload.spec_values.mem_total || !payload.spec_values.disk_total) return window.$message?.warning('请填写云主机 CPU、内存和磁盘规格')
-        if (!payload.os_type || !payload.os_version) return window.$message?.warning('请选择操作系统')
-        if (payload.price_type === 'customer' && !payload.dhcp_pool_id) return window.$message?.warning('请选择 DHCP 池')
+        if (!payload.cloud_vm_remote || !payload.cloud_vm_vmid) return window.$message?.warning('请选择当前产品地区的云主机')
+      } else if (isPhysicalServerProduct) {
+        payload.spec_config_key = null
+        payload.spec_config_name = ''
+        if (!payload.physical_device_id) return window.$message?.warning('请选择当前产品地区使用中的物理服务器')
       } else if (!payload.spec_config_key) {
         return window.$message?.warning('请选择规格配置')
       }
-      if (payload.price_type !== 'customer') {
-        payload.customer_id = null
-        payload.customer_name = ''
-      } else if (!payload.customer_id) {
+      payload.price_type = 'customer'
+      if (!payload.customer_id) {
         return window.$message?.warning('请选择客户')
       }
       const specConfig = getSpecConfigOption(payload.spec_config_key)
@@ -1562,10 +1600,6 @@ async function saveEditor() {
       const res = payload.id
         ? await api.productCenterApi.updatePrice(payload.id, payload)
         : await api.productCenterApi.createPrice(payload)
-      if (!payload.id && res?.data?.vm_credentials) {
-        credentialModal.data = res.data.vm_credentials
-        credentialModal.show = true
-      }
     } else {
       if (!payload.name) return window.$message?.warning('请填写模板名称')
       if (payload.id) await api.productCenterApi.updateTemplate(payload.id, payload)
@@ -1964,6 +1998,7 @@ onMounted(refreshAll)
   width: 100%;
   justify-content: flex-end;
 }
+
 
 :deep(.price-notification-modal) {
   width: 560px;

@@ -18,6 +18,29 @@ async def notify_due_price_reminders(now: datetime) -> int:
     rows = await ProductPrice.filter(notify_enabled=True, notify_next_at__lte=now).limit(50)
     sent = 0
     for price in rows:
+        current_next_at = price.notify_next_at
+        next_notify_at = None
+        next_enabled = False
+        if price.notify_schedule == "monthly" and current_next_at:
+            next_notify_at = current_next_at
+            compare_now = now.replace(tzinfo=next_notify_at.tzinfo) if next_notify_at.tzinfo else now
+            while next_notify_at <= compare_now:
+                next_notify_at = next_month(next_notify_at)
+            next_enabled = True
+
+        # Claim the reminder before sending so another scheduler loop or a hot-reload worker cannot send it again.
+        claimed = await ProductPrice.filter(
+            id=price.id,
+            notify_enabled=True,
+            notify_next_at=current_next_at,
+        ).update(
+            notify_enabled=next_enabled,
+            notify_next_at=next_notify_at,
+            notify_last_at=now,
+        )
+        if not claimed:
+            continue
+
         product = await price.product
         card = {
             "config": {"wide_screen_mode": True},
@@ -49,15 +72,4 @@ async def notify_due_price_reminders(now: datetime) -> int:
             receive_id = user.feishu_user_id or await lookup_feishu_user_id_by_email(user.email)
             if receive_id and await send_feishu_app_card(receive_id=receive_id, receive_id_type="user_id", card=card):
                 sent += 1
-        price.notify_last_at = now
-        if price.notify_schedule == "monthly" and price.notify_next_at:
-            next_at = price.notify_next_at
-            compare_now = now.replace(tzinfo=next_at.tzinfo) if next_at.tzinfo else now
-            while next_at <= compare_now:
-                next_at = next_month(next_at)
-            price.notify_next_at = next_at
-        else:
-            price.notify_enabled = False
-            price.notify_next_at = None
-        await price.save()
     return sent

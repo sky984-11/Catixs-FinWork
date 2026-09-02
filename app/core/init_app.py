@@ -2521,7 +2521,13 @@ async def ensure_product_center_columns():
             ADD COLUMN IF NOT EXISTS "product_region_name" VARCHAR(100);
         ALTER TABLE IF EXISTS "product_price"
             ADD COLUMN IF NOT EXISTS "spec_config_key" VARCHAR(200),
-            ADD COLUMN IF NOT EXISTS "spec_config_name" VARCHAR(200);
+            ADD COLUMN IF NOT EXISTS "spec_config_name" VARCHAR(200),
+            ADD COLUMN IF NOT EXISTS "cloud_vm_remote" VARCHAR(100),
+            ADD COLUMN IF NOT EXISTS "cloud_vm_vmid" INT,
+            ADD COLUMN IF NOT EXISTS "cloud_vm_name" VARCHAR(160),
+            ADD COLUMN IF NOT EXISTS "physical_device_id" BIGINT,
+            ADD COLUMN IF NOT EXISTS "physical_device_name" VARCHAR(160),
+            ADD COLUMN IF NOT EXISTS "physical_device_node" VARCHAR(100);
         CREATE INDEX IF NOT EXISTS "idx_product_spec_config_source"
             ON "product_spec_config" ("source_type", "source_key");
         CREATE INDEX IF NOT EXISTS "idx_product_spec_config_auto_sync"

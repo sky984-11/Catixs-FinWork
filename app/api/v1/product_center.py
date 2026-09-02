@@ -13,7 +13,7 @@ from tortoise.expressions import Q
 
 from app.models.customer_center import CrmCustomer
 from app.models.admin import User
-from app.models.asset import AssetDevice, AssetRegion, CloudDhcpLease
+from app.models.asset import AssetDevice, AssetRegion, CloudDhcpLease, PveNodeBinding, PveVmMetadata
 from app.models.product_center import (
     ProductCategory,
     ProductItem,
@@ -33,7 +33,15 @@ from app.api.v1.pve.vm_create import (
     resolve_create_host,
     run_remote_script,
 )
-from app.api.v1.pve.pve import VMPowerRequest, submit_vm_power
+from app.api.v1.pve.pve import (
+    VMPowerRequest,
+    all_vms,
+    apply_vm_metadata,
+    pdm_live_resources_list,
+    submit_vm_power,
+    sync_vm_spec_metadata_from_list,
+)
+from app.api.v1.resources.resources import aggregate_sales_device_status, device_to_sales_rows
 from app.services.product_physical_server_sync import (
     CLOUD_VM_SOURCE,
     PHYSICAL_SERVER_SOURCE,
@@ -135,6 +143,12 @@ class PricePayload(BaseModel):
     os_type: str | None = Field(None, max_length=40)
     os_version: str | None = Field(None, max_length=40)
     dhcp_pool_id: int | None = None
+    cloud_vm_remote: str | None = Field(None, max_length=100)
+    cloud_vm_vmid: int | None = None
+    cloud_vm_name: str | None = Field(None, max_length=160)
+    physical_device_id: int | None = None
+    physical_device_name: str | None = Field(None, max_length=160)
+    physical_device_node: str | None = Field(None, max_length=100)
     vm_name: str | None = Field(None, max_length=160)
     vm_password: str | None = Field(None, min_length=8, max_length=128)
     inherited_from_price_id: int | None = None
@@ -255,6 +269,12 @@ async def product_category_names(product: ProductItem) -> list[str]:
 
 async def product_is_category(product: ProductItem, names: set[str]) -> bool:
     return any(name in names for name in await product_category_names(product))
+
+
+async def product_uses_resource_source(product: ProductItem, category_names: set[str], source_type: str) -> bool:
+    return await product_is_category(product, category_names) or await ProductSpecConfig.filter(
+        product_id=product.id, source_type=source_type
+    ).exists()
 
 
 async def product_snapshot(product_id: int) -> dict[str, str]:
@@ -994,6 +1014,27 @@ async def price_dict(price: ProductPrice) -> dict[str, Any]:
     data["spec_config_key"] = data.get("spec_config_key") or ""
     data["spec_config_name"] = data.get("spec_config_name") or ""
     data["spec_config_display"] = data["spec_config_name"] or "-"
+    if price.cloud_vm_remote and price.cloud_vm_vmid:
+        vm = await PveVmMetadata.get_or_none(remote=price.cloud_vm_remote, vmid=price.cloud_vm_vmid)
+        if vm:
+            specs = []
+            if vm.cpu_cores is not None:
+                specs.append(f"CPU {vm.cpu_cores} 核")
+            if vm.memory_gb is not None:
+                specs.append(f"内存 {vm.memory_gb:g} GB")
+            if vm.disk_gb is not None:
+                specs.append(f"磁盘 {vm.disk_gb:g} GB")
+            data["spec_config_display"] = " / ".join(specs) or data["spec_config_display"]
+    elif price.physical_device_id:
+        device = await AssetDevice.get_or_none(id=price.physical_device_id).select_related("region", "location", "cabinet")
+        if device:
+            node_name = str(price.physical_device_node or "")
+            resource_row = next(
+                (row for row in device_to_sales_rows(device) if str(row.get("node_name") or "") == node_name),
+                None,
+            )
+            if resource_row:
+                data["spec_config_display"] = resource_row.get("config") or data["spec_config_display"]
     cloud_spec_parts = data["spec_config_key"].split(":")
     if len(cloud_spec_parts) == 4 and cloud_spec_parts[0] == "cloud-price":
         data["spec_config_display"] = f"CPU {cloud_spec_parts[1]} 核 / 内存 {cloud_spec_parts[2]} GB / 磁盘 {cloud_spec_parts[3]} GB"
@@ -1486,57 +1527,157 @@ async def list_prices(
     return SuccessExtra(data=[await price_dict(item) for item in rows], total=total, page=page, page_size=page_size)
 
 
+@router.get("/prices/cloud-vms", summary="按产品地区获取可关联云主机")
+async def price_cloud_vm_options(product_id: int):
+    product = await ProductItem.get_or_none(id=product_id)
+    if not product:
+        return Fail(msg="关联产品不存在")
+    remotes = []
+    for binding in await PveNodeBinding.all().select_related("region"):
+        region = await binding.region if binding.region_id else None
+        if region and (
+            await product_matches_region(product, region)
+            or normalize_region_key(product.region)
+            == normalize_region_key(" ".join(filter(None, [region.code, region.name, region.country, region.city])))
+        ):
+            remotes.append(binding.remote)
+    try:
+        vms = [vm for vm in all_vms(await pdm_live_resources_list()) if vm.get("remote") in remotes]
+    except Exception as exc:
+        logger.warning("failed to fetch live cloud resources for price selection: {}", exc)
+        return Fail(msg="实时读取云资源失败，请稍后重试")
+    await sync_vm_spec_metadata_from_list(vms)
+    await apply_vm_metadata(vms)
+    vms.sort(key=lambda item: (str(item.get("remote") or ""), int(item.get("vmid") or 0)))
+    return Success(data=[{
+        "label": f"{item.get('name') or 'VM'} · {item.get('remote')} / {item.get('vmid')}",
+        "value": f"{item.get('remote')}:{item.get('vmid')}",
+        "remote": item.get("remote"),
+        "vmid": item.get("vmid"),
+        "name": item.get("name") or "",
+        "customer_id": item.get("customer_id"),
+        "customer_name": item.get("customer_name") or "",
+    } for item in vms])
+
+
+async def device_customer(device: AssetDevice, attributes: dict[str, Any] | None = None) -> tuple[int | None, str]:
+    attributes = dict(attributes if attributes is not None else device.attributes or {})
+    raw_id = attributes.get("customer_id") or attributes.get("客户ID")
+    customer = None
+    try:
+        customer = await CrmCustomer.filter(id=int(raw_id), status=True).exclude(lifecycle="terminated").first() if raw_id else None
+    except (TypeError, ValueError):
+        pass
+    if not customer:
+        raw_name = str(attributes.get("customer_name") or attributes.get("客户名称") or attributes.get("customer") or attributes.get("客户") or device.owner or "").strip()
+        if raw_name:
+            customer = await CrmCustomer.filter(Q(legal_name=raw_name) | Q(name=raw_name), status=True).exclude(lifecycle="terminated").first()
+    return (customer.id, customer.legal_name or customer.name) if customer else (None, "")
+
+
+@router.get("/prices/physical-devices", summary="按产品地区获取可关联物理服务器")
+async def price_physical_device_options(product_id: int):
+    product = await ProductItem.get_or_none(id=product_id)
+    if not product:
+        return Fail(msg="关联产品不存在")
+    items = []
+    for device in await AssetDevice.filter(type=0).select_related("region", "location", "cabinet").order_by("asset_no"):
+        region = await device.region if device.region_id else None
+        if not region or not (
+            await product_matches_region(product, region)
+            or normalize_region_key(product.region)
+            == normalize_region_key(" ".join(filter(None, [region.code, region.name, region.country, region.city])))
+        ):
+            continue
+        for row in device_to_sales_rows(device):
+            if int(row.get("status") or 0) != 1:
+                continue
+            customer_id, customer_name = await device_customer(device, row.get("attributes"))
+            node_name = str(row.get("node_name") or "")
+            items.append({
+                "label": f"{row.get('name') or device.name or device.asset_no} · {row.get('asset_no') or device.asset_no}",
+                "value": f"{device.id}:{node_name}" if node_name else str(device.id),
+                "id": device.id,
+                "name": row.get("name") or device.name or device.asset_no,
+                "node_name": node_name,
+                "customer_id": customer_id,
+                "customer_name": customer_name,
+            })
+    return Success(data=items)
+
+
 async def price_payload_data(payload: PricePayload) -> tuple[dict[str, Any] | None, str | None]:
     data = compact(payload.model_dump())
-    notify_user_ids = sorted({int(item) for item in (data.get("notify_user_ids") or []) if str(item).isdigit()})
-    data["notify_user_ids"] = notify_user_ids
-    if data.get("notify_enabled"):
-        if not notify_user_ids or not data.get("notify_at"):
-            return None, "请填写飞书提醒接收人和提醒时间"
-        data["notify_next_at"] = data["notify_at"]
-    else:
-        data["notify_next_at"] = None
-    spec_values = data.pop("spec_values", None)
+    data["notify_user_ids"] = sorted({int(item) for item in (data.get("notify_user_ids") or []) if str(item).isdigit()})
+    data["notify_next_at"] = data.get("notify_at") if data.get("notify_enabled") else None
+    data.pop("spec_values", None)
     data.pop("os_type", None)
     data.pop("os_version", None)
     data.pop("dhcp_pool_id", None)
     data.pop("vm_name", None)
     data.pop("vm_password", None)
-    spec_group = None
-    if data.get("spec_config_key"):
-        group = await get_spec_config_group(data.get("spec_config_key"))
-        if group:
-            spec_group = group
-            data["product_id"] = group.get("product_id")
-            data["spec_config_name"] = group.get("spec_name") or data.get("spec_config_name")
     if not data.get("product_id"):
         return None, "请选择产品"
-    product = await ProductItem.get_or_none(id=data.get("product_id"))
+    product = await ProductItem.get_or_none(id=data["product_id"])
     if not product:
         return None, "关联产品不存在"
-    if await product_is_category(product, {"云主机"}):
-        values = spec_values or {}
-        cpu_cores = int(values.get("cpu_core") or 0)
-        memory_gb = int(values.get("mem_total") or 0)
-        disk_gb = int(values.get("disk_total") or 0)
-        if not cpu_cores or not memory_gb or not disk_gb:
-            return None, "请填写云主机 CPU、内存和磁盘规格"
-        data["spec_config_key"] = f"cloud-price:{cpu_cores}:{memory_gb}:{disk_gb}"
-        data["spec_config_name"] = f"CPU {cpu_cores} 核 / 内存 {memory_gb} GB / 磁盘 {disk_gb} GB"
-    elif not spec_group:
+    if await product_uses_resource_source(product, {"云主机"}, CLOUD_VM_SOURCE):
+        remote, vmid = data.get("cloud_vm_remote"), data.get("cloud_vm_vmid")
+        if not remote or not vmid:
+            return None, "请选择当前产品地区的云主机"
+        vm = await PveVmMetadata.get_or_none(remote=remote, vmid=vmid)
+        if not vm:
+            return None, "关联云主机不存在"
+        data.update(
+            cloud_vm_name=vm.vm_name or data.get("cloud_vm_name") or "",
+            spec_config_key=f"cloud-vm:{vm.remote}:{vm.vmid}",
+            spec_config_name=vm.vm_name or f"{vm.remote} / {vm.vmid}",
+        )
+        if vm.customer_id:
+            data["customer_id"] = vm.customer_id
+            data["customer_name"] = vm.customer_name or ""
+    elif await product_uses_resource_source(product, {"物理服务器"}, PHYSICAL_SERVER_SOURCE):
+        device = await AssetDevice.get_or_none(id=data.get("physical_device_id")).select_related("region", "location", "cabinet")
+        if not device:
+            return None, "请选择当前产品地区的物理服务器"
+        region = await device.region if device.region_id else None
+        if not region or not await product_matches_region(product, region):
+            return None, "关联物理服务器不属于当前产品地区"
+        node_name = str(data.get("physical_device_node") or "").strip()
+        resource_row = next(
+            (
+                row
+                for row in device_to_sales_rows(device)
+                if int(row.get("status") or 0) == 1 and str(row.get("node_name") or "") == node_name
+            ),
+            None,
+        )
+        if not resource_row:
+            return None, "关联物理服务器或四合一节点不是使用状态"
+        customer_id, customer_name = await device_customer(device, resource_row.get("attributes"))
+        data.update(
+            physical_device_name=resource_row.get("name") or device.name or device.asset_no,
+            physical_device_node=node_name or None,
+            spec_config_key=f"physical-device:{device.id}" + (f":node:{node_name}" if node_name else ""),
+            spec_config_name=resource_row.get("name") or device.name or device.asset_no,
+        )
+        if customer_id:
+            data["customer_id"] = customer_id
+            data["customer_name"] = customer_name
+    elif not data.get("spec_config_key") or not await get_spec_config_group(data["spec_config_key"]):
         return None, "请选择有效的规格配置"
+    data["price_type"] = "customer"
     data["billing_mode"] = product.billing_mode or "fixed"
-    if data.get("price_type") == "standard":
-        data["effective_date"] = None
-        data["expiry_date"] = None
     data.pop("min_amount", None)
     data.pop("tier_rules", None)
     data.pop("bandwidth_rule", None)
-    if data.get("price_type") == "customer" and data.get("customer_id") and not data.get("customer_name"):
+    if not data.get("customer_id"):
+        return None, "请选择客户"
+    if not data.get("customer_name"):
         customer = await CrmCustomer.filter(id=data["customer_id"], status=True).exclude(lifecycle="terminated").first()
         if not customer:
             return None, "请选择有效客户，已终止客户不能用于定价"
-        data["customer_name"] = customer.legal_name or customer.name if customer else None
+        data["customer_name"] = customer.legal_name or customer.name
     return data, None
 
 
@@ -1659,24 +1800,6 @@ async def create_price(payload: PricePayload):
             return Fail(msg="继承来源价格无效")
     price = await ProductPrice.create(**data)
     product = await price.product
-    if await product_is_category(product, {"云主机"}) and price.price_type == "customer":
-        lease = await allocate_dhcp_for_price(
-            price,
-            product,
-            payload.spec_values,
-            os_type=payload.os_type,
-            os_version=payload.os_version,
-            expiry_date=payload.expiry_date,
-            pool_id=payload.dhcp_pool_id,
-        )
-        if not lease:
-            await ProductPrice.filter(id=price.id).delete()
-            return Fail(msg="当前产品地区没有可用 DHCP 地址，请先维护 DHCP 池或释放地址")
-        vm_error, vm_credentials = await create_cloud_vm_for_price(price, product, payload, lease)
-        if vm_error:
-            await release_price_dhcp(price.id)
-            await ProductPrice.filter(id=price.id).delete()
-            return Fail(msg=f"产品价格未创建：{vm_error}")
     try:
         result = await price_dict(price)
     except Exception:
@@ -1688,8 +1811,6 @@ async def create_price(payload: PricePayload):
             "price_type": price.price_type,
             "amount": float(price.amount or 0),
         }
-    if await product_is_category(product, {"云主机"}) and price.price_type == "customer":
-        result["vm_credentials"] = vm_credentials
     return Success(msg="产品价格已创建", data=result)
 
 
@@ -1700,21 +1821,6 @@ async def update_price(price_id: int, payload: PricePayload):
         return Fail(msg=error)
     await ProductPrice.filter(id=price_id).update(**data)
     price = await ProductPrice.get(id=price_id)
-    product = await price.product
-    if await product_is_category(product, {"云主机"}) and price.price_type == "customer":
-        lease = await allocate_dhcp_for_price(
-            price,
-            product,
-            payload.spec_values,
-            os_type=payload.os_type,
-            os_version=payload.os_version,
-            expiry_date=payload.expiry_date,
-            pool_id=payload.dhcp_pool_id,
-        )
-        if not lease:
-            return Fail(msg="当前产品地区没有可用 DHCP 地址，请先维护 DHCP 池或释放地址")
-    else:
-        await release_price_dhcp(price.id)
     return Success(msg="产品价格已更新", data=await price_dict(price))
 
 
@@ -1762,20 +1868,46 @@ async def delete_price(price_id: int):
     price = await ProductPrice.get_or_none(id=price_id)
     if not price:
         return Fail(msg="价格记录不存在")
-    product = await price.product
-    if await product_is_category(product, {"云主机"}) and price.price_type == "customer":
-        lease = await CloudDhcpLease.filter(price_id=price.id).order_by("-id").first()
-        if lease and lease.remote and lease.vmid:
-            response = await submit_vm_power(
-                VMPowerRequest(remote=lease.remote, vmid=lease.vmid, type="pve-qemu", action="stop"),
-                allow_price_managed_stop=True,
-            )
-            result = json.loads(response.body)
-            if result.get("code") != 200:
-                return Fail(msg=f"删除价格失败，关联虚拟机关机失败：{result.get('msg') or '未知错误'}")
-    await release_price_dhcp(price_id)
+    if price.cloud_vm_remote and price.cloud_vm_vmid:
+        response = await submit_vm_power(
+            VMPowerRequest(remote=price.cloud_vm_remote, vmid=price.cloud_vm_vmid, type="pve-qemu", action="stop"),
+            allow_price_managed_stop=True,
+        )
+        result = json.loads(response.body)
+        if result.get("code") != 200:
+            return Fail(msg=f"删除价格失败，关联虚拟机关机失败：{result.get('msg') or '未知错误'}")
+    physical_released = False
+    if price.physical_device_id:
+        node_name = str(price.physical_device_node or "").strip()
+        other_price_query = ProductPrice.filter(physical_device_id=price.physical_device_id).exclude(id=price.id)
+        if node_name:
+            other_price_query = other_price_query.filter(physical_device_node=node_name)
+        if not await other_price_query.exists():
+            device = await AssetDevice.get_or_none(id=price.physical_device_id)
+            if device:
+                if node_name:
+                    attributes = dict(device.attributes or {})
+                    nodes = attributes.get("nodes")
+                    if isinstance(nodes, list):
+                        for node in nodes:
+                            if isinstance(node, dict) and str(node.get("name") or "").strip() == node_name:
+                                node["status"] = 0
+                                physical_released = True
+                                break
+                        if physical_released:
+                            device.attributes = attributes
+                            device.status = aggregate_sales_device_status(nodes)
+                            await device.save(update_fields=["attributes", "status"])
+                else:
+                    device.status = 0
+                    await device.save(update_fields=["status"])
+                    physical_released = True
     await price.delete()
-    return Success(msg="产品价格已删除，关联虚拟机关机请求已提交")
+    if price.cloud_vm_remote:
+        return Success(msg="产品价格已删除，关联虚拟机关机请求已提交")
+    if physical_released:
+        return Success(msg="产品价格已删除，关联物理服务器已标记为空闲")
+    return Success(msg="产品价格已删除")
 
 
 @router.get("/templates", summary="产品模板列表")

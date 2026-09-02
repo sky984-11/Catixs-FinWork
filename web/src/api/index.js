@@ -366,6 +366,8 @@ export default {
     updateSpecConfigGroup: (data = {}) => request.post('/product-center/spec-config-groups/update', data),
     deleteSpecConfigGroup: (data = {}) => request.post('/product-center/spec-config-groups/delete', data),
     listPrices: (params = {}) => request.get('/product-center/prices', { params }),
+    priceCloudVmOptions: (productId) => request.get('/product-center/prices/cloud-vms', { params: { product_id: productId } }),
+    pricePhysicalDeviceOptions: (productId) => request.get('/product-center/prices/physical-devices', { params: { product_id: productId } }),
     createPrice: (data = {}) => request.post('/product-center/prices', data, { timeout: 300000 }),
     updatePrice: (id, data = {}) => request.put(`/product-center/prices/${id}`, data, { timeout: 300000 }),
     updatePriceNotification: (id, data = {}) => request.put(`/product-center/prices/${id}/notification`, data),
