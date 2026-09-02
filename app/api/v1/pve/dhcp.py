@@ -1,6 +1,7 @@
 import asyncio
 import ipaddress
 import platform
+import re
 from datetime import date, datetime
 from typing import Any
 
@@ -33,6 +34,10 @@ class DhcpPoolPayload(BaseModel):
 
 def normalize_region_key(value: str | None) -> str:
     text = str(value or "").casefold()
+    tokens = set(re.findall(r"[a-z0-9]+", text))
+    for code, normalized in {"hk": "HK", "tw": "TW", "jpn": "JPN", "sg": "SG", "uk": "UK", "de": "DE", "la3": "LA3"}.items():
+        if code in tokens:
+            return normalized
     if any(key in text for key in ("香港", "hong kong", " hk", "/ hk", "hk ")):
         return "HK"
     if any(key in text for key in ("台湾", "taiwan", "taipei", "tw ")):
@@ -169,7 +174,13 @@ async def active_pools_for_region(
     else:
         region_code = normalize_region_key(region)
         if region_code:
-            q &= Q(region_code=region_code)
+            matched_region_ids = [
+                item.id for item in await AssetRegion.filter(status=True).all() if region_matches(item, region_code)
+            ]
+            if matched_region_ids:
+                q &= Q(region_id__in=matched_region_ids) | Q(region_code=region_code)
+            else:
+                q &= Q(region_code=region_code)
     return await CloudDhcpPool.filter(q).order_by("region_code", "vlan", "id")
 
 

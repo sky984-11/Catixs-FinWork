@@ -271,14 +271,14 @@
                   @update:value="handlePricingOsChange"
                 />
               </n-form-item-gi>
-              <n-form-item-gi v-if="isPricingCloudProduct" label="云主机规格" required>
+              <n-form-item-gi v-if="isPricingCloudProduct" label="云主机规格" required :span="2">
                 <div class="cloud-price-specs">
-                  <n-input-number v-model:value="editor.form.spec_values.cpu_core" :min="1" placeholder="CPU 核心数" />
-                  <n-input-number v-model:value="editor.form.spec_values.mem_total" :min="1" placeholder="内存 GB" />
-                  <n-input-number v-model:value="editor.form.spec_values.disk_total" :min="1" placeholder="磁盘 GB" />
+                  <div class="cloud-price-spec-item"><span>vCPU</span><n-input-number v-model:value="editor.form.spec_values.cpu_core" :min="1" :disabled="editor.inheriting" placeholder="核心数" /></div>
+                  <div class="cloud-price-spec-item"><span>内存</span><n-input-number v-model:value="editor.form.spec_values.mem_total" :min="1" :disabled="editor.inheriting" placeholder="GB" /></div>
+                  <div class="cloud-price-spec-item"><span>磁盘</span><n-input-number v-model:value="editor.form.spec_values.disk_total" :min="1" :disabled="editor.inheriting" placeholder="GB" /></div>
                 </div>
               </n-form-item-gi>
-              <n-form-item-gi v-if="isPricingCloudProduct" label="DHCP 池" required>
+              <n-form-item-gi v-if="isPricingCloudProduct && editor.form.price_type === 'customer'" label="DHCP 池" required>
                 <div class="dhcp-price-field">
                   <n-select
                     v-model:value="editor.form.dhcp_pool_id"
@@ -292,8 +292,9 @@
                   </div>
                 </div>
               </n-form-item-gi>
-              <n-form-item-gi v-else label="关联规格配置" required :span="2"><n-select v-model:value="editor.form.spec_config_key" filterable :options="pricingSpecConfigOptions" @update:value="handlePricingSpecConfigChange" /></n-form-item-gi>
-              <n-form-item-gi label="价格类型"><n-select v-model:value="editor.form.price_type" :options="options.priceTypes" @update:value="handlePricingTypeChange" /></n-form-item-gi>
+              <n-form-item-gi v-if="isPricingCloudProduct && !editor.form.id && editor.form.price_type === 'customer'" :span="2"><div class="cloud-create-hint">保存后将按产品地区匹配资源充足的 PVE 节点，自动生成虚拟机名称和初始密码；创建完成后可在提示框复制。</div></n-form-item-gi>
+              <n-form-item-gi v-if="!isPricingCloudProduct" label="关联规格配置" required :span="2"><n-select v-model:value="editor.form.spec_config_key" filterable :options="pricingSpecConfigOptions" @update:value="handlePricingSpecConfigChange" /></n-form-item-gi>
+              <n-form-item-gi v-if="!editor.inheriting" label="价格类型"><n-select v-model:value="editor.form.price_type" :options="options.priceTypes" @update:value="handlePricingTypeChange" /></n-form-item-gi>
               <n-form-item-gi v-if="editor.form.price_type === 'customer'" label="客户"><n-select v-model:value="editor.form.customer_id" clearable filterable :options="options.customers" @update:value="handlePricingCustomerChange" /></n-form-item-gi>
               <n-form-item-gi label="计费单位"><n-select v-model:value="editor.form.billing_unit" :options="options.billingUnits" /></n-form-item-gi>
               <n-form-item-gi label="价格">
@@ -327,6 +328,16 @@
           </n-grid>
         </n-form>
         <template #footer><ModalFooter :loading="editor.loading" @cancel="editor.show = false" @save="saveEditor" /></template>
+      </n-modal>
+      <n-modal v-model:show="credentialModal.show" preset="card" title="云主机创建完成" class="vm-credential-modal" :bordered="false">
+        <p class="vm-credential-note">请立即复制并妥善保存初始登录信息，关闭后无法再次查看密码。</p>
+        <div class="vm-credential-list">
+          <div class="vm-credential-row"><span>虚拟机名称</span><code>{{ credentialModal.data.vm_name }}</code></div>
+          <div class="vm-credential-row"><span>初始密码</span><code>{{ credentialModal.data.password }}</code></div>
+          <div class="vm-credential-row"><span>IP 地址</span><code>{{ credentialModal.data.ip || '-' }}</code></div>
+          <div class="vm-credential-row"><span>所在 PVE</span><code>{{ credentialModal.data.remote || '-' }}</code></div>
+        </div>
+        <template #footer><CButton show-cancel show-save cancel-text="关闭" save-text="复制全部" @cancel="credentialModal.show = false" @save="copyVmCredentials" /></template>
       </n-modal>
     </div>
   </AppPage>
@@ -449,7 +460,8 @@ const options = reactive({
   dhcpPools: [],
 })
 const categoryModal = reactive({ show: false, loading: false, form: emptyCategory() })
-const editor = reactive({ show: false, loading: false, form: emptyForm() })
+const editor = reactive({ show: false, loading: false, inheriting: false, form: emptyForm() })
+const credentialModal = reactive({ show: false, data: { vm_name: '', password: '', ip: '', remote: '' } })
 const regionAliasMap = new Map([
   ['hk', '香港'],
   ['hongkong', '香港'],
@@ -550,6 +562,20 @@ function actionButtons(row) {
   ])
 }
 
+function priceActionButtons(row) {
+  const buttons = [h(NButton, { size: 'small', secondary: true, type: 'info', onClick: () => openEditor(row) }, { icon: () => h(TheIcon, { icon: 'mdi:pencil', size: 15 }) })]
+  if (row.price_type === 'standard') {
+    buttons.push(h(NButton, { size: 'small', secondary: true, type: 'primary', onClick: () => inheritPrice(row) }, { icon: () => h(TheIcon, { icon: 'mdi:content-copy', size: 15 }), default: () => '继承' }))
+  }
+  buttons.push(
+    h(NPopconfirm, { onPositiveClick: () => deleteRow(row) }, {
+      trigger: () => h(NButton, { size: 'small', secondary: true, type: 'error' }, { icon: () => h(TheIcon, { icon: 'mdi:trash-can-outline', size: 15 }) }),
+      default: () => '确认删除？',
+    }),
+  )
+  return h('div', { class: 'table-actions' }, buttons)
+}
+
 function configActionButtons(row) {
   if (row.auto_sync) return null
   return actionButtons(row)
@@ -596,7 +622,7 @@ const priceColumns = [
   { title: '价格', key: 'amount', width: 120, render: (row) => `${row.currency || ''} ${row.amount ?? 0}` },
   { title: '生效日期', key: 'effective_date', width: 120 },
   { title: '失效日期', key: 'expiry_date', width: 120 },
-  { title: '操作', key: 'actions', width: 100, fixed: 'right', render: actionButtons },
+  { title: '操作', key: 'actions', width: 180, fixed: 'right', render: priceActionButtons },
 ]
 const templateColumns = [
   { title: '模板名称', key: 'name', width: 220 },
@@ -803,6 +829,7 @@ async function deleteSelectedCategory() {
 
 function openEditor(row = null) {
   editorInitializing.value = true
+  editor.inheriting = false
   editor.form = row ? { ...emptyForm(), ...row } : emptyForm()
   if (props.mode === 'specs') {
     editor.form.category_ids = attributeCategoryIds(editor.form)
@@ -830,6 +857,27 @@ function openEditor(row = null) {
     loadPricingDhcpPools()
   }
   if (!row) applyProductBillingDefault()
+  editor.show = true
+  nextTick(() => {
+    editorInitializing.value = false
+  })
+}
+
+function inheritPrice(row) {
+  editorInitializing.value = true
+  editor.inheriting = true
+  editor.form = {
+    ...emptyForm(),
+    ...row,
+    id: null,
+    price_type: 'customer',
+    customer_id: null,
+    customer_name: '',
+    dhcp_pool_id: null,
+  }
+  editor.form.spec_values = pricingSpecValuesFromKey(row.spec_config_key)
+  editor.form.billing_mode = getProduct(editor.form.product_id)?.billing_mode || editor.form.billing_mode || 'fixed'
+  loadPricingDhcpPools()
   editor.show = true
   nextTick(() => {
     editorInitializing.value = false
@@ -1415,7 +1463,7 @@ async function saveEditor() {
         }
         if (!payload.spec_values.cpu_core || !payload.spec_values.mem_total || !payload.spec_values.disk_total) return window.$message?.warning('请填写云主机 CPU、内存和磁盘规格')
         if (!payload.os_type || !payload.os_version) return window.$message?.warning('请选择操作系统')
-        if (!payload.dhcp_pool_id) return window.$message?.warning('请选择 DHCP 池')
+        if (payload.price_type === 'customer' && !payload.dhcp_pool_id) return window.$message?.warning('请选择 DHCP 池')
       } else if (!payload.spec_config_key) {
         return window.$message?.warning('请选择规格配置')
       }
@@ -1434,8 +1482,13 @@ async function saveEditor() {
       delete payload.min_amount
       delete payload.tier_rules
       delete payload.bandwidth_rule
-      if (payload.id) await api.productCenterApi.updatePrice(payload.id, payload)
-      else await api.productCenterApi.createPrice(payload)
+      const res = payload.id
+        ? await api.productCenterApi.updatePrice(payload.id, payload)
+        : await api.productCenterApi.createPrice(payload)
+      if (!payload.id && res?.data?.vm_credentials) {
+        credentialModal.data = res.data.vm_credentials
+        credentialModal.show = true
+      }
     } else {
       if (!payload.name) return window.$message?.warning('请填写模板名称')
       if (payload.id) await api.productCenterApi.updateTemplate(payload.id, payload)
@@ -1445,6 +1498,17 @@ async function saveEditor() {
     await refreshAll()
   } finally {
     editor.loading = false
+  }
+}
+
+async function copyVmCredentials() {
+  const data = credentialModal.data
+  const text = `虚拟机名称: ${data.vm_name}\n初始密码: ${data.password}\nIP 地址: ${data.ip || '-'}\n所在 PVE: ${data.remote || '-'}`
+  try {
+    await navigator.clipboard.writeText(text)
+    window.$message?.success('登录信息已复制')
+  } catch {
+    window.$message?.error('复制失败，请手动复制')
   }
 }
 
@@ -1716,7 +1780,26 @@ onMounted(refreshAll)
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   width: 100%;
-  gap: 10px;
+  gap: 12px;
+}
+.cloud-price-spec-item {
+  display: block;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #e4e9f1;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.cloud-price-spec-item > span {
+  display: block;
+  margin-bottom: 6px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.cloud-price-spec-item :deep(.n-input-number .n-input) {
+  background: #fff;
 }
 .dhcp-price-field {
   width: 100%;
@@ -1726,6 +1809,51 @@ onMounted(refreshAll)
   color: #64748b;
   font-size: 12px;
   line-height: 1.6;
+}
+.cloud-create-hint {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid #d9e8ff;
+  border-radius: 8px;
+  background: #f4f8ff;
+  color: #53709b;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.vm-credential-note {
+  margin: 0 0 14px;
+  color: #9a6700;
+  font-size: 13px;
+}
+.vm-credential-list {
+  overflow: hidden;
+  border: 1px solid #e4e9f1;
+  border-radius: 8px;
+}
+.vm-credential-row {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr);
+  min-height: 42px;
+  border-bottom: 1px solid #e4e9f1;
+}
+.vm-credential-row:last-child {
+  border-bottom: 0;
+}
+.vm-credential-row > span {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 12px;
+}
+.vm-credential-row code {
+  display: flex;
+  align-items: center;
+  overflow-wrap: anywhere;
+  padding: 8px 12px;
+  color: #1e293b;
+  font-size: 13px;
 }
 .price-amount-field :deep(.n-input-number) {
   flex: 1;

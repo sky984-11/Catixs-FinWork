@@ -1,3 +1,5 @@
+import json
+import secrets
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -8,7 +10,7 @@ from pydantic import BaseModel, Field
 from tortoise.expressions import Q
 
 from app.models.customer_center import CrmCustomer
-from app.models.asset import AssetDevice, AssetRegion
+from app.models.asset import AssetDevice, AssetRegion, CloudDhcpLease
 from app.models.product_center import (
     ProductCategory,
     ProductItem,
@@ -18,10 +20,21 @@ from app.models.product_center import (
     ProductTemplate,
 )
 from app.schemas.base import Fail, Success, SuccessExtra
-from app.api.v1.pve.dhcp import allocate_dhcp_for_price, lease_dict_for_price, release_price_dhcp
+from app.api.v1.pve.dhcp import allocate_dhcp_for_price, lease_dict_for_price, normalize_region_key, release_price_dhcp
+from app.api.v1.pve.vm_create import (
+    VMCreateRequest,
+    VMNetworkConfig,
+    create_vm as create_pve_vm,
+    parse_storage_output,
+    pdm_storage_options,
+    resolve_create_host,
+    run_remote_script,
+)
 from app.services.product_physical_server_sync import (
     CLOUD_VM_SOURCE,
     PHYSICAL_SERVER_SOURCE,
+    cloud_remote_groups,
+    product_matches_region,
     sync_physical_server_specs,
     sync_product_auto_specs,
 )
@@ -118,6 +131,8 @@ class PricePayload(BaseModel):
     os_type: str | None = Field(None, max_length=40)
     os_version: str | None = Field(None, max_length=40)
     dhcp_pool_id: int | None = None
+    vm_name: str | None = Field(None, max_length=160)
+    vm_password: str | None = Field(None, min_length=8, max_length=128)
     price_type: str = "standard"
     customer_id: int | None = None
     customer_name: str | None = Field(None, max_length=160)
@@ -1451,6 +1466,8 @@ async def price_payload_data(payload: PricePayload) -> tuple[dict[str, Any] | No
     data.pop("os_type", None)
     data.pop("os_version", None)
     data.pop("dhcp_pool_id", None)
+    data.pop("vm_name", None)
+    data.pop("vm_password", None)
     if data.get("spec_config_key"):
         group = await get_spec_config_group(data.get("spec_config_key"))
         if not group:
@@ -1483,6 +1500,113 @@ async def price_payload_data(payload: PricePayload) -> tuple[dict[str, Any] | No
     return data, None
 
 
+def bytes_to_gb(value: Any) -> float:
+    return max(0, float(value or 0)) / 1024 / 1024 / 1024
+
+
+def pve_capacity_score(group: dict[str, Any], cpu_cores: int, memory_gb: int, disk_gb: int) -> tuple[float, float] | None:
+    cpu_total = float(group.get("cpu_total") or 0)
+    cpu_usage = float(group.get("cpu_usage") or 0)
+    cpu_free = cpu_total * max(0, 1 - cpu_usage / 100)
+    memory_free = bytes_to_gb(float(group.get("maxmem") or 0) - float(group.get("mem") or 0))
+    disk_free = bytes_to_gb(float(group.get("maxdisk") or 0) - float(group.get("disk") or 0))
+    if cpu_free < cpu_cores or memory_free < memory_gb or disk_free < disk_gb:
+        return None
+    ratios = (cpu_free / cpu_cores, memory_free / memory_gb, disk_free / disk_gb)
+    return min(ratios), sum(ratios)
+
+
+async def pve_remote_for_product_region(product: ProductItem, spec_values: dict[str, Any] | None) -> str | None:
+    values = spec_values or {}
+    cpu_cores = int(values.get("cpu_core") or 0)
+    memory_gb = int(values.get("mem_total") or 0)
+    disk_gb = int(values.get("disk_total") or 0)
+    candidates: list[tuple[tuple[float, float], str]] = []
+    for group in await cloud_remote_groups():
+        region_id = group.get("region_id")
+        region = await AssetRegion.get_or_none(id=region_id) if region_id else None
+        region_key = normalize_region_key(" ".join(filter(None, [region.code, region.name, region.country, region.city]))) if region else ""
+        if not region or not (await product_matches_region(product, region)) and normalize_region_key(product.region) != region_key:
+            continue
+        score = pve_capacity_score(group, cpu_cores, memory_gb, disk_gb)
+        remote = str(group.get("remote") or group.get("value") or "")
+        if score and remote:
+            candidates.append((score, remote))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0][0], item[0][1], item[1]), reverse=True)
+    return candidates[0][1]
+
+
+async def pve_storage_for_remote(remote: str) -> str | None:
+    storages = await pdm_storage_options(remote)
+    if not storages:
+        ssh_host = await resolve_create_host(remote)
+        exit_status, stdout, _stderr = await run_remote_script(ssh_host, "pvesm status --content images")
+        if exit_status == 0:
+            storages = parse_storage_output(stdout)
+    if not storages:
+        return None
+    preferred = next((item for item in storages if item.get("value") == "local-lvm"), None)
+    return str((preferred or storages[0]).get("value") or "") or None
+
+
+async def create_cloud_vm_for_price(
+    price: ProductPrice, product: ProductItem, payload: PricePayload, lease: CloudDhcpLease
+) -> tuple[str | None, dict[str, Any] | None]:
+    remote = await pve_remote_for_product_region(product, payload.spec_values)
+    if not remote:
+        return f"产品地区 {product.region or '-'} 没有资源充足的已关联 PVE 节点", None
+    storage = await pve_storage_for_remote(remote)
+    if not storage:
+        return f"PVE 节点 {remote} 未发现可用于创建虚拟机的存储", None
+
+    vm_name = f"cloud-{price.id}"
+    password = secrets.token_urlsafe(12)
+    expiry_tag = f"有效期至：{payload.expiry_date}" if payload.expiry_date else ""
+    description = " | ".join(item for item in (payload.remark or "", f"产品价格 #{price.id}", expiry_tag) if item)
+
+    cidr_suffix = str(lease.cidr or "").split("/", 1)[1] if "/" in str(lease.cidr or "") else ""
+    network = VMNetworkConfig(
+        mode="static",
+        ip=f"{lease.ip}/{cidr_suffix}" if cidr_suffix else lease.ip,
+        gw=str(lease.gateway or "").split("/", 1)[0],
+        dns=(await lease.pool).dns or "8.8.8.8",
+        vlan=lease.vlan,
+    )
+    response = await create_pve_vm(
+        VMCreateRequest(
+            region=remote,
+            storage=storage,
+            vm_name=vm_name,
+            description=description,
+            os_type=str(payload.os_type or ""),
+            os_version=str(payload.os_version or ""),
+            cpu_cores=int((payload.spec_values or {}).get("cpu_core") or 0),
+            memory_gb=int((payload.spec_values or {}).get("mem_total") or 0),
+            disk_gb=int((payload.spec_values or {}).get("disk_total") or 0),
+            password=password,
+            customer_id=price.customer_id,
+            customer_name=price.customer_name,
+            network=network,
+            expire_at=payload.expiry_date,
+        )
+    )
+    result = json.loads(response.body)
+    if result.get("code") != 200:
+        return str(result.get("msg") or "创建虚拟机失败"), None
+    created = result.get("data") or {}
+    await CloudDhcpLease.filter(id=lease.id).update(remote=created.get("remote") or remote, vmid=created.get("vmid"))
+    return None, {
+        "vm_name": vm_name,
+        "password": password,
+        "ip": lease.ip,
+        "remote": created.get("remote") or remote,
+        "vmid": created.get("vmid"),
+        "expiry_date": str(payload.expiry_date) if payload.expiry_date else None,
+    }
+
+
 @router.post("/prices", summary="新增产品价格")
 async def create_price(payload: PricePayload):
     data, error = await price_payload_data(payload)
@@ -1490,7 +1614,7 @@ async def create_price(payload: PricePayload):
         return Fail(msg=error)
     price = await ProductPrice.create(**data)
     product = await price.product
-    if await product_is_category(product, {"云主机"}):
+    if await product_is_category(product, {"云主机"}) and price.price_type == "customer":
         lease = await allocate_dhcp_for_price(
             price,
             product,
@@ -1503,7 +1627,15 @@ async def create_price(payload: PricePayload):
         if not lease:
             await ProductPrice.filter(id=price.id).delete()
             return Fail(msg="当前产品地区没有可用 DHCP 地址，请先维护 DHCP 池或释放地址")
-    return Success(msg="产品价格已创建", data=await price_dict(price))
+        vm_error, vm_credentials = await create_cloud_vm_for_price(price, product, payload, lease)
+        if vm_error:
+            await release_price_dhcp(price.id)
+            await ProductPrice.filter(id=price.id).delete()
+            return Fail(msg=f"产品价格未创建：{vm_error}")
+    result = await price_dict(price)
+    if await product_is_category(product, {"云主机"}) and price.price_type == "customer":
+        result["vm_credentials"] = vm_credentials
+    return Success(msg="产品价格已创建", data=result)
 
 
 @router.put("/prices/{price_id}", summary="编辑产品价格")
@@ -1514,7 +1646,7 @@ async def update_price(price_id: int, payload: PricePayload):
     await ProductPrice.filter(id=price_id).update(**data)
     price = await ProductPrice.get(id=price_id)
     product = await price.product
-    if await product_is_category(product, {"云主机"}):
+    if await product_is_category(product, {"云主机"}) and price.price_type == "customer":
         lease = await allocate_dhcp_for_price(
             price,
             product,
