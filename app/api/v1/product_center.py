@@ -976,6 +976,12 @@ async def price_dict(price: ProductPrice) -> dict[str, Any]:
     data["product_name"] = product.name
     data["spec_config_key"] = data.get("spec_config_key") or ""
     data["spec_config_name"] = data.get("spec_config_name") or ""
+    data["spec_config_display"] = data["spec_config_name"] or "-"
+    cloud_spec_parts = data["spec_config_key"].split(":")
+    if len(cloud_spec_parts) == 4 and cloud_spec_parts[0] == "cloud-price":
+        data["spec_config_display"] = f"CPU {cloud_spec_parts[1]} 核 / 内存 {cloud_spec_parts[2]} GB / 磁盘 {cloud_spec_parts[3]} GB"
+    elif group := await get_spec_config_group(data["spec_config_key"]):
+        data["spec_config_display"] = group.get("attribute_summary") or data["spec_config_display"]
     data["price_type_label"] = label_of(PRICE_TYPES, data.get("price_type"))
     data["billing_mode_label"] = label_of(BILLING_MODES, data.get("billing_mode"))
     data["billing_unit_label"] = label_of(BILLING_UNITS, data.get("billing_unit"))
@@ -1489,7 +1495,7 @@ async def price_payload_data(payload: PricePayload) -> tuple[dict[str, Any] | No
         if not cpu_cores or not memory_gb or not disk_gb:
             return None, "请填写云主机 CPU、内存和磁盘规格"
         data["spec_config_key"] = f"cloud-price:{cpu_cores}:{memory_gb}:{disk_gb}"
-        data["spec_config_name"] = f"{cpu_cores}C / {memory_gb}G / {disk_gb}G"
+        data["spec_config_name"] = f"CPU {cpu_cores} 核 / 内存 {memory_gb} GB / 磁盘 {disk_gb} GB"
     elif not spec_group:
         return None, "请选择有效的规格配置"
     data["billing_mode"] = product.billing_mode or "fixed"

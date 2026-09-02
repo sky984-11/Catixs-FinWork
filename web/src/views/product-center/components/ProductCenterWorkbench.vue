@@ -633,7 +633,7 @@ const configColumns = computed(() => [
 ])
 const priceColumns = [
   { title: '产品名称', key: 'product_name', width: 220, ellipsis: { tooltip: true } },
-  { title: '规格配置', key: 'spec_config_name', width: 260, ellipsis: { tooltip: true } },
+  { title: '规格配置', key: 'spec_config_display', width: 340, ellipsis: { tooltip: true } },
   { title: '价格类型', key: 'price_type_label', width: 120, render: (row) => renderTag(row.price_type_label, row.price_type === 'customer' ? 'warning' : 'success') },
   { title: '客户', key: 'customer_name', width: 180, ellipsis: { tooltip: true } },
   { title: '计费单位', key: 'billing_unit_label', width: 110 },
