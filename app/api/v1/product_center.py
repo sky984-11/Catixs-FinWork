@@ -6,6 +6,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, Query
+from loguru import logger
 from pydantic import BaseModel, Field
 from tortoise.expressions import Q
 
@@ -1645,7 +1646,17 @@ async def create_price(payload: PricePayload):
             await release_price_dhcp(price.id)
             await ProductPrice.filter(id=price.id).delete()
             return Fail(msg=f"产品价格未创建：{vm_error}")
-    result = await price_dict(price)
+    try:
+        result = await price_dict(price)
+    except Exception:
+        logger.exception("price created but response data assembly failed: price_id={}", price.id)
+        result = {
+            "id": price.id,
+            "product_id": price.product_id,
+            "product_name": product.name,
+            "price_type": price.price_type,
+            "amount": float(price.amount or 0),
+        }
     if await product_is_category(product, {"云主机"}) and price.price_type == "customer":
         result["vm_credentials"] = vm_credentials
     return Success(msg="产品价格已创建", data=result)
