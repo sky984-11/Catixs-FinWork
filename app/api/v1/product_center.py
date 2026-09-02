@@ -135,6 +135,7 @@ class PricePayload(BaseModel):
     dhcp_pool_id: int | None = None
     vm_name: str | None = Field(None, max_length=160)
     vm_password: str | None = Field(None, min_length=8, max_length=128)
+    inherited_from_price_id: int | None = None
     price_type: str = "standard"
     customer_id: int | None = None
     customer_name: str | None = Field(None, max_length=160)
@@ -1626,6 +1627,11 @@ async def create_price(payload: PricePayload):
     data, error = await price_payload_data(payload)
     if error:
         return Fail(msg=error)
+    inherited_from_price_id = data.get("inherited_from_price_id")
+    if inherited_from_price_id:
+        source_price = await ProductPrice.get_or_none(id=inherited_from_price_id)
+        if not source_price or source_price.price_type != "standard" or source_price.product_id != data.get("product_id"):
+            return Fail(msg="继承来源价格无效")
     price = await ProductPrice.create(**data)
     product = await price.product
     if await product_is_category(product, {"云主机"}) and price.price_type == "customer":

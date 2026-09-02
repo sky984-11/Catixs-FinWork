@@ -238,7 +238,7 @@ if __name__ == "__main__":
     LOGGING_CONFIG["formatters"]["access"]["datefmt"] = "%Y-%m-%d %H:%M:%S"
 
     port = int(os.getenv("PORT", "9999"))
-    reload = False
+    reload = parse_bool(os.getenv("BACKEND_RELOAD"), default=True)
     single_instance = parse_bool(os.getenv("BACKEND_SINGLE_INSTANCE"), default=True)
     if single_instance:
         try:

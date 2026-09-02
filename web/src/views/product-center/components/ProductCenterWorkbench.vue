@@ -259,8 +259,8 @@
             </template>
 
             <template v-else-if="mode === 'pricing'">
-              <n-form-item-gi label="关联产品" required :span="2"><n-select v-model:value="editor.form.product_id" filterable :options="options.products" @update:value="handlePricingProductChange" /></n-form-item-gi>
-              <n-form-item-gi v-if="isPricingCloudProduct" label="操作系统" required>
+              <n-form-item-gi v-if="!isInheritedCloudPriceEdit" label="关联产品" required :span="2"><n-select v-model:value="editor.form.product_id" filterable :options="options.products" @update:value="handlePricingProductChange" /></n-form-item-gi>
+              <n-form-item-gi v-if="isPricingCloudProduct && !isInheritedCloudPriceEdit" label="操作系统" required>
                 <n-cascader
                   v-model:value="editor.form.os_key"
                   clearable
@@ -271,14 +271,14 @@
                   @update:value="handlePricingOsChange"
                 />
               </n-form-item-gi>
-              <n-form-item-gi v-if="isPricingCloudProduct" label="云主机规格" required :span="2">
+              <n-form-item-gi v-if="isPricingCloudProduct && !isInheritedCloudPriceEdit" label="云主机规格" required :span="2">
                 <div class="cloud-price-specs">
                   <div class="cloud-price-spec-item"><span>vCPU</span><n-input-number v-model:value="editor.form.spec_values.cpu_core" :min="1" :disabled="editor.inheriting" placeholder="核心数" /></div>
                   <div class="cloud-price-spec-item"><span>内存</span><n-input-number v-model:value="editor.form.spec_values.mem_total" :min="1" :disabled="editor.inheriting" placeholder="GB" /></div>
                   <div class="cloud-price-spec-item"><span>磁盘</span><n-input-number v-model:value="editor.form.spec_values.disk_total" :min="1" :disabled="editor.inheriting" placeholder="GB" /></div>
                 </div>
               </n-form-item-gi>
-              <n-form-item-gi v-if="isPricingCloudProduct && editor.form.price_type === 'customer'" label="DHCP 池" required>
+              <n-form-item-gi v-if="isPricingCloudProduct && editor.form.price_type === 'customer' && !isInheritedCloudPriceEdit" label="DHCP 池" required>
                 <div class="dhcp-price-field">
                   <n-select
                     v-model:value="editor.form.dhcp_pool_id"
@@ -293,20 +293,20 @@
                 </div>
               </n-form-item-gi>
               <n-form-item-gi v-if="isPricingCloudProduct && !editor.form.id && editor.form.price_type === 'customer'" :span="2"><div class="cloud-create-hint">保存后将按产品地区匹配资源充足的 PVE 节点，自动生成虚拟机名称和初始密码；创建完成后可在提示框复制。</div></n-form-item-gi>
-              <n-form-item-gi v-if="!isPricingCloudProduct" label="关联规格配置" required :span="2"><n-select v-model:value="editor.form.spec_config_key" filterable :options="pricingSpecConfigOptions" @update:value="handlePricingSpecConfigChange" /></n-form-item-gi>
-              <n-form-item-gi v-if="!editor.inheriting" label="价格类型"><n-select v-model:value="editor.form.price_type" :options="options.priceTypes" @update:value="handlePricingTypeChange" /></n-form-item-gi>
-              <n-form-item-gi v-if="editor.form.price_type === 'customer'" label="客户"><n-select v-model:value="editor.form.customer_id" clearable filterable :options="options.customers" @update:value="handlePricingCustomerChange" /></n-form-item-gi>
-              <n-form-item-gi label="计费单位"><n-select v-model:value="editor.form.billing_unit" :options="options.billingUnits" /></n-form-item-gi>
+              <n-form-item-gi v-if="!isPricingCloudProduct && !isInheritedCloudPriceEdit" label="关联规格配置" required :span="2"><n-select v-model:value="editor.form.spec_config_key" filterable :options="pricingSpecConfigOptions" @update:value="handlePricingSpecConfigChange" /></n-form-item-gi>
+              <n-form-item-gi v-if="!editor.inheriting && !isInheritedCloudPriceEdit" label="价格类型"><n-select v-model:value="editor.form.price_type" :options="options.priceTypes" @update:value="handlePricingTypeChange" /></n-form-item-gi>
+              <n-form-item-gi v-if="editor.form.price_type === 'customer' && !isInheritedCloudPriceEdit" label="客户"><n-select v-model:value="editor.form.customer_id" clearable filterable :options="options.customers" @update:value="handlePricingCustomerChange" /></n-form-item-gi>
+              <n-form-item-gi v-if="!isInheritedCloudPriceEdit" label="计费单位"><n-select v-model:value="editor.form.billing_unit" :options="options.billingUnits" /></n-form-item-gi>
               <n-form-item-gi label="价格">
                 <n-input-group class="price-amount-field">
                   <n-input-number v-model:value="editor.form.amount" :min="0" />
                   <n-select v-model:value="editor.form.currency" class="price-currency-select" :options="options.currencies" />
                 </n-input-group>
               </n-form-item-gi>
-              <template v-if="editor.form.price_type === 'customer'">
+              <template v-if="editor.form.price_type === 'customer' && !isInheritedCloudPriceEdit">
                 <n-form-item-gi label="生效日期"><n-date-picker v-model:formatted-value="editor.form.effective_date" value-format="yyyy-MM-dd" type="date" clearable /></n-form-item-gi>
-                <n-form-item-gi label="失效日期"><n-date-picker v-model:formatted-value="editor.form.expiry_date" value-format="yyyy-MM-dd" type="date" clearable /></n-form-item-gi>
               </template>
+              <n-form-item-gi v-if="editor.form.price_type === 'customer'" label="失效日期"><n-date-picker v-model:formatted-value="editor.form.expiry_date" value-format="yyyy-MM-dd" type="date" clearable /></n-form-item-gi>
               <n-form-item-gi label="备注" :span="2"><n-input v-model:value="editor.form.remark" type="textarea" /></n-form-item-gi>
             </template>
 
@@ -660,6 +660,7 @@ const columns = computed(() => {
 const editorTitle = computed(() => `${editor.form.id ? '编辑' : '新增'}${pageTitle.value.replace('管理', '').replace('配置', '配置')}`)
 const pricingProduct = computed(() => getProduct(editor.form.product_id))
 const isPricingCloudProduct = computed(() => isCategoryMatch(pricingProduct.value?.category_id, ['云主机']))
+const isInheritedCloudPriceEdit = computed(() => props.mode === 'pricing' && Boolean(editor.form.id) && Boolean(editor.form.inherited_from_price_id) && isPricingCloudProduct.value)
 const selectedDhcpPool = computed(() => options.dhcpPools.find((item) => String(item.value) === String(editor.form.dhcp_pool_id)))
 const pricingSpecConfigOptions = computed(() => {
   const productId = editor.form.product_id
@@ -888,6 +889,7 @@ function inheritPrice(row) {
     ...emptyForm(),
     ...row,
     id: null,
+    inherited_from_price_id: row.id,
     price_type: 'customer',
     customer_id: null,
     customer_name: '',
