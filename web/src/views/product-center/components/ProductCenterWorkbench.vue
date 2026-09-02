@@ -337,7 +337,11 @@
           <template v-if="notificationModal.form.notify_enabled">
             <n-form-item-gi label="通知人" :span="2"><n-select v-model:value="notificationModal.form.notify_user_ids" multiple filterable :options="options.notifyUsers" placeholder="选择飞书通知接收人" /></n-form-item-gi>
             <n-form-item-gi label="提醒方式"><n-select v-model:value="notificationModal.form.notify_schedule" :options="notifyScheduleOptions" /></n-form-item-gi>
-            <n-form-item-gi label="通知时间"><n-date-picker v-model:formatted-value="notificationModal.form.notify_at" value-format="yyyy-MM-dd HH:mm:ss" type="datetime" clearable /></n-form-item-gi>
+            <n-form-item-gi v-if="notificationModal.form.notify_schedule === 'once'" label="通知时间"><n-date-picker v-model:formatted-value="notificationModal.form.notify_at" value-format="yyyy-MM-dd HH:mm:ss" type="datetime" clearable /></n-form-item-gi>
+            <template v-else>
+              <n-form-item-gi label="每月执行日"><n-input-number v-model:value="notificationModal.form.notify_day" :min="1" :max="31" /></n-form-item-gi>
+              <n-form-item-gi label="执行时间"><n-time-picker v-model:formatted-value="notificationModal.form.notify_time" value-format="HH:mm:ss" clearable /></n-form-item-gi>
+            </template>
           </template>
         </n-grid></n-form>
         <template #footer><ModalFooter :loading="notificationModal.loading" @cancel="notificationModal.show = false" @save="saveNotification" /></template>
@@ -477,7 +481,7 @@ const options = reactive({
 const categoryModal = reactive({ show: false, loading: false, form: emptyCategory() })
 const editor = reactive({ show: false, loading: false, inheriting: false, form: emptyForm() })
 const credentialModal = reactive({ show: false, data: { vm_name: '', password: '', ip: '', remote: '' } })
-const notificationModal = reactive({ show: false, loading: false, form: { id: null, notify_enabled: false, notify_user_ids: [], notify_schedule: 'once', notify_at: null } })
+const notificationModal = reactive({ show: false, loading: false, form: { id: null, notify_enabled: false, notify_user_ids: [], notify_schedule: 'once', notify_at: null, notify_day: 1, notify_time: '09:00:00' } })
 const regionAliasMap = new Map([
   ['hk', '香港'],
   ['hongkong', '香港'],
@@ -921,19 +925,24 @@ function inheritPrice(row) {
 }
 
 function openNotification(row) {
+  const notifyAt = row.notify_at ? new Date(String(row.notify_at).replace(' ', 'T')) : null
   notificationModal.form = {
     id: row.id,
     notify_enabled: Boolean(row.notify_enabled),
     notify_user_ids: Array.isArray(row.notify_user_ids) ? row.notify_user_ids : [],
     notify_schedule: row.notify_schedule || 'once',
     notify_at: row.notify_at || null,
+    notify_day: notifyAt?.getDate?.() || 1,
+    notify_time: notifyAt ? String(notifyAt.getHours()).padStart(2, '0') + ':' + String(notifyAt.getMinutes()).padStart(2, '0') + ':00' : '09:00:00',
   }
   notificationModal.show = true
 }
 
 async function saveNotification() {
   const form = notificationModal.form
-  if (form.notify_enabled && (!form.notify_user_ids.length || !form.notify_at)) return window.$message?.warning('请选择通知人和通知时间')
+  if (form.notify_enabled && !form.notify_user_ids.length) return window.$message?.warning('请选择通知人')
+  if (form.notify_enabled && form.notify_schedule === 'once' && !form.notify_at) return window.$message?.warning('请选择通知时间')
+  if (form.notify_enabled && form.notify_schedule === 'monthly' && (!form.notify_day || !form.notify_time)) return window.$message?.warning('请填写每月执行日和执行时间')
   notificationModal.loading = true
   try {
     await api.productCenterApi.updatePriceNotification(form.id, { ...form })

@@ -52,7 +52,8 @@ async def notify_due_price_reminders(now: datetime) -> int:
         price.notify_last_at = now
         if price.notify_schedule == "monthly" and price.notify_next_at:
             next_at = price.notify_next_at
-            while next_at <= now:
+            compare_now = now.replace(tzinfo=next_at.tzinfo) if next_at.tzinfo else now
+            while next_at <= compare_now:
                 next_at = next_month(next_at)
             price.notify_next_at = next_at
         else:

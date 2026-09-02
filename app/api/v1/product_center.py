@@ -1,6 +1,7 @@
 import json
 import secrets
 from datetime import date, datetime
+from calendar import monthrange
 from decimal import Decimal
 from typing import Any, Literal
 from uuid import uuid4
@@ -162,6 +163,8 @@ class PriceNotificationPayload(BaseModel):
     notify_user_ids: list[int] = Field(default_factory=list)
     notify_schedule: Literal["once", "monthly"] = "once"
     notify_at: datetime | None = None
+    notify_day: int | None = Field(None, ge=1, le=31)
+    notify_time: str | None = Field(None, pattern=r"^\d{2}:\d{2}(:\d{2})?$")
 
 
 class TemplatePayload(BaseModel):
@@ -1723,15 +1726,30 @@ async def update_price_notification(price_id: int, payload: PriceNotificationPay
     if price.price_type != "customer":
         return Fail(msg="仅客户价格支持飞书通知")
     user_ids = sorted({int(item) for item in payload.notify_user_ids})
-    if payload.notify_enabled and (not user_ids or not payload.notify_at):
-        return Fail(msg="请填写飞书提醒接收人和提醒时间")
+    notify_at = payload.notify_at
+    if payload.notify_enabled:
+        if not user_ids:
+            return Fail(msg="请选择飞书提醒接收人")
+        if payload.notify_schedule == "monthly":
+            if not payload.notify_day or not payload.notify_time:
+                return Fail(msg="请填写每月执行日和执行时间")
+            hour, minute, *second = [int(item) for item in payload.notify_time.split(":")]
+            now = datetime.now()
+            day = min(payload.notify_day, monthrange(now.year, now.month)[1])
+            notify_at = now.replace(day=day, hour=hour, minute=minute, second=second[0] if second else 0, microsecond=0)
+            if notify_at <= now:
+                year = now.year + (now.month == 12)
+                month = 1 if now.month == 12 else now.month + 1
+                notify_at = notify_at.replace(year=year, month=month, day=min(payload.notify_day, monthrange(year, month)[1]))
+        elif not notify_at:
+            return Fail(msg="请选择一次性提醒时间")
     await price.update_from_dict(
         {
             "notify_enabled": payload.notify_enabled,
             "notify_user_ids": user_ids,
             "notify_schedule": payload.notify_schedule,
-            "notify_at": payload.notify_at,
-            "notify_next_at": payload.notify_at if payload.notify_enabled else None,
+            "notify_at": notify_at,
+            "notify_next_at": notify_at if payload.notify_enabled else None,
             "notify_last_at": None,
         }
     )
