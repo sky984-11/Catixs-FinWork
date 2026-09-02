@@ -1,8 +1,8 @@
 import json
 import secrets
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Query
@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from tortoise.expressions import Q
 
 from app.models.customer_center import CrmCustomer
+from app.models.admin import User
 from app.models.asset import AssetDevice, AssetRegion, CloudDhcpLease
 from app.models.product_center import (
     ProductCategory,
@@ -148,8 +149,19 @@ class PricePayload(BaseModel):
     bandwidth_rule: str | None = None
     effective_date: date | None = None
     expiry_date: date | None = None
+    notify_enabled: bool = False
+    notify_user_ids: list[int] = Field(default_factory=list)
+    notify_schedule: Literal["once", "monthly"] = "once"
+    notify_at: datetime | None = None
     status: str = "active"
     remark: str | None = None
+
+
+class PriceNotificationPayload(BaseModel):
+    notify_enabled: bool = False
+    notify_user_ids: list[int] = Field(default_factory=list)
+    notify_schedule: Literal["once", "monthly"] = "once"
+    notify_at: datetime | None = None
 
 
 class TemplatePayload(BaseModel):
@@ -1011,6 +1023,7 @@ async def options():
     products.sort(key=lambda item: product_sort_keys.get(item.id, ("", "", "")))
     attributes = await ProductSpecAttribute.filter(status=True).order_by("category_id", "name").values("id", "name", "code", "attr_type", "unit", "options", "category_id", "category_ids")
     customers = await CrmCustomer.filter(status=True).exclude(lifecycle="terminated").order_by("name").values("id", "name", "legal_name")
+    notify_users = await User.filter(is_active=True).order_by("username").values("id", "username", "alias")
     return Success(
         data={
             "categories": [{"label": item.name, "value": item.id, "parent_id": item.parent_id} for item in categories],
@@ -1059,6 +1072,7 @@ async def options():
                 for item in attributes
             ],
             "customers": [{"label": item["legal_name"] or item["name"], "value": item["id"]} for item in customers],
+            "notify_users": [{"label": item["alias"] or item["username"], "value": item["id"]} for item in notify_users],
             "product_statuses": PRODUCT_STATUSES,
             "price_types": PRICE_TYPES,
             "billing_modes": BILLING_MODES,
@@ -1471,6 +1485,14 @@ async def list_prices(
 
 async def price_payload_data(payload: PricePayload) -> tuple[dict[str, Any] | None, str | None]:
     data = compact(payload.model_dump())
+    notify_user_ids = sorted({int(item) for item in (data.get("notify_user_ids") or []) if str(item).isdigit()})
+    data["notify_user_ids"] = notify_user_ids
+    if data.get("notify_enabled"):
+        if not notify_user_ids or not data.get("notify_at"):
+            return None, "请填写飞书提醒接收人和提醒时间"
+        data["notify_next_at"] = data["notify_at"]
+    else:
+        data["notify_next_at"] = None
     spec_values = data.pop("spec_values", None)
     data.pop("os_type", None)
     data.pop("os_version", None)
@@ -1691,6 +1713,30 @@ async def update_price(price_id: int, payload: PricePayload):
     else:
         await release_price_dhcp(price.id)
     return Success(msg="产品价格已更新", data=await price_dict(price))
+
+
+@router.put("/prices/{price_id}/notification", summary="更新客户价格飞书通知")
+async def update_price_notification(price_id: int, payload: PriceNotificationPayload):
+    price = await ProductPrice.get_or_none(id=price_id)
+    if not price:
+        return Fail(msg="价格记录不存在")
+    if price.price_type != "customer":
+        return Fail(msg="仅客户价格支持飞书通知")
+    user_ids = sorted({int(item) for item in payload.notify_user_ids})
+    if payload.notify_enabled and (not user_ids or not payload.notify_at):
+        return Fail(msg="请填写飞书提醒接收人和提醒时间")
+    await price.update_from_dict(
+        {
+            "notify_enabled": payload.notify_enabled,
+            "notify_user_ids": user_ids,
+            "notify_schedule": payload.notify_schedule,
+            "notify_at": payload.notify_at,
+            "notify_next_at": payload.notify_at if payload.notify_enabled else None,
+            "notify_last_at": None,
+        }
+    )
+    await price.save()
+    return Success(msg="飞书通知已更新", data=await price_dict(price))
 
 
 @router.delete("/prices/{price_id}", summary="删除产品价格")

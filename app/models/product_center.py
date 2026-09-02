@@ -117,6 +117,12 @@ class ProductPrice(BaseModel, TimestampMixin):
     bandwidth_rule = fields.TextField(null=True, description="带宽规则")
     effective_date = fields.DateField(null=True, description="生效日期", index=True)
     expiry_date = fields.DateField(null=True, description="失效日期", index=True)
+    notify_enabled = fields.BooleanField(default=False, description="飞书提醒启用", index=True)
+    notify_user_ids = fields.JSONField(null=True, description="飞书提醒接收人")
+    notify_schedule = fields.CharField(max_length=20, default="once", description="提醒周期")
+    notify_at = fields.DatetimeField(null=True, description="提醒时间")
+    notify_next_at = fields.DatetimeField(null=True, description="下次提醒时间", index=True)
+    notify_last_at = fields.DatetimeField(null=True, description="最近提醒时间")
     status = fields.CharField(max_length=30, default="active", description="价格状态", index=True)
     remark = fields.TextField(null=True, description="备注")
 

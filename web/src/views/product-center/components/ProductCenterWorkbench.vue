@@ -331,6 +331,17 @@
         </n-form>
         <template #footer><ModalFooter :loading="editor.loading" @cancel="editor.show = false" @save="saveEditor" /></template>
       </n-modal>
+      <n-modal v-model:show="notificationModal.show" preset="card" title="飞书通知" class="price-notification-modal" :style="{ width: '560px', maxWidth: 'calc(100vw - 24px)' }" :bordered="false">
+        <n-form :model="notificationModal.form" label-placement="top" class="modal-form"><n-grid :cols="2" :x-gap="16">
+          <n-form-item-gi label="启用通知" :span="2"><n-switch v-model:value="notificationModal.form.notify_enabled"><template #checked>启用</template><template #unchecked>关闭</template></n-switch></n-form-item-gi>
+          <template v-if="notificationModal.form.notify_enabled">
+            <n-form-item-gi label="通知人" :span="2"><n-select v-model:value="notificationModal.form.notify_user_ids" multiple filterable :options="options.notifyUsers" placeholder="选择飞书通知接收人" /></n-form-item-gi>
+            <n-form-item-gi label="提醒方式"><n-select v-model:value="notificationModal.form.notify_schedule" :options="notifyScheduleOptions" /></n-form-item-gi>
+            <n-form-item-gi label="通知时间"><n-date-picker v-model:formatted-value="notificationModal.form.notify_at" value-format="yyyy-MM-dd HH:mm:ss" type="datetime" clearable /></n-form-item-gi>
+          </template>
+        </n-grid></n-form>
+        <template #footer><ModalFooter :loading="notificationModal.loading" @cancel="notificationModal.show = false" @save="saveNotification" /></template>
+      </n-modal>
       <n-modal v-model:show="credentialModal.show" preset="card" title="云主机创建完成" class="vm-credential-modal" :bordered="false">
         <p class="vm-credential-note">请立即复制并妥善保存初始登录信息，关闭后无法再次查看密码。</p>
         <div class="vm-credential-list">
@@ -460,11 +471,13 @@ const options = reactive({
   billingUnits: [],
   attributeTypes: [],
   currencies: [],
+  notifyUsers: [],
   dhcpPools: [],
 })
 const categoryModal = reactive({ show: false, loading: false, form: emptyCategory() })
 const editor = reactive({ show: false, loading: false, inheriting: false, form: emptyForm() })
 const credentialModal = reactive({ show: false, data: { vm_name: '', password: '', ip: '', remote: '' } })
+const notificationModal = reactive({ show: false, loading: false, form: { id: null, notify_enabled: false, notify_user_ids: [], notify_schedule: 'once', notify_at: null } })
 const regionAliasMap = new Map([
   ['hk', '香港'],
   ['hongkong', '香港'],
@@ -587,6 +600,7 @@ function actionButtons(row) {
 
 function priceActionButtons(row) {
   const buttons = [actionIconButton('mdi:pencil', '编辑', 'info', () => openEditor(row))]
+  if (row.price_type === 'customer') buttons.push(actionIconButton('mdi:bell-outline', '飞书通知', 'primary', () => openNotification(row)))
   if (row.price_type === 'standard') {
     buttons.push(actionIconButton('mdi:content-copy', '继承', 'primary', () => inheritPrice(row)))
   }
@@ -694,6 +708,7 @@ const cloudOsOptions = [
     children: [{ label: '7.9', value: 'centos:7.9' }],
   },
 ]
+const notifyScheduleOptions = [{ label: '一次性提醒', value: 'once' }, { label: '每月定时提醒', value: 'monthly' }]
 
 function todayText() {
   const now = new Date()
@@ -714,7 +729,7 @@ function emptyForm() {
   if (props.mode === 'products') return { id: null, name: '', code: '', category_id: query.category_id, status: 'active', region: '', billing_mode: 'fixed', description: '' }
   if (props.mode === 'specs') return { id: null, name: '', code: '', category_id: query.category_id, category_ids: query.category_id ? [query.category_id] : [], attr_type: 'text', unit: '', required: false, options: '', description: '', status: true }
   if (props.mode === 'configs') return { id: null, product_id: query.product_id, configs: [emptyConfigLine()] }
-  if (props.mode === 'pricing') return { id: null, product_id: null, spec_config_key: query.spec_config_key, spec_config_name: '', spec_values: emptyCloudSpecValues(), os_key: 'debian:12', os_type: 'debian', os_version: '12', dhcp_pool_id: null, price_type: query.price_type || 'standard', customer_id: null, customer_name: '', billing_mode: 'fixed', billing_unit: 'month', currency: 'USD', amount: 0, effective_date: todayText(), expiry_date: null, status: 'active', remark: '' }
+  if (props.mode === 'pricing') return { id: null, product_id: null, spec_config_key: query.spec_config_key, spec_config_name: '', spec_values: emptyCloudSpecValues(), os_key: 'debian:12', os_type: 'debian', os_version: '12', dhcp_pool_id: null, price_type: query.price_type || 'standard', customer_id: null, customer_name: '', billing_mode: 'fixed', billing_unit: 'month', currency: 'USD', amount: 0, effective_date: todayText(), expiry_date: null, notify_enabled: false, notify_user_ids: [], notify_schedule: 'once', notify_at: null, status: 'active', remark: '' }
   return { id: null, name: '', category_id: query.category_id, template_type: 'product', description: '', config: '', status: true }
 }
 
@@ -741,6 +756,7 @@ async function loadOptions() {
   options.billingUnits = data.billing_units || []
   options.attributeTypes = data.attribute_types || []
   options.currencies = data.currencies || []
+  options.notifyUsers = data.notify_users || []
   popRegions.value = regionRes.data || []
 }
 
@@ -902,6 +918,30 @@ function inheritPrice(row) {
   nextTick(() => {
     editorInitializing.value = false
   })
+}
+
+function openNotification(row) {
+  notificationModal.form = {
+    id: row.id,
+    notify_enabled: Boolean(row.notify_enabled),
+    notify_user_ids: Array.isArray(row.notify_user_ids) ? row.notify_user_ids : [],
+    notify_schedule: row.notify_schedule || 'once',
+    notify_at: row.notify_at || null,
+  }
+  notificationModal.show = true
+}
+
+async function saveNotification() {
+  const form = notificationModal.form
+  if (form.notify_enabled && (!form.notify_user_ids.length || !form.notify_at)) return window.$message?.warning('请选择通知人和通知时间')
+  notificationModal.loading = true
+  try {
+    await api.productCenterApi.updatePriceNotification(form.id, { ...form })
+    notificationModal.show = false
+    await loadPage()
+  } finally {
+    notificationModal.loading = false
+  }
 }
 
 function specConfigGroupToForm(row = {}) {
@@ -1914,6 +1954,11 @@ onMounted(refreshAll)
 .modal-footer {
   width: 100%;
   justify-content: flex-end;
+}
+
+:deep(.price-notification-modal) {
+  width: 560px;
+  max-width: calc(100vw - 24px);
 }
 @media (max-width: 900px) {
   .product-page {

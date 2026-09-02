@@ -368,6 +368,7 @@ export default {
     listPrices: (params = {}) => request.get('/product-center/prices', { params }),
     createPrice: (data = {}) => request.post('/product-center/prices', data, { timeout: 300000 }),
     updatePrice: (id, data = {}) => request.put(`/product-center/prices/${id}`, data, { timeout: 300000 }),
+    updatePriceNotification: (id, data = {}) => request.put(`/product-center/prices/${id}/notification`, data),
     deletePrice: (id) => request.delete(`/product-center/prices/${id}`),
     listTemplates: (params = {}) => request.get('/product-center/templates', { params }),
     createTemplate: (data = {}) => request.post('/product-center/templates', data),
