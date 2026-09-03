@@ -37,7 +37,7 @@
             <h2>{{ pageTitle }}</h2>
           </div>
           <n-space>
-            <n-button type="primary" @click="openEditor()">
+            <n-button v-if="mode !== 'price-history'" type="primary" @click="openEditor()">
               <template #icon><TheIcon :icon="addIcon" :size="18" /></template>
               {{ addText }}
             </n-button>
@@ -85,6 +85,8 @@
           <n-select v-if="mode === 'configs'" v-model:value="query.product_id" clearable filterable :options="options.products" placeholder="关联产品" />
           <n-select v-if="mode === 'pricing'" v-model:value="query.spec_config_key" clearable filterable :options="options.specConfigs" placeholder="关联规格配置" />
           <n-select v-if="mode === 'pricing'" v-model:value="query.price_type" clearable :options="options.priceTypes" placeholder="价格类型" />
+          <n-select v-if="mode === 'price-history'" v-model:value="query.product_id" clearable filterable :options="options.products" placeholder="关联产品" />
+          <n-select v-if="mode === 'price-history'" v-model:value="query.customer_id" clearable filterable :options="options.customers" placeholder="客户" />
           <n-cascader
             v-if="mode === 'templates'"
             v-model:value="query.category_id"
@@ -363,6 +365,7 @@ const modeMeta = {
   specs: { title: '规格管理', keyword: '搜索属性名称 / 编码 / 单位', add: '新增属性', icon: 'mdi:tune-variant' },
   configs: { title: '规格配置', keyword: '', add: '新增配置', icon: 'mdi:playlist-plus' },
   pricing: { title: '价格管理', keyword: '搜索产品 / 客户', add: '新增价格', icon: 'mdi:cash-plus' },
+  'price-history': { title: '客户历史价格', keyword: '搜索产品 / 客户', add: '', icon: 'mdi:history' },
   templates: { title: '产品模板', keyword: '搜索模板名称 / 说明', add: '新增模板', icon: 'mdi:file-plus-outline' },
 }
 
@@ -370,9 +373,9 @@ const pageTitle = computed(() => modeMeta[props.mode]?.title || '产品中心')
 const addText = computed(() => modeMeta[props.mode]?.add || '新增')
 const addIcon = computed(() => modeMeta[props.mode]?.icon || 'mdi:plus')
 const keywordPlaceholder = computed(() => modeMeta[props.mode]?.keyword || '搜索')
-const showKeyword = computed(() => !['configs', 'products', 'specs'].includes(props.mode))
+const showKeyword = computed(() => !['configs', 'products', 'specs', 'price-history'].includes(props.mode))
 const scrollX = computed(() => {
-  if (props.mode === 'pricing') return 1280
+  if (['pricing', 'price-history'].includes(props.mode)) return 1280
   if (props.mode === 'products') return 1180
   if (props.mode === 'specs') return 1280
   if (props.mode === 'configs') return 1420
@@ -562,8 +565,8 @@ function deleteActionButton(row) {
   return h('span', { class: 'table-action-item' }, [
     h(NPopconfirm, { onPositiveClick: () => deleteRow(row) }, {
       trigger: () => h(NTooltip, { placement: 'top' }, {
-        trigger: () => h(NButton, { size: 'tiny', secondary: true, round: true, type: 'error' }, { icon: () => h(TheIcon, { icon: 'mdi:trash-can-outline', size: 14 }) }),
-        default: () => '删除',
+        trigger: () => h(NButton, { size: 'tiny', secondary: true, round: true, type: 'error' }, { icon: () => h(TheIcon, { icon: props.mode === 'pricing' ? 'mdi:archive-arrow-down-outline' : 'mdi:trash-can-outline', size: 14 }) }),
+        default: () => props.mode === 'pricing' ? '下架' : '删除',
       }),
       default: () => (
         shutsDownVm
@@ -641,6 +644,10 @@ const priceColumns = [
   { title: '失效日期', key: 'expiry_date', width: 120 },
   { title: '操作', key: 'actions', width: 150, fixed: 'right', render: priceActionButtons },
 ]
+const priceHistoryColumns = [
+  ...priceColumns.filter((item) => item.key !== 'actions'),
+  { title: '下架日期', key: 'off_shelf_at', width: 180 },
+]
 const templateColumns = [
   { title: '模板名称', key: 'name', width: 220 },
   { title: '适用分类', key: 'category_name', width: 160 },
@@ -654,6 +661,7 @@ const columns = computed(() => {
   if (props.mode === 'specs') return attributeColumns
   if (props.mode === 'configs') return configColumns.value
   if (props.mode === 'pricing') return priceColumns
+  if (props.mode === 'price-history') return priceHistoryColumns
   return templateColumns
 })
 const editorTitle = computed(() => `${editor.form.id ? '编辑' : '新增'}${pageTitle.value.replace('管理', '').replace('配置', '配置')}`)
@@ -773,6 +781,7 @@ async function loadPage() {
       sort_order: configSortState.order || 'ascend',
     }))
     else if (props.mode === 'pricing') res = await api.productCenterApi.listPrices(pageParams({ keyword: query.keyword, spec_config_key: query.spec_config_key || '', price_type: query.price_type || '' }))
+    else if (props.mode === 'price-history') res = await api.productCenterApi.listPriceHistory(pageParams({ product_id: query.product_id || undefined, customer_id: query.customer_id || undefined }))
     else res = await api.productCenterApi.listTemplates(pageParams({ keyword: query.keyword, category_id: query.category_id || undefined }))
     rows.value = res.data || []
     pagination.itemCount = res.total || 0

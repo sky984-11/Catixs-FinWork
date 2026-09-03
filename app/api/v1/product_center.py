@@ -18,6 +18,7 @@ from app.models.product_center import (
     ProductCategory,
     ProductItem,
     ProductPrice,
+    ProductPriceHistory,
     ProductSpecAttribute,
     ProductSpecConfig,
     ProductTemplate,
@@ -1527,6 +1528,31 @@ async def list_prices(
     return SuccessExtra(data=[await price_dict(item) for item in rows], total=total, page=page, page_size=page_size)
 
 
+@router.get("/price-history", summary="客户历史价格列表")
+async def list_price_history(
+    page: int = Query(1),
+    page_size: int = Query(20),
+    product_id: int | None = Query(None),
+    customer_id: int | None = Query(None),
+):
+    q = Q()
+    if product_id:
+        q &= Q(product_id=product_id)
+    if customer_id:
+        q &= Q(customer_id=customer_id)
+    total = await ProductPriceHistory.filter(q).count()
+    rows = await ProductPriceHistory.filter(q).order_by("-off_shelf_at", "-id").offset((page - 1) * page_size).limit(page_size)
+    data = []
+    for item in rows:
+        row = await item.to_dict()
+        row["amount"] = float(row.get("amount") or 0)
+        row["spec_config_display"] = row.get("spec_config_name") or "-"
+        row["price_type_label"] = label_of(PRICE_TYPES, row.get("price_type"))
+        row["billing_unit_label"] = label_of(BILLING_UNITS, row.get("billing_unit"))
+        data.append(row)
+    return SuccessExtra(data=data, total=total, page=page, page_size=page_size)
+
+
 @router.get("/prices/cloud-vms", summary="按产品地区获取可关联云主机")
 async def price_cloud_vm_options(product_id: int):
     product = await ProductItem.get_or_none(id=product_id)
@@ -1877,7 +1903,7 @@ async def delete_price(price_id: int):
         )
         result = json.loads(response.body)
         if result.get("code") != 200:
-            return Fail(msg=f"删除价格失败，关联虚拟机关机失败：{result.get('msg') or '未知错误'}")
+            return Fail(msg=f"下架价格失败，关联虚拟机关机失败：{result.get('msg') or '未知错误'}")
     physical_released = False
     if price.physical_device_id:
         node_name = str(price.physical_device_node or "").strip()
@@ -1904,12 +1930,31 @@ async def delete_price(price_id: int):
                     device.status = 0
                     await device.save(update_fields=["status"])
                     physical_released = True
+    history_data = await price.to_dict()
+    history_data.pop("id", None)
+    history_data.pop("created_at", None)
+    history_data.pop("updated_at", None)
+    history_data.pop("notify_enabled", None)
+    history_data.pop("notify_user_ids", None)
+    history_data.pop("notify_schedule", None)
+    history_data.pop("notify_at", None)
+    history_data.pop("notify_next_at", None)
+    history_data.pop("notify_last_at", None)
+    history_data.pop("inherited_from_price_id", None)
+    history_data.pop("min_amount", None)
+    history_data.pop("tier_rules", None)
+    history_data.pop("bandwidth_rule", None)
+    history_data.pop("status", None)
+    history_data["source_price_id"] = price.id
+    history_data["product_name"] = product.name
+    history_data["off_shelf_at"] = datetime.now()
+    await ProductPriceHistory.create(**history_data)
     await price.delete()
     if is_cloud_product and price.cloud_vm_remote:
-        return Success(msg="产品价格已删除，关联虚拟机关机请求已提交")
+        return Success(msg="产品价格已下架，关联虚拟机关机请求已提交")
     if physical_released:
-        return Success(msg="产品价格已删除，关联物理服务器已标记为空闲")
-    return Success(msg="产品价格已删除")
+        return Success(msg="产品价格已下架，关联物理服务器已标记为空闲")
+    return Success(msg="产品价格已下架")
 
 
 @router.get("/templates", summary="产品模板列表")

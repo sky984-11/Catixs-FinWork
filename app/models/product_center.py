@@ -136,6 +136,34 @@ class ProductPrice(BaseModel, TimestampMixin):
         table = "product_price"
 
 
+class ProductPriceHistory(BaseModel, TimestampMixin):
+    source_price_id = fields.BigIntField(null=True, description="原价格记录ID", index=True)
+    product_id = fields.BigIntField(description="关联产品ID", index=True)
+    product_name = fields.CharField(max_length=160, null=True, description="产品名称")
+    spec_config_key = fields.CharField(max_length=200, null=True, description="规格配置组键")
+    spec_config_name = fields.CharField(max_length=200, null=True, description="规格配置名称")
+    price_type = fields.CharField(max_length=30, default="customer", description="价格类型")
+    cloud_vm_remote = fields.CharField(max_length=100, null=True)
+    cloud_vm_vmid = fields.IntField(null=True)
+    cloud_vm_name = fields.CharField(max_length=160, null=True)
+    physical_device_id = fields.BigIntField(null=True)
+    physical_device_name = fields.CharField(max_length=160, null=True)
+    physical_device_node = fields.CharField(max_length=100, null=True)
+    customer_id = fields.BigIntField(null=True, index=True)
+    customer_name = fields.CharField(max_length=160, null=True)
+    billing_mode = fields.CharField(max_length=40, default="fixed")
+    billing_unit = fields.CharField(max_length=40, default="month")
+    currency = fields.CharField(max_length=12, default="USD")
+    amount = fields.DecimalField(max_digits=16, decimal_places=2, default=0)
+    effective_date = fields.DateField(null=True)
+    expiry_date = fields.DateField(null=True)
+    remark = fields.TextField(null=True)
+    off_shelf_at = fields.DatetimeField(description="下架时间", index=True)
+
+    class Meta:
+        table = "product_price_history"
+
+
 class ProductTemplate(BaseModel, TimestampMixin):
     name = fields.CharField(max_length=120, description="模板名称", index=True)
     category = fields.ForeignKeyField(

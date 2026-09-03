@@ -419,9 +419,16 @@ async def ensure_product_center_menu():
             "component": "/product-center/pricing",
         },
         {
+            "name": "客户历史价格",
+            "path": "price-history",
+            "order": 5,
+            "icon": "mdi:history",
+            "component": "/product-center/price-history",
+        },
+        {
             "name": "产品模板",
             "path": "templates",
-            "order": 5,
+            "order": 6,
             "icon": "mdi:file-document-edit-outline",
             "component": "/product-center/templates",
         },
