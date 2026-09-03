@@ -1,3 +1,4 @@
+import re
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
@@ -37,6 +38,7 @@ LEVELS = [
 ]
 CONTACT_ROLES = [
     {"label": "商务联系人", "value": "business"},
+    {"label": "采购联系人", "value": "procurement"},
     {"label": "技术联系人", "value": "technical"},
     {"label": "财务联系人", "value": "finance"},
     {"label": "运维联系人", "value": "ops"},
@@ -82,7 +84,8 @@ class CustomerPayload(BaseModel):
 
 
 class ContactPayload(BaseModel):
-    customer_id: int
+    customer_id: int | None = None
+    customer_ids: list[int] = Field(default_factory=list)
     contact_type: str = "person"
     name: str | None = Field(None, max_length=100)
     role: str = "business"
@@ -138,22 +141,47 @@ def normalize_contact_data(values: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
+def normalize_customer_ids(customer_ids: list[int] | None, customer_id: int | None = None) -> list[int]:
+    values = [int(item) for item in (customer_ids or []) if item]
+    if customer_id and customer_id not in values:
+        values.insert(0, customer_id)
+    return list(dict.fromkeys(values))
+
+
 async def customer_selectable(customer_id: int | None) -> bool:
     if not customer_id:
         return False
     return await CrmCustomer.filter(id=customer_id, status=True).exclude(lifecycle="terminated").exists()
 
 
-async def next_customer_code() -> str:
-    prefix = f"CUS{date.today():%Y%m%d}"
-    latest = await CrmCustomer.filter(customer_code__startswith=prefix).order_by("-customer_code").first()
-    if not latest or not latest.customer_code:
-        return f"{prefix}001"
-    try:
-        sequence = int(latest.customer_code.replace(prefix, "", 1)) + 1
-    except ValueError:
-        sequence = 1
-    return f"{prefix}{sequence:03d}"
+def customer_code_prefix(signing_entity: CrmSigningEntity) -> str:
+    """Return the customer-number prefix assigned to the signing entity."""
+    entity_name = " ".join(
+        str(value or "") for value in (signing_entity.name, signing_entity.legal_name, signing_entity.code)
+    ).lower()
+    if "77" in entity_name:
+        return "H"
+    if "catixs" in entity_name and ("cn" not in entity_name and "科特思" not in entity_name):
+        return "U"
+    if "科特思" in entity_name or "catixs-cn" in entity_name:
+        return "C"
+
+    # Keep custom signing entities usable while the three standard entities retain their fixed prefixes.
+    letters = re.findall(r"[A-Za-z]", str(signing_entity.code or signing_entity.name or ""))
+    return letters[0].upper() if letters else "C"
+
+
+async def next_customer_code(signing_entity_id: int | None) -> str | None:
+    if not signing_entity_id:
+        return None
+    signing_entity = await CrmSigningEntity.get_or_none(id=signing_entity_id)
+    if not signing_entity:
+        return None
+    prefix = customer_code_prefix(signing_entity)
+    pattern = re.compile(rf"^{re.escape(prefix)}(\d{{5}})$")
+    codes = await CrmCustomer.filter(customer_code__startswith=prefix).values_list("customer_code", flat=True)
+    sequences = [int(match.group(1)) for code in codes if (match := pattern.match(str(code or "")))]
+    return f"{prefix}{(max(sequences, default=0) + 1):05d}"
 
 
 def label_of(options: list[dict[str, str]], value: str | None) -> str:
@@ -168,7 +196,7 @@ async def customer_dict(customer: CrmCustomer, include_counts: bool = False) -> 
     data["lifecycle_label"] = label_of(LIFECYCLES, data.get("lifecycle"))
     data["customer_level_label"] = label_of(LEVELS, data.get("customer_level"))
     if include_counts:
-        data["contact_count"] = await CrmCustomerContact.filter(customer_id=customer.id).count()
+        data["contact_count"] = await CrmCustomerContact.filter(customers__id=customer.id).distinct().count()
         data["contract_count"] = await CrmCustomerContract.filter(customer_id=customer.id).count()
         data["bill_count"] = await CrmCustomerBill.filter(customer_id=customer.id).count()
     return data
@@ -176,8 +204,9 @@ async def customer_dict(customer: CrmCustomer, include_counts: bool = False) -> 
 
 async def contact_dict(contact: CrmCustomerContact) -> dict[str, Any]:
     data = await contact.to_dict()
-    customer = await contact.customer
-    data["customer_name"] = customer.name
+    customers = await contact.customers.all().order_by("name")
+    data["customer_ids"] = [customer.id for customer in customers]
+    data["customer_name"] = " / ".join(customer.name for customer in customers)
     data["contact_type_label"] = label_of(CONTACT_TYPES, data.get("contact_type"))
     data["role_label"] = label_of(CONTACT_ROLES, data.get("role"))
     return data
@@ -291,11 +320,19 @@ async def list_customers(
     return SuccessExtra(data=[await customer_dict(item, include_counts=True) for item in rows], total=total, page=page, page_size=page_size)
 
 
+@router.get("/customers/next-code", summary="预览下一个客户编号")
+async def preview_next_customer_code(signing_entity_id: int = Query(...)):
+    customer_code = await next_customer_code(signing_entity_id)
+    if not customer_code:
+        return Fail(msg="签约主体不存在，无法生成客户编号")
+    return Success(data={"customer_code": customer_code})
+
+
 @router.get("/customers/{customer_id}", summary="客户详情")
 async def get_customer(customer_id: int):
     customer = await CrmCustomer.get(id=customer_id)
     data = await customer_dict(customer, include_counts=True)
-    contacts = await CrmCustomerContact.filter(customer_id=customer_id).order_by("role", "name")
+    contacts = await CrmCustomerContact.filter(customers__id=customer_id).distinct().order_by("role", "name")
     contracts = await CrmCustomerContract.filter(customer_id=customer_id).order_by("-expiry_date", "-id")
     bills = await CrmCustomerBill.filter(customer_id=customer_id).order_by("-bill_date", "-id")
     data["contacts"] = [await contact_dict(item) for item in contacts]
@@ -310,7 +347,14 @@ async def create_customer(payload: CustomerPayload):
     data["customer_level"] = str(data.get("customer_level") or "C").upper()
     data["lifecycle"] = data.get("lifecycle") or "active"
     data["alias"] = data.get("name")
-    data["customer_code"] = await next_customer_code()
+    if not data.get("signing_entity_id"):
+        return Fail(msg="请选择签约主体后再生成客户编号")
+    if not data.get("customer_code"):
+        data["customer_code"] = await next_customer_code(data.get("signing_entity_id"))
+    if not data.get("customer_code"):
+        return Fail(msg="签约主体不存在，无法生成客户编号")
+    if await CrmCustomer.filter(customer_code=data["customer_code"]).exists():
+        return Fail(msg="客户编号已存在，请修改后重试")
     customer = await CrmCustomer.create(**data)
     return Success(msg="客户已创建", data=await customer_dict(customer, include_counts=True))
 
@@ -322,6 +366,8 @@ async def update_customer(customer_id: int, payload: CustomerPayload):
         data["customer_level"] = str(data.get("customer_level") or "C").upper()
     if "name" in data:
         data["alias"] = data.get("name")
+    if data.get("customer_code") and await CrmCustomer.filter(customer_code=data["customer_code"]).exclude(id=customer_id).exists():
+        return Fail(msg="客户编号已存在，请修改后重试")
     await CrmCustomer.filter(id=customer_id).update(**data)
     customer = await CrmCustomer.get(id=customer_id)
     return Success(msg="客户已更新", data=await customer_dict(customer, include_counts=True))
@@ -338,32 +384,45 @@ async def list_contacts(page: int = Query(1), page_size: int = Query(20), keywor
     q = Q()
     if keyword:
         customer_ids = await CrmCustomer.filter(Q(name__contains=keyword) | Q(legal_name__contains=keyword)).values_list("id", flat=True)
-        q &= Q(name__contains=keyword) | Q(email__contains=keyword) | Q(phone__contains=keyword) | Q(customer_id__in=customer_ids)
+        q &= Q(name__contains=keyword) | Q(email__contains=keyword) | Q(phone__contains=keyword) | Q(customers__id__in=customer_ids)
     if customer_id:
-        q &= Q(customer_id=customer_id)
+        q &= Q(customers__id=customer_id)
     if role:
         q &= Q(role=role)
-    total = await CrmCustomerContact.filter(q).count()
-    rows = await CrmCustomerContact.filter(q).order_by("role", "name").offset((page - 1) * page_size).limit(page_size)
+    contacts = CrmCustomerContact.filter(q).distinct()
+    total = await contacts.count()
+    rows = await contacts.order_by("role", "name").offset((page - 1) * page_size).limit(page_size)
     return SuccessExtra(data=[await contact_dict(item) for item in rows], total=total, page=page, page_size=page_size)
 
 
 @router.post("/contacts", summary="新增联系人")
 async def create_contact(payload: ContactPayload):
     data = normalize_contact_data(payload.model_dump())
-    if not await customer_selectable(data.get("customer_id")):
+    customer_ids = normalize_customer_ids(data.pop("customer_ids", []), data.get("customer_id"))
+    valid_customer_count = await CrmCustomer.filter(id__in=customer_ids, status=True).exclude(lifecycle="terminated").count()
+    if not customer_ids or valid_customer_count != len(customer_ids):
         return Fail(msg="请选择有效客户，已终止客户不能继续维护联系人")
+    data["customer_id"] = customer_ids[0]
     contact = await CrmCustomerContact.create(**data)
+    await contact.customers.add(*customer_ids)
     return Success(msg="联系人已创建", data=await contact_dict(contact))
 
 
 @router.put("/contacts/{contact_id}", summary="编辑联系人")
 async def update_contact(contact_id: int, payload: ContactPayload):
     data = normalize_contact_data(payload.model_dump(exclude_unset=True))
-    if data.get("customer_id") and not await customer_selectable(data.get("customer_id")):
-        return Fail(msg="请选择有效客户，已终止客户不能继续维护联系人")
+    has_customer_update = "customer_ids" in data or "customer_id" in data
+    customer_ids = normalize_customer_ids(data.pop("customer_ids", []), data.get("customer_id")) if has_customer_update else []
+    if has_customer_update:
+        valid_customer_count = await CrmCustomer.filter(id__in=customer_ids, status=True).exclude(lifecycle="terminated").count()
+        if not customer_ids or valid_customer_count != len(customer_ids):
+            return Fail(msg="请选择有效客户，已终止客户不能继续维护联系人")
+        data["customer_id"] = customer_ids[0]
     await CrmCustomerContact.filter(id=contact_id).update(**data)
     contact = await CrmCustomerContact.get(id=contact_id)
+    if has_customer_update:
+        await contact.customers.clear()
+        await contact.customers.add(*customer_ids)
     return Success(msg="联系人已更新", data=await contact_dict(contact))
 
 

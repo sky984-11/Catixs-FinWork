@@ -50,7 +50,8 @@
           :pagination="false"
           :row-key="(row) => row.id"
           :row-props="mode === 'customers' ? customerRowProps : undefined"
-            :scroll-x="scrollX"
+          :scroll-x="scrollX"
+          :scrollbar-props="{ trigger: 'none' }"
         >
           <template #empty><n-empty description="暂无数据" /></template>
         </n-data-table>
@@ -82,6 +83,7 @@
           <n-spin :show="detailLoading">
             <div v-if="detail" class="detail-body">
               <section class="detail-metrics">
+                <article><span>客户编号</span><strong>{{ detail.customer_code || '-' }}</strong></article>
                 <article><span>客户等级</span><strong>{{ detail.customer_level_label }}</strong></article>
                 <article><span>生命周期</span><strong>{{ detail.lifecycle_label }}</strong></article>
                 <article><span>签约主体</span><strong>{{ detail.signing_entity_name || '-' }}</strong></article>
@@ -149,7 +151,8 @@
             </div>
             <n-grid :cols="2" :x-gap="16" :y-gap="2" responsive="screen">
               <n-form-item-gi label="主体类型"><n-select v-model:value="customerModal.form.entity_type" :options="options.entityTypes" placeholder="请选择主体类型" /></n-form-item-gi>
-              <n-form-item-gi label="签约主体"><n-select v-model:value="customerModal.form.signing_entity_id" clearable filterable :options="options.signingEntities" placeholder="请选择签约主体" /></n-form-item-gi>
+              <n-form-item-gi label="签约主体" required><n-select v-model:value="customerModal.form.signing_entity_id" clearable filterable :options="options.signingEntities" placeholder="请选择签约主体" @update:value="handleCustomerSigningEntityChange" /></n-form-item-gi>
+              <n-form-item-gi label="客户编号"><n-input v-model:value="customerModal.form.customer_code" clearable placeholder="选择签约主体后自动生成，可手动修改" /></n-form-item-gi>
               <n-form-item-gi label="客户等级"><n-select v-model:value="customerModal.form.customer_level" :options="options.levels" placeholder="请选择客户等级" /></n-form-item-gi>
               <n-form-item-gi label="客户生命周期"><n-select v-model:value="customerModal.form.lifecycle" :options="options.lifecycles" placeholder="请选择生命周期" /></n-form-item-gi>
               <n-form-item-gi label="所属销售">
@@ -232,7 +235,7 @@
               <small>确认联系人归属客户、类型和沟通角色</small>
             </div>
             <n-grid :cols="2" :x-gap="16" :y-gap="2" responsive="screen">
-              <n-form-item-gi label="所属客户" required :span="2"><n-select v-model:value="contactModal.form.customer_id" filterable :options="options.customers" placeholder="请选择客户" /></n-form-item-gi>
+              <n-form-item-gi label="所属客户" required :span="2"><n-select v-model:value="contactModal.form.customer_ids" multiple filterable :options="options.customers" placeholder="请选择客户" /></n-form-item-gi>
               <n-form-item-gi label="联系人类型"><n-select v-model:value="contactModal.form.contact_type" :options="options.contactTypes" /></n-form-item-gi>
               <n-form-item-gi label="联系人角色"><n-select v-model:value="contactModal.form.role" :options="options.contactRoles" /></n-form-item-gi>
               <n-form-item-gi :label="contactModal.form.contact_type === 'group' ? '组名 / 部门名' : '联系人姓名'" :span="2"><n-input v-model:value="contactModal.form.name" :placeholder="contactModal.form.contact_type === 'group' ? '如：NOC / Accounting / Billing' : '请输入联系人姓名'" /></n-form-item-gi>
@@ -321,7 +324,7 @@ const labelMap = {
 
 const pageTitle = computed(() => labelMap[props.mode]?.title || '客户中心')
 const keywordPlaceholder = computed(() => labelMap[props.mode]?.keyword || '搜索')
-const scrollX = computed(() => (props.mode === 'customers' ? 1320 : props.mode === 'contracts' ? 1320 : 940))
+const scrollX = computed(() => (props.mode === 'customers' ? 1430 : props.mode === 'contracts' ? 1320 : 980))
 const detailWidth = computed(() => Math.min(1040, Math.max(760, Math.floor(window.innerWidth * 0.66))))
 
 const loading = ref(false)
@@ -719,7 +722,8 @@ function goCustomerContacts(row, event) {
 }
 
 const customerColumns = [
-  { title: '客户简称', key: 'name', width: 170, fixed: 'left', ellipsis: { tooltip: true } },
+  { title: '客户编号', key: 'customer_code', width: 110, fixed: 'left', ellipsis: { tooltip: true } },
+  { title: '客户简称', key: 'name', width: 170, ellipsis: { tooltip: true } },
   { title: '客户全称', key: 'legal_name', width: 260, ellipsis: { tooltip: true } },
   { title: '主体类型', key: 'entity_type_label', width: 110 },
   { title: '签约主体', key: 'signing_entity_name', width: 190, ellipsis: { tooltip: true } },
@@ -829,7 +833,8 @@ function emptyContract() {
   return { id: null, customer_id: detail.value?.id || null, signing_entity_id: null, contract_no: '', name: '', status: 'draft', effective_date: null, expiry_date: null, amount: 0, currency: 'USD', attachment_url: '', reminder_days: 30, reminder_enabled: true, remark: '' }
 }
 function emptyContact() {
-  return { id: null, customer_id: detail.value?.id || null, contact_type: 'person', name: '', role: 'business', title: '', email: '', phone: '', address: '', remark: '', status: true }
+  const customerId = routeCustomerId() || detail.value?.id || null
+  return { id: null, customer_id: customerId, customer_ids: customerId ? [customerId] : [], contact_type: 'person', name: '', role: 'business', title: '', email: '', phone: '', address: '', remark: '', status: true }
 }
 function emptyBill() {
   return { id: null, customer_id: detail.value?.id || null, bill_no: '', title: '', status: 'draft', amount: 0, currency: 'USD', bill_date: null, due_date: null, is_settled: false, business_closed: false, remark: '' }
@@ -839,6 +844,22 @@ function openCustomerModal(row = null) {
   const form = row ? { ...emptyCustomer(), ...row } : emptyCustomer()
   customerModal.form = form
   customerModal.show = true
+}
+
+async function handleCustomerSigningEntityChange(signingEntityId) {
+  if (customerModal.form.id) return
+  if (!signingEntityId) {
+    customerModal.form.customer_code = ''
+    return
+  }
+  try {
+    const res = await api.customerCenterApi.nextCustomerCode(signingEntityId)
+    if (customerModal.form.signing_entity_id === signingEntityId) {
+      customerModal.form.customer_code = res?.data?.customer_code || ''
+    }
+  } catch {
+    customerModal.form.customer_code = ''
+  }
 }
 function openContractModal(row = null) {
   contractModal.form = row ? { ...emptyContract(), ...row } : emptyContract()
@@ -864,7 +885,6 @@ async function saveCustomer() {
     payload.alias = payload.name
     delete payload.invoice_profile
     delete payload.finance_profile
-    if (!payload.id) delete payload.customer_code
     if (payload.id) await api.customerCenterApi.updateCustomer(payload.id, payload)
     else await api.customerCenterApi.createCustomer(payload)
     customerModal.show = false
@@ -891,10 +911,11 @@ async function saveContract() {
 }
 
 async function saveContact() {
-  if (!contactModal.form.customer_id || (!contactModal.form.name && !contactModal.form.email)) return window.$message?.warning('请选择客户，并填写联系人姓名/组名或邮箱')
+  if (!contactModal.form.customer_ids?.length || (!contactModal.form.name && !contactModal.form.email)) return window.$message?.warning('请选择客户，并填写联系人姓名/组名或邮箱')
   contactModal.loading = true
   try {
     const payload = { ...contactModal.form }
+    delete payload.customer_id
     payload.contact_type = normalizeContactType(payload)
     if (payload.contact_type === 'group') payload.title = ''
     if (payload.id) await api.customerCenterApi.updateContact(payload.id, payload)

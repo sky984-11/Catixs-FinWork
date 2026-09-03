@@ -54,6 +54,14 @@ class CrmCustomerContact(BaseModel, TimestampMixin):
         on_delete=fields.CASCADE,
         description="客户",
     )
+    customers = fields.ManyToManyField(
+        "models.CrmCustomer",
+        related_name="shared_contacts",
+        through="crm_customer_contact_customer",
+        forward_key="customer_id",
+        backward_key="contact_id",
+        description="所属客户",
+    )
     contact_type = fields.CharField(max_length=30, default="person", description="联系人类型", index=True)
     name = fields.CharField(max_length=100, description="联系人姓名", index=True)
     role = fields.CharField(max_length=30, default="business", description="联系人角色", index=True)
