@@ -1,3 +1,4 @@
+import asyncio
 import json
 import secrets
 from datetime import date, datetime
@@ -1008,7 +1009,7 @@ async def ensure_cloud_price_spec_group(product: ProductItem, values: dict[str, 
     return await spec_config_group_dict([await spec_config_dict(item) for item in created_or_updated])
 
 
-async def price_dict(price: ProductPrice) -> dict[str, Any]:
+async def price_dict(price: ProductPrice, *, resolve_spec_group: bool = True, include_dhcp_lease: bool = True) -> dict[str, Any]:
     data = await price.to_dict()
     product = await price.product
     data["product_name"] = product.name
@@ -1039,14 +1040,15 @@ async def price_dict(price: ProductPrice) -> dict[str, Any]:
     cloud_spec_parts = data["spec_config_key"].split(":")
     if len(cloud_spec_parts) == 4 and cloud_spec_parts[0] == "cloud-price":
         data["spec_config_display"] = f"CPU {cloud_spec_parts[1]} 核 / 内存 {cloud_spec_parts[2]} GB / 磁盘 {cloud_spec_parts[3]} GB"
-    elif group := await get_spec_config_group(data["spec_config_key"]):
+    elif resolve_spec_group and (group := await get_spec_config_group(data["spec_config_key"])):
         data["spec_config_display"] = group.get("attribute_summary") or data["spec_config_display"]
     data["price_type_label"] = label_of(PRICE_TYPES, data.get("price_type"))
     data["billing_mode_label"] = label_of(BILLING_MODES, data.get("billing_mode"))
     data["billing_unit_label"] = label_of(BILLING_UNITS, data.get("billing_unit"))
     data["amount"] = float(data.get("amount") or 0)
     data["min_amount"] = float(data.get("min_amount") or 0) if data.get("min_amount") is not None else None
-    data["dhcp_lease"] = await lease_dict_for_price(price.id)
+    if include_dhcp_lease:
+        data["dhcp_lease"] = await lease_dict_for_price(price.id)
     return data
 
 
@@ -1524,8 +1526,13 @@ async def list_prices(
         product_ids = await ProductItem.filter(Q(name__contains=keyword) | Q(code__contains=keyword)).values_list("id", flat=True)
         q &= Q(customer_name__contains=keyword) | Q(spec_config_name__contains=keyword) | Q(product_id__in=product_ids)
     total = await ProductPrice.filter(q).count()
-    rows = await ProductPrice.filter(q).order_by("product_id", "spec_config_name", "price_type", "-id").offset((page - 1) * page_size).limit(page_size)
-    return SuccessExtra(data=[await price_dict(item) for item in rows], total=total, page=page, page_size=page_size)
+    rows = await ProductPrice.filter(q).select_related("product").order_by(
+        "product_id", "spec_config_name", "price_type", "-id"
+    ).offset((page - 1) * page_size).limit(page_size)
+    data = await asyncio.gather(
+        *(price_dict(item, resolve_spec_group=False, include_dhcp_lease=False) for item in rows)
+    )
+    return SuccessExtra(data=data, total=total, page=page, page_size=page_size)
 
 
 @router.get("/price-history", summary="客户历史价格列表")
