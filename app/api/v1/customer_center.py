@@ -404,7 +404,8 @@ async def create_contact(payload: ContactPayload):
         return Fail(msg="请选择有效客户，已终止客户不能继续维护联系人")
     data["customer_id"] = customer_ids[0]
     contact = await CrmCustomerContact.create(**data)
-    await contact.customers.add(*customer_ids)
+    customers = await CrmCustomer.filter(id__in=customer_ids)
+    await contact.customers.add(*customers)
     return Success(msg="联系人已创建", data=await contact_dict(contact))
 
 
@@ -422,7 +423,8 @@ async def update_contact(contact_id: int, payload: ContactPayload):
     contact = await CrmCustomerContact.get(id=contact_id)
     if has_customer_update:
         await contact.customers.clear()
-        await contact.customers.add(*customer_ids)
+        customers = await CrmCustomer.filter(id__in=customer_ids)
+        await contact.customers.add(*customers)
     return Success(msg="联系人已更新", data=await contact_dict(contact))
 
 
