@@ -1511,13 +1511,31 @@ async def list_prices(
     page: int = Query(1),
     page_size: int = Query(20),
     product_id: int | None = Query(None),
+    category_id: int | None = Query(None),
     spec_config_key: str = Query(""),
     price_type: str = Query(""),
     keyword: str = Query(""),
+    sort_field: str = Query("id"),
+    sort_order: str = Query("descend"),
 ):
     q = Q()
     if product_id:
         q &= Q(product_id=product_id)
+    if category_id:
+        category_rows = await ProductCategory.all().values("id", "parent_id")
+        children: dict[int, list[int]] = {}
+        for item in category_rows:
+            children.setdefault(int(item.get("parent_id") or 0), []).append(int(item["id"]))
+        category_ids = {category_id}
+        pending = [category_id]
+        while pending:
+            current_id = pending.pop()
+            for child_id in children.get(current_id, []):
+                if child_id not in category_ids:
+                    category_ids.add(child_id)
+                    pending.append(child_id)
+        category_product_ids = await ProductItem.filter(category_id__in=list(category_ids)).values_list("id", flat=True)
+        q &= Q(product_id__in=category_product_ids)
     if spec_config_key:
         q &= Q(spec_config_key=spec_config_key)
     if price_type:
@@ -1526,9 +1544,27 @@ async def list_prices(
         product_ids = await ProductItem.filter(Q(name__contains=keyword) | Q(code__contains=keyword)).values_list("id", flat=True)
         q &= Q(customer_name__contains=keyword) | Q(spec_config_name__contains=keyword) | Q(product_id__in=product_ids)
     total = await ProductPrice.filter(q).count()
-    rows = await ProductPrice.filter(q).select_related("product").order_by(
-        "product_id", "spec_config_name", "price_type", "-id"
-    ).offset((page - 1) * page_size).limit(page_size)
+    sort_fields = {
+        "product_name": "product__name",
+        "spec_config_display": "spec_config_name",
+        "spec_config_name": "spec_config_name",
+        "price_type": "price_type",
+        "price_type_label": "price_type",
+        "customer_name": "customer_name",
+        "billing_unit": "billing_unit",
+        "billing_unit_label": "billing_unit",
+        "amount": "amount",
+        "effective_date": "effective_date",
+        "expiry_date": "expiry_date",
+        "id": "id",
+    }
+    order_field = sort_fields.get(sort_field, "id")
+    if sort_order != "ascend":
+        order_field = f"-{order_field}"
+    order_fields = [order_field] if order_field.lstrip("-") == "id" else [order_field, "-id"]
+    rows = await ProductPrice.filter(q).select_related("product").order_by(*order_fields).offset(
+        (page - 1) * page_size
+    ).limit(page_size)
     data = await asyncio.gather(
         *(price_dict(item, resolve_spec_group=False, include_dhcp_lease=False) for item in rows)
     )

@@ -83,6 +83,7 @@
             placeholder="适用分类"
           />
           <n-select v-if="mode === 'configs'" v-model:value="query.product_id" clearable filterable :options="options.products" placeholder="关联产品" />
+          <n-cascader v-if="mode === 'pricing'" v-model:value="query.category_id" clearable filterable :show-path="false" check-strategy="child" :options="options.categoryTree" placeholder="产品目录" />
           <n-select v-if="mode === 'pricing'" v-model:value="query.spec_config_key" clearable filterable :options="options.specConfigs" placeholder="关联规格配置" />
           <n-select v-if="mode === 'pricing'" v-model:value="query.price_type" clearable :options="options.priceTypes" placeholder="价格类型" />
           <n-select v-if="mode === 'price-history'" v-model:value="query.product_id" clearable filterable :options="options.products" placeholder="关联产品" />
@@ -373,7 +374,7 @@ const pageTitle = computed(() => modeMeta[props.mode]?.title || '产品中心')
 const addText = computed(() => modeMeta[props.mode]?.add || '新增')
 const addIcon = computed(() => modeMeta[props.mode]?.icon || 'mdi:plus')
 const keywordPlaceholder = computed(() => modeMeta[props.mode]?.keyword || '搜索')
-const showKeyword = computed(() => !['configs', 'products', 'specs', 'price-history'].includes(props.mode))
+const showKeyword = computed(() => !['configs', 'products', 'specs', 'pricing', 'price-history'].includes(props.mode))
 const scrollX = computed(() => {
   if (['pricing', 'price-history'].includes(props.mode)) return 1280
   if (props.mode === 'products') return 1180
@@ -436,6 +437,7 @@ const physicalDeviceLoading = ref(false)
 const physicalDeviceOptions = ref([])
 const pagination = reactive({ page: 1, pageSize: 20, itemCount: 0, pageSizes: [20, 50, 100] })
 const configSortState = reactive({ columnKey: 'product_category_sort', order: 'ascend' })
+const pricingSortState = reactive({ columnKey: 'id', order: 'descend' })
 const query = reactive({ keyword: '', category_id: null, status: null, region: null, attr_type: null, product_id: null, spec_config_key: null, price_type: null, customer_id: null })
 const options = reactive({
   categoryTree: [],
@@ -665,7 +667,14 @@ const columns = computed(() => {
   if (props.mode === 'products') return productColumns
   if (props.mode === 'specs') return attributeColumns
   if (props.mode === 'configs') return configColumns.value
-  if (props.mode === 'pricing') return priceColumns
+  if (props.mode === 'pricing') {
+    return priceColumns.map((column) => ({
+      ...column,
+      resizable: column.key !== 'actions',
+      sorter: column.key === 'actions' ? false : true,
+      sortOrder: pricingSortState.columnKey === column.key ? pricingSortState.order : false,
+    }))
+  }
   if (props.mode === 'price-history') return priceHistoryColumns
   return templateColumns
 })
@@ -785,7 +794,7 @@ async function loadPage() {
       sort_field: configSortState.columnKey || 'product_category_sort',
       sort_order: configSortState.order || 'ascend',
     }))
-    else if (props.mode === 'pricing') res = await api.productCenterApi.listPrices(pageParams({ keyword: query.keyword, spec_config_key: query.spec_config_key || '', price_type: query.price_type || '' }))
+    else if (props.mode === 'pricing') res = await api.productCenterApi.listPrices(pageParams({ category_id: query.category_id || undefined, spec_config_key: query.spec_config_key || '', price_type: query.price_type || '', sort_field: pricingSortState.columnKey, sort_order: pricingSortState.order }))
     else if (props.mode === 'price-history') res = await api.productCenterApi.listPriceHistory(pageParams({ product_id: query.product_id || undefined, customer_id: query.customer_id || undefined }))
     else res = await api.productCenterApi.listTemplates(pageParams({ keyword: query.keyword, category_id: query.category_id || undefined }))
     rows.value = res.data || []
@@ -814,14 +823,17 @@ function handlePageSizeChange(size) {
 }
 
 function handleSorterChange(sorter) {
-  if (props.mode !== 'configs') return
+  if (!['configs', 'pricing'].includes(props.mode)) return
   const activeSorter = Array.isArray(sorter) ? sorter.find((item) => item.order) : sorter
+  const state = props.mode === 'pricing' ? pricingSortState : configSortState
+  const defaultKey = props.mode === 'pricing' ? 'id' : 'product_category_sort'
+  const defaultOrder = props.mode === 'pricing' ? 'descend' : 'ascend'
   if (!activeSorter?.order) {
-    configSortState.columnKey = 'product_category_sort'
-    configSortState.order = 'ascend'
+    state.columnKey = defaultKey
+    state.order = defaultOrder
   } else {
-    configSortState.columnKey = activeSorter.columnKey || activeSorter.key || 'product_category_sort'
-    configSortState.order = activeSorter.order
+    state.columnKey = activeSorter.columnKey || activeSorter.key || defaultKey
+    state.order = activeSorter.order
   }
   pagination.page = 1
   loadPage()
