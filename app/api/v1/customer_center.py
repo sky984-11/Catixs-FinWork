@@ -1,9 +1,12 @@
 import re
+import csv
+import io
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from tortoise.expressions import Q
 
@@ -349,6 +352,89 @@ async def list_customers(
         order_by = ("customer_level", "name")
     rows = await CrmCustomer.filter(q).order_by(*order_by).offset((page - 1) * page_size).limit(page_size)
     return SuccessExtra(data=[await customer_dict(item, include_counts=True) for item in rows], total=total, page=page, page_size=page_size)
+
+
+@router.get("/customers/export", summary="导出客户列表")
+async def export_customers(
+    keyword: str = Query(""),
+    lifecycle: str = Query(""),
+    customer_level: str = Query(""),
+    entity_type: str = Query(""),
+    sales_owner: str = Query(""),
+    region: str = Query(""),
+    signing_entity_id: int | None = Query(None),
+    customer_code_order: str = Query(""),
+):
+    q = Q()
+    if keyword:
+        q &= (
+            Q(name__contains=keyword)
+            | Q(legal_name__contains=keyword)
+            | Q(alias__contains=keyword)
+            | Q(customer_code__contains=keyword)
+            | Q(sales_owner__contains=keyword)
+            | Q(region__contains=keyword)
+        )
+    if lifecycle:
+        q &= Q(lifecycle=lifecycle)
+    if customer_level:
+        q &= Q(customer_level=customer_level)
+    if entity_type:
+        q &= Q(entity_type=entity_type)
+    if sales_owner:
+        q &= Q(sales_owner__contains=sales_owner)
+    if region:
+        q &= Q(region__contains=region)
+    if signing_entity_id:
+        q &= Q(signing_entity_id=signing_entity_id)
+    if customer_code_order == "ascend":
+        order_by = ("customer_code", "customer_level", "name")
+    elif customer_code_order == "descend":
+        order_by = ("-customer_code", "customer_level", "name")
+    else:
+        order_by = ("customer_level", "name")
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "客户编号",
+            "客户简称",
+            "客户全称",
+            "主体类型",
+            "签约主体",
+            "等级",
+            "生命周期",
+            "所属销售",
+            "所属地区",
+            "联系人",
+            "合同",
+            "账单",
+        ]
+    )
+    for customer in await CrmCustomer.filter(q).order_by(*order_by):
+        data = await customer_dict(customer, include_counts=True)
+        writer.writerow(
+            [
+                data.get("customer_code") or "",
+                data.get("name") or "",
+                data.get("legal_name") or "",
+                data.get("entity_type_label") or "",
+                data.get("signing_entity_name") or "",
+                data.get("customer_level_label") or "",
+                data.get("lifecycle_label") or "",
+                data.get("sales_owner") or "",
+                data.get("region") or "",
+                data.get("contact_count") or 0,
+                data.get("contract_count") or 0,
+                data.get("bill_count") or 0,
+            ]
+        )
+    return StreamingResponse(
+        iter(["\ufeff" + output.getvalue()]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=customers.csv"},
+    )
 
 
 @router.get("/customers/next-code", summary="预览下一个客户编号")

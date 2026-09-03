@@ -327,6 +327,7 @@ export default {
     options: () => request.get('/customer-center/options'),
     dashboard: () => request.get('/customer-center/dashboard'),
     listCustomers: (params = {}) => request.get('/customer-center/customers', { params }),
+    exportCustomers: (params = {}) => request.get('/customer-center/customers/export', { params, responseType: 'blob', skipErrorHandle: true }),
     nextCustomerCode: (signingEntityId) => request.get('/customer-center/customers/next-code', { params: { signing_entity_id: signingEntityId } }),
     getCustomer: (id) => request.get(`/customer-center/customers/${id}`),
     createCustomer: (data = {}) => request.post('/customer-center/customers', data),

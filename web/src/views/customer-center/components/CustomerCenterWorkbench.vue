@@ -11,6 +11,10 @@
             <n-button secondary circle :loading="loading" title="刷新" @click="loadPage">
               <template #icon><TheIcon icon="mdi:refresh" :size="18" /></template>
             </n-button>
+            <n-button v-if="mode === 'customers'" secondary :loading="exporting" @click="exportCustomers">
+              <template #icon><TheIcon icon="mdi:download-outline" :size="18" /></template>
+              导出
+            </n-button>
             <n-button v-if="mode === 'customers'" type="primary" @click="openCustomerModal()">
               <template #icon><TheIcon icon="mdi:account-plus-outline" :size="18" /></template>
               新增客户
@@ -329,6 +333,7 @@ const scrollX = computed(() => (props.mode === 'customers' ? 1800 : props.mode =
 const detailWidth = computed(() => Math.min(1040, Math.max(760, Math.floor(window.innerWidth * 0.66))))
 
 const loading = ref(false)
+const exporting = ref(false)
 const detailLoading = ref(false)
 const salesUserLoading = ref(false)
 const rows = ref([])
@@ -692,6 +697,33 @@ async function loadPage() {
     pagination.itemCount = res.total || 0
   } finally {
     loading.value = false
+  }
+}
+
+async function exportCustomers() {
+  exporting.value = true
+  try {
+    const response = await api.customerCenterApi.exportCustomers({
+      keyword: query.keyword,
+      lifecycle: query.lifecycle || '',
+      customer_level: query.customer_level || '',
+      entity_type: query.entity_type || '',
+      signing_entity_id: query.signing_entity_id || undefined,
+      customer_code_order: customerCodeSortOrder.value || undefined,
+    })
+    const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `客户管理_${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+  } catch {
+    window.$message?.error?.('客户导出失败')
+  } finally {
+    exporting.value = false
   }
 }
 
