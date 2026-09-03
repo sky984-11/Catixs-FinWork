@@ -782,7 +782,20 @@ const billColumns = [
   { title: '无后续业务', key: 'business_closed', width: 110, render: (row) => (row.business_closed ? renderTag('是', 'success') : '-') },
   { title: '操作', key: 'actions', width: 92, render: (row) => rowActions(row, openBillModal, removeBill) },
 ]
+
+enableResizableColumns([customerColumns, contractColumns, contactColumns, billColumns])
+
 const columns = computed(() => (props.mode === 'customers' ? customerColumns : props.mode === 'contracts' ? contractColumns : contactColumns))
+
+function enableResizableColumns(columnGroups) {
+  columnGroups.forEach((tableColumns) => {
+    tableColumns.forEach((column) => {
+      if (column.key === 'actions') return
+      column.resizable = true
+      column.minWidth = 80
+    })
+  })
+}
 
 function renderTag(text, type = 'default') {
   return h(NTag, { size: 'small', round: true, type }, () => text || '-')

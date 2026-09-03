@@ -1629,11 +1629,12 @@ async def price_physical_device_options(product_id: int):
                 continue
             customer_id, customer_name = await device_customer(device, row.get("attributes"))
             node_name = str(row.get("node_name") or "")
+            display_name = row.get("name") or device.name or device.asset_no
             items.append({
-                "label": f"{row.get('name') or device.name or device.asset_no} · {row.get('asset_no') or device.asset_no}",
+                "label": f"{display_name} · {row.get('asset_no') or device.asset_no}" if node_name else display_name,
                 "value": f"{device.id}:{node_name}" if node_name else str(device.id),
                 "id": device.id,
-                "name": row.get("name") or device.name or device.asset_no,
+                "name": display_name,
                 "node_name": node_name,
                 "customer_id": customer_id,
                 "customer_name": customer_name,
