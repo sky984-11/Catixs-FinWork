@@ -163,6 +163,20 @@ async def customer_selectable(customer_id: int | None) -> bool:
     return await CrmCustomer.filter(id=customer_id, status=True).exclude(lifecycle="terminated").exists()
 
 
+async def customer_full_name_exists(
+    legal_name: str | None,
+    signing_entity_id: int | None,
+    exclude_customer_id: int | None = None,
+) -> bool:
+    normalized_name = str(legal_name or "").strip()
+    if not normalized_name or not signing_entity_id:
+        return False
+    query = CrmCustomer.filter(legal_name=normalized_name, signing_entity_id=signing_entity_id)
+    if exclude_customer_id:
+        query = query.exclude(id=exclude_customer_id)
+    return await query.exists()
+
+
 def customer_code_prefix(signing_entity: CrmSigningEntity) -> str:
     """Return the customer-number prefix assigned to the signing entity."""
     entity_name = " ".join(
@@ -354,11 +368,15 @@ async def get_customer(customer_id: int):
 @router.post("/customers", summary="新增客户")
 async def create_customer(payload: CustomerPayload):
     data = compact(payload.model_dump())
+    if data.get("legal_name"):
+        data["legal_name"] = str(data["legal_name"]).strip() or None
     data["customer_level"] = str(data.get("customer_level") or "C").upper()
     data["lifecycle"] = data.get("lifecycle") or "active"
     data["alias"] = data.get("name")
     if not data.get("signing_entity_id"):
         return Fail(msg="请选择签约主体后再生成客户编号")
+    if await customer_full_name_exists(data.get("legal_name"), data.get("signing_entity_id")):
+        return Fail(msg="该签约主体下已存在相同客户全称，请勿重复添加")
     if not data.get("customer_code"):
         data["customer_code"] = await next_customer_code(data.get("signing_entity_id"))
     if not data.get("customer_code"):
@@ -372,6 +390,13 @@ async def create_customer(payload: CustomerPayload):
 @router.put("/customers/{customer_id}", summary="编辑客户")
 async def update_customer(customer_id: int, payload: CustomerPayload):
     data = compact(payload.model_dump(exclude_unset=True))
+    if data.get("legal_name"):
+        data["legal_name"] = str(data["legal_name"]).strip() or None
+    customer = await CrmCustomer.get(id=customer_id)
+    legal_name = data.get("legal_name", customer.legal_name)
+    signing_entity_id = data.get("signing_entity_id", customer.signing_entity_id)
+    if await customer_full_name_exists(legal_name, signing_entity_id, exclude_customer_id=customer_id):
+        return Fail(msg="该签约主体下已存在相同客户全称，请勿重复添加")
     if "customer_level" in data:
         data["customer_level"] = str(data.get("customer_level") or "C").upper()
     if "name" in data:
