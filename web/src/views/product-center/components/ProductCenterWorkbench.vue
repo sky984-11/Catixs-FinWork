@@ -596,6 +596,10 @@ function priceActionButtons(row) {
   return h('div', { class: 'table-actions pricing-table-actions' }, buttons)
 }
 
+function priceHistoryActionButtons(row) {
+  return h('div', { class: 'table-actions pricing-table-actions' }, [deleteActionButton(row)])
+}
+
 function configActionButtons(row) {
   if (row.auto_sync) return null
   return actionButtons(row)
@@ -647,6 +651,7 @@ const priceColumns = [
 const priceHistoryColumns = [
   ...priceColumns.filter((item) => item.key !== 'actions'),
   { title: '下架日期', key: 'off_shelf_at', width: 180 },
+  { title: '操作', key: 'actions', width: 100, fixed: 'right', render: priceHistoryActionButtons },
 ]
 const templateColumns = [
   { title: '模板名称', key: 'name', width: 220 },
@@ -1643,6 +1648,7 @@ async function deleteRow(row) {
     await api.productCenterApi.deleteSpecConfigGroup({ product_id: row.product_id, source_key: row.source_key, config_ids: row.config_ids || [] })
   }
   else if (props.mode === 'pricing') await api.productCenterApi.deletePrice(row.id)
+  else if (props.mode === 'price-history') await api.productCenterApi.deletePriceHistory(row.id)
   else await api.productCenterApi.deleteTemplate(row.id)
   window.$message?.success('删除成功')
   await refreshAll()

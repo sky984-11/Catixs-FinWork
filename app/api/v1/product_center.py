@@ -1553,6 +1553,15 @@ async def list_price_history(
     return SuccessExtra(data=data, total=total, page=page, page_size=page_size)
 
 
+@router.delete("/price-history/{history_id}", summary="删除客户历史价格")
+async def delete_price_history(history_id: int):
+    history = await ProductPriceHistory.get_or_none(id=history_id)
+    if not history:
+        return Fail(msg="客户历史价格记录不存在")
+    await history.delete()
+    return Success(msg="客户历史价格已删除")
+
+
 @router.get("/prices/cloud-vms", summary="按产品地区获取可关联云主机")
 async def price_cloud_vm_options(product_id: int):
     product = await ProductItem.get_or_none(id=product_id)
