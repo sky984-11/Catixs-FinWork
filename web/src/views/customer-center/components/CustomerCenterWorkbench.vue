@@ -52,6 +52,7 @@
           :row-props="mode === 'customers' ? customerRowProps : undefined"
           :scroll-x="scrollX"
           :scrollbar-props="{ trigger: 'none' }"
+          @update:sorter="handleTableSorter"
         >
           <template #empty><n-empty description="暂无数据" /></template>
         </n-data-table>
@@ -336,6 +337,7 @@ const detailVisible = ref(false)
 const networkRegions = ref([])
 const pagination = reactive({ page: 1, pageSize: 20, itemCount: 0, pageSizes: [20, 50, 100] })
 const query = reactive({ keyword: '', lifecycle: null, customer_level: null, entity_type: null, signing_entity_id: null, customer_id: null, status: null, role: null })
+const customerCodeSortOrder = ref(null)
 const options = reactive({
   signingEntities: [],
   customers: [],
@@ -679,6 +681,7 @@ async function loadPage() {
         customer_level: query.customer_level || '',
         entity_type: query.entity_type || '',
         signing_entity_id: query.signing_entity_id || undefined,
+        customer_code_order: customerCodeSortOrder.value || undefined,
       }))
     } else if (props.mode === 'contracts') {
       res = await api.customerCenterApi.listContracts(pageParams({ keyword: query.keyword, customer_id: query.customer_id || undefined, status: query.status || '' }))
@@ -722,7 +725,7 @@ function goCustomerContacts(row, event) {
 }
 
 const customerColumns = [
-  { title: '客户编号', key: 'customer_code', width: 110, fixed: 'left', ellipsis: { tooltip: true } },
+  { title: '客户编号', key: 'customer_code', width: 110, fixed: 'left', sorter: true, ellipsis: { tooltip: true } },
   { title: '客户简称', key: 'name', width: 170, ellipsis: { tooltip: true } },
   { title: '客户全称', key: 'legal_name', width: 260, ellipsis: { tooltip: true } },
   { title: '主体类型', key: 'entity_type_label', width: 110 },
@@ -828,6 +831,14 @@ function contactRoleType(value) {
 
 function customerRowProps(row) {
   return { style: 'cursor:pointer;', onDblclick: () => openDetail(row.id) }
+}
+
+function handleTableSorter(sorter) {
+  if (props.mode !== 'customers') return
+  const currentSorter = Array.isArray(sorter) ? sorter[0] : sorter
+  customerCodeSortOrder.value = currentSorter?.columnKey === 'customer_code' ? currentSorter.order : null
+  pagination.page = 1
+  loadPage()
 }
 
 async function openDetail(id) {

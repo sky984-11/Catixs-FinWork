@@ -316,6 +316,7 @@ async def list_customers(
     sales_owner: str = Query(""),
     region: str = Query(""),
     signing_entity_id: int | None = Query(None),
+    customer_code_order: str = Query(""),
 ):
     q = Q()
     if keyword:
@@ -340,7 +341,13 @@ async def list_customers(
     if signing_entity_id:
         q &= Q(signing_entity_id=signing_entity_id)
     total = await CrmCustomer.filter(q).count()
-    rows = await CrmCustomer.filter(q).order_by("customer_level", "name").offset((page - 1) * page_size).limit(page_size)
+    if customer_code_order == "ascend":
+        order_by = ("customer_code", "customer_level", "name")
+    elif customer_code_order == "descend":
+        order_by = ("-customer_code", "customer_level", "name")
+    else:
+        order_by = ("customer_level", "name")
+    rows = await CrmCustomer.filter(q).order_by(*order_by).offset((page - 1) * page_size).limit(page_size)
     return SuccessExtra(data=[await customer_dict(item, include_counts=True) for item in rows], total=total, page=page, page_size=page_size)
 
 
