@@ -554,7 +554,10 @@ function actionIconButton(icon, label, type, onClick) {
 }
 
 function deleteActionButton(row) {
-  const shutsDownVm = props.mode === 'pricing' && Boolean(row.cloud_vm_remote && row.cloud_vm_vmid)
+  const product = getProduct(row.product_id)
+  const isCloudProduct = isCategoryMatch(product?.category_id, ['云主机'])
+    || options.specConfigs.some((item) => item.product_id === product?.value && item.source_type === 'cloud_vm')
+  const shutsDownVm = props.mode === 'pricing' && isCloudProduct && Boolean(row.cloud_vm_remote && row.cloud_vm_vmid)
   const releasesPhysicalServer = props.mode === 'pricing' && Boolean(row.physical_device_id)
   return h('span', { class: 'table-action-item' }, [
     h(NPopconfirm, { onPositiveClick: () => deleteRow(row) }, {

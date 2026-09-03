@@ -1868,7 +1868,9 @@ async def delete_price(price_id: int):
     price = await ProductPrice.get_or_none(id=price_id)
     if not price:
         return Fail(msg="价格记录不存在")
-    if price.cloud_vm_remote and price.cloud_vm_vmid:
+    product = await price.product
+    is_cloud_product = await product_uses_resource_source(product, {"云主机"}, CLOUD_VM_SOURCE)
+    if is_cloud_product and price.cloud_vm_remote and price.cloud_vm_vmid:
         response = await submit_vm_power(
             VMPowerRequest(remote=price.cloud_vm_remote, vmid=price.cloud_vm_vmid, type="pve-qemu", action="stop"),
             allow_price_managed_stop=True,
@@ -1903,7 +1905,7 @@ async def delete_price(price_id: int):
                     await device.save(update_fields=["status"])
                     physical_released = True
     await price.delete()
-    if price.cloud_vm_remote:
+    if is_cloud_product and price.cloud_vm_remote:
         return Success(msg="产品价格已删除，关联虚拟机关机请求已提交")
     if physical_released:
         return Success(msg="产品价格已删除，关联物理服务器已标记为空闲")
