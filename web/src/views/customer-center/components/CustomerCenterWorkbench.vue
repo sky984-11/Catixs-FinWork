@@ -324,7 +324,7 @@ const labelMap = {
 
 const pageTitle = computed(() => labelMap[props.mode]?.title || '客户中心')
 const keywordPlaceholder = computed(() => labelMap[props.mode]?.keyword || '搜索')
-const scrollX = computed(() => (props.mode === 'customers' ? 1430 : props.mode === 'contracts' ? 1320 : 980))
+const scrollX = computed(() => (props.mode === 'customers' ? 1800 : props.mode === 'contracts' ? 1320 : 1100))
 const detailWidth = computed(() => Math.min(1040, Math.max(760, Math.floor(window.innerWidth * 0.66))))
 
 const loading = ref(false)
