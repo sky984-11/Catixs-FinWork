@@ -237,7 +237,7 @@
             <n-grid :cols="2" :x-gap="16" :y-gap="2" responsive="screen">
               <n-form-item-gi label="所属客户" required :span="2"><n-select v-model:value="contactModal.form.customer_ids" multiple filterable :options="options.customers" placeholder="请选择客户" /></n-form-item-gi>
               <n-form-item-gi label="联系人类型"><n-select v-model:value="contactModal.form.contact_type" :options="options.contactTypes" /></n-form-item-gi>
-              <n-form-item-gi label="联系人角色"><n-select v-model:value="contactModal.form.role" :options="options.contactRoles" /></n-form-item-gi>
+              <n-form-item-gi label="联系人角色"><n-select v-model:value="contactModal.form.role" multiple :options="options.contactRoles" /></n-form-item-gi>
               <n-form-item-gi :label="contactModal.form.contact_type === 'group' ? '组名 / 部门名' : '联系人姓名'" :span="2"><n-input v-model:value="contactModal.form.name" :placeholder="contactModal.form.contact_type === 'group' ? '如：NOC / Accounting / Billing' : '请输入联系人姓名'" /></n-form-item-gi>
             </n-grid>
           </section>
@@ -816,12 +816,14 @@ function contractType(value) {
 function contactRoleType(value) {
   const roleTypeMap = {
     business: 'success',
+    procurement: 'warning',
     technical: 'info',
     finance: 'warning',
     ops: 'default',
     emergency: 'error',
   }
-  return roleTypeMap[value] || 'default'
+  const role = Array.isArray(value) ? value[0] : value
+  return roleTypeMap[role] || 'default'
 }
 
 function customerRowProps(row) {
@@ -847,7 +849,7 @@ function emptyContract() {
 }
 function emptyContact() {
   const customerId = routeCustomerId() || detail.value?.id || null
-  return { id: null, customer_id: customerId, customer_ids: customerId ? [customerId] : [], contact_type: 'person', name: '', role: 'business', title: '', email: '', phone: '', address: '', remark: '', status: true }
+  return { id: null, customer_id: customerId, customer_ids: customerId ? [customerId] : [], contact_type: 'person', name: '', role: ['business'], title: '', email: '', phone: '', address: '', remark: '', status: true }
 }
 function emptyBill() {
   return { id: null, customer_id: detail.value?.id || null, bill_no: '', title: '', status: 'draft', amount: 0, currency: 'USD', bill_date: null, due_date: null, is_settled: false, business_closed: false, remark: '' }

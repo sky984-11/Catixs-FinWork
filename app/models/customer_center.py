@@ -64,7 +64,7 @@ class CrmCustomerContact(BaseModel, TimestampMixin):
     )
     contact_type = fields.CharField(max_length=30, default="person", description="联系人类型", index=True)
     name = fields.CharField(max_length=100, description="联系人姓名", index=True)
-    role = fields.CharField(max_length=30, default="business", description="联系人角色", index=True)
+    role = fields.CharField(max_length=160, default="business", description="联系人角色", index=True)
     title = fields.CharField(max_length=100, null=True, description="职位")
     email = fields.CharField(max_length=160, null=True, description="邮箱", index=True)
     phone = fields.CharField(max_length=80, null=True, description="电话", index=True)

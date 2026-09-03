@@ -88,7 +88,7 @@ class ContactPayload(BaseModel):
     customer_ids: list[int] = Field(default_factory=list)
     contact_type: str = "person"
     name: str | None = Field(None, max_length=100)
-    role: str = "business"
+    role: list[str] | str = Field(default_factory=lambda: ["business"])
     title: str | None = Field(None, max_length=100)
     email: str | None = Field(None, max_length=160)
     phone: str | None = Field(None, max_length=80)
@@ -138,7 +138,16 @@ def normalize_contact_data(values: dict[str, Any]) -> dict[str, Any]:
     if not data.get("name"):
         email = str(data.get("email") or "").strip()
         data["name"] = email.split("@", 1)[0] if email else "未命名联系人"
+    if "role" in data:
+        data["role"] = ",".join(normalize_contact_roles(data["role"]))
     return data
+
+
+def normalize_contact_roles(value: list[str] | str | None) -> list[str]:
+    values = value if isinstance(value, list) else str(value or "").split(",")
+    allowed = {item["value"] for item in CONTACT_ROLES}
+    roles = list(dict.fromkeys(str(item).strip() for item in values if str(item).strip() in allowed))
+    return roles or ["business"]
 
 
 def normalize_customer_ids(customer_ids: list[int] | None, customer_id: int | None = None) -> list[int]:
@@ -208,7 +217,8 @@ async def contact_dict(contact: CrmCustomerContact) -> dict[str, Any]:
     data["customer_ids"] = [customer.id for customer in customers]
     data["customer_name"] = " / ".join(customer.name for customer in customers)
     data["contact_type_label"] = label_of(CONTACT_TYPES, data.get("contact_type"))
-    data["role_label"] = label_of(CONTACT_ROLES, data.get("role"))
+    data["role"] = normalize_contact_roles(data.get("role"))
+    data["role_label"] = " / ".join(label_of(CONTACT_ROLES, role) for role in data["role"])
     return data
 
 
@@ -388,7 +398,7 @@ async def list_contacts(page: int = Query(1), page_size: int = Query(20), keywor
     if customer_id:
         q &= Q(customers__id=customer_id)
     if role:
-        q &= Q(role=role)
+        q &= Q(role__contains=role)
     contacts = CrmCustomerContact.filter(q).distinct()
     total = await contacts.count()
     rows = await contacts.order_by("role", "name").offset((page - 1) * page_size).limit(page_size)
