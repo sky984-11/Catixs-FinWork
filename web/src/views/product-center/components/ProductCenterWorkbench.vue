@@ -263,7 +263,7 @@
 
             <template v-else-if="mode === 'pricing'">
               <n-form-item-gi v-if="!isInheritedCloudPriceEdit" label="关联产品" required :span="2"><n-select v-model:value="editor.form.product_id" filterable :options="options.products" @update:value="handlePricingProductChange" /></n-form-item-gi>
-              <n-form-item-gi v-if="isPricingCloudProduct && !isInheritedCloudPriceEdit" label="关联云主机" required :span="2"><n-select v-model:value="editor.form.cloud_vm_key" filterable :loading="cloudVmLoading" :options="cloudVmOptions" placeholder="请选择当前产品地区的云主机" @update:value="handleCloudVmChange" /></n-form-item-gi>
+              <n-form-item-gi v-if="isPricingCloudProduct && !isInheritedCloudPriceEdit" label="关联云主机" required :span="2"><n-select v-model:value="editor.form.cloud_vm_key" filterable :multiple="!editor.form.id" :loading="cloudVmLoading" :options="cloudVmOptions" placeholder="请选择当前产品地区的云主机" @update:value="handleCloudVmChange" /></n-form-item-gi>
               <n-form-item-gi v-else-if="isPricingPhysicalServerProduct && !isInheritedCloudPriceEdit" label="关联物理服务器" required :span="2"><n-select v-model:value="editor.form.physical_device_key" filterable :loading="physicalDeviceLoading" :options="physicalDeviceOptions" placeholder="请选择当前产品地区使用中的物理服务器" @update:value="handlePhysicalDeviceChange" /></n-form-item-gi>
               <n-form-item-gi v-else-if="!isInheritedCloudPriceEdit" label="关联规格配置" required :span="2"><n-select v-model:value="editor.form.spec_config_key" filterable :options="pricingSpecConfigOptions" @update:value="handlePricingSpecConfigChange" /></n-form-item-gi>
               <n-form-item-gi v-if="!isInheritedCloudPriceEdit" label="客户" required><n-select v-model:value="editor.form.customer_id" clearable filterable :show-checkmark="false" :disabled="(isPricingCloudProduct || isPricingPhysicalServerProduct) && Boolean(editor.form.customer_id)" :options="options.customers" :render-label="renderCustomerOption" @update:value="handlePricingCustomerChange" /></n-form-item-gi>
@@ -770,7 +770,7 @@ function emptyForm() {
   if (props.mode === 'products') return { id: null, name: '', code: '', category_id: query.category_id, status: 'active', region: '', billing_mode: 'fixed', description: '' }
   if (props.mode === 'specs') return { id: null, name: '', code: '', category_id: query.category_id, category_ids: query.category_id ? [query.category_id] : [], attr_type: 'text', unit: '', required: false, options: '', description: '', status: true }
   if (props.mode === 'configs') return { id: null, product_id: query.product_id, configs: [emptyConfigLine()] }
-  if (props.mode === 'pricing') return { id: null, product_id: null, spec_config_key: query.spec_config_key, spec_config_name: '', cloud_vm_key: null, cloud_vm_remote: '', cloud_vm_vmid: null, cloud_vm_name: '', physical_device_key: null, physical_device_id: null, physical_device_name: '', physical_device_node: '', price_type: 'customer', customer_id: null, customer_name: '', billing_mode: 'fixed', billing_unit: 'month', currency: 'USD', amount: 0, effective_date: todayText(), expiry_date: null, notify_enabled: false, notify_user_ids: [], notify_schedule: 'once', notify_at: null, status: 'active', remark: '' }
+  if (props.mode === 'pricing') return { id: null, product_id: null, spec_config_key: query.spec_config_key, spec_config_name: '', cloud_vm_key: [], cloud_vm_remote: '', cloud_vm_vmid: null, cloud_vm_name: '', physical_device_key: null, physical_device_id: null, physical_device_name: '', physical_device_node: '', price_type: 'customer', customer_id: null, customer_name: '', billing_mode: 'fixed', billing_unit: 'month', currency: 'USD', amount: 0, effective_date: todayText(), expiry_date: null, notify_enabled: false, notify_user_ids: [], notify_schedule: 'once', notify_at: null, status: 'active', remark: '' }
   return { id: null, name: '', category_id: query.category_id, template_type: 'product', description: '', config: '', status: true }
 }
 
@@ -1180,7 +1180,7 @@ function handlePricingProductChange(value) {
   editor.form.spec_config_key = null
   editor.form.spec_config_name = ''
   editor.form.billing_mode = product?.billing_mode || 'fixed'
-  editor.form.cloud_vm_key = null
+  editor.form.cloud_vm_key = []
   editor.form.cloud_vm_remote = ''
   editor.form.cloud_vm_vmid = null
   editor.form.cloud_vm_name = ''
@@ -1278,7 +1278,8 @@ async function loadCloudVmOptions() {
 }
 
 function handleCloudVmChange(value) {
-  const selected = cloudVmOptions.value.find((item) => item.value === value)
+  const selectedKeys = Array.isArray(value) ? value : [value]
+  const selected = cloudVmOptions.value.find((item) => item.value === selectedKeys[0])
   editor.form.cloud_vm_remote = selected?.remote || ''
   editor.form.cloud_vm_vmid = selected?.vmid || null
   editor.form.cloud_vm_name = selected?.name || ''
@@ -1632,7 +1633,9 @@ async function saveEditor() {
       if (isCloudProduct) {
         payload.spec_config_key = null
         payload.spec_config_name = ''
-        if (!payload.cloud_vm_remote || !payload.cloud_vm_vmid) return window.$message?.warning('请选择当前产品地区的云主机')
+        const cloudVmKeys = Array.isArray(payload.cloud_vm_key) ? payload.cloud_vm_key : [payload.cloud_vm_key]
+        if (!cloudVmKeys.filter(Boolean).length) return window.$message?.warning('请选择当前产品地区的云主机')
+        if (!payload.id) payload.cloud_vm_keys = cloudVmKeys
       } else if (isPhysicalServerProduct) {
         payload.spec_config_key = null
         payload.spec_config_name = ''

@@ -148,6 +148,7 @@ class PricePayload(BaseModel):
     cloud_vm_remote: str | None = Field(None, max_length=100)
     cloud_vm_vmid: int | None = None
     cloud_vm_name: str | None = Field(None, max_length=160)
+    cloud_vm_keys: list[str] = Field(default_factory=list)
     physical_device_id: int | None = None
     physical_device_name: str | None = Field(None, max_length=160)
     physical_device_node: str | None = Field(None, max_length=100)
@@ -1700,6 +1701,7 @@ async def price_physical_device_options(product_id: int):
 
 async def price_payload_data(payload: PricePayload) -> tuple[dict[str, Any] | None, str | None]:
     data = compact(payload.model_dump())
+    data.pop("cloud_vm_keys", None)
     data["notify_user_ids"] = sorted({int(item) for item in (data.get("notify_user_ids") or []) if str(item).isdigit()})
     data["notify_next_at"] = data.get("notify_at") if data.get("notify_enabled") else None
     data.pop("spec_values", None)
@@ -1882,6 +1884,32 @@ async def create_cloud_vm_for_price(
 
 @router.post("/prices", summary="新增产品价格")
 async def create_price(payload: PricePayload):
+    cloud_vm_keys = list(dict.fromkeys(key for key in payload.cloud_vm_keys if str(key).strip()))
+    if cloud_vm_keys:
+        inherited_from_price_id = payload.inherited_from_price_id
+        if inherited_from_price_id:
+            source_price = await ProductPrice.get_or_none(id=inherited_from_price_id)
+            if not source_price or source_price.price_type != "standard" or source_price.product_id != payload.product_id:
+                return Fail(msg="继承来源价格无效")
+        batch_prices = []
+        for cloud_vm_key in cloud_vm_keys:
+            try:
+                remote, vmid = str(cloud_vm_key).rsplit(":", 1)
+                vmid = int(vmid)
+            except (TypeError, ValueError):
+                return Fail(msg="关联云主机数据无效")
+            item_payload = PricePayload(**{
+                **payload.model_dump(exclude={"cloud_vm_keys"}),
+                "cloud_vm_remote": remote,
+                "cloud_vm_vmid": vmid,
+            })
+            data, error = await price_payload_data(item_payload)
+            if error:
+                return Fail(msg=error)
+            batch_prices.append(data)
+        prices = [await ProductPrice.create(**data) for data in batch_prices]
+        return Success(msg=f"已创建 {len(prices)} 条产品价格", data=[await price_dict(price) for price in prices])
+
     data, error = await price_payload_data(payload)
     if error:
         return Fail(msg=error)
