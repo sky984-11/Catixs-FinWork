@@ -1012,7 +1012,9 @@ async def ensure_cloud_price_spec_group(product: ProductItem, values: dict[str, 
 async def price_dict(price: ProductPrice, *, resolve_spec_group: bool = True, include_dhcp_lease: bool = True) -> dict[str, Any]:
     data = await price.to_dict()
     product = await price.product
+    customer = await CrmCustomer.get_or_none(id=price.customer_id) if price.customer_id else None
     data["product_name"] = product.name
+    data["customer_display_name"] = customer.name if customer else data.get("customer_name") or ""
     data["spec_config_key"] = data.get("spec_config_key") or ""
     data["spec_config_name"] = data.get("spec_config_name") or ""
     data["spec_config_display"] = data["spec_config_name"] or "-"
@@ -1069,7 +1071,9 @@ async def options():
     product_category_map = {item.id: await product_category_names(item) for item in products}
     products.sort(key=lambda item: product_sort_keys.get(item.id, ("", "", "")))
     attributes = await ProductSpecAttribute.filter(status=True).order_by("category_id", "name").values("id", "name", "code", "attr_type", "unit", "options", "category_id", "category_ids")
-    customers = await CrmCustomer.filter(status=True).exclude(lifecycle="terminated").order_by("name").values("id", "name", "legal_name")
+    customers = await CrmCustomer.filter(status=True).exclude(lifecycle="terminated").order_by("name").values(
+        "id", "name", "legal_name", "signing_entity__name"
+    )
     notify_users = await User.filter(is_active=True).order_by("username").values("id", "username", "alias")
     return Success(
         data={
@@ -1118,7 +1122,15 @@ async def options():
                 }
                 for item in attributes
             ],
-            "customers": [{"label": item["legal_name"] or item["name"], "value": item["id"]} for item in customers],
+            "customers": [
+                {
+                    "label": item["name"] or item["legal_name"],
+                    "value": item["id"],
+                    "signing_entity_name": item.get("signing_entity__name") or "",
+                    "class": "customer-select-option",
+                }
+                for item in customers
+            ],
             "notify_users": [{"label": item["alias"] or item["username"], "value": item["id"]} for item in notify_users],
             "product_statuses": PRODUCT_STATUSES,
             "price_types": PRICE_TYPES,
@@ -1551,6 +1563,7 @@ async def list_prices(
         "price_type": "price_type",
         "price_type_label": "price_type",
         "customer_name": "customer_name",
+        "customer_display_name": "customer_name",
         "billing_unit": "billing_unit",
         "billing_unit_label": "billing_unit",
         "amount": "amount",

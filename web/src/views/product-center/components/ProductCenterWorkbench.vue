@@ -87,7 +87,7 @@
           <n-select v-if="mode === 'pricing'" v-model:value="query.spec_config_key" clearable filterable :options="options.specConfigs" placeholder="关联规格配置" />
           <n-select v-if="mode === 'pricing'" v-model:value="query.price_type" clearable :options="options.priceTypes" placeholder="价格类型" />
           <n-select v-if="mode === 'price-history'" v-model:value="query.product_id" clearable filterable :options="options.products" placeholder="关联产品" />
-          <n-select v-if="mode === 'price-history'" v-model:value="query.customer_id" clearable filterable :options="options.customers" placeholder="客户" />
+          <n-select v-if="mode === 'price-history'" v-model:value="query.customer_id" clearable filterable :show-checkmark="false" :options="options.customers" :render-label="renderCustomerOption" placeholder="客户" />
           <n-cascader
             v-if="mode === 'templates'"
             v-model:value="query.category_id"
@@ -266,7 +266,7 @@
               <n-form-item-gi v-if="isPricingCloudProduct && !isInheritedCloudPriceEdit" label="关联云主机" required :span="2"><n-select v-model:value="editor.form.cloud_vm_key" filterable :loading="cloudVmLoading" :options="cloudVmOptions" placeholder="请选择当前产品地区的云主机" @update:value="handleCloudVmChange" /></n-form-item-gi>
               <n-form-item-gi v-else-if="isPricingPhysicalServerProduct && !isInheritedCloudPriceEdit" label="关联物理服务器" required :span="2"><n-select v-model:value="editor.form.physical_device_key" filterable :loading="physicalDeviceLoading" :options="physicalDeviceOptions" placeholder="请选择当前产品地区使用中的物理服务器" @update:value="handlePhysicalDeviceChange" /></n-form-item-gi>
               <n-form-item-gi v-else-if="!isInheritedCloudPriceEdit" label="关联规格配置" required :span="2"><n-select v-model:value="editor.form.spec_config_key" filterable :options="pricingSpecConfigOptions" @update:value="handlePricingSpecConfigChange" /></n-form-item-gi>
-              <n-form-item-gi v-if="!isInheritedCloudPriceEdit" label="客户" required><n-select v-model:value="editor.form.customer_id" clearable filterable :disabled="(isPricingCloudProduct || isPricingPhysicalServerProduct) && Boolean(editor.form.customer_id)" :options="options.customers" @update:value="handlePricingCustomerChange" /></n-form-item-gi>
+              <n-form-item-gi v-if="!isInheritedCloudPriceEdit" label="客户" required><n-select v-model:value="editor.form.customer_id" clearable filterable :show-checkmark="false" :disabled="(isPricingCloudProduct || isPricingPhysicalServerProduct) && Boolean(editor.form.customer_id)" :options="options.customers" :render-label="renderCustomerOption" @update:value="handlePricingCustomerChange" /></n-form-item-gi>
               <n-form-item-gi v-if="!isInheritedCloudPriceEdit" label="计费单位"><n-select v-model:value="editor.form.billing_unit" :options="options.billingUnits" /></n-form-item-gi>
               <n-form-item-gi label="价格">
                 <n-input-group class="price-amount-field">
@@ -497,6 +497,33 @@ function renderTag(text, type = 'default') {
   return h(NTag, { size: 'small', round: true, type }, { default: () => text || '-' })
 }
 
+function renderCustomerOption(option) {
+  const signingEntity = String(option?.signing_entity_name || '')
+  const normalized = signingEntity.toLowerCase()
+  const tag = signingEntity.includes('科特思')
+    ? { text: '科', type: 'success' }
+    : normalized.includes('77')
+      ? { text: '7', type: 'warning' }
+      : normalized.includes('catixs')
+        ? { text: 'C', type: 'info' }
+        : null
+  if (!tag) return option.label
+  return h('span', {
+    style: {
+      display: 'grid',
+      gridTemplateColumns: 'minmax(0, 1fr) auto',
+      alignItems: 'center',
+      width: '100%',
+      minWidth: 0,
+      flex: '1 1 auto',
+      columnGap: '12px',
+    },
+  }, [
+    h('span', { style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' }, option.label),
+    h(NTag, { size: 'small', round: true, type: tag.type }, { default: () => tag.text }),
+  ])
+}
+
 function renderCategoryTag(text, type = 'default') {
   return h(
     'span',
@@ -643,7 +670,7 @@ const priceColumns = [
   { title: '产品名称', key: 'product_name', width: 220, ellipsis: { tooltip: true } },
   { title: '规格配置', key: 'spec_config_display', width: 340, ellipsis: { tooltip: true } },
   { title: '价格类型', key: 'price_type_label', width: 120, render: (row) => renderTag(row.price_type_label, row.price_type === 'customer' ? 'warning' : 'success') },
-  { title: '客户', key: 'customer_name', width: 180, ellipsis: { tooltip: true } },
+  { title: '客户', key: 'customer_display_name', width: 180, ellipsis: { tooltip: true } },
   { title: '计费单位', key: 'billing_unit_label', width: 110 },
   { title: '价格', key: 'amount', width: 120, render: (row) => `${row.currency || ''} ${row.amount ?? 0}` },
   { title: '生效日期', key: 'effective_date', width: 120 },
@@ -1689,6 +1716,16 @@ onMounted(refreshAll)
 </script>
 
 <style scoped>
+:global(.n-base-select-option.customer-select-option .n-base-select-option__content) {
+  display: flex;
+  width: 100%;
+}
+
+:global(.n-base-select-option.customer-select-option .n-base-select-option__content > span) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 :deep(.app-page-shell) {
   overflow: hidden;
 }
