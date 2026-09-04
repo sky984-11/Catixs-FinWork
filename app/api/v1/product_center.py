@@ -1527,6 +1527,7 @@ async def list_prices(
     category_id: int | None = Query(None),
     spec_config_key: str = Query(""),
     price_type: str = Query(""),
+    customer_id: int | None = Query(None),
     keyword: str = Query(""),
     sort_field: str = Query("id"),
     sort_order: str = Query("descend"),
@@ -1553,6 +1554,8 @@ async def list_prices(
         q &= Q(spec_config_key=spec_config_key)
     if price_type:
         q &= Q(price_type=price_type)
+    if customer_id:
+        q &= Q(customer_id=customer_id)
     if keyword:
         product_ids = await ProductItem.filter(Q(name__contains=keyword) | Q(code__contains=keyword)).values_list("id", flat=True)
         q &= Q(customer_name__contains=keyword) | Q(spec_config_name__contains=keyword) | Q(product_id__in=product_ids)
@@ -1775,6 +1778,27 @@ async def price_payload_data(payload: PricePayload) -> tuple[dict[str, Any] | No
     return data, None
 
 
+async def duplicate_resource_price_message(data: dict[str, Any], exclude_price_id: int | None = None) -> str | None:
+    query = None
+    resource_label = ""
+    if data.get("cloud_vm_remote") and data.get("cloud_vm_vmid"):
+        query = ProductPrice.filter(cloud_vm_remote=data["cloud_vm_remote"], cloud_vm_vmid=data["cloud_vm_vmid"])
+        resource_label = f"云主机 {data.get('cloud_vm_name') or data['cloud_vm_remote'] + ' / ' + str(data['cloud_vm_vmid'])}"
+    elif data.get("physical_device_id"):
+        query = ProductPrice.filter(
+            physical_device_id=data["physical_device_id"], physical_device_node=data.get("physical_device_node") or None
+        )
+        resource_label = f"物理服务器 {data.get('physical_device_name') or data['physical_device_id']}"
+        if data.get("physical_device_node"):
+            resource_label += f" / {data['physical_device_node']}"
+    if query is None:
+        return None
+    if exclude_price_id:
+        query = query.exclude(id=exclude_price_id)
+    existing = await query.order_by("id").first()
+    return f"{resource_label} 已关联价格记录（ID：{existing.id}），请勿重复添加" if existing else None
+
+
 def bytes_to_gb(value: Any) -> float:
     return max(0, float(value or 0)) / 1024 / 1024 / 1024
 
@@ -1906,6 +1930,9 @@ async def create_price(payload: PricePayload):
             data, error = await price_payload_data(item_payload)
             if error:
                 return Fail(msg=error)
+            duplicate_message = await duplicate_resource_price_message(data)
+            if duplicate_message:
+                return Fail(msg=duplicate_message)
             batch_prices.append(data)
         prices = [await ProductPrice.create(**data) for data in batch_prices]
         return Success(msg=f"已创建 {len(prices)} 条产品价格", data=[await price_dict(price) for price in prices])
@@ -1918,6 +1945,9 @@ async def create_price(payload: PricePayload):
         source_price = await ProductPrice.get_or_none(id=inherited_from_price_id)
         if not source_price or source_price.price_type != "standard" or source_price.product_id != data.get("product_id"):
             return Fail(msg="继承来源价格无效")
+    duplicate_message = await duplicate_resource_price_message(data)
+    if duplicate_message:
+        return Fail(msg=duplicate_message)
     price = await ProductPrice.create(**data)
     product = await price.product
     try:
@@ -1939,6 +1969,9 @@ async def update_price(price_id: int, payload: PricePayload):
     data, error = await price_payload_data(payload)
     if error:
         return Fail(msg=error)
+    duplicate_message = await duplicate_resource_price_message(data, exclude_price_id=price_id)
+    if duplicate_message:
+        return Fail(msg=duplicate_message)
     await ProductPrice.filter(id=price_id).update(**data)
     price = await ProductPrice.get(id=price_id)
     return Success(msg="产品价格已更新", data=await price_dict(price))

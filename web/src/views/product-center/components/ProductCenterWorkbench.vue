@@ -84,8 +84,7 @@
           />
           <n-select v-if="mode === 'configs'" v-model:value="query.product_id" clearable filterable :options="options.products" placeholder="关联产品" />
           <n-cascader v-if="mode === 'pricing'" v-model:value="query.category_id" clearable filterable :show-path="false" check-strategy="child" :options="options.categoryTree" placeholder="产品目录" />
-          <n-select v-if="mode === 'pricing'" v-model:value="query.spec_config_key" clearable filterable :options="options.specConfigs" placeholder="关联规格配置" />
-          <n-select v-if="mode === 'pricing'" v-model:value="query.price_type" clearable :options="options.priceTypes" placeholder="价格类型" />
+          <n-select v-if="mode === 'pricing'" v-model:value="query.customer_id" clearable filterable :show-checkmark="false" :options="options.customers" :render-label="renderCustomerOption" placeholder="客户" />
           <n-select v-if="mode === 'price-history'" v-model:value="query.product_id" clearable filterable :options="options.products" placeholder="关联产品" />
           <n-select v-if="mode === 'price-history'" v-model:value="query.customer_id" clearable filterable :show-checkmark="false" :options="options.customers" :render-label="renderCustomerOption" placeholder="客户" />
           <n-cascader
@@ -821,7 +820,7 @@ async function loadPage() {
       sort_field: configSortState.columnKey || 'product_category_sort',
       sort_order: configSortState.order || 'ascend',
     }))
-    else if (props.mode === 'pricing') res = await api.productCenterApi.listPrices(pageParams({ category_id: query.category_id || undefined, spec_config_key: query.spec_config_key || '', price_type: query.price_type || '', sort_field: pricingSortState.columnKey, sort_order: pricingSortState.order }))
+    else if (props.mode === 'pricing') res = await api.productCenterApi.listPrices(pageParams({ category_id: query.category_id || undefined, customer_id: query.customer_id || undefined, sort_field: pricingSortState.columnKey, sort_order: pricingSortState.order }))
     else if (props.mode === 'price-history') res = await api.productCenterApi.listPriceHistory(pageParams({ product_id: query.product_id || undefined, customer_id: query.customer_id || undefined }))
     else res = await api.productCenterApi.listTemplates(pageParams({ keyword: query.keyword, category_id: query.category_id || undefined }))
     rows.value = res.data || []
@@ -1659,6 +1658,10 @@ async function saveEditor() {
       const res = payload.id
         ? await api.productCenterApi.updatePrice(payload.id, payload)
         : await api.productCenterApi.createPrice(payload)
+      if (res?.code && res.code !== 200) {
+        window.$message?.warning(res.msg || '价格保存失败')
+        return
+      }
     } else {
       if (!payload.name) return window.$message?.warning('请填写模板名称')
       if (payload.id) await api.productCenterApi.updateTemplate(payload.id, payload)
