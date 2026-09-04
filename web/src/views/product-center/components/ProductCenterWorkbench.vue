@@ -225,6 +225,9 @@
               <n-form-item-gi label="关联产品" required :span="2">
                 <n-select v-model:value="editor.form.product_id" filterable :options="options.products" @update:value="handleConfigProductChange" />
               </n-form-item-gi>
+              <n-form-item-gi label="规格名称" :span="2">
+                <n-input v-model:value="editor.form.spec_name" clearable placeholder="留空时按规格属性自动生成" />
+              </n-form-item-gi>
               <n-form-item-gi label="规格属性集合" required :span="2">
                 <div class="spec-config-lines">
                   <div v-for="(line, index) in editor.form.configs" :key="line.key" class="spec-config-line">
@@ -768,7 +771,7 @@ function emptyCategory() {
 function emptyForm() {
   if (props.mode === 'products') return { id: null, name: '', code: '', category_id: query.category_id, status: 'active', region: '', billing_mode: 'fixed', description: '' }
   if (props.mode === 'specs') return { id: null, name: '', code: '', category_id: query.category_id, category_ids: query.category_id ? [query.category_id] : [], attr_type: 'text', unit: '', required: false, options: '', description: '', status: true }
-  if (props.mode === 'configs') return { id: null, product_id: query.product_id, configs: [emptyConfigLine()] }
+  if (props.mode === 'configs') return { id: null, product_id: query.product_id, spec_name: '', configs: [emptyConfigLine()] }
   if (props.mode === 'pricing') return { id: null, product_id: null, spec_config_key: query.spec_config_key, spec_config_name: '', cloud_vm_key: [], cloud_vm_remote: '', cloud_vm_vmid: null, cloud_vm_name: '', physical_device_key: null, physical_device_id: null, physical_device_name: '', physical_device_node: '', price_type: 'customer', customer_id: null, customer_name: '', billing_mode: 'fixed', billing_unit: 'month', currency: 'USD', amount: 0, effective_date: todayText(), expiry_date: null, notify_enabled: false, notify_user_ids: [], notify_schedule: 'once', notify_at: null, status: 'active', remark: '' }
   return { id: null, name: '', category_id: query.category_id, template_type: 'product', description: '', config: '', status: true }
 }
@@ -1002,6 +1005,7 @@ function specConfigGroupToForm(row = {}) {
   return {
     id: row.id,
     product_id: row.product_id,
+    spec_name: row.custom_spec_name || '',
     source_key: row.source_key,
     config_ids: row.config_ids || [],
     configs: attrs.length

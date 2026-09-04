@@ -127,6 +127,7 @@ class SpecConfigItemPayload(BaseModel):
 
 class SpecConfigPayload(BaseModel):
     product_id: int
+    spec_name: str | None = Field(None, max_length=200)
     attribute_id: int | None = None
     source_key: str | None = Field(None, max_length=160)
     config_ids: list[int] = Field(default_factory=list)
@@ -840,6 +841,9 @@ async def cloud_spec_region_name(item: dict[str, Any]) -> str:
 
 async def spec_config_group_name(items: list[dict[str, Any]]) -> str:
     first = items[0]
+    custom_name = str(first.get("spec_name") or "").strip()
+    if custom_name:
+        return custom_name
     if first.get("source_type") == PHYSICAL_SERVER_SOURCE and first.get("source_id"):
         device = await AssetDevice.get_or_none(id=first.get("source_id"))
         device_name = str(device.name or "").strip() if device else ""
@@ -902,6 +906,7 @@ async def spec_config_group_dict(items: list[dict[str, Any]]) -> dict[str, Any]:
         "product_category_name": first.get("product_category_name"),
         "product_category_sort": first.get("product_category_sort"),
         "spec_name": await spec_config_group_name(sorted_items),
+        "custom_spec_name": first.get("spec_name") or "",
         "attribute_summary": spec_config_group_summary(sorted_items),
         "attributes": attrs,
         "source_type": first.get("source_type"),
@@ -1418,6 +1423,7 @@ async def create_spec_config(payload: SpecConfigPayload):
         data["order"] = data.get("order") or index
         data["source_type"] = "manual"
         data["source_key"] = source_key
+        data["spec_name"] = str(payload.spec_name or "").strip() or None
         data["auto_sync"] = False
         data.update(snapshot)
         created.append(await ProductSpecConfig.create(**data))
@@ -1471,6 +1477,7 @@ async def update_spec_config_group(payload: SpecConfigPayload):
         data["order"] = data.get("order") or index
         data["source_type"] = "manual"
         data["source_key"] = source_key
+        data["spec_name"] = str(payload.spec_name or "").strip() or None
         data["auto_sync"] = False
         data.update(snapshot)
         created.append(await ProductSpecConfig.create(**data))
@@ -1583,7 +1590,7 @@ async def list_prices(
         (page - 1) * page_size
     ).limit(page_size)
     data = await asyncio.gather(
-        *(price_dict(item, resolve_spec_group=False, include_dhcp_lease=False) for item in rows)
+        *(price_dict(item, resolve_spec_group=True, include_dhcp_lease=False) for item in rows)
     )
     return SuccessExtra(data=data, total=total, page=page, page_size=page_size)
 
