@@ -123,19 +123,20 @@ const modalTitle = computed(() => (modalAction.value === 'add' ? '新增项目' 
 const customerOptions = computed(() =>
   customerList.value.map((item) => {
     const mainLabel = getCustomerMainLabel(item)
-    const subjectLabel = item.contract_company_name ? `主体：${item.contract_company_name}` : ''
+    const signingEntityName = item.contract_company_name || ''
     return {
-      label: subjectLabel ? `${mainLabel} [${subjectLabel}]` : mainLabel,
+      label: mainLabel,
       value: item.id,
       mainLabel,
-      subjectLabel,
+      signingEntityName,
+      subjectTag: getSigningEntityTag(signingEntityName),
+      class: 'customer-select-option',
       searchText: buildPinyinSearchText([
         mainLabel,
         item.legal_name,
         item.name,
         item.code,
-        item.contract_company_name,
-        subjectLabel,
+        signingEntityName,
       ]),
     }
   })
@@ -210,7 +211,15 @@ const rules = {
     { required: true, message: '请输入项目名称', trigger: ['input', 'blur'] },
     { max: 255, message: '项目名称不能超过 255 个字符', trigger: ['input', 'blur'] },
   ],
-  customer_id: [{ required: true, type: 'number', message: '请选择客户', trigger: 'change' }],
+  customer_id: [
+    {
+      validator: (_rule, value) => {
+        if (value || (modalAction.value === 'edit' && modalForm.legacy_customer_id)) return true
+        return new Error('请选择客户')
+      },
+      trigger: 'change',
+    },
+  ],
   owner: [{ required: true, message: '请选择负责人', trigger: ['change', 'blur'] }],
 }
 
@@ -257,8 +266,14 @@ function createEmptyTaskEditForm() {
 }
 
 async function loadCustomers() {
-  const res = await api.getCompanyList({ page: 1, page_size: 9999, role: 1, status: true })
-  customerList.value = res?.data || []
+  const res = await api.customerCenterApi.options()
+  customerList.value = (res?.data?.customers || []).map((item) => ({
+    id: item.value,
+    name: item.short_name || item.name || item.label,
+    legal_name: item.label,
+    contract_company_name: item.signing_entity_name || '',
+    code: item.customer_code || '',
+  }))
 }
 
 async function loadUsers() {
@@ -845,7 +860,16 @@ function getUserDisplayName(user) {
 }
 
 function getCustomerMainLabel(customer) {
-  return customer.legal_name || customer.name || '-'
+  return customer.name || customer.legal_name || '-'
+}
+
+function getSigningEntityTag(signingEntityName) {
+  const entity = String(signingEntityName || '')
+  const normalized = entity.toLowerCase()
+  if (entity.includes('科特思')) return { text: '科', type: 'success' }
+  if (normalized.includes('77')) return { text: '7', type: 'warning' }
+  if (normalized.includes('catixs')) return { text: 'C', type: 'info' }
+  return null
 }
 
 function renderCustomerOptionLabel(option) {
@@ -876,27 +900,8 @@ function renderCustomerOptionLabel(option) {
         },
         option.mainLabel || option.label
       ),
-      option.subjectLabel
-        ? h(
-            'span',
-            {
-              style: {
-                flex: 'none',
-                marginLeft: 'auto',
-                maxWidth: '150px',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                borderRadius: '4px',
-                background: '#f1f5f9',
-                color: '#64748b',
-                fontSize: '12px',
-                lineHeight: '20px',
-                padding: '0 6px',
-              },
-            },
-            option.subjectLabel
-          )
+      option.subjectTag
+        ? h(NTag, { size: 'small', round: true, type: option.subjectTag.type }, { default: () => option.subjectTag.text })
         : null,
     ]
   )
@@ -1091,6 +1096,7 @@ onMounted(async () => {
         :options="customerOptions"
         :filter="pinyinOptionFilter"
         :render-label="renderCustomerOptionLabel"
+        :show-checkmark="false"
         placeholder="客户"
       />
       <NSelect
@@ -1717,6 +1723,7 @@ onMounted(async () => {
               :options="customerOptions"
               :filter="pinyinOptionFilter"
               :render-label="renderCustomerOptionLabel"
+              :show-checkmark="false"
             />
           </NFormItemGi>
           <NFormItemGi label="合同编号" path="contract_no">
@@ -1780,6 +1787,16 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+:global(.n-base-select-option.customer-select-option .n-base-select-option__content) {
+  display: flex;
+  width: 100%;
+}
+
+:global(.n-base-select-option.customer-select-option .n-base-select-option__content > div) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .project-toolbar {
   display: grid;
   grid-template-columns: minmax(220px, 1.8fr) minmax(180px, 1fr) 130px 130px 42px;

@@ -47,7 +47,11 @@ async def serialize_project(project: CustomerProject) -> dict:
     data["can_share"] = can_manage_project_share(project, await get_current_project_user())
     if data.get("status") == "blocked":
         data["status"] = "active"
-    customer = await project.customer if data.get("customer_id") else None
+    legacy_customer = await project.customer if data.get("customer_id") else None
+    crm_customer = await project.crm_customer if data.get("crm_customer_id") else None
+    customer = crm_customer or legacy_customer
+    data["legacy_customer_id"] = data.get("customer_id")
+    data["customer_id"] = data.get("crm_customer_id")
     data["customer_name"] = customer.name if customer else ""
     data["customer_legal_name"] = customer.legal_name if customer else ""
     tasks = await CustomerProjectTask.filter(project_id=project.id, is_done=False).order_by("due_date", "sort_order")
@@ -160,6 +164,8 @@ async def ensure_project_access(project: CustomerProject) -> None:
 
 
 def normalize_project_payload(payload: dict) -> dict:
+    if "customer_id" in payload:
+        payload["crm_customer_id"] = payload.pop("customer_id")
     if not str(payload.get("code") or "").strip():
         payload["code"] = None
     if payload.get("status") == "blocked":
@@ -232,7 +238,7 @@ async def list_project(
             | Q(owner__contains=keyword)
         )
     if customer_id:
-        q &= Q(customer_id=customer_id)
+        q &= Q(crm_customer_id=customer_id)
     if status:
         q &= Q(status=status)
     if priority:

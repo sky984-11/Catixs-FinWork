@@ -262,12 +262,24 @@ async def bill_dict(bill: CrmCustomerBill) -> dict[str, Any]:
 @router.get("/options", summary="客户中心选项")
 async def options():
     signing_entities = await CrmSigningEntity.filter(status=True).order_by("name")
-    customers = await CrmCustomer.filter(status=True).exclude(lifecycle="terminated").order_by("name").values("id", "name", "legal_name")
+    customers = (
+        await CrmCustomer.filter(status=True)
+        .exclude(lifecycle="terminated")
+        .order_by("name")
+        .values("id", "customer_code", "name", "legal_name", "signing_entity__name")
+    )
     return Success(
         data={
             "signing_entities": [await item.to_dict() for item in signing_entities],
             "customers": [
-                {"label": item["legal_name"] or item["name"], "value": item["id"], "name": item["name"]}
+                {
+                    "label": item["legal_name"] or item["name"],
+                    "value": item["id"],
+                    "name": item["name"],
+                    "customer_code": item.get("customer_code") or "",
+                    "short_name": item["name"],
+                    "signing_entity_name": item.get("signing_entity__name") or "",
+                }
                 for item in customers
             ],
             "entity_types": ENTITY_TYPES,

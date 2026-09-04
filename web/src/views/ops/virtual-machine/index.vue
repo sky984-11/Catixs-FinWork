@@ -305,6 +305,8 @@
                 <n-select
                   v-model:value="createModal.form.customer_id"
                   :options="customerOptions"
+                  :render-label="renderCustomerOption"
+                  :show-checkmark="false"
                   clearable
                   filterable
                   placeholder="选择客户"
@@ -2110,7 +2112,11 @@ async function loadCustomerOptions() {
   if (customerOptions.value.length) return
   try {
     const res = await api.customerCenterApi.options()
-    customerOptions.value = res.data?.customers || []
+    customerOptions.value = (res.data?.customers || []).map((item) => ({
+      ...item,
+      label: item.short_name || item.name || item.label,
+      class: 'customer-select-option',
+    }))
   } catch (error) {
     message.error(error.message || '读取客户列表失败')
   }
@@ -2118,6 +2124,37 @@ async function loadCustomerOptions() {
 
 function handleCreateCustomerChange(value, option) {
   createModal.form.customer_name = value ? option?.label || '' : ''
+}
+
+function renderCustomerOption(option) {
+  const signingEntity = String(option?.signing_entity_name || '')
+  const normalized = signingEntity.toLowerCase()
+  const tag = signingEntity.includes('科特思')
+    ? { text: '科', type: 'success' }
+    : normalized.includes('77')
+      ? { text: '7', type: 'warning' }
+      : normalized.includes('catixs')
+        ? { text: 'C', type: 'info' }
+        : null
+
+  if (!tag) return option.label
+  return h(
+    'span',
+    {
+      style: {
+        display: 'grid',
+        gridTemplateColumns: 'minmax(0, 1fr) auto',
+        alignItems: 'center',
+        width: '100%',
+        minWidth: 0,
+        columnGap: '12px',
+      },
+    },
+    [
+      h('span', { style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' }, option.label),
+      h(NTag, { size: 'small', round: true, type: tag.type }, { default: () => tag.text }),
+    ],
+  )
 }
 
 function buildCreateVmDescription() {
@@ -2980,6 +3017,16 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+:global(.n-base-select-option.customer-select-option .n-base-select-option__content) {
+  display: flex;
+  width: 100%;
+}
+
+:global(.n-base-select-option.customer-select-option .n-base-select-option__content > span) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .vm-page {
   box-sizing: border-box;
   min-height: 100%;

@@ -13,6 +13,13 @@ class CustomerProject(BaseModel, TimestampMixin):
         on_delete=fields.SET_NULL,
         description="客户",
     )
+    crm_customer = fields.ForeignKeyField(
+        "models.CrmCustomer",
+        related_name="customer_projects",
+        null=True,
+        on_delete=fields.SET_NULL,
+        description="CRM customer",
+    )
     status = fields.CharField(max_length=30, default="planning", description="项目状态", index=True)
     priority = fields.CharField(max_length=20, default="medium", description="优先级", index=True)
     health = fields.CharField(max_length=20, default="green", description="健康度", index=True)
