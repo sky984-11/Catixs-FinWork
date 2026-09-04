@@ -425,13 +425,13 @@ async def ensure_product_center_menu():
             "icon": "mdi:history",
             "component": "/product-center/price-history",
         },
-        {
-            "name": "产品模板",
-            "path": "templates",
-            "order": 6,
-            "icon": "mdi:file-document-edit-outline",
-            "component": "/product-center/templates",
-        },
+        # {
+        #     "name": "产品模板",
+        #     "path": "templates",
+        #     "order": 6,
+        #     "icon": "mdi:file-document-edit-outline",
+        #     "component": "/product-center/templates",
+        # },
     ]
     for menu_data in child_menus:
         menu = await Menu.filter(component=menu_data["component"]).first()
@@ -457,7 +457,7 @@ async def ensure_product_center_menu():
                 await menu.save()
         else:
             await Menu.create(**values)
-    await Menu.filter(component__in=["/product-center/quote-lines"]).delete()
+    await Menu.filter(component__in=["/product-center/quote-lines", "/product-center/templates"]).delete()
     try:
         from app.api.v1.product_center import seed_categories, seed_spec_attributes
 
