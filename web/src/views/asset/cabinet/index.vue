@@ -781,6 +781,7 @@ const deviceFormFactorOptions = [
 ]
 
 const knownRegionPoints = [
+  { keys: ['AU-SYDNEY', 'SYDNEY', 'AUSTRALIA', '澳大利亚', '悉尼'], lat: -33.8688, lng: 151.2093 },
   { keys: ['HK', 'HONG KONG', '香港'], lat: 22.3193, lng: 114.1694 },
   { keys: ['SG', 'SINGAPORE', '新加坡'], lat: 1.3521, lng: 103.8198 },
   { keys: ['JP', 'JAPAN', '东京', '日本'], lat: 35.6762, lng: 139.6503 },
