@@ -29,6 +29,13 @@ class AssetLocation(BaseModel, TimestampMixin):
 
 class AssetCabinet(BaseModel, TimestampMixin):
     location = fields.ForeignKeyField("models.AssetLocation", related_name="cabinets", description="所属位置")
+    customer = fields.ForeignKeyField(
+        "models.CrmCustomer",
+        related_name="cabinets",
+        null=True,
+        on_delete=fields.SET_NULL,
+        description="所属客户",
+    )
     name = fields.CharField(max_length=100, description="机柜名称", index=True)
     code = fields.CharField(max_length=50, null=True, description="机柜编码", index=True)
     row = fields.CharField(max_length=50, null=True, description="行")
@@ -55,6 +62,14 @@ class AssetCabinet(BaseModel, TimestampMixin):
 
 class AssetDevice(BaseModel, TimestampMixin):
     cabinet = fields.ForeignKeyField("models.AssetCabinet", related_name="devices", description="所属机柜")
+    customer = fields.ForeignKeyField(
+        "models.CrmCustomer",
+        related_name="devices",
+        null=True,
+        on_delete=fields.SET_NULL,
+        description="所属客户",
+    )
+    customer_ids = fields.JSONField(null=True, description="关联客户ID列表")
     region = fields.ForeignKeyField("models.AssetRegion", related_name="devices", description="所属区域")
     location = fields.ForeignKeyField("models.AssetLocation", related_name="devices", description="所属位置")
     asset_no = fields.CharField(max_length=100, description="资产编号", unique=True, index=True)

@@ -50,6 +50,7 @@ from app.models.asset import (
     AssetLocation,
     AssetRegion,
 )
+from app.models.customer_center import CrmCustomer
 from app.core.ctx import CTX_USER_ID
 from app.log import logger
 from app.models.admin import User
@@ -744,9 +745,19 @@ async def device_to_dict(device: AssetDevice, can_view_secrets: bool = False) ->
     if not can_view_secrets:
         data["attributes"] = mask_device_secret_attributes(data.get("attributes"))
     cabinet = await AssetCabinet.get_or_none(id=device.cabinet_id)
+    customer = await CrmCustomer.get_or_none(id=device.customer_id) if device.customer_id else None
+    customer_ids = [int(item) for item in (device.customer_ids or []) if str(item).isdigit()]
+    if customer and customer.id not in customer_ids:
+        customer_ids.insert(0, customer.id)
+    customers = await CrmCustomer.filter(id__in=customer_ids).values("id", "name") if customer_ids else []
+    customer_map = {item["id"]: item for item in customers}
+    customers = [customer_map[customer_id] for customer_id in customer_ids if customer_id in customer_map]
     location = await AssetLocation.get_or_none(id=device.location_id)
     region = await AssetRegion.get_or_none(id=device.region_id)
     data["cabinet_name"] = cabinet.name if cabinet else ""
+    data["customer_ids"] = [item["id"] for item in customers]
+    data["customer_names"] = [item["name"] for item in customers]
+    data["customer_name"] = " / ".join(data["customer_names"])
     data["location_name"] = location.name if location else ""
     data["region_name"] = region.name if region else ""
     return data
@@ -1414,6 +1425,13 @@ async def list_cabinet(
         q &= Q(status=status)
     total, objs = await asset_cabinet_controller.list_cabinets(page=page, page_size=page_size, search=q)
     data = [await obj.to_dict() for obj in objs]
+    customer_ids = [item["customer_id"] for item in data if item.get("customer_id")]
+    customer_map = {
+        item["id"]: item["name"]
+        for item in await CrmCustomer.filter(id__in=customer_ids).values("id", "name")
+    }
+    for item in data:
+        item["customer_name"] = customer_map.get(item.get("customer_id"), "")
     cabinet_ids = [item["id"] for item in data]
     if cabinet_ids:
         rows = await AssetDevice.filter(cabinet_id__in=cabinet_ids).group_by("cabinet_id").annotate(
@@ -1432,6 +1450,8 @@ async def list_cabinet(
 async def get_cabinet(cabinet_id: int = Query(...)):
     obj = await asset_cabinet_controller.get(id=cabinet_id)
     data = await obj.to_dict()
+    customer = await CrmCustomer.get_or_none(id=data["customer_id"]) if data.get("customer_id") else None
+    data["customer_name"] = customer.name if customer else ""
     data["device_count"] = await AssetDevice.filter(cabinet_id=cabinet_id).count()
     return Success(data=data)
 
@@ -1443,6 +1463,7 @@ def normalize_cabinet_payload(cabinet_in: AssetCabinetCreate | AssetCabinetUpdat
     if start_u < 1 or end_u < start_u:
         raise ValueError("请填写有效的租用U位范围，例如 20-25U")
     data["name"] = str(data.get("name") or "").strip()
+    data["customer_id"] = int(data["customer_id"]) if data.get("customer_id") else None
     data["code"] = str(data.get("code") or data["name"]).strip()
     data["row"] = ""
     data["column"] = ""
@@ -1478,12 +1499,31 @@ async def validate_device_u_range(device_in: AssetDeviceCreate | AssetDeviceUpda
     return ""
 
 
+async def validate_cabinet_customer(customer_id: int | None) -> str:
+    if not customer_id:
+        return ""
+    customer = await CrmCustomer.get_or_none(id=customer_id)
+    if not customer or not customer.status or customer.lifecycle == "terminated":
+        return "请选择有效的启用客户"
+    return ""
+
+
+async def validate_device_customers(customer_ids: list[int]) -> str:
+    normalized_ids = list({int(customer_id) for customer_id in customer_ids if customer_id})
+    if not normalized_ids:
+        return ""
+    count = await CrmCustomer.filter(id__in=normalized_ids, status=True).exclude(lifecycle="terminated").count()
+    return "" if count == len(normalized_ids) else "请选择有效的启用客户"
+
+
 @router.post("/cabinet/create", summary="创建机柜")
 async def create_cabinet(cabinet_in: AssetCabinetCreate):
     try:
         data = normalize_cabinet_payload(cabinet_in)
     except ValueError as exc:
         return Success(msg=str(exc), code=400)
+    if message := await validate_cabinet_customer(data.get("customer_id")):
+        return Success(msg=message, code=400)
     obj = await asset_cabinet_controller.create(data)
     return Success(msg="Created Successfully", data=await obj.to_dict())
 
@@ -1494,6 +1534,8 @@ async def update_cabinet(cabinet_in: AssetCabinetUpdate):
         data = normalize_cabinet_payload(cabinet_in)
     except ValueError as exc:
         return Success(msg=str(exc), code=400)
+    if message := await validate_cabinet_customer(data.get("customer_id")):
+        return Success(msg=message, code=400)
     used = await AssetDevice.filter(cabinet_id=cabinet_in.id)
     for device in used:
         start = int(device.u_position or 0)
@@ -2027,6 +2069,8 @@ async def create_device(device_in: AssetDeviceCreate):
     error = await validate_device_u_range(device_in)
     if error:
         return Success(msg=error, code=400)
+    if message := await validate_device_customers(device_in.customer_ids):
+        return Success(msg=message, code=400)
     await prepare_device_attributes_for_save(device_in)
     normalize_four_node_status_for_save(device_in)
     obj = await asset_device_controller.create_device(device_in)
@@ -2039,6 +2083,8 @@ async def update_device(device_in: AssetDeviceUpdate):
     error = await validate_device_u_range(device_in)
     if error:
         return Success(msg=error, code=400)
+    if message := await validate_device_customers(device_in.customer_ids):
+        return Success(msg=message, code=400)
     await prepare_device_attributes_for_save(device_in)
     normalize_four_node_status_for_save(device_in)
     obj = await asset_device_controller.update_device(id=device_in.id, obj_in=device_in)

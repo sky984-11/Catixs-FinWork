@@ -81,7 +81,20 @@
                           @contextmenu.prevent.stop="openRackContextMenu($event, row.u, row.block.device)"
                         >
                           <div class="rack-device-main">
-                            <strong>{{ row.block.device.name || '-' }}</strong>
+                            <strong>
+                              {{ row.block.device.name || '-' }}
+                              <n-tag
+                                v-for="customer in deviceCustomerItems(row.block.device)"
+                                :key="customer.value"
+                                class="rack-customer-tag"
+                                size="tiny"
+                                round
+                                :bordered="false"
+                                :type="customerTagType(customer.signing_entity_name)"
+                              >
+                                {{ customer.label }}
+                              </n-tag>
+                            </strong>
                             <span>{{ formatDeviceUPosition(row.block.device) }}</span>
                           </div>
                           <i class="rack-status-dot"></i>
@@ -455,6 +468,18 @@
             <n-form-item-gi label="设备类型">
               <n-select v-model:value="deviceModal.form.type" :options="deviceTypeOptions" />
             </n-form-item-gi>
+            <n-form-item-gi label="客户">
+              <n-select
+                v-model:value="deviceModal.form.customer_ids"
+                multiple
+                clearable
+                filterable
+                :show-checkmark="false"
+                :options="customerOptions"
+                :render-label="renderCustomerOption"
+                placeholder="请选择客户"
+              />
+            </n-form-item-gi>
             <n-form-item-gi label="设备形态">
               <n-select
                 v-model:value="deviceModal.form.form_factor"
@@ -670,9 +695,10 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import { NTag } from 'naive-ui'
 import { useRoute, useRouter } from 'vue-router'
 import api from '@/api'
 import CButton from '@/components/public/CButton.vue'
@@ -692,6 +718,7 @@ const ipmiLogs = ref([])
 const regions = ref([])
 const locations = ref([])
 const cabinets = ref([])
+const customerOptions = ref([])
 const REGION_POINT_CACHE_KEY = 'finwork:cabinet-region-points:v1'
 const geocodedRegionPoints = ref(loadGeocodedRegionPoints())
 const rackDevices = ref([])
@@ -824,6 +851,13 @@ const selectedRegionNode = computed(
 )
 const selectedCabinets = computed(() => selectedRegionNode.value?.cabinets || [])
 const selectedCabinet = computed(() => cabinets.value.find((item) => item.id === selectedCabinetId.value) || null)
+const selectedCabinetCustomer = computed(
+  () => customerOptions.value.find((item) => Number(item.value) === Number(selectedCabinet.value?.customer_id)) || null
+)
+const selectedCabinetCustomerName = computed(
+  () => selectedCabinet.value?.customer_name || selectedCabinetCustomer.value?.label || ''
+)
+const selectedCabinetCustomerTagType = computed(() => customerTagType(selectedCabinetCustomer.value?.signing_entity_name))
 const selectedRegionLocationOptions = computed(() =>
   (selectedRegionNode.value?.locations || []).map((location) => ({
     label: location.name,
@@ -982,6 +1016,7 @@ function createCabinetForm() {
   return {
     id: null,
     location_id: null,
+    customer_id: null,
     name: '',
     code: '',
     row: '',
@@ -1007,6 +1042,7 @@ function createCabinetForm() {
 function createDeviceForm() {
   return {
     cabinet_id: null,
+    customer_ids: [],
     asset_no: '',
     name: '',
     type: 0,
@@ -1468,19 +1504,68 @@ function mapMarkerHtml(node) {
 async function loadData() {
   loading.value = true
   try {
-    const [regionRes, locationRes, cabinetRes] = await Promise.all([
+    const [regionRes, locationRes, cabinetRes, productOptionsRes] = await Promise.all([
       api.assetApi.regions({ page_size: 1000 }),
       api.assetApi.locations({ page_size: 1000 }),
       api.assetApi.cabinets({ page_size: 1000 }),
+      api.productCenterApi.options(),
     ])
     regions.value = regionRes.data || []
     locations.value = locationRes.data || []
     cabinets.value = cabinetRes.data || []
+    customerOptions.value = productOptionsRes.data?.customers || []
     resolveMissingRegionPoints()
     applyRouteSelection()
   } finally {
     loading.value = false
   }
+}
+
+function customerTagType(signingEntityName) {
+  const name = String(signingEntityName || '').toLowerCase()
+  if (String(signingEntityName || '').includes('科特思')) return 'success'
+  if (name.includes('77')) return 'warning'
+  if (name.includes('catixs')) return 'info'
+  return 'default'
+}
+
+function deviceCustomerItems(device) {
+  const ids = Array.isArray(device?.customer_ids) ? device.customer_ids : []
+  const matched = ids
+    .map((id) => customerOptions.value.find((item) => Number(item.value) === Number(id)))
+    .filter(Boolean)
+  if (matched.length) return matched
+  const names = Array.isArray(device?.customer_names) ? device.customer_names : [device?.customer_name].filter(Boolean)
+  if (names.length) return names.map((label, index) => ({ label, value: `legacy-${index}`, signing_entity_name: '' }))
+  return selectedCabinetCustomerName.value
+    ? [{ label: selectedCabinetCustomerName.value, value: 'cabinet', signing_entity_name: selectedCabinetCustomer.value?.signing_entity_name || '' }]
+    : []
+}
+
+function renderCustomerOption(option) {
+  const signingEntity = String(option?.signing_entity_name || '')
+  const tagType = customerTagType(signingEntity)
+  const tagText = tagType === 'success' ? '科' : tagType === 'warning' ? '7' : tagType === 'info' ? 'C' : ''
+  if (!tagText) return option.label
+  return h(
+    'span',
+    {
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        width: '100%',
+        minWidth: '100%',
+        boxSizing: 'border-box',
+        flex: '1 1 auto',
+        gap: '12px',
+      },
+    },
+    [
+      h('span', { style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' }, option.label),
+      h(NTag, { size: 'small', round: true, type: tagType }, { default: () => tagText }),
+    ]
+  )
 }
 
 async function ensureDevicePlatformsLoaded() {
@@ -3042,19 +3127,33 @@ onBeforeUnmount(() => {
   gap: 2px;
 }
 
-.rack-device-main strong,
-.rack-device-main span {
+.rack-device-main > strong,
+.rack-device-main > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.rack-device-main strong {
+.rack-device-main > strong {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   font-size: 12px;
   line-height: 1.1;
 }
 
-.rack-device-main span {
+.rack-device-main .rack-customer-tag {
+  flex: 0 0 auto;
+  max-width: 120px;
+  padding: 0 6px;
+  color: #172554;
+  background: rgba(255, 255, 255, 0.94);
+  font-weight: 700;
+  line-height: 18px;
+}
+
+.rack-device-main > span {
   opacity: 0.9;
   font-size: 10px;
   line-height: 1.1;

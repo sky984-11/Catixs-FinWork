@@ -40,6 +40,7 @@ class AssetLocationUpdate(AssetLocationBase):
 
 class AssetCabinetBase(BaseModel):
     location_id: int
+    customer_id: Optional[int] = Field(None, description="所属客户ID")
     name: str = Field(..., example="A01")
     code: str = Field("", example="A01")
     row: str = Field("", example="")
@@ -71,6 +72,7 @@ class AssetCabinetUpdate(AssetCabinetBase):
 
 class AssetDeviceBase(BaseModel):
     cabinet_id: int
+    customer_ids: list[int] = Field(default_factory=list, description="所属客户ID列表")
     asset_no: str = Field(..., example="ASSET-0001")
     name: str = Field(..., example="Server-01")
     type: int = Field(0, example=0)
