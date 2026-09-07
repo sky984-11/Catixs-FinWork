@@ -51,7 +51,7 @@ HN=${HN:-debian12}
 CORE_COUNT=${CORE_COUNT:-2}
 RAM_SIZE=${RAM_SIZE:-2048}
 DISK_SIZE=${DISK_SIZE:-10G}
-BRG=${BRG:-vmbr0}
+BRG=${BRG:-vmbr10}
 STORAGE=${STORAGE:-local}
 START_VM=${START_VM:-yes}
 VM_PASSWORD=${VM_PASSWORD:-debian@123.}
@@ -161,6 +161,7 @@ class VMNetworkConfig(BaseModel):
     dns: str | None = None
     gw: str | None = None
     vlan: int | None = None
+    bridge: str | None = None
     dhcp_pool_id: int | None = None
     rate_limit: float | None = None
 
@@ -641,9 +642,9 @@ def create_vm_args(payload: VMCreateRequest) -> list[Any]:
     ]
 
     if payload.network.mode == "dhcp":
-        args.extend(["--bridge", "vmbr10"])
+        args.extend(["--bridge", payload.network.bridge or "vmbr10"])
     else:
-        bridge = bridge_for_vm_network(payload.network.ip, payload.network.vlan)
+        bridge = payload.network.bridge or bridge_for_vm_network(payload.network.ip, payload.network.vlan)
         args.extend(["--bridge", bridge])
         if payload.network.vlan and bridge != "vmbr10":
             args.extend(["--vlan", payload.network.vlan])
@@ -673,6 +674,15 @@ def parse_storage_output(stdout: str) -> list[dict[str, Any]]:
             continue
         storages.append({"label": f"{name} ({storage_type})", "value": name, "type": storage_type})
     return storages
+
+
+def parse_bridge_output(stdout: str) -> list[dict[str, str]]:
+    bridges: list[dict[str, str]] = []
+    for line in stdout.splitlines():
+        name = line.strip().split("@", 1)[0]
+        if name:
+            bridges.append({"label": name, "value": name})
+    return bridges
 
 
 def storage_options_from_resources(resources: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -747,12 +757,18 @@ async def create_options(node_ip: str = Query(..., description="PVE node IP or P
     try:
         ssh_host = await resolve_create_host(node_ip)
         exit_status, stdout, stderr = await run_remote_script(ssh_host, "pvesm status --content images")
+        bridge_status, bridge_stdout, _bridge_stderr = await run_remote_script(
+            ssh_host, "ip -o link show type bridge | awk -F': ' '{print $2}' | cut -d@ -f1"
+        )
+        bridges = parse_bridge_output(bridge_stdout) if bridge_status == 0 else []
+        if not bridges:
+            bridges = [{"label": name, "value": name} for name in ("vmbr10", "vmbr20")]
         if exit_status != 0:
             storages = await pdm_storage_options(node_ip)
             if storages:
-                return Success(data={"storages": storages, "os_options": os_options(), "ssh_host": ssh_host})
+                return Success(data={"storages": storages, "bridges": bridges, "os_options": os_options(), "ssh_host": ssh_host})
             return Fail(msg=fail_message("读取 PVE 存储列表失败", stdout, stderr))
-        return Success(data={"storages": parse_storage_output(stdout), "os_options": os_options(), "ssh_host": ssh_host})
+        return Success(data={"storages": parse_storage_output(stdout), "bridges": bridges, "os_options": os_options(), "ssh_host": ssh_host})
     except Exception as exc:
         return Fail(msg=f"读取 PVE 创建选项失败: {exc}")
 

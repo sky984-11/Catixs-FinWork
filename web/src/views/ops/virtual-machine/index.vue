@@ -368,6 +368,14 @@
                   </div>
                 </div>
               </n-form-item-gi>
+              <n-form-item-gi label="桥接网卡" required>
+                <n-select
+                  v-model:value="createModal.form.network.bridge"
+                  :options="createBridgeOptions"
+                  filterable
+                  placeholder="选择桥接网卡"
+                />
+              </n-form-item-gi>
               <n-form-item-gi label="速率限制">
                 <n-input-number
                   v-model:value="createModal.form.network.rate_limit"
@@ -445,6 +453,9 @@
                 <n-descriptions-item v-if="createModal.createdConfig?.network?.mode === 'static'" label="IP/VLAN" :span="2">
                   {{ createModal.createdConfig.network.ip || '-' }}
                   <span v-if="createModal.createdConfig.network.vlan"> / VLAN {{ createModal.createdConfig.network.vlan }}</span>
+                </n-descriptions-item>
+                <n-descriptions-item v-if="createModal.createdConfig?.network?.mode === 'static'" label="桥接网卡">
+                  {{ createModal.createdConfig.network.bridge || '-' }}
                 </n-descriptions-item>
                 <n-descriptions-item label="有效时间" :span="2">
                   {{ createModal.createdConfig?.expire_at ? formatCreateExpireTime(createModal.createdConfig.expire_at) : '无限制' }}
@@ -883,6 +894,10 @@ const createModal = reactive({
   submitting: false,
   sshHost: '',
   storages: [],
+  bridges: [
+    { label: 'vmbr10', value: 'vmbr10' },
+    { label: 'vmbr20', value: 'vmbr20' },
+  ],
   osOptions: [],
   dhcpPools: [],
   dhcpLoading: false,
@@ -1120,6 +1135,8 @@ const createStorageOptions = computed(() =>
     value: storage.value,
   }))
 )
+
+const createBridgeOptions = computed(() => createModal.bridges)
 
 const addNodeFooterText = computed(() => {
   if (addNodeModal.step === 1) return '先探测目标 PVE 的 TLS 指纹。'
@@ -1831,6 +1848,7 @@ function createEmptyVmForm() {
       dns: '8.8.8.8',
       gw: '',
       vlan: 1,
+      bridge: 'vmbr10',
       rate_limit: 5,
     },
   }
@@ -1937,6 +1955,7 @@ function handleCreateOsChange(value) {
 
 function applyCreateOptions(options) {
   createModal.storages = options?.storages || []
+  createModal.bridges = options?.bridges?.length ? options.bridges : createModal.bridges
   createModal.osOptions = options?.osOptions || []
   createModal.sshHost = options?.sshHost || ''
   createModal.form.storage = createModal.form.storage || createModal.storages[0]?.value || ''
@@ -1975,6 +1994,7 @@ async function preloadCreateOptions(nodeValue, { silent = true } = {}) {
     .then((res) => {
       const data = {
         storages: res.data?.storages || [],
+        bridges: res.data?.bridges || [],
         osOptions: normalizeOsOptions(res.data?.os_options || []),
         sshHost: res.data?.ssh_host || '',
       }
@@ -2047,6 +2067,7 @@ function validateCreateForm() {
   if (!createModal.form.storage) return '请选择存储位置'
   if (!createModal.form.password || createModal.form.password.length < 6) return 'root 密码不能少于 6 位'
   if (createModal.form.network.mode === 'dhcp' && !createModal.form.network.dhcp_pool_id) return '请选择 DHCP 池'
+  if (!createModal.form.network.bridge) return '请选择桥接网卡'
   if (createModal.form.network.mode === 'static') {
     if (!createModal.form.network.ip) return '请输入静态 IP/掩码'
     if (!createModal.form.network.gw) return '请输入网关'
