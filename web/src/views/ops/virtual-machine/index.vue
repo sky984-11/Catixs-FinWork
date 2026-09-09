@@ -157,19 +157,20 @@
               </div>
             </div>
 
-            <n-data-table
-              v-if="!isMobileVmView"
-              :key="tableRenderKey"
-              remote
-              :loading="loading.vms"
-              :columns="columns"
-              :data="pagedVmList"
-              :pagination="false"
-              :scroll-x="2350"
-              :row-key="(row) => row.id"
-              :row-class-name="() => 'vm-table-row'"
-              :row-props="vmRowProps"
-            />
+            <div v-if="!isCompactVmList" ref="vmTableHost" @mouseup="syncVmNameColumnFixedState">
+              <n-data-table
+                :key="tableRenderKey"
+                remote
+                :loading="loading.vms"
+                :columns="columns"
+                :data="pagedVmList"
+                :pagination="false"
+                :scroll-x="2350"
+                :row-key="(row) => row.id"
+                :row-class-name="() => 'vm-table-row'"
+                :row-props="vmRowProps"
+              />
+            </div>
             <div v-else class="mobile-vm-list">
               <VanSkeleton v-if="loading.vms" title :row="8" />
               <VanEmpty v-else-if="!pagedVmList.length" image-size="70" description="暂无虚拟机" />
@@ -258,7 +259,7 @@
                 </article>
               </template>
             </div>
-            <div class="vm-list-footer" :class="{ 'mobile-vm-footer': isMobileVmView }">
+            <div class="vm-list-footer" :class="{ 'mobile-vm-footer': isCompactVmList }">
               <div class="status-summary">
                 <n-tag type="success" round>运行 {{ vmSummary.running || 0 }}</n-tag>
                 <n-tag type="default" round>停止 {{ vmSummary.stopped || 0 }}</n-tag>
@@ -845,6 +846,7 @@ const router = useRouter()
 const route = useRoute()
 const { width: viewportWidth } = useWindowSize()
 const isMobileVmView = computed(() => viewportWidth.value <= 768)
+const isCompactVmList = computed(() => viewportWidth.value <= 1280)
 const createFormCols = computed(() => (isMobileVmView.value ? 1 : 2))
 const createWideSpan = computed(() => (isMobileVmView.value ? 1 : 2))
 const mobileFormLabelPlacement = computed(() => (isMobileVmView.value ? 'top' : 'left'))
@@ -984,6 +986,8 @@ const taskTimer = ref(null)
 const taskPollAttempt = ref(0)
 const taskPollDelays = [5000, 10000, 20000, 30000, 60000]
 const tableRenderKey = ref(0)
+const vmTableHost = ref(null)
+const VM_NAME_FIXED_MIN_WIDTH = 260
 const createOptionsCache = new Map()
 
 const vmCreateModalStyle = {
@@ -1336,7 +1340,7 @@ function noVncCellProps() {
   }
 }
 
-const columns = [
+const columns = reactive([
   { title: 'VMID', key: 'vmid', width: 90, fixed: 'left', cellProps: noVncCellProps },
   {
     title: '虚拟机名称',
@@ -1491,7 +1495,30 @@ const columns = [
       )
     },
   },
-]
+])
+
+columns.forEach((column) => {
+  if (column.key === 'actions') return
+  column.resizable = true
+  column.minWidth = column.key === 'name' ? 180 : 80
+})
+
+function syncVmNameColumnFixedState() {
+  nextTick(() => {
+    const nameHeader = vmTableHost.value?.querySelector('th[data-col-key="name"]')
+    const width = Math.round(nameHeader?.getBoundingClientRect().width || 0)
+    if (!width) return
+
+    const nameColumn = columns.find((column) => column.key === 'name')
+    if (!nameColumn) return
+
+    const fixed = width >= VM_NAME_FIXED_MIN_WIDTH ? 'left' : undefined
+    const fixedChanged = nameColumn.fixed !== fixed
+    nameColumn.width = width
+    nameColumn.fixed = fixed
+    if (fixedChanged) tableRenderKey.value += 1
+  })
+}
 
 function vmRowProps(row) {
   return {
