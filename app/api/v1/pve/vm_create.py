@@ -742,7 +742,10 @@ def os_options() -> list[dict[str, Any]]:
         {
             "label": "CentOS",
             "value": "centos",
-            "children": [{"label": "7.9", "value": "7.9"}],
+            "children": [
+                {"label": "7.9", "value": "7.9"},
+                {"label": "7.5", "value": "7.5"},
+                ],
         },
     ]
 

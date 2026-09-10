@@ -123,6 +123,7 @@ class RemoteHandsPlan(BaseModel, TimestampMixin):
     notified_at = NaiveDatetimeField(null=True, description="notified at")
     reminder_notified_at = NaiveDatetimeField(null=True, description="reminder notified at", index=True)
     remote_hands_id = fields.BigIntField(null=True, description="remote hands id", index=True)
+    attachments = fields.JSONField(default=list, description="plan attachments")
     note = fields.TextField(null=True, description="note")
 
     class Meta:

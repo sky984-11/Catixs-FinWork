@@ -256,6 +256,9 @@
         v-model:show="planEditor.show"
         preset="card"
         :title="planEditor.form.id ? '变更运维计划' : '新增运维计划'"
+        :closable="!planUploading && !planEditor.saving"
+        :mask-closable="!planUploading && !planEditor.saving"
+        :close-on-esc="!planUploading && !planEditor.saving"
         class="editor-modal remote-editor-modal"
         style="width: min(680px, calc(100vw - 40px))"
         :bordered="false"
@@ -323,6 +326,50 @@
               :autosize="{ minRows: 3, maxRows: 6 }"
             />
           </n-form-item>
+          <n-form-item label="附件">
+            <div class="plan-attachments">
+              <label
+                class="plan-upload-zone"
+                :class="{ 'is-dragging': planDragging, 'is-disabled': planUploading || planEditor.saving }"
+                @dragover.prevent="planDragging = !planUploading && !planEditor.saving"
+                @dragleave.prevent="planDragging = false"
+                @drop.prevent="handlePlanAttachmentDrop"
+              >
+                <input
+                  class="plan-upload-input"
+                  type="file"
+                  multiple
+                  aria-label="上传运维计划附件，支持选择多个文件"
+                  :disabled="planUploading || planEditor.saving"
+                  @change="handlePlanAttachmentSelect"
+                />
+                <n-spin :show="planUploading" size="small">
+                  <div class="plan-upload-content">
+                    <svg class="plan-upload-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path
+                        d="M12 16V4m-4 4 4-4 4 4M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"
+                        stroke="currentColor"
+                        stroke-width="1.6"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                    <span class="plan-upload-title">{{ planUploading ? '附件上传中，请稍候…' : '点击或拖拽文件到此处上传' }}</span>
+                    <n-text depth="3" class="plan-upload-tip">支持多文件上传 · 单个最大20MB · 最多50个</n-text>
+                  </div>
+                </n-spin>
+              </label>
+              <div v-for="(attachment, index) in planEditor.form.attachments" :key="attachment.url" class="plan-attachment">
+                <a :href="attachment.url" :download="attachment.name">{{ attachment.name }}</a>
+                <CButton
+                  show-delete
+                  size="tiny"
+                  :disabled="planUploading || planEditor.saving"
+                  @delete="planEditor.form.attachments.splice(index, 1)"
+                />
+              </div>
+            </div>
+          </n-form-item>
           <n-checkbox v-if="!planEditor.form.id" v-model:checked="planEditor.form.notify">创建后立即发送飞书通知</n-checkbox>
         </n-form>
         <template #footer>
@@ -332,6 +379,7 @@
               show-save
               size="small"
               :save-loading="planEditor.saving"
+              :disabled="planUploading || planEditor.saving"
               @cancel="planEditor.show = false"
               @save="savePlan"
             />
@@ -479,6 +527,8 @@ import { translateCity, translateCountry, translateLocationPath } from '@/utils/
 
 const message = useMessage()
 const loading = ref(false)
+const planDragging = ref(false)
+const planUploading = ref(false)
 const remoteSettlementSaving = ref(new Set())
 const activeTab = ref('plans')
 const remoteHands = ref([])
@@ -816,7 +866,14 @@ const planColumns = [
   },
   {
     title: '备注', key: 'note', width: 320,
-    render: (row) => renderNoteCell(row.note),
+    render: (row) => h('div', { class: 'plan-attachments' }, [
+      renderNoteCell(row.note),
+      ...(row.attachments || []).map((item) => h('a', {
+        href: item.url,
+        download: item.name,
+        style: { overflowWrap: 'anywhere' },
+      }, item.name)),
+    ]),
   },
   {
     title: '操作', key: 'actions', width: 310, fixed: 'right',
@@ -851,6 +908,10 @@ const planColumns = [
     }),
   },
 ]
+
+planColumns.forEach((column) => {
+  column.resizable = column.key !== 'actions'
+})
 
 const engineerColumns = [
   { title: '姓名', key: 'name', width: 150, render: (row) => h('strong', row.name || '-') },
@@ -935,6 +996,7 @@ function createPlanForm(source = {}) {
     status: source.status || 'pending',
     note: source.note || '',
     notify: !source.id,
+    attachments: (source.attachments || []).map((item) => ({ ...item })),
   }
 }
 
@@ -1483,7 +1545,44 @@ async function saveRemoteHands() {
   }
 }
 
+function handlePlanAttachmentSelect(event) {
+  const files = Array.from(event.target.files || [])
+  event.target.value = ''
+  uploadPlanAttachments(files)
+}
+
+function handlePlanAttachmentDrop(event) {
+  planDragging.value = false
+  uploadPlanAttachments(Array.from(event.dataTransfer?.files || []))
+}
+
+async function uploadPlanAttachments(files) {
+  if (!files.length || planUploading.value || planEditor.saving) return
+  const form = planEditor.form
+  if (form.attachments.length + files.length > 50) return message.warning('最多添加50个附件')
+  if (files.some((file) => !file.size || file.size > 20 * 1024 * 1024)) {
+    return message.warning('请选择非空文件，单个附件不能超过20MB')
+  }
+  planUploading.value = true
+  let failed = 0
+  try {
+    for (const file of files) {
+      try {
+        const result = await api.remoteAssistanceApi.uploadPlanAttachment(file)
+        form.attachments.push(result.data)
+      } catch {
+        failed += 1
+        message.error(`${file.name} 上传失败，请重新添加`)
+      }
+    }
+    if (!failed) message.success(`已上传${files.length}个附件`)
+  } finally {
+    planUploading.value = false
+  }
+}
+
 async function savePlan() {
+  if (planUploading.value || planEditor.saving) return
   const form = planEditor.form
   if (!form.customer.trim()) return message.warning('请输入客户名称')
   if (!fieldText(form.region)) return message.warning('请选择地区')
@@ -1856,6 +1955,85 @@ onMounted(fetchOverview)
 </script>
 
 <style scoped>
+.plan-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.plan-upload-zone {
+  position: relative;
+  display: block;
+  padding: 24px 16px;
+  border: 1px dashed #b8c5d6;
+  border-radius: 10px;
+  background: rgba(32, 128, 240, 0.03);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background-color 0.2s;
+}
+
+.plan-upload-zone:not(.is-disabled):hover,
+.plan-upload-zone:focus-within,
+.plan-upload-zone.is-dragging {
+  border-color: var(--primary-color, #2080f0);
+  background: rgba(32, 128, 240, 0.08);
+}
+
+.plan-upload-zone.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.plan-upload-input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.plan-upload-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.plan-upload-icon {
+  width: 36px;
+  height: 36px;
+  margin-bottom: 4px;
+  color: var(--primary-color, #2080f0);
+}
+
+.plan-upload-title {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.plan-upload-tip {
+  font-size: 12px;
+}
+
+.plan-attachment {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.plan-attachment a {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--primary-color, #2080f0);
+}
+
 .collaboration-page {
   display: flex;
   height: calc(100vh - 132px);

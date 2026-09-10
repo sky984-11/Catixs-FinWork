@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Literal
+from uuid import uuid4
 
-from fastapi import APIRouter
+from fastapi import APIRouter, File, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.log import logger
@@ -17,6 +20,14 @@ from app.services.remote_hands_plan_notifier import int_list, notify_remote_hand
 
 router = APIRouter()
 LOCAL_TIMEZONE = timezone(timedelta(hours=8))
+PLAN_ATTACHMENT_DIR = Path(__file__).resolve().parents[4] / "uploads" / "remote-plans"
+MAX_ATTACHMENT_SIZE = 20 * 1024 * 1024
+
+
+class PlanAttachment(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    url: str = Field(pattern=r"^/uploads/remote-plans/[0-9a-f]{32}\.bin$")
+    size: int = Field(gt=0, le=MAX_ATTACHMENT_SIZE)
 
 
 class RemoteHandsPayload(BaseModel):
@@ -75,6 +86,7 @@ class RemoteHandsPlanPayload(BaseModel):
     status: Literal["pending", "done", "cancelled"] = "pending"
     note: str = ""
     notify: bool = False
+    attachments: list[PlanAttachment] = Field(default_factory=list, max_length=50)
 
 
 class RemoteHandsPlanCompletePayload(BaseModel):
@@ -185,6 +197,7 @@ def _plan_snapshot(plan: RemoteHandsPlan) -> dict[str, Any]:
         "rack": plan.rack,
         "planned_at": _naive_datetime(plan.planned_at),
         "note": plan.note,
+        "attachments": [item["name"] for item in (plan.attachments or [])],
     }
 
 
@@ -198,6 +211,7 @@ def _plan_value_for_compare(value: Any) -> str:
 
 def _plan_change_rows(before: dict[str, Any], after: dict[str, Any]) -> list[dict[str, str]]:
     labels = {
+        "attachments": "附件",
         "customer": "客户",
         "ticket": "工单",
         "engineer_name": "工程师",
@@ -298,6 +312,10 @@ def _engineer_payload_data(payload: EngineerPayload) -> dict[str, Any]:
 
 
 async def _plan_payload_data(payload: RemoteHandsPlanPayload) -> dict[str, Any]:
+    for attachment in payload.attachments:
+        path = PLAN_ATTACHMENT_DIR / attachment.url.rsplit("/", 1)[-1]
+        if not await asyncio.to_thread(path.is_file):
+            raise ValueError("附件不存在，请重新上传")
     assignee_ids = int_list(payload.assignee_ids) or int_list(payload.assignee_id)
     users = await User.filter(id__in=assignee_ids, is_active=True) if assignee_ids else []
     user_map = {int(user.id): user for user in users}
@@ -312,6 +330,7 @@ async def _plan_payload_data(payload: RemoteHandsPlanPayload) -> dict[str, Any]:
         "engineer_wechat": _clean_text(payload.engineer_wechat) or None,
         "engineer_group": _clean_text(payload.engineer_group) or None,
         "assignee_id": assignee_ids[0] if assignee_ids else None,
+        "attachments": [item.model_dump() for item in payload.attachments],
         "assignee_ids": assignee_ids,
         "assignee_name": assignee_names[0] if assignee_names else None,
         "assignee_names": "、".join(assignee_names) or None,
@@ -400,6 +419,7 @@ async def _plan_to_dict(item: RemoteHandsPlan) -> dict[str, Any]:
         "notified_at": _format_datetime(item.notified_at),
         "reminder_notified_at": _format_datetime(item.reminder_notified_at),
         "remote_hands_id": item.remote_hands_id,
+        "attachments": item.attachments or [],
         "note": item.note or "",
         "created_at": _format_datetime(item.created_at),
         "updated_at": _format_datetime(item.updated_at),
@@ -483,6 +503,29 @@ async def create_remote_hands(payload: RemoteHandsPayload):
         return Fail(msg=f"新增运维记录失败: {exc}")
 
 
+@router.post("/plans/attachments/upload", summary="上传运维计划附件", dependencies=[DependAuth])
+async def upload_plan_attachment(file: UploadFile = File(...)):
+    try:
+        content = await file.read(MAX_ATTACHMENT_SIZE + 1)
+        if not content:
+            return Fail(msg="附件不能为空")
+        if len(content) > MAX_ATTACHMENT_SIZE:
+            return Fail(msg="单个附件不能超过20MB")
+        name = (file.filename or "attachment").replace("\\", "/").rsplit("/", 1)[-1][:255]
+        filename = f"{uuid4().hex}.bin"
+        await asyncio.to_thread(PLAN_ATTACHMENT_DIR.mkdir, parents=True, exist_ok=True)
+        await asyncio.to_thread((PLAN_ATTACHMENT_DIR / filename).write_bytes, content)
+        logger.info("remote plan attachment uploaded: file={}, size={}", filename, len(content))
+        return Success(
+            data={"name": name or "attachment", "url": f"/uploads/remote-plans/{filename}", "size": len(content)}
+        )
+    except OSError:
+        logger.exception("remote plan attachment upload failed")
+        return Fail(code=500, msg="附件上传失败，请重试")
+    finally:
+        await file.close()
+
+
 @router.post("/plans", summary="新增运维计划")
 async def create_plan(payload: RemoteHandsPlanPayload, current_user: User = DependAuth):
     return await _create_plan(payload, current_user)
@@ -531,6 +574,8 @@ async def update_plan(plan_id: int, payload: RemoteHandsPlanPayload, current_use
             return Fail(msg="只有待执行的运维计划才能变更")
         before = _plan_snapshot(plan)
         data = await _plan_payload_data(payload)
+        if "attachments" not in payload.model_fields_set:
+            data.pop("attachments", None)
         logger.info(
             "remote assistance update plan parsed: plan_id={}, customer={}, site={}, raw_planned_at={}, parsed_planned_at={}",
             plan_id,

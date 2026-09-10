@@ -2563,7 +2563,8 @@ async def ensure_pre_schema_columns():
 
         ALTER TABLE IF EXISTS "remote_hands_plan"
             ADD COLUMN IF NOT EXISTS "created_by_id" BIGINT,
-            ADD COLUMN IF NOT EXISTS "created_by_name" VARCHAR(100);
+            ADD COLUMN IF NOT EXISTS "created_by_name" VARCHAR(100),
+            ADD COLUMN IF NOT EXISTS "attachments" JSONB NOT NULL DEFAULT '[]'::jsonb;
         """
     )
 

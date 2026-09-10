@@ -6,6 +6,18 @@
 
 ## 快速接入
 
+### 运维计划附件
+
+- `POST /api/v1/remote-assistance/plans/attachments/upload`：使用 `multipart/form-data`，必填字段 `file`。多附件逐个调用此接口；单文件非空且不超过20MB。
+- 认证：请求头 `token`；权限：沿用运维记录模块的 API 权限校验，普通角色需配置该上传接口权限。
+- 成功响应：`{"code":200,"msg":"OK","data":{"name":"操作说明.pdf","url":"/uploads/remote-plans/0123456789abcdef0123456789abcdef.bin","size":1024}}`。
+- `POST /api/v1/remote-assistance/plans`、兼容路径 `POST /api/v1/remote-assistance/plans/create` 和 `PUT /api/v1/remote-assistance/plans/{plan_id}` 的 JSON 请求新增可选字段 `attachments`，最多50项，每项使用上传响应的 `name`、`url`、`size`。创建、编辑响应及 `GET /api/v1/remote-assistance/overview` 中的计划均返回该数组。
+- 请求示例（附件字段）：`{"attachments":[{"name":"操作说明.pdf","url":"/uploads/remote-plans/0123456789abcdef0123456789abcdef.bin","size":1024}]}`，其他计划必填字段保持原样。
+- 编辑时省略 `attachments` 保留已有附件，传 `[]` 移除所有附件关联；仅待执行计划允许编辑。移除或取消编辑不删除磁盘文件。附件按现有 `/uploads` 静态资源方式下载，前端使用原文件名保存。
+- 错误码：`400` 空文件、超过20MB、引用文件不存在或计划不可编辑；`401` 登录无效；`403` 无接口权限；`422` 缺少文件或附件字段校验失败（含超过50项）；`500` 文件写入失败。
+- 数据库升级：新增迁移 `39_20260910120000_plan_attachments.py`，为历史计划填充空附件数组。
+- 启动兼容：PostgreSQL 的 `ensure_pre_schema_columns()` 会在生成模型 schema 前补齐附件字段，避免旧表缺列导致启动失败；重复启动及后续正式迁移均可安全重复执行。
+
 - Base URL：`http(s)://<host>/api/v1`
 - 数据格式：默认使用 `application/json`；上传/导入类接口使用 `multipart/form-data`。
 - 认证方式：多数业务接口需要在请求头携带 `token: <access_token>`。

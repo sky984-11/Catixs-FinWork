@@ -12295,6 +12295,246 @@
           }
         }
       }
+    },
+    "/api/v1/remote-assistance/plans/attachments/upload": {
+      "post": {
+        "summary": "上传运维计划附件",
+        "operationId": "upload_plan_attachment_api_v1_remote_assistance_plans_attachments_upload_post",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "token验证",
+              "title": "Token"
+            },
+            "description": "token验证"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_plan_attachment_api_v1_remote_assistance_plans_attachments_upload_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/remote-assistance/plans": {
+      "post": {
+        "summary": "新增运维计划",
+        "operationId": "create_plan_api_v1_remote_assistance_plans_post",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "token验证",
+              "title": "Token"
+            },
+            "description": "token验证"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoteHandsPlanPayload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/remote-assistance/plans/create": {
+      "post": {
+        "summary": "新增运维计划",
+        "operationId": "create_plan_compat_api_v1_remote_assistance_plans_create_post",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "token验证",
+              "title": "Token"
+            },
+            "description": "token验证"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoteHandsPlanPayload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/remote-assistance/plans/{plan_id}": {
+      "put": {
+        "summary": "变更运维计划",
+        "operationId": "update_plan_api_v1_remote_assistance_plans__plan_id__put",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Plan Id"
+            }
+          },
+          {
+            "name": "token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "token验证",
+              "title": "Token"
+            },
+            "description": "token验证"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoteHandsPlanPayload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "删除运维计划",
+        "operationId": "delete_plan_api_v1_remote_assistance_plans__plan_id__delete",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -17945,6 +18185,174 @@
           "name"
         ],
         "title": "VendorUpdate"
+      },
+      "Body_upload_plan_attachment_api_v1_remote_assistance_plans_attachments_upload_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_plan_attachment_api_v1_remote_assistance_plans_attachments_upload_post"
+      },
+      "PlanAttachment": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "url": {
+            "type": "string",
+            "pattern": "^/uploads/remote-plans/[0-9a-f]{32}\\.bin$",
+            "title": "Url"
+          },
+          "size": {
+            "type": "integer",
+            "maximum": 20971520.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "url",
+          "size"
+        ],
+        "title": "PlanAttachment"
+      },
+      "RemoteHandsPlanPayload": {
+        "properties": {
+          "customer": {
+            "type": "string",
+            "title": "Customer",
+            "default": ""
+          },
+          "ticket": {
+            "type": "string",
+            "title": "Ticket",
+            "default": ""
+          },
+          "engineer_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engineer Id"
+          },
+          "engineer_name": {
+            "type": "string",
+            "title": "Engineer Name",
+            "default": ""
+          },
+          "engineer_contact": {
+            "type": "string",
+            "title": "Engineer Contact",
+            "default": ""
+          },
+          "engineer_wechat": {
+            "type": "string",
+            "title": "Engineer Wechat",
+            "default": ""
+          },
+          "engineer_group": {
+            "type": "string",
+            "title": "Engineer Group",
+            "default": ""
+          },
+          "assignee_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assignee Id"
+          },
+          "assignee_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Assignee Ids"
+          },
+          "region": {
+            "type": "string",
+            "title": "Region",
+            "default": ""
+          },
+          "site": {
+            "type": "string",
+            "title": "Site",
+            "default": ""
+          },
+          "rack": {
+            "type": "string",
+            "title": "Rack",
+            "default": ""
+          },
+          "timezone": {
+            "type": "string",
+            "title": "Timezone",
+            "default": "Asia/Shanghai"
+          },
+          "planned_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planned At",
+            "default": ""
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "done",
+              "cancelled"
+            ],
+            "title": "Status",
+            "default": "pending"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          },
+          "notify": {
+            "type": "boolean",
+            "title": "Notify",
+            "default": false
+          },
+          "attachments": {
+            "items": {
+              "$ref": "#/components/schemas/PlanAttachment"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "Attachments"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "RemoteHandsPlanPayload"
       }
     }
   }
