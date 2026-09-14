@@ -4,12 +4,57 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 from tortoise.expressions import Q
+from tortoise.transactions import in_transaction
 
 from app.log import logger
 from app.models.asset import CloudResourceSnapshot
 
 MAX_AGE = timedelta(minutes=5)
 _tasks: set[asyncio.Task] = set()
+
+
+def vm_key(vm):
+    return str(vm.get("remote") or ""), str(vm.get("vmid") or "")
+
+
+def apply_deletions(payload, deletions):
+    keys = {vm_key(item) for item in deletions}
+    payload["items"] = [vm for vm in payload.get("items", []) if vm_key(vm) not in keys]
+    payload["pending_deletions"] = deletions
+    for node in payload.get("nodes", []):
+        node["vm_count"] = sum(vm.get("remote") == node.get("remote") for vm in payload["items"])
+    return payload
+
+
+async def remove_snapshot_vm(remote, vmid):
+    await CloudResourceSnapshot.get_or_create(key="fleet")
+    async with in_transaction() as connection:
+        row = await CloudResourceSnapshot.filter(key="fleet").using_db(connection).select_for_update().get()
+        payload = row.payload or {}
+        key = (str(remote), str(vmid))
+        deletions = [item for item in payload.get("pending_deletions", []) if vm_key(item) != key]
+        deletions.append(
+            {
+                "remote": remote,
+                "vmid": vmid,
+                "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+            }
+        )
+        await CloudResourceSnapshot.filter(id=row.id).using_db(connection).update(
+            payload=apply_deletions(payload, deletions),
+            dirty=True,
+        )
+
+
+async def clear_snapshot_deletion(remote, vmid):
+    async with in_transaction() as connection:
+        row = await CloudResourceSnapshot.filter(key="fleet").using_db(connection).select_for_update().first()
+        if row:
+            payload = row.payload or {}
+            payload["pending_deletions"] = [
+                item for item in payload.get("pending_deletions", []) if vm_key(item) != (str(remote), str(vmid))
+            ]
+            await CloudResourceSnapshot.filter(id=row.id).using_db(connection).update(payload=payload, dirty=True)
 
 
 def spawn(coroutine):
@@ -111,7 +156,22 @@ async def refresh_snapshot(row_id):
         if not error:
             values["synced_at"] = datetime.now(timezone.utc)
             values["dirty"] = False
-        await CloudResourceSnapshot.filter(id=row_id).update(**values)
+        # Merge against the latest row after cloud I/O, so a concurrent deletion cannot be resurrected.
+        async with in_transaction() as connection:
+            latest = await CloudResourceSnapshot.filter(id=row_id).using_db(connection).select_for_update().get()
+            keys = {vm_key(vm) for vm in payload.get("items", [])}
+            failed_remotes = {node.get("remote") for node in payload.get("nodes", []) if node.get("error")}
+            now = datetime.now(timezone.utc)
+            deletions = [
+                item
+                for item in (latest.payload or {}).get("pending_deletions", [])
+                if datetime.fromisoformat(item["expires_at"]) > now
+                and (vm_key(item) in keys or item.get("remote") in failed_remotes)
+            ]
+            values["payload"] = apply_deletions(payload, deletions)
+            if deletions:
+                values["dirty"] = True
+            await CloudResourceSnapshot.filter(id=row_id).using_db(connection).update(**values)
     except asyncio.CancelledError:
         raise
     except Exception:
@@ -121,7 +181,7 @@ async def refresh_snapshot(row_id):
         await CloudResourceSnapshot.filter(id=row_id).update(lease_until=None)
 
 
-async def after_resource_change(remote="", task_id=None):
+async def after_resource_change(remote="", task_id=None, deleted_vmid=None):
     """Keep the HTTP action independent of cloud polling; observe async task completion."""
 
     async def followup():
@@ -133,9 +193,14 @@ async def after_resource_change(remote="", task_id=None):
                 for _ in range(120):
                     state = pve.task_state(await pve.pdm_task_request(remote, str(task_id), "status"))
                     if state["finished"]:
+                        if deleted_vmid is not None and state.get("state") != "success":
+                            await clear_snapshot_deletion(remote, deleted_vmid)
                         break
                     await asyncio.sleep(2)
                 else:
+                    if deleted_vmid is not None:
+                        await clear_snapshot_deletion(remote, deleted_vmid)
+                        await read_snapshot(force=True)
                     return
             else:
                 await asyncio.sleep(2)
@@ -150,6 +215,8 @@ async def after_resource_change(remote="", task_id=None):
             raise
         except Exception:
             logger.exception("Post-operation cloud snapshot refresh failed")
+            if deleted_vmid is not None:
+                await clear_snapshot_deletion(remote, deleted_vmid)
             await CloudResourceSnapshot.filter(key="fleet").update(dirty=True)
 
     spawn(followup())

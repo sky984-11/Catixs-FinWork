@@ -90,16 +90,87 @@ class SnapshotTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.gather(*list(service._tasks))
             read.assert_awaited_once_with(force=True)
 
+    async def test_immediate_delete_and_inflight_refresh_cannot_restore_vm(self):
+        original = {
+            "nodes": [{"remote": "a", "vm_count": 2}, {"remote": "b", "vm_count": 1}],
+            "items": [{"remote": "a", "vmid": 1}, {"remote": "a", "vmid": 2}, {"remote": "b", "vmid": 1}],
+        }
+        row = await CloudResourceSnapshot.create(key="fleet", payload=original)
+        started, release = asyncio.Event(), asyncio.Event()
+
+        async def collect(previous):
+            started.set()
+            await release.wait()
+            return original, ""
+
+        with patch.object(service, "collect_snapshot", AsyncMock(side_effect=collect)):
+            refresh = asyncio.create_task(service.refresh_snapshot(row.id))
+            await started.wait()
+            await service.remove_snapshot_vm("a", 1)
+            current = await CloudResourceSnapshot.get(id=row.id)
+            self.assertEqual(current.payload["items"], original["items"][1:])
+            self.assertEqual(current.payload["nodes"][0]["vm_count"], 1)
+            release.set()
+            await refresh
+        current = await CloudResourceSnapshot.get(id=row.id)
+        self.assertNotIn(("a", "1"), {service.vm_key(vm) for vm in current.payload["items"]})
+        self.assertIn(("b", "1"), {service.vm_key(vm) for vm in current.payload["items"]})
+        self.assertEqual(len(current.payload["pending_deletions"]), 1)
+        with patch.object(service, "collect_snapshot", AsyncMock(return_value=({"items": [], "nodes": []}, ""))):
+            await service.refresh_snapshot(row.id)
+        self.assertEqual((await CloudResourceSnapshot.get(id=row.id)).payload["pending_deletions"], [])
+
+    async def test_delete_endpoint_changes_snapshot_only_after_cloud_accepts(self):
+        from app.api.v1.pve import pve
+
+        payload = {"nodes": [{"remote": "a", "vm_count": 1}], "items": [{"remote": "a", "vmid": 1}]}
+        row = await CloudResourceSnapshot.create(key="fleet", payload=payload)
+        request = pve.VMDeleteRequest(remote="a", vmid=1, status="stopped")
+        with (
+            patch.object(pve, "pdm_remote_config_host", AsyncMock(return_value="test-host")),
+            patch.object(pve, "ssh_execute_pve", return_value=(1, "", "rejected")),
+        ):
+            response = await pve.delete_vm(request)
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual((await CloudResourceSnapshot.get(id=row.id)).payload, payload)
+        with (
+            patch.object(pve, "pdm_remote_config_host", AsyncMock(return_value="test-host")),
+            patch.object(pve, "ssh_execute_pve", return_value=(0, "UPID:test", "")),
+            patch.object(pve, "release_vm_dhcp_lease", AsyncMock()),
+            patch.object(pve, "after_resource_change", AsyncMock()) as followup,
+        ):
+            response = await pve.delete_vm(request)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual((await CloudResourceSnapshot.get(id=row.id)).payload["items"], [])
+            followup.assert_awaited_once_with("a", "UPID:test", deleted_vmid=1)
+
+    async def test_failed_delete_task_releases_tombstone(self):
+        from app.api.v1.pve import pve
+
+        await service.remove_snapshot_vm("a", 1)
+        with (
+            patch.object(pve, "pdm_task_request", AsyncMock(return_value={"status": "stopped", "exitstatus": "ERROR"})),
+            patch.object(service, "read_snapshot", AsyncMock()),
+        ):
+            await service.after_resource_change("a", "UPID:test", deleted_vmid=1)
+            await asyncio.gather(*list(service._tasks))
+        self.assertEqual((await CloudResourceSnapshot.get(key="fleet")).payload["pending_deletions"], [])
+
     async def test_list_apis_use_database_without_cloud_calls(self):
         from app.api.v1.pve import pve
         import json
 
         await CloudResourceSnapshot.create(
-            key="fleet", dirty=False, synced_at=datetime.now(timezone.utc),
-            payload={"nodes": [{"remote": "a"}], "items": [
-                {"remote": "a", "vmid": 1, "status": "running"},
-                {"remote": "b", "vmid": 2, "status": "stopped"},
-            ]},
+            key="fleet",
+            dirty=False,
+            synced_at=datetime.now(timezone.utc),
+            payload={
+                "nodes": [{"remote": "a"}],
+                "items": [
+                    {"remote": "a", "vmid": 1, "status": "running"},
+                    {"remote": "b", "vmid": 2, "status": "stopped"},
+                ],
+            },
         )
         with patch.object(pve, "pdm_get", AsyncMock()) as cloud, patch.object(pve, "apply_vm_metadata", AsyncMock()):
             nodes = await pve.list_nodes(refresh=False)

@@ -1,4 +1,4 @@
-from app.services.cloud_resource_snapshot import after_resource_change, read_snapshot
+from app.services.cloud_resource_snapshot import after_resource_change, read_snapshot, remove_snapshot_vm
 import asyncio
 import ipaddress
 import logging
@@ -2588,6 +2588,7 @@ async def delete_vm(payload: VMDeleteRequest):
         detail = (error or output or "未知错误").strip()
         return Fail(msg=f"删除虚拟机失败: {detail}")
 
+    await remove_snapshot_vm(payload.remote, payload.vmid)
     await release_vm_dhcp_lease(payload.remote, payload.vmid, payload.name)
     metadata_q = Q(remote=payload.remote, vmid=payload.vmid)
     if payload.name:
@@ -2595,7 +2596,7 @@ async def delete_vm(payload: VMDeleteRequest):
     await PveVmMetadata.filter(metadata_q).delete()
     _PDM_RESOURCE_CACHE = []
     task_match = re.search(r"UPID:[^\s\"']+", output or "")
-    await after_resource_change(payload.remote, task_match.group(0) if task_match else None)
+    await after_resource_change(payload.remote, task_match.group(0) if task_match else None, deleted_vmid=payload.vmid)
     return Success(msg="虚拟机删除任务已提交", data={"remote": payload.remote, "vmid": payload.vmid})
 
 
