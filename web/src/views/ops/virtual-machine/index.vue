@@ -1,5 +1,5 @@
 ﻿<template>
-  <AppPage :show-footer="false">
+  <AppPage :show-footer="false" class="cloud-resource-page">
     <div class="vm-page">
       <n-alert :type="snapshotSync.error ? 'warning' : 'info'" :show-icon="false" style="margin-bottom: 12px">
         {{ snapshotSync.refreshing ? '云资源正在后台同步，当前显示本地快照' : snapshotSync.error || '当前显示本地资源快照' }}
@@ -162,10 +162,11 @@
               </div>
             </div>
 
-            <div v-if="!isCompactVmList" ref="vmTableHost" @mouseup="syncVmNameColumnFixedState">
+            <div v-if="!isCompactVmList" ref="vmTableHost" class="vm-table-host" @mouseup="syncVmNameColumnFixedState">
               <n-data-table
                 :key="tableRenderKey"
                 remote
+                flex-height
                 :loading="loading.vms"
                 :columns="columns"
                 :data="pagedVmList"
@@ -3104,15 +3105,29 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
+.cloud-resource-page {
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .vm-page {
   box-sizing: border-box;
-  min-height: 100%;
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
   background: #f5f7fb;
   padding: 16px;
 }
 
 .vm-layout {
   display: grid;
+  min-height: 0;
+  flex: 1;
+  grid-template-rows: minmax(0, 1fr);
   grid-template-columns: 300px minmax(0, 1fr);
   gap: 16px;
   transition: grid-template-columns 0.2s ease;
@@ -3133,8 +3148,7 @@ onBeforeUnmount(() => {
 
 .vm-sidebar {
   display: flex;
-  height: calc(100vh - 150px);
-  max-height: calc(100vh - 150px);
+  min-height: 0;
   flex-direction: column;
   overflow: hidden;
   padding: 16px;
@@ -3148,12 +3162,15 @@ onBeforeUnmount(() => {
 .vm-main {
   display: flex;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   flex-direction: column;
   gap: 16px;
 }
 
 .panel-head {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -3186,6 +3203,7 @@ onBeforeUnmount(() => {
 }
 
 .side-search {
+  flex-shrink: 0;
   margin-bottom: 12px;
 }
 
@@ -3215,6 +3233,7 @@ onBeforeUnmount(() => {
 
 .side-list-item {
   display: flex;
+  flex-shrink: 0;
   width: 100%;
   align-items: center;
   justify-content: space-between;
@@ -3286,6 +3305,7 @@ onBeforeUnmount(() => {
 
 .summary-band {
   display: grid;
+  flex-shrink: 0;
   grid-template-columns: repeat(6, minmax(0, 1fr)) minmax(150px, 1.25fr);
   gap: 10px;
 }
@@ -3326,7 +3346,30 @@ onBeforeUnmount(() => {
 }
 
 .content-panel {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
   padding: 16px;
+}
+
+.vm-page > :deep(.n-alert) {
+  flex-shrink: 0;
+}
+
+.vm-table-host {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.vm-table-host :deep(.n-data-table) {
+  height: 100%;
+  min-height: 0;
+  flex: 1;
 }
 
 .content-panel :deep(.vm-row-actions) {
@@ -3390,6 +3433,7 @@ onBeforeUnmount(() => {
 
 .vm-list-footer {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -3404,11 +3448,15 @@ onBeforeUnmount(() => {
 
 .mobile-vm-list {
   display: flex;
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
   flex-direction: column;
   gap: 10px;
 }
 
 .mobile-vm-card {
+  flex-shrink: 0;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   background: #fff;
@@ -3772,9 +3820,30 @@ html.dark .task-float-button {
 }
 
 @media (max-width: 960px) {
+  .cloud-resource-page {
+    overflow-y: auto;
+  }
+
+  .vm-page {
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+  }
+
   .vm-layout,
   .vm-layout.node-sidebar-collapsed {
+    flex: none;
     grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
+  }
+
+  .vm-main {
+    overflow: visible;
+  }
+
+  .content-panel {
+    flex: none;
+    height: clamp(360px, 60dvh, 720px);
   }
 
   .summary-band {
@@ -3783,12 +3852,13 @@ html.dark .task-float-button {
 
   .vm-sidebar,
   .vm-sidebar.collapsed {
-    min-height: auto;
+    min-height: 0;
+    height: clamp(180px, 30dvh, 360px);
     padding: 16px;
   }
 
   .side-list {
-    max-height: 360px;
+    max-height: none;
   }
 
   .vm-sidebar.collapsed .side-list {
