@@ -101,11 +101,26 @@ async def collect_snapshot(previous):
         live_groups = {}
     semaphore = asyncio.Semaphore(4)
 
+    async def verify_guest_list(remote, resources):
+        if pve.all_vms([{"remote": remote, "resources": resources}]):
+            return resources
+        # A resource summary can contain only hosts even while guests exist.
+        # Confirm both guest lists before treating that summary as an empty inventory.
+        guests = []
+        for kind in ("qemu", "lxc"):
+            raw = await pve.pdm_get(f"/pve/remotes/{remote}/{kind}", timeout=10)
+            if not isinstance(raw, list) and not (
+                isinstance(raw, dict) and any(isinstance(raw.get(key), list) for key in ("data", "items"))
+            ):
+                raise RuntimeError("Incomplete guest inventory response")
+            guests.extend(pve.normalize_remote_items(raw, remote, f"pve-{kind}"))
+        return [*resources, *guests]
+
     async def fetch(remote):
         async with semaphore:
             group = live_groups.get(remote)
             if group and not group.get("error") and (group.get("resources") or group.get("queried")):
-                return group.get("resources") or []
+                return await verify_guest_list(remote, group.get("resources") or [])
             # Only a successful complete resource endpoint is authoritative for removals.
             # The interactive helper tolerates partial failures and must not be used here.
             for suffix in ("resources", "cluster/resources", "resources/list"):
@@ -113,7 +128,7 @@ async def collect_snapshot(previous):
                     raw = await pve.pdm_get(f"/pve/remotes/{remote}/{suffix}", timeout=10)
                     resources = pve.pdm_resource_items(raw, remote)
                     if resources or raw == []:
-                        return resources
+                        return await verify_guest_list(remote, resources)
                 except Exception:
                     continue
             raise RuntimeError("Cannot obtain a complete resource list")

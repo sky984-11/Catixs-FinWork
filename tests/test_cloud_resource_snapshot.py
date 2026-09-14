@@ -79,6 +79,23 @@ class SnapshotTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["items"], [{"remote": "bad", "vmid": 1}])
         self.assertIn("bad", error)
 
+    async def test_host_only_summary_does_not_erase_guests(self):
+        from app.api.v1.pve import pve
+
+        previous = {"items": [{"remote": "a", "vmid": 1}]}
+        groups = [{"remote": "a", "resources": [{"type": "pve-node", "node": "host"}]}]
+        with (
+            patch.object(pve, "pdm_remote_list", AsyncMock(return_value=["a"])),
+            patch.object(pve, "pve_node_binding_map", AsyncMock(return_value={})),
+            patch.object(pve, "pdm_remote_config_detail_map", AsyncMock(return_value={})),
+            patch.object(pve, "pdm_live_resources_list", AsyncMock(return_value=groups)),
+            patch.object(pve, "pdm_get", AsyncMock(side_effect=RuntimeError("guest inventory unavailable"))),
+            patch.object(pve, "apply_vm_metadata", AsyncMock()),
+        ):
+            payload, error = await service.collect_snapshot(previous)
+        self.assertEqual(payload["items"], previous["items"])
+        self.assertTrue(error)
+
     async def test_completed_operation_requests_refresh(self):
         from app.api.v1.pve import pve
 
