@@ -237,6 +237,14 @@
               :autosize="{ minRows: 3, maxRows: 6 }"
             />
           </n-form-item>
+          <n-form-item v-if="remoteEditor.form.id" label="附件">
+            <div v-if="remoteRecordAttachments.length" class="plan-attachments">
+              <div v-for="attachment in remoteRecordAttachments" :key="attachment.url" class="plan-attachment">
+                <a :href="attachment.url" :download="attachment.name">{{ attachment.name }}</a>
+              </div>
+            </div>
+            <n-text v-else depth="3">暂无附件</n-text>
+          </n-form-item>
         </n-form>
         <template #footer>
           <div class="modal-actions compact-modal-actions">
@@ -633,6 +641,14 @@ const planStatusOptions = [
 ]
 
 const remoteEditor = reactive({ show: false, saving: false, form: createRemoteForm() })
+const remoteRecordAttachments = computed(() => {
+  const recordId = remoteEditor.form.id
+  if (!recordId) return []
+  const attachments = plans.value
+    .filter((plan) => String(plan.remote_hands_id) === String(recordId))
+    .flatMap((plan) => plan.attachments || [])
+  return [...new Map(attachments.map((item) => [item.url, item])).values()]
+})
 const planEditor = reactive({ show: false, saving: false, form: createPlanForm() })
 const completeEditor = reactive({ show: false, saving: false, form: createCompleteForm() })
 const engineerEditor = reactive({ show: false, saving: false, form: createEngineerForm() })
