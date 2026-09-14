@@ -3,7 +3,7 @@
     <header class="vm-header">
       <div>
         <h2>客户虚拟机概览</h2>
-        <p>按已分配配置统计，不含模板和容器 · 展开客户可查看单台配置</p>
+        <p>仅统计已分配客户的虚拟机，不含模板和容器 · 展开客户可查看单台配置</p>
       </div>
       <n-space>
         <n-button secondary size="small" :loading="loading" @click="refresh()">刷新</n-button>

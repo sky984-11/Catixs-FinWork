@@ -7,6 +7,7 @@ export function summarizeVmFleet(items = [], nodes = []) {
   const unique = new Map()
   for (const vm of items) {
     if (vm.template || !['pve-qemu', 'qemu'].includes(vm.type)) continue
+    if (!vm.customer_id && !String(vm.customer_name || '').trim()) continue
     unique.set(`${vm.remote}:${vm.vmid}`, vm)
   }
   return [...unique.values()].map((vm) => ({
