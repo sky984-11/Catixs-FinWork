@@ -19,6 +19,7 @@ from app.schemas.base import Fail, Success
 from app.services.remote_hands_plan_notifier import int_list, notify_remote_hands_plan
 
 router = APIRouter()
+auth_router = APIRouter()
 LOCAL_TIMEZONE = timezone(timedelta(hours=8))
 PLAN_ATTACHMENT_DIR = Path(__file__).resolve().parents[4] / "uploads" / "remote-plans"
 MAX_ATTACHMENT_SIZE = 20 * 1024 * 1024
@@ -503,7 +504,7 @@ async def create_remote_hands(payload: RemoteHandsPayload):
         return Fail(msg=f"新增运维记录失败: {exc}")
 
 
-@router.post("/plans/attachments/upload", summary="上传运维计划附件", dependencies=[DependAuth])
+@auth_router.post("/plans/attachments/upload", summary="上传运维计划附件", dependencies=[DependAuth])
 async def upload_plan_attachment(file: UploadFile = File(...)):
     try:
         content = await file.read(MAX_ATTACHMENT_SIZE + 1)

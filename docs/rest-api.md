@@ -9,7 +9,7 @@
 ### 运维计划附件
 
 - `POST /api/v1/remote-assistance/plans/attachments/upload`：使用 `multipart/form-data`，必填字段 `file`。多附件逐个调用此接口；单文件非空且不超过20MB。
-- 认证：请求头 `token`；权限：沿用运维记录模块的 API 权限校验，普通角色需配置该上传接口权限。
+- 认证：请求头 `token`；附件上传与工单上传一致，仅校验登录，无需单独分配上传接口权限。计划创建、编辑和查询仍沿用运维记录模块的 API 权限校验。
 - 成功响应：`{"code":200,"msg":"OK","data":{"name":"操作说明.pdf","url":"/uploads/remote-plans/0123456789abcdef0123456789abcdef.bin","size":1024}}`。
 - `POST /api/v1/remote-assistance/plans`、兼容路径 `POST /api/v1/remote-assistance/plans/create` 和 `PUT /api/v1/remote-assistance/plans/{plan_id}` 的 JSON 请求新增可选字段 `attachments`，最多50项，每项使用上传响应的 `name`、`url`、`size`。创建、编辑响应及 `GET /api/v1/remote-assistance/overview` 中的计划均返回该数组。
 - 请求示例（附件字段）：`{"attachments":[{"name":"操作说明.pdf","url":"/uploads/remote-plans/0123456789abcdef0123456789abcdef.bin","size":1024}]}`，其他计划必填字段保持原样。
