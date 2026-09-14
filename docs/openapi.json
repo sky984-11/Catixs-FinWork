@@ -7583,6 +7583,16 @@
         "operationId": "list_nodes_api_v1_pve_nodes_get",
         "parameters": [
           {
+            "name": "refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Refresh"
+            }
+          },
+          {
             "name": "token",
             "in": "header",
             "required": true,
@@ -7632,6 +7642,16 @@
               "type": "string",
               "default": "",
               "title": "Node"
+            }
+          },
+          {
+            "name": "refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Refresh"
             }
           },
           {

@@ -861,6 +861,9 @@ async def create_vm(payload: VMCreateRequest):
         logger.exception("submit PVE VM create failed: region={} vm_name={}", payload.region, payload.vm_name)
         return Fail(msg=f"创建虚拟机失败: {exc}")
 
+    from app.services.cloud_resource_snapshot import after_resource_change
+
+    await after_resource_change(metadata_remote)
     return Success(
         msg="虚拟机已创建",
         data={

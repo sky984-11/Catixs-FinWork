@@ -6,6 +6,17 @@
 
 ## 快速接入
 
+### 云资源数据库快照
+
+- `GET /api/v1/pve/nodes`、`GET /api/v1/pve/vms` 从 `cloud_resource_snapshot` 表读取节点、虚拟机配置及地区快照，不在请求中等待 PDM。虚拟机列表仍关联本地客户元数据。
+- 两个接口新增可选布尔参数 `refresh`（默认 `false`）：`true` 触发后台同步并立即返回现有快照；`/vms` 保留 `node` 节点过滤参数。认证仍使用 `token`，沿用原有节点/虚拟机列表权限。
+- 没有快照或快照超过5分钟时，访问自动触发后台同步；无访问时不定期运行。数据库租约合并多个请求/进程的同步任务，失败后访问重试间隔至少30秒。
+- `/nodes` 保留 `data` 数组，增加顶层 `sync`；`/vms` 保留 `data.items`、`data.summary`，增加 `data.nodes` 和 `data.sync`，仪表盘仅需调用 `/vms`。
+- 响应示例：`{"code":200,"data":{"items":[],"summary":{"total":0,"running":0,"stopped":0},"nodes":[],"sync":{"synced_at":null,"refreshing":true,"stale":true,"error":""}}}`。首次读取空数组表示尚无快照，前端需结合 `sync` 展示初始化状态；同步中页面每3秒只重新读取快照。
+- 创建、配置修改、节点变更、开关机、删除和迁移操作会触发后台刷新；有任务ID时先等待任务结束（最多约4分钟），超时或进程重启后由后续访问补偿。失败保留旧快照，不将失败节点当作空节点。只有成功取得完整资源列表时才移除已消失资源。
+- 错误码：`401` 无效登录、`403` 无接口权限、`422` 参数校验失败。云平台同步失败通过 `sync.error` 返回，不覆盖已有数据。
+- 新增迁移 `40_20260914120000_cloud_snapshot.py`；首次访问触发初始化同步，表内保存最近快照，不修改现有客户归属表结构。
+
 ### 运维计划附件
 
 - `POST /api/v1/remote-assistance/plans/attachments/upload`：使用 `multipart/form-data`，必填字段 `file`。多附件逐个调用此接口；单文件非空且不超过20MB。

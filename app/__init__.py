@@ -14,6 +14,7 @@ from app.core.init_app import (
     register_routers,
 )
 from app.services.task_runner import start_scheduler, stop_scheduler
+from app.services.cloud_resource_snapshot import stop_snapshot_tasks
 
 try:
     from app.settings.config import settings
@@ -49,6 +50,7 @@ async def lifespan(app: FastAPI):
     start_scheduler()
     yield
     await stop_scheduler()
+    await stop_snapshot_tasks()
     await Tortoise.close_connections()
 
 

@@ -188,6 +188,19 @@ class CloudDhcpLease(BaseModel, TimestampMixin):
         unique_together = (("pool", "ip"),)
 
 
+class CloudResourceSnapshot(BaseModel, TimestampMixin):
+    key = fields.CharField(max_length=40, unique=True)
+    payload = fields.JSONField(default=dict)
+    synced_at = fields.DatetimeField(null=True)
+    attempted_at = fields.DatetimeField(null=True)
+    lease_until = fields.DatetimeField(null=True)
+    dirty = fields.BooleanField(default=True)
+    error = fields.TextField(default="")
+
+    class Meta:
+        table = "cloud_resource_snapshot"
+
+
 class PveVmMetadata(BaseModel, TimestampMixin):
     remote = fields.CharField(max_length=100, description="PVE remote", index=True)
     vmid = fields.IntField(description="VMID", index=True)

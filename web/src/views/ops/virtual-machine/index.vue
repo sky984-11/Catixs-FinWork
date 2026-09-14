@@ -1,6 +1,11 @@
 ﻿<template>
   <AppPage :show-footer="false">
     <div class="vm-page">
+      <n-alert :type="snapshotSync.error ? 'warning' : 'info'" :show-icon="false" style="margin-bottom: 12px">
+        {{ snapshotSync.refreshing ? '云资源正在后台同步，当前显示本地快照' : snapshotSync.error || '当前显示本地资源快照' }}
+        · 最近同步：{{ snapshotSync.synced_at ? new Date(snapshotSync.synced_at).toLocaleString('zh-CN') : '尚未同步' }}
+        <n-button text type="primary" :disabled="snapshotSync.refreshing" @click="syncCloudResources">立即同步</n-button>
+      </n-alert>
       <section class="vm-layout" :class="{ 'node-sidebar-collapsed': nodeSidebarCollapsed }">
         <aside class="vm-sidebar" :class="{ collapsed: nodeSidebarCollapsed }">
           <div class="panel-head">
@@ -841,6 +846,14 @@ import NoVncConsole from './NoVncConsole.vue'
 import { translateCity, translateCountry, translateLocationPath } from '@/utils/location-i18n'
 
 const message = useMessage()
+const snapshotSync = ref({})
+let snapshotTimer
+let snapshotDisposed = false
+
+async function syncCloudResources() {
+  await api.virtualMachineApi.pveVms({ refresh: true })
+  await refreshNodes()
+}
 const dialog = useDialog()
 const router = useRouter()
 const route = useRoute()
@@ -2800,6 +2813,14 @@ async function fetchNodes() {
   loading.nodes = true
   try {
     const res = await api.virtualMachineApi.pveNodes()
+    snapshotSync.value = res.sync || {}
+    clearTimeout(snapshotTimer)
+    if (snapshotSync.value.refreshing && !snapshotDisposed) {
+      snapshotTimer = setTimeout(async () => {
+        await fetchNodes()
+        await fetchVms({ resetPage: false, silent: true })
+      }, 3000)
+    }
     nodeOptions.value = res.data || []
     const selectedValue = selectedNode.value?.value || readRememberedNodeValue()
     const rememberedNode = selectedValue
@@ -2846,6 +2867,14 @@ async function fetchVms({ resetPage = true, silent = false } = {}) {
     const res = await api.virtualMachineApi.pveVms({
       node: requestNode,
     })
+    snapshotSync.value = res.data?.sync || {}
+    clearTimeout(snapshotTimer)
+    if (snapshotSync.value.refreshing && !snapshotDisposed) {
+      snapshotTimer = setTimeout(async () => {
+        await fetchNodes()
+        await fetchVms({ resetPage: false, silent: true })
+      }, 3000)
+    }
     vmList.value = (res.data?.items || []).map((vm) => ({
       ...vm,
       ip_loading: false,
@@ -3052,14 +3081,14 @@ function formatTimestamp(value) {
 }
 
 onMounted(async () => {
-  if (hydrateVmPageFromCache()) {
-    return
-  }
+  hydrateVmPageFromCache()
   await fetchNodes()
   await fetchVms()
 })
 
 onBeforeUnmount(() => {
+  snapshotDisposed = true
+  clearTimeout(snapshotTimer)
   clearTaskPolling()
 })
 </script>

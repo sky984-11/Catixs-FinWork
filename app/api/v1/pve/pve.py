@@ -1,3 +1,4 @@
+from app.services.cloud_resource_snapshot import after_resource_change, read_snapshot
 import asyncio
 import ipaddress
 import logging
@@ -1144,6 +1145,8 @@ async def upsert_vm_metadata(payload: Any, vm_name: str | None = None, current_c
         defaults=defaults,
     )
 
+    await after_resource_change(payload.remote)
+
 
 async def release_vm_dhcp_lease(remote: str, vmid: int, vm_name: str | None = None) -> None:
     q = Q(remote=remote, vmid=vmid)
@@ -2008,31 +2011,9 @@ def ssh_execute_pve(host: str, command: str) -> tuple[int, str, str]:
 
 
 @router.get("/nodes", summary="PDM remote list")
-async def list_nodes():
-    global _PVE_NODES_RESPONSE_CACHE
-
-    cached = cached_nodes_response()
-    if cached is not None:
-        return Success(data=cached)
-
-    try:
-        data = await pdm_nodes_list()
-        remote_details = await pdm_remote_config_detail_map()
-        remote_configs = {
-            remote: str(detail.get("address") or "")
-            for remote, detail in remote_details.items()
-            if detail.get("address")
-        }
-        remote_addresses = await pdm_remote_address_map(data, remote_configs)
-        remote_summaries = await pdm_remote_summary_map(data)
-    except Exception as exc:
-        return Fail(msg=f"读取 PDM 数据失败: {error_detail(exc)}")
-    result = resource_groups(data, remote_addresses, remote_summaries, remote_details)
-    binding_map = await pve_node_binding_map([str(item.get("remote") or item.get("value") or "") for item in result])
-    for item in result:
-        item.update(binding_map.get(str(item.get("remote") or item.get("value") or ""), {}))
-    _PVE_NODES_RESPONSE_CACHE = (time.time(), result)
-    return Success(data=result)
+async def list_nodes(refresh: bool = Query(False)):
+    snapshot, sync = await read_snapshot(force=refresh)
+    return Success(data=snapshot.get("nodes", []), sync=sync)
 
 
 @router.get("/nodes/binding-options", summary="PVE node binding options")
@@ -2138,38 +2119,22 @@ async def update_node_binding(remote: str, payload: PveNodeBindingRequest):
         },
     )
     _PVE_NODES_RESPONSE_CACHE = None
+    await after_resource_change()
     return Success(msg="节点关联已保存", data=await pve_node_binding_to_dict(binding))
 
 
 @router.get("/vms", summary="PDM virtual machine list")
-async def list_vms(
-    node: str = Query(""),
-):
-    try:
-        if node:
-            try:
-                resources = await cached_pdm_remote_resources(node)
-            except Exception:
-                resources = []
-            data = [{"remote": node, "resources": resources}]
-        else:
-            data = await pdm_resources_list()
-    except Exception as exc:
-        return Fail(msg=f"读取 PDM 数据失败: {error_detail(exc)}")
-
-    vms = all_vms(data)
-    if node:
-        vms = [vm for vm in vms if vm.get("remote") == node]
+async def list_vms(node: str = Query(""), refresh: bool = Query(False)):
+    snapshot, sync = await read_snapshot(force=refresh)
+    vms = [dict(vm) for vm in snapshot.get("items", []) if not node or vm.get("remote") == node]
     apply_cached_vm_remarks(vms)
-    await sync_vm_spec_metadata_from_list(vms)
     await apply_vm_metadata(vms)
-    vms.sort(key=lambda row: (str(row.get("remote") or ""), str(row.get("node") or ""), int(row.get("vmid") or 0)))
     summary = {
         "total": len(vms),
-        "running": len([vm for vm in vms if vm.get("status") == "running"]),
-        "stopped": len([vm for vm in vms if vm.get("status") == "stopped"]),
+        "running": sum(vm.get("status") == "running" for vm in vms),
+        "stopped": sum(vm.get("status") == "stopped" for vm in vms),
     }
-    return Success(data={"items": vms, "summary": summary})
+    return Success(data={"items": vms, "summary": summary, "nodes": snapshot.get("nodes", []), "sync": sync})
 
 
 @router.get("/vms/ips", summary="PVE virtual machine guest-agent IP list")
@@ -2343,6 +2308,7 @@ async def add_pve_remote(payload: PDMAddRemoteRequest):
         logger.error("sync PVE remote to Zabbix failed: %s", error_detail(exc))
         zabbix_sync = {"enabled": True, "synced": False, "message": error_detail(exc)}
 
+    await after_resource_change()
     return Success(
         msg="PVE 节点已添加",
         data={
@@ -2383,6 +2349,7 @@ async def update_pve_remote(remote: str, payload: PDMUpdateRemoteRequest):
     except Exception as exc:
         return Fail(msg=f"编辑 PVE 节点失败: {error_detail(exc)}")
 
+    await after_resource_change()
     return Success(msg="PVE 节点已更新", data={"remote": remote, "nodes": remote_payload["nodes"]})
 
 
@@ -2398,6 +2365,7 @@ async def delete_pve_remote(remote: str):
     except Exception as exc:
         return Fail(msg=f"删除 PVE 节点失败: {error_detail(exc)}")
 
+    await after_resource_change()
     return Success(msg="PVE 节点已删除")
 
 
@@ -2579,6 +2547,7 @@ async def migrate_vm(payload: VMMigrateRequest):
     except Exception as exc:
         return Fail(msg=f"读取 PDM 数据失败: {error_detail(exc)}")
 
+    await after_resource_change(payload.remote, task_id)
     return Success(
         msg=f"迁移任务已发起，目标 VMID: {target_vmid}",
         data={
@@ -2625,6 +2594,8 @@ async def delete_vm(payload: VMDeleteRequest):
         metadata_q |= Q(vmid=payload.vmid, vm_name=payload.name)
     await PveVmMetadata.filter(metadata_q).delete()
     _PDM_RESOURCE_CACHE = []
+    task_match = re.search(r"UPID:[^\s\"']+", output or "")
+    await after_resource_change(payload.remote, task_match.group(0) if task_match else None)
     return Success(msg="虚拟机删除任务已提交", data={"remote": payload.remote, "vmid": payload.vmid})
 
 
@@ -2656,6 +2627,7 @@ async def submit_vm_power(payload: VMPowerRequest, *, allow_price_managed_stop: 
     except Exception as exc:
         return Fail(msg=f"虚拟机{'开机' if action == 'start' else '停止'}失败: {error_detail(exc)}")
 
+    await after_resource_change(payload.remote, task_id)
     return Success(
         msg=f"{'开机' if action == 'start' else '停止'}请求已发送",
         data={"upid": task_id, "remote": payload.remote, "vmid": payload.vmid, "action": action},
@@ -2862,5 +2834,6 @@ async def reboot_vm(payload: VMDeleteRequest):
     except Exception as exc:
         return Fail(msg=f"重启虚拟机失败: {error_detail(exc)}")
 
+    await after_resource_change()
     return Success(msg="重启请求已发送")
 

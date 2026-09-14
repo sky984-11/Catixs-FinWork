@@ -44,6 +44,8 @@
           </article>
         </section>
 
+        <VmOverview ref="vmOverview" />
+
         <van-cell-group inset title="工单态势">
           <div class="mobile-status-list">
             <div v-for="item in statusRows" :key="item.value" class="mobile-status-row">
@@ -157,6 +159,8 @@
           </div>
         </article>
       </section>
+
+      <VmOverview ref="vmOverview" />
 
       <section class="dashboard-grid">
         <article class="panel status-panel">
@@ -308,6 +312,7 @@ import {
 } from 'vant'
 import api from '@/api'
 import TheIcon from '@/components/icon/TheIcon.vue'
+import VmOverview from './VmOverview.vue'
 import { useUserStore } from '@/store'
 
 defineOptions({ name: 'Workbench' })
@@ -316,6 +321,7 @@ const router = useRouter()
 const userStore = useUserStore()
 const { width } = useWindowSize()
 const loading = ref(false)
+const vmOverview = ref(null)
 const loadError = ref('')
 const mobileRefreshing = ref(false)
 const isMobileOps = computed(() => width.value <= 768)
@@ -574,6 +580,7 @@ function mobileStatusType(status) {
 }
 
 async function loadDashboard() {
+  vmOverview.value?.refresh()
   loading.value = true
   loadError.value = ''
   try {
