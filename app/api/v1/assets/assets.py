@@ -713,6 +713,38 @@ def normalize_four_node_status_for_save(device_in: AssetDeviceCreate | AssetDevi
     device_in.status = aggregate_four_node_status(normalized_nodes)
 
 
+async def validate_node_customer_mapping(device_in: AssetDeviceCreate | AssetDeviceUpdate) -> str:
+    if not is_four_node_attributes(device_in.attributes):
+        return ""
+    allowed = set(device_in.customer_ids)
+    old_nodes = {}
+    if isinstance(device_in, AssetDeviceUpdate):
+        existing = await AssetDevice.get_or_none(id=device_in.id)
+        if existing:
+            old_nodes = {
+                node.get("name"): node
+                for node in ((existing.attributes or {}).get("nodes") or [])
+                if isinstance(node, dict)
+            }
+    nodes = device_in.attributes.get("nodes") or []
+    if not isinstance(nodes, list):
+        return "四合一节点配置必须为列表"
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        if "customer_id" not in node:
+            previous = old_nodes.get(node.get("name"), {}).get("customer_id")
+            node["customer_id"] = previous if previous in allowed else None
+        value = node.get("customer_id")
+        if value is None or value == "":
+            node["customer_id"] = None
+            continue
+        if isinstance(value, bool) or not str(value).isdigit() or int(value) not in allowed:
+            return f"节点 {node.get('name') or ''} 的客户必须从设备已选客户中选择"
+        node["customer_id"] = int(value)
+    return ""
+
+
 async def prepare_device_attributes_for_save(device_in: AssetDeviceCreate | AssetDeviceUpdate) -> None:
     attributes = normalize_device_config_attributes(dict(device_in.attributes or {}))
     if await can_view_device_secrets():
@@ -1697,6 +1729,7 @@ async def list_device(
     keyword: str = Query(""),
     type: int | None = Query(None),
     status: int | None = Query(None),
+    overview: bool = Query(False, description="仪表盘物理机概览，仅返回客户关联和硬件配置"),
 ):
     q = Q()
     type_values = query_param_int_values(request, "type", type)
@@ -1720,10 +1753,62 @@ async def list_device(
             | Q(mgmt_ip__contains=keyword)
             | Q(business_ip__contains=keyword)
         )
+    if overview:
+        return Success(data=await physical_device_overview(q))
     total, objs = await asset_device_controller.list_devices(page=page, page_size=page_size, search=q)
     can_view_secrets = await can_view_device_secrets()
     data = [await device_to_dict(obj, can_view_secrets=can_view_secrets) for obj in objs]
     return SuccessExtra(data=data, total=total, page=page, page_size=page_size)
+
+
+def physical_hardware(attributes: dict) -> dict:
+    attributes = normalize_device_config_attributes(attributes)
+    return {key: str(attributes.get(source) or "") for key, source in (
+        ("cpu_model", "CPU型号"), ("cpu_count", "CPU数量"), ("cpu_cores", "CPU核心数"),
+        ("memory", "内存总数"), ("disk", "磁盘总数"),
+    )}
+
+
+async def physical_device_overview(query: Q) -> list[dict]:
+    devices = await AssetDevice.filter(query, type=0).exclude(status=4).select_related("region", "location", "cabinet")
+    links = {}
+    for device in devices:
+        ids = [int(value) for value in (device.customer_ids or []) if str(value).isdigit() and int(value) > 0]
+        if device.customer_id:
+            ids.insert(0, device.customer_id)
+        links[device.id] = list(dict.fromkeys(ids))
+    ids = {value for values in links.values() for value in values}
+    customers = await CrmCustomer.filter(id__in=ids).values("id", "name") if ids else []
+    names = {item["id"]: item["name"] for item in customers}
+    result = []
+    for device in devices:
+        customer_ids = [value for value in links[device.id] if value in names]
+        if not customer_ids:
+            continue
+        attributes = device.attributes if isinstance(device.attributes, dict) else {}
+        configurations = []
+        if is_four_node_attributes(attributes):
+            for node in attributes.get("nodes", []):
+                if not isinstance(node, dict):
+                    continue
+                customer_id = node.get("customer_id")
+                customer_id = int(customer_id) if str(customer_id).isdigit() else None
+                configurations.append({"name": str(node.get("name") or "节点"),
+                                       "customer_id": customer_id if customer_id in customer_ids else None,
+                                       **physical_hardware(node)})
+        if not configurations:
+            configurations = [{"name": "整机", **physical_hardware(attributes)}]
+        result.append({
+            "id": device.id, "name": device.name, "asset_no": device.asset_no,
+            "brand": device.brand or "", "model": device.model or "", "status": device.status,
+            "customer_ids": customer_ids, "customer_names": [names[value] for value in customer_ids],
+            "region_name": device.region.name if device.region else "",
+            "location_name": device.location.name if device.location else "",
+            "cabinet_name": device.cabinet.name if device.cabinet else "",
+            "configurations": configurations,
+            "form_factor": "four_node" if is_four_node_attributes(attributes) else "standard",
+        })
+    return result
 
 
 @router.get("/device/get", summary="设备详情")
@@ -2071,6 +2156,8 @@ async def create_device(device_in: AssetDeviceCreate):
         return Success(msg=error, code=400)
     if message := await validate_device_customers(device_in.customer_ids):
         return Success(msg=message, code=400)
+    if message := await validate_node_customer_mapping(device_in):
+        return Success(msg=message, code=400)
     await prepare_device_attributes_for_save(device_in)
     normalize_four_node_status_for_save(device_in)
     obj = await asset_device_controller.create_device(device_in)
@@ -2084,6 +2171,8 @@ async def update_device(device_in: AssetDeviceUpdate):
     if error:
         return Success(msg=error, code=400)
     if message := await validate_device_customers(device_in.customer_ids):
+        return Success(msg=message, code=400)
+    if message := await validate_node_customer_mapping(device_in):
         return Success(msg=message, code=400)
     await prepare_device_attributes_for_save(device_in)
     normalize_four_node_status_for_save(device_in)

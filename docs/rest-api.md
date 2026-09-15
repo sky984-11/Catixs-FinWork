@@ -6,6 +6,18 @@
 
 ## 快速接入
 
+### 仪表盘物理机概览
+
+- `GET /api/v1/asset/device/list?overview=true`：读取数据库中的物理服务器（`type=0`），排除已下架（`status=4`）和未关联有效客户的设备；沿用 `token` 登录及原设备列表接口权限。
+- `overview` 为可选布尔值，默认 `false`，原分页响应不变。概览模式返回全部符合筛选条件的设备，不使用分页；支持原地区、机房、机柜、关键字、类型及状态筛选。
+- 响应示例：`{"code":200,"data":[{"id":1,"name":"服务器","asset_no":"SERVER-001","brand":"Dell","model":"R740","status":1,"customer_ids":[10],"customer_names":["示例客户"],"region_name":"香港","location_name":"HK-01","cabinet_name":"A01","configurations":[{"name":"整机","cpu_model":"Xeon","cpu_count":"2","cpu_cores":"32","memory":"128GB","disk":"2 × 960GB SSD"}]}]}`。
+- 四合一服务器按机箱计台数，`configurations` 分别返回各节点配置；共享设备按每个关联客户展示，顶部设备总量去重。概览仅输出指定的硬件配置字段，不返回管理密码、令牌或其他扩展属性。
+- 错误码：`401` 登录无效；`403` 无设备列表权限；`422` 参数类型错误。该接口不探测设备实时电源状态，不将资产的“空闲”状态误判为关机。
+
+四合一节点客户映射：`POST /api/v1/asset/device/create`、`POST /api/v1/asset/device/update` 的 `attributes.nodes[]` 支持可选 `customer_id`，例如 `{"form_factor":"four_node","nodes":[{"name":"N1","customer_id":10},{"name":"N2","customer_id":20}]}`。节点客户必须属于设备顶层 `customer_ids`，否则返回400；允许同一客户关联多个节点，`null` 表示解除映射。编辑请求省略该字段时保留仍属于设备已选客户的原映射。权限沿用设备创建、更新接口，无需数据库迁移。
+
+物理机概览新增 `form_factor`，四合一的 `configurations[]` 包含各节点 `customer_id`；仪表盘按节点归属筛选客户配置。历史未映射节点不推测归属，显示待映射提示。标准设备仍按整机关联客户展示，四合一按机箱统计台数。
+
 ### 云资源数据库快照
 
 - `GET /api/v1/pve/nodes`、`GET /api/v1/pve/vms` 从 `cloud_resource_snapshot` 表读取节点、虚拟机配置及地区快照，不在请求中等待 PDM。虚拟机列表仍关联本地客户元数据。

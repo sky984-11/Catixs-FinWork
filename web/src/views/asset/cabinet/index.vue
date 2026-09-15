@@ -478,6 +478,7 @@
                 :options="customerOptions"
                 :render-label="renderCustomerOption"
                 placeholder="请选择客户"
+                @update:value="handleDeviceCustomersChange"
               />
             </n-form-item-gi>
             <n-form-item-gi label="设备形态">
@@ -596,10 +597,22 @@
               </div>
               <n-tag round type="info">2U / N1-N4</n-tag>
             </div>
+            <n-text depth="3">为每个节点选择所属客户；未映射节点不会计入仪表盘的客户配置。</n-text>
             <div class="four-node-grid">
               <article v-for="node in deviceModal.form.nodeList" :key="node.name" class="four-node-card">
                 <strong>{{ node.name }}</strong>
                 <div class="four-node-fields">
+                  <n-select
+                    v-model:value="node.customer_id"
+                    clearable
+                    filterable
+                    size="small"
+                    :show-checkmark="false"
+                    :options="nodeCustomerOptions"
+                    :render-label="renderCustomerOption"
+                    :disabled="!deviceModal.form.customer_ids.length"
+                    placeholder="所属客户（先选择设备客户）"
+                  />
                   <n-input v-model:value="node.device_name" size="small" placeholder="设备名称" />
                   <n-input v-model:value="node.serial_no" size="small" placeholder="设备序号" />
                   <n-select
@@ -719,6 +732,15 @@ const regions = ref([])
 const locations = ref([])
 const cabinets = ref([])
 const customerOptions = ref([])
+const nodeCustomerOptions = computed(() => customerOptions.value.filter((option) =>
+  deviceModal.form.customer_ids.some((id) => Number(id) === Number(option.value)),
+))
+
+function handleDeviceCustomersChange(ids) {
+  deviceModal.form.nodeList.forEach((node) => {
+    if (!ids.some((id) => Number(id) === Number(node.customer_id))) node.customer_id = null
+  })
+}
 const REGION_POINT_CACHE_KEY = 'finwork:cabinet-region-points:v1'
 const geocodedRegionPoints = ref(loadGeocodedRegionPoints())
 const rackDevices = ref([])
@@ -1068,6 +1090,7 @@ function createDeviceForm() {
 function createFourNodeList() {
   return ['N1', 'N2', 'N3', 'N4'].map((name, index) => ({
     name,
+    customer_id: null,
     device_name: '',
     serial_no: '',
     status: 0,
@@ -1092,6 +1115,7 @@ function normalizeFourNodeList(nodes) {
     const matched = source.find((item) => item?.name === fallback.name) || {}
     return {
       ...fallback,
+      customer_id: matched.customer_id ? Number(matched.customer_id) : null,
       device_name: String(matched.device_name || matched.deviceName || matched.name || ''),
       serial_no: String(matched.serial_no || matched.serialNo || ''),
       status: normalizeDeviceStatusValue(matched.status, fallback.status),
@@ -1142,6 +1166,7 @@ function syncFourNodeDeviceStatus() {
 function serializeFourNodeList(nodes) {
   return normalizeFourNodeList(nodes).map((node) => ({
     name: node.name,
+    customer_id: node.customer_id || null,
     device_name: String(node.device_name || '').trim(),
     serial_no: String(node.serial_no || '').trim(),
     status: normalizeDeviceStatusValue(node.status, 0),

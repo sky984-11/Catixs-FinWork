@@ -1751,6 +1751,7 @@ function normalizeFourNodeList(nodes) {
     const matched = source.find((item) => item?.name === fallback.name) || {}
     return {
       ...fallback,
+      customer_id: matched.customer_id ? Number(matched.customer_id) : null,
       device_name: String(matched.device_name || matched.deviceName || matched.name || ''),
       serial_no: String(matched.serial_no || matched.serialNo || ''),
       status: normalizeDeviceStatusValue(matched.status, fallback.status),
@@ -1795,6 +1796,7 @@ function aggregateFourNodeStatus(nodes) {
 function serializeFourNodeList(nodes) {
   return normalizeFourNodeList(nodes).map((node) => ({
     name: node.name,
+    customer_id: node.customer_id || null,
     device_name: String(node.device_name || '').trim(),
     serial_no: String(node.serial_no || '').trim(),
     status: normalizeDeviceStatusValue(node.status, 0),

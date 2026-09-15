@@ -5321,6 +5321,18 @@
               "title": "Token"
             },
             "description": "token验证"
+          },
+          {
+            "name": "overview",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "仪表盘物理机概览，仅返回客户关联和硬件配置",
+              "default": false,
+              "title": "Overview"
+            },
+            "description": "仪表盘物理机概览，仅返回客户关联和硬件配置"
           }
         ],
         "responses": {
