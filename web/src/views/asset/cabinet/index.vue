@@ -459,97 +459,134 @@
         </template>
       </n-modal>
 
-      <n-modal v-model:show="deviceModal.show" preset="dialog" :title="deviceModalTitle" style="width: min(760px, calc(100vw - 32px))">
-        <n-form label-placement="top">
-          <n-grid :cols="2" :x-gap="12">
-            <n-form-item-gi label="设备名称" required>
-              <n-input v-model:value="deviceModal.form.name" placeholder="例如 Server-01" />
-            </n-form-item-gi>
-            <n-form-item-gi label="设备类型">
-              <n-select v-model:value="deviceModal.form.type" :options="deviceTypeOptions" />
-            </n-form-item-gi>
-            <n-form-item-gi label="客户">
-              <n-select
-                v-model:value="deviceModal.form.customer_ids"
-                multiple
-                clearable
-                filterable
-                :show-checkmark="false"
-                :options="customerOptions"
-                :render-label="renderCustomerOption"
-                placeholder="请选择客户"
-                @update:value="handleDeviceCustomersChange"
-              />
-            </n-form-item-gi>
-            <n-form-item-gi label="设备形态">
-              <n-select
-                v-model:value="deviceModal.form.form_factor"
-                :options="deviceFormFactorOptions"
-                @update:value="handleDeviceFormFactorChange"
-              />
-            </n-form-item-gi>
-            <n-form-item-gi label="占用 U 数">
-              <n-input-number v-model:value="deviceModal.form.u_height" :min="1" :max="rackVisibleUnitCount" />
-            </n-form-item-gi>
-            <n-form-item-gi label="起始 U 位">
-              <n-input-number v-model:value="deviceModal.form.u_position" :min="rackStartU" :max="rackEndU" />
-            </n-form-item-gi>
-            <n-form-item-gi label="状态">
-              <n-select
-                v-model:value="deviceModal.form.status"
-                :options="deviceStatusOptions"
-                :disabled="deviceModal.form.form_factor === 'four_node'"
-                :placeholder="deviceModal.form.form_factor === 'four_node' ? '由四节点状态自动计算' : '请选择设备状态'"
-              />
-            </n-form-item-gi>
-            <n-form-item-gi label="厂商">
-              <n-select
-                v-model:value="deviceModal.form.brand"
-                clearable
-                filterable
-                tag
-                :options="platformOptions"
-                placeholder="选择厂商"
-                @update:value="handlePlatformChange"
-              />
-            </n-form-item-gi>
-            <n-form-item-gi label="型号">
-              <n-select
-                v-model:value="deviceModal.form.model"
-                clearable
-                filterable
-                tag
-                :options="modelOptions"
-                placeholder="选择型号"
-                @update:value="handleModelChange"
-              />
-            </n-form-item-gi>
-            <n-form-item-gi label="序列号">
-              <n-input v-model:value="deviceModal.form.serial_no" />
-            </n-form-item-gi>
-          </n-grid>
-          <n-form-item label="备注">
-            <n-input v-model:value="deviceModal.form.remark" type="textarea" />
-          </n-form-item>
+      <n-modal
+        v-model:show="deviceModal.show"
+        preset="card"
+        class="device-editor-modal"
+        :bordered="false"
+        style="width: min(920px, calc(100vw - 32px))"
+      >
+        <template #header>
+          <div class="device-editor-heading">
+            <span class="device-editor-icon"><TheIcon icon="mdi:server-outline" :size="24" /></span>
+            <div>
+              <h2>{{ deviceModalTitle }}</h2>
+              <p>{{ selectedCabinet?.name || '机柜资源' }} · 维护设备信息与硬件配置</p>
+            </div>
+          </div>
+        </template>
+        <n-form label-placement="top" class="device-editor-form">
+          <section class="device-editor-section">
+            <div class="device-section-heading">
+              <TheIcon icon="mdi:server" :size="18" />
+              <h3>基础信息</h3>
+            </div>
+            <n-grid cols="1 560:2" responsive="self" :x-gap="20">
+              <n-form-item-gi label="设备名称" required>
+                <n-input v-model:value="deviceModal.form.name" placeholder="例如 Server-01" />
+              </n-form-item-gi>
+              <n-form-item-gi label="设备类型">
+                <n-select v-model:value="deviceModal.form.type" :options="deviceTypeOptions" />
+              </n-form-item-gi>
+              <n-form-item-gi label="客户">
+                <n-select
+                  v-model:value="deviceModal.form.customer_ids"
+                  multiple
+                  clearable
+                  filterable
+                  :show-checkmark="false"
+                  :options="customerOptions"
+                  :render-label="renderCustomerOption"
+                  placeholder="请选择客户"
+                  @update:value="handleDeviceCustomersChange"
+                />
+              </n-form-item-gi>
+              <n-form-item-gi label="设备形态">
+                <n-select
+                  v-model:value="deviceModal.form.form_factor"
+                  :options="deviceFormFactorOptions"
+                  @update:value="handleDeviceFormFactorChange"
+                />
+              </n-form-item-gi>
+            </n-grid>
+          </section>
+          <section class="device-editor-section">
+            <div class="device-section-heading">
+              <TheIcon icon="mdi:server-network" :size="18" />
+              <h3>机柜位置与状态</h3>
+              <span>{{ rackStartU }}–{{ rackEndU }} U</span>
+            </div>
+            <n-grid cols="1 560:3" responsive="self" :x-gap="20">
+              <n-form-item-gi label="占用 U 数">
+                <n-input-number v-model:value="deviceModal.form.u_height" :min="1" :max="rackVisibleUnitCount" />
+              </n-form-item-gi>
+              <n-form-item-gi label="起始 U 位">
+                <n-input-number v-model:value="deviceModal.form.u_position" :min="rackStartU" :max="rackEndU" />
+              </n-form-item-gi>
+              <n-form-item-gi label="状态">
+                <n-select
+                  v-model:value="deviceModal.form.status"
+                  :options="deviceStatusOptions"
+                  :disabled="deviceModal.form.form_factor === 'four_node'"
+                  :placeholder="deviceModal.form.form_factor === 'four_node' ? '由四节点状态自动计算' : '请选择设备状态'"
+                />
+              </n-form-item-gi>
+            </n-grid>
+          </section>
+          <section class="device-editor-section">
+            <div class="device-section-heading">
+              <TheIcon icon="mdi:chip" :size="18" />
+              <h3>硬件信息</h3>
+            </div>
+            <n-grid cols="1 560:3" responsive="self" :x-gap="20">
+              <n-form-item-gi label="厂商">
+                <n-select
+                  v-model:value="deviceModal.form.brand"
+                  clearable
+                  filterable
+                  tag
+                  :options="platformOptions"
+                  placeholder="选择厂商"
+                  @update:value="handlePlatformChange"
+                />
+              </n-form-item-gi>
+              <n-form-item-gi label="型号">
+                <n-select
+                  v-model:value="deviceModal.form.model"
+                  clearable
+                  filterable
+                  tag
+                  :options="modelOptions"
+                  placeholder="选择型号"
+                  @update:value="handleModelChange"
+                />
+              </n-form-item-gi>
+              <n-form-item-gi label="序列号">
+                <n-input v-model:value="deviceModal.form.serial_no" />
+              </n-form-item-gi>
+            </n-grid>
+            <n-form-item label="备注">
+              <n-input v-model:value="deviceModal.form.remark" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="补充设备用途、维护说明等信息" />
+            </n-form-item>
 
-          <div v-if="deviceModal.form.form_factor !== 'four_node'" class="device-ipmi-editor">
+          </section>
+
+          <div v-if="deviceModal.form.form_factor !== 'four_node'" class="device-ipmi-editor device-editor-section">
             <div class="four-node-head">
               <div>
                 <span class="eyebrow">IPMI / Redfish</span>
                 <h3>IPMI 信息</h3>
               </div>
-              <n-button
+              <CButton
+                show-save
+                save-text="Redfish 获取配置"
                 size="small"
-                secondary
-                type="primary"
-                :loading="redfishLoading"
+                :save-loading="redfishLoading"
                 :disabled="!deviceModal.form.ipmi_host"
-                @click="probeDeviceRedfish"
-              >
-                Redfish 获取配置
-              </n-button>
+                @save="probeDeviceRedfish"
+              />
             </div>
-            <n-grid :cols="3" :x-gap="8">
+            <n-grid cols="1 560:3" responsive="self" :x-gap="20">
               <n-form-item-gi label="IPMI 地址">
                 <n-input v-model:value="deviceModal.form.ipmi_host" placeholder="例如 192.168.1.10" />
               </n-form-item-gi>
@@ -562,18 +599,18 @@
             </n-grid>
           </div>
 
-          <div v-if="deviceModal.form.form_factor !== 'four_node'" class="device-attribute-editor">
+          <div v-if="deviceModal.form.form_factor !== 'four_node'" class="device-attribute-editor device-editor-section">
             <div class="four-node-head">
               <div>
                 <span class="eyebrow">Device Config</span>
                 <h3>设备配置</h3>
               </div>
               <n-space size="small">
-                <n-button size="small" secondary type="primary" @click="applyDeviceAttributeTemplate">添加模板</n-button>
-                <n-button size="small" secondary @click="addDeviceAttribute">添加配置</n-button>
+                <CButton show-save save-text="添加模板" size="small" @save="applyDeviceAttributeTemplate" />
+                <CButton show-save save-text="添加配置" size="small" @save="addDeviceAttribute" />
               </n-space>
             </div>
-            <n-empty v-if="!deviceModal.form.attributeList.length" description="暂无配置" />
+            <n-empty v-if="!deviceModal.form.attributeList.length" class="device-config-empty" description="暂无配置，可添加模板或自定义配置项" />
             <div v-else class="attribute-editor-list">
               <div v-for="(attr, index) in deviceModal.form.attributeList" :key="index" class="attribute-editor-row">
                 <n-input v-model:value="attr.key" size="small" placeholder="配置项，例如 IPMI密码" />
@@ -584,12 +621,12 @@
                   placeholder="配置值"
                   show-password-on="click"
                 />
-                <n-button size="small" quaternary type="error" @click="removeDeviceAttribute(index)">删除</n-button>
+                <CButton show-delete size="small" @delete="removeDeviceAttribute(index)" />
               </div>
             </div>
           </div>
 
-          <div v-if="deviceModal.form.form_factor === 'four_node'" class="four-node-editor">
+          <div v-if="deviceModal.form.form_factor === 'four_node'" class="four-node-editor device-editor-section">
             <div class="four-node-head">
               <div>
                 <span class="eyebrow">Four Node Server</span>
@@ -636,16 +673,19 @@
             </div>
           </div>
         </n-form>
-        <template #action>
-          <CButton
-            show-cancel
-            show-save
-            :save-loading="deviceModal.submitting"
-            @cancel="deviceModal.show = false"
-            @save="submitDevice"
-          />
+        <template #footer>
+          <div class="device-editor-footer">
+            <CButton
+              show-cancel
+              show-save
+              :save-loading="deviceModal.submitting"
+              @cancel="deviceModal.show = false"
+              @save="submitDevice"
+            />
+          </div>
         </template>
       </n-modal>
+
 
       <n-modal
         v-model:show="cabinetPhotoModal.show"
@@ -2512,6 +2552,168 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.device-editor-modal {
+  display: flex;
+  max-height: calc(100dvh - 48px);
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 16px;
+}
+
+.device-editor-modal :deep(.n-card-header) {
+  padding: 22px 28px;
+}
+
+.device-editor-modal :deep(.n-card__content) {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 28px 24px;
+}
+
+.device-editor-modal :deep(.n-card__footer) {
+  padding: 16px 28px;
+  border-top: 1px solid var(--n-border-color);
+}
+
+.device-editor-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.device-editor-icon {
+  display: flex;
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.device-editor-heading h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.device-editor-heading p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+.device-editor-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.device-editor-form .device-editor-section {
+  margin: 0;
+  padding: 18px 20px 0;
+  border: 1px solid var(--n-border-color);
+  border-radius: 12px;
+  background: var(--n-color);
+}
+
+.device-editor-form .device-attribute-editor,
+.device-editor-form .four-node-editor {
+  padding-bottom: 20px;
+}
+
+.device-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 18px;
+  color: #64748b;
+}
+
+.device-section-heading h3 {
+  margin: 0;
+  color: var(--n-title-text-color);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.device-section-heading span {
+  margin-left: auto;
+  font-size: 12px;
+}
+
+.device-editor-form :deep(.n-input-number) {
+  width: 100%;
+}
+
+.device-editor-form .four-node-head {
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.device-editor-form .four-node-head h3,
+.device-editor-form .four-node-card strong {
+  color: var(--n-title-text-color);
+}
+
+.device-editor-form .four-node-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.device-editor-form .four-node-card {
+  padding: 16px;
+  background: var(--n-color);
+  border-color: var(--n-border-color);
+  gap: 12px;
+}
+
+.device-config-empty {
+  padding: 20px 0;
+}
+
+.device-editor-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 640px) {
+  .device-editor-modal :deep(.n-card-header) {
+    padding: 18px 16px;
+  }
+
+  .device-editor-modal :deep(.n-card__content) {
+    padding: 0 16px 16px;
+  }
+
+  .device-editor-modal :deep(.n-card__footer) {
+    padding: 12px 16px;
+  }
+
+  .device-editor-form .device-editor-section {
+    padding: 14px 12px;
+  }
+
+  .device-editor-form .four-node-grid,
+  .device-editor-form .four-node-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .device-editor-form .attribute-editor-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .device-editor-form .attribute-editor-row > :first-child {
+    grid-column: 1 / -1;
+  }
+}
+
 .cabinet-world-page {
   display: flex;
   height: 100%;
