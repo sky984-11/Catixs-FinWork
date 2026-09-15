@@ -29,7 +29,7 @@
 - 错误码：`401` 无效登录、`403` 无接口权限、`422` 参数校验失败。云平台同步失败通过 `sync.error` 返回，不覆盖已有数据。
 - 新增迁移 `40_20260914120000_cloud_snapshot.py`；首次访问触发初始化同步，表内保存最近快照，不修改现有客户归属表结构。
 - 空列表校验：资源汇总仅返回宿主节点或空资源时，需成功查询 QEMU 和 LXC 列表才能确认节点没有虚拟机；查询失败或结构不完整时保留旧数据并返回同步异常，避免错误清空快照。
-- `POST /api/v1/pve/vms/delete`：云端接受删除请求后，在接口返回前按 `remote + vmid` 移除快照资源并更新节点数量。短期删除标记防止并发同步及云端缓存将旧资源写回；确认云端资源消失后清除，最长保留10分钟。异步删除失败或等待超时会解除标记并重新核对资源。删除命令失败时不改动快照；请求、响应与权限不变。
+- `POST /api/v1/pve/vms/delete`：等待 PVE 删除任务明确成功后，才移除快照资源、释放 DHCP 租约并清理元数据。短期删除标记防止并发同步及云端缓存将旧资源写回，最长保留10分钟。任务报错、状态查询失败、缺少任务编号或等待超时均返回失败，不执行上述清理。
 
 ### 运维计划附件
 
@@ -1197,6 +1197,18 @@ curl 'http://localhost:9999/api/v1/finance/quote/list?page=1&page_size=20' \
 | token | header | 是 | string | token验证 |
 
 #### `POST /api/v1/pve/vms/delete`
+
+请求参数与权限保持不变：有效 `token`，具备该接口 POST 权限；请求包含 `remote`、`vmid`，可附带 `type`、`node`、`status`、`name`。
+服务端最多等待 240 秒确认 PVE 任务完成，客户端请求超时为 300 秒。
+仅 PVE 任务结果为 `OK` 时返回成功：
+
+```json
+{"code":200,"msg":"虚拟机删除完成","data":{"remote":"pve-a","vmid":100,"deleted":true}}
+```
+
+失败返回 HTTP 400，例如 `{"code":400,"msg":"删除虚拟机失败: VM is locked","data":null}`。
+前端显示错误并保留列表记录；超时或查询失败不代表 PVE 任务已停止，应稍后刷新核实。
+其他错误码：401（认证失败）、403（无接口权限）、422（请求校验失败）。
 
 - 摘要：Delete PDM virtual machine
 - Operation ID：`delete_vm_api_v1_pve_vms_delete_post`

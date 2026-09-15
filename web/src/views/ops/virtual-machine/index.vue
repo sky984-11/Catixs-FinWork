@@ -1854,7 +1854,11 @@ async function executeDeleteVm(row) {
   }
   message.loading('删除请求已发送，正在等待处理...', { duration: 1800 })
   try {
-    await api.virtualMachineApi.deleteVm(payload)
+    const res = await api.virtualMachineApi.deleteVm(payload)
+    if (res.data?.deleted !== true) {
+      message.error('删除虚拟机失败：未确认 PVE 删除完成，请稍后刷新核实')
+      return
+    }
     await fetchVms()
     await loadCreateDhcpPools()
     message.success('删除完成')

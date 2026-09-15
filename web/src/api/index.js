@@ -297,7 +297,7 @@ export default {
     migrationTargetOptions: (params = {}) =>
       request.get('/pve/vms/migration-target-options', { params, timeout: 60000 }),
     migrateVm: (data = {}) => request.post('/pve/vms/migrate', data, { timeout: 300000 }),
-    deleteVm: (data = {}) => request.post('/pve/vms/delete', data),
+    deleteVm: (data = {}) => request.post('/pve/vms/delete', data, { timeout: 300000 }),
     powerVm: (data = {}) => request.post('/pve/vms/power', data),
     vmConfig: (params = {}) => request.get('/pve/vms/config', { params }),
     updateVmConfig: (data = {}) => request.post('/pve/vms/config', data),

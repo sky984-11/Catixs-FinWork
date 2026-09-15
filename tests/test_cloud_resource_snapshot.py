@@ -137,7 +137,7 @@ class SnapshotTests(unittest.IsolatedAsyncioTestCase):
             await service.refresh_snapshot(row.id)
         self.assertEqual((await CloudResourceSnapshot.get(id=row.id)).payload["pending_deletions"], [])
 
-    async def test_delete_endpoint_changes_snapshot_only_after_cloud_accepts(self):
+    async def test_delete_endpoint_changes_snapshot_only_after_task_succeeds(self):
         from app.api.v1.pve import pve
 
         payload = {"nodes": [{"remote": "a", "vm_count": 1}], "items": [{"remote": "a", "vmid": 1}]}
@@ -153,13 +153,14 @@ class SnapshotTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(pve, "pdm_remote_config_host", AsyncMock(return_value="test-host")),
             patch.object(pve, "ssh_execute_pve", return_value=(0, "UPID:test", "")),
+            patch.object(pve, "pdm_task_request", AsyncMock(return_value={"status": "stopped", "exitstatus": "OK"})),
             patch.object(pve, "release_vm_dhcp_lease", AsyncMock()),
             patch.object(pve, "after_resource_change", AsyncMock()) as followup,
         ):
             response = await pve.delete_vm(request)
             self.assertEqual(response.status_code, 200)
             self.assertEqual((await CloudResourceSnapshot.get(id=row.id)).payload["items"], [])
-            followup.assert_awaited_once_with("a", "UPID:test", deleted_vmid=1)
+            followup.assert_awaited_once_with("a", deleted_vmid=1)
 
     async def test_failed_delete_task_releases_tombstone(self):
         from app.api.v1.pve import pve

@@ -2607,10 +2607,30 @@ async def delete_vm(payload: VMDeleteRequest):
         f"pvesh delete /nodes/$(hostname -s)/{api_kind}/{int(payload.vmid)} "
         "--purge 1 --destroy-unreferenced-disks 1"
     )
-    exit_status, output, error = ssh_execute_pve(host, command)
-    if exit_status != 0:
-        detail = (error or output or "未知错误").strip()
-        return Fail(msg=f"删除虚拟机失败: {detail}")
+    try:
+        async with asyncio.timeout(240):
+            exit_status, output, error = await asyncio.to_thread(ssh_execute_pve, host, command)
+            if exit_status != 0:
+                detail = (error or output or "未知错误").strip()
+                return Fail(msg=f"删除虚拟机失败: {detail}")
+            task_match = re.search(r"UPID:[^\s\"']+", output or "")
+            if not task_match:
+                return Fail(msg="删除虚拟机失败: PVE 未返回任务编号，无法确认删除结果，请刷新核实")
+            task_id = task_match.group(0)
+            while True:
+                task = await pdm_task_request(payload.remote, task_id, "status")
+                state = task_state(task)
+                if state["finished"]:
+                    if state["state"] != "success":
+                        detail = await task_with_failure_log(payload.remote, task_id, task)
+                        reason = detail.get("failure_reason") or state.get("result_status") or "未知错误"
+                        return Fail(msg=f"删除虚拟机失败: {reason}")
+                    break
+                await asyncio.sleep(2)
+    except TimeoutError:
+        return Fail(msg="删除虚拟机失败: 等待 PVE 删除结果超时，任务可能仍在执行，请稍后刷新核实")
+    except Exception as exc:
+        return Fail(msg=f"删除虚拟机失败: {error_detail(exc)}")
 
     await remove_snapshot_vm(payload.remote, payload.vmid)
     await release_vm_dhcp_lease(payload.remote, payload.vmid, payload.name)
@@ -2619,9 +2639,8 @@ async def delete_vm(payload: VMDeleteRequest):
         metadata_q |= Q(vmid=payload.vmid, vm_name=payload.name)
     await PveVmMetadata.filter(metadata_q).delete()
     _PDM_RESOURCE_CACHE = []
-    task_match = re.search(r"UPID:[^\s\"']+", output or "")
-    await after_resource_change(payload.remote, task_match.group(0) if task_match else None, deleted_vmid=payload.vmid)
-    return Success(msg="虚拟机删除任务已提交", data={"remote": payload.remote, "vmid": payload.vmid})
+    await after_resource_change(payload.remote, deleted_vmid=payload.vmid)
+    return Success(msg="虚拟机删除完成", data={"remote": payload.remote, "vmid": payload.vmid, "deleted": True})
 
 
 async def submit_vm_power(payload: VMPowerRequest, *, allow_price_managed_stop: bool = False):
