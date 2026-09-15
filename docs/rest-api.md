@@ -1147,6 +1147,22 @@ curl 'http://localhost:9999/api/v1/finance/quote/list?page=1&page_size=20' \
 - Request Body：application/json: VMConfigUpdateRequest
 - Response：application/json: -
 
+网卡更新：`networks` 为按 `key`（如 `net1`）更新的增量列表，未提交的网卡保持不变。
+已有网卡仅更新明确传入的字段；省略字段保留原值，`vlan`、`mtu`、`rate` 传 `null` 清除对应设置，
+`firewall: false` 关闭防火墙。保留 MAC 地址及页面未展示的 PVE 参数（如 `queues`、`link_down`、`trunks`）。
+仅字段顺序、显式默认值等表示不同不会触发网卡更新。无 `key` 为新增，`{ "key": "net1", "delete": true }` 为删除。
+客户端保存新增网卡后应重新读取配置，取得 PVE 分配的网卡编号及 MAC，避免再次保存时重复新增。
+
+请求示例（只修改 `net1` 的网桥）：
+
+```json
+{"remote":"pve-a","vmid":100,"networks":[{"key":"net1","bridge":"vmbr20"}]}
+```
+
+成功响应示例：`{"code":200,"msg":"虚拟机配置已更新，部分配置需重启虚拟机后生效","data":null}`。
+权限：有效 `token`，并具有该路由的 POST 权限（管理员按既有鉴权规则放行）。
+错误码：400（非 QEMU、配置读取或保存失败）、401（认证失败）、403（无接口权限）、422（请求字段校验失败）。
+
 参数：
 
 | 名称 | 位置 | 必填 | 类型 | 说明 |

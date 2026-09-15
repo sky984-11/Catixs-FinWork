@@ -15,7 +15,14 @@
             重启虚拟机
           </n-button>
           <n-button @click="goBackToList">返回</n-button>
-          <n-button type="primary" :loading="saving" @click="saveConfig">保存配置</n-button>
+          <n-button
+            type="primary"
+            :loading="saving"
+            :disabled="loading || !config"
+            @click="saveConfig"
+          >
+            保存配置
+          </n-button>
         </n-space>
       </div>
 
@@ -67,6 +74,7 @@
               </n-button>
             </template>
 
+            <p class="hint">按网卡编号独立修改，保存时仅提交有变化的网卡。</p>
             <div v-if="!form.networks.length" class="empty-net">暂无网卡</div>
             <div v-for="(network, index) in form.networks" :key="network.uid" class="net-card">
               <div class="net-title">
@@ -205,6 +213,7 @@ async function fetchConfig() {
     form.networks = (config.value.networks || []).map(normalizeNetwork)
     deletedNetworks.value = []
   } catch (error) {
+    config.value = null
     message.error(error.message || '读取虚拟机配置失败')
   } finally {
     loading.value = false
@@ -310,6 +319,7 @@ function comparableNetwork(network) {
   return {
     key: network.key || '',
     model: network.model || 'virtio',
+    macaddr: network.macaddr || '',
     bridge: network.bridge || 'vmbr10',
     vlan: network.vlan ?? null,
     mtu: network.mtu ?? null,
@@ -318,11 +328,13 @@ function comparableNetwork(network) {
   }
 }
 
-function networksChanged() {
-  if (deletedNetworks.value.length) return true
-  const current = (config.value?.networks || []).map(comparableNetwork)
-  const next = form.networks.map(comparableNetwork)
-  return JSON.stringify(current) !== JSON.stringify(next)
+function networkChanged(network) {
+  const current = (config.value?.networks || []).find((item) => item.key === network.key)
+  return (
+    !network.key ||
+    !current ||
+    JSON.stringify(comparableNetwork(current)) !== JSON.stringify(comparableNetwork(network))
+  )
 }
 
 function buildPayload() {
@@ -346,25 +358,24 @@ function buildPayload() {
     payload.disk_key = form.disk_key
     payload.disk_gb = form.disk_gb
   }
-  if (networksChanged()) {
-    payload.networks = [
-      ...form.networks.map((network) => ({
-        key: network.key || undefined,
-        model: network.model || 'virtio',
-        macaddr: network.macaddr || undefined,
-        bridge: network.bridge || 'vmbr10',
-        vlan: network.vlan ?? undefined,
-        mtu: network.mtu ?? undefined,
-        rate: network.rate ?? undefined,
-        firewall: Boolean(network.firewall),
-      })),
-      ...deletedNetworks.value,
-    ]
-  }
+  payload.networks = [
+    ...form.networks.filter(networkChanged).map((network) => ({
+      key: network.key || undefined,
+      model: network.model || 'virtio',
+      macaddr: network.macaddr || undefined,
+      bridge: network.bridge || 'vmbr10',
+      vlan: network.vlan ?? null,
+      mtu: network.mtu ?? null,
+      rate: network.rate ?? null,
+      firewall: Boolean(network.firewall),
+    })),
+    ...deletedNetworks.value,
+  ]
   return payload
 }
 
 async function saveConfig() {
+  if (saving.value || loading.value || !config.value) return
   if (form.disk_gb < minDiskGb.value) {
     message.warning('磁盘不支持缩小，只能扩容')
     return
@@ -388,6 +399,7 @@ async function saveConfig() {
     }
     deletedNetworks.value = []
     rememberVmEditPatch(payload)
+    if (payload.networks.length) await fetchConfig()
   } catch (error) {
     message.error(error.message || '保存虚拟机配置失败')
   } finally {

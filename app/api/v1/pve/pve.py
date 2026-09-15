@@ -1551,6 +1551,30 @@ def qemu_net_value(network: VMNetworkDeviceRequest) -> str:
     return ",".join(parts)
 
 
+def merge_qemu_net_value(network: VMNetworkDeviceRequest, current: dict[str, Any] | None) -> str:
+    if current is None:
+        return qemu_net_value(network)
+
+    # Compare editable values semantically; retain PVE-only options and explicit defaults.
+    original = VMNetworkDeviceRequest(**current)
+    desired = VMNetworkDeviceRequest(**{**original.model_dump(), **network.model_dump(exclude_unset=True)})
+    if not desired.macaddr:
+        desired.macaddr = original.macaddr
+    old_head, _, old_tail = qemu_net_value(original).partition(",")
+    new_head, _, new_tail = qemu_net_value(desired).partition(",")
+    old_options = parse_qemu_kv(old_tail)
+    new_options = parse_qemu_kv(new_tail)
+    changed = {key for key in old_options.keys() | new_options.keys() if old_options.get(key) != new_options.get(key)}
+    raw = str(current["raw"])
+    if old_head == new_head and not changed:
+        return raw
+
+    head, *parts = raw.split(",")
+    parts = [part for part in parts if part.split("=", 1)[0].strip() not in changed]
+    parts.extend(f"{key}={value}" for key, value in new_options.items() if key in changed)
+    return ",".join([new_head if old_head != new_head else head, *parts])
+
+
 def qemu_hotplug_without_network(value: Any) -> str:
     items = [item.strip() for item in str(value or "disk,network,usb").split(",") if item.strip()]
     filtered = [item for item in items if item != "network"]
@@ -2730,8 +2754,8 @@ async def update_vm_config(payload: VMConfigUpdateRequest):
             if not key:
                 key = next_net_key(used_keys)
                 used_keys.add(key)
-            desired_net = qemu_net_value(network)
             current_net = current_networks.get(key)
+            desired_net = merge_qemu_net_value(network, current_net)
             if not current_net or str(current_net.get("raw") or "") != desired_net:
                 set_args.extend([f"--{key}", desired_net])
                 has_network_changes = True
