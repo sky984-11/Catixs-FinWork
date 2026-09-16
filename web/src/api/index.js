@@ -314,10 +314,23 @@ export default {
     deleteRemoteHands: (id) => request.delete(`/remote-assistance/remote-hands/${id}`),
     createPlan: (data = {}) => request.post('/remote-assistance/plans/create', data),
     deleteAttachment: (url) => request.delete('/remote-assistance/attachments', { data: { url } }),
-    uploadPlanAttachment: (file) => {
-      const data = new FormData()
-      data.append('file', file)
-      return request.post('/remote-assistance/attachments/upload', data, { timeout: 120000 })
+    uploadPlanAttachment: async (file) => {
+      const data = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result)
+        reader.onerror = () => reject(new Error('文件读取失败，请重新选择'))
+        reader.onabort = () => reject(new Error('文件读取已取消'))
+        reader.readAsDataURL(file)
+      })
+      return request.post(
+        '/remote-assistance/attachments/upload',
+        {
+          filename: file.name,
+          content_type: file.type || 'application/octet-stream',
+          data,
+        },
+        { timeout: 120000 }
+      )
     },
     updatePlan: (id, data = {}) => request.put(`/remote-assistance/plans/${id}`, data),
     notifyPlan: (id) => request.post(`/remote-assistance/plans/${id}/notify`),

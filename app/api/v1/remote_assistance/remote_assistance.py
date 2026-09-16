@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, File, Request, UploadFile
 from tortoise.transactions import in_transaction
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.log import logger
 from app.core.dependency import DependAuth, has_admin_role
@@ -24,6 +26,20 @@ auth_router = APIRouter()
 LOCAL_TIMEZONE = timezone(timedelta(hours=8))
 PLAN_ATTACHMENT_DIR = Path(__file__).resolve().parents[4] / "uploads" / "remote-plans"
 MAX_ATTACHMENT_SIZE = 20 * 1024 * 1024
+
+
+class AttachmentUploadPayload(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    content_type: str = Field(default="application/octet-stream", max_length=255)
+    data: str = Field(max_length=((MAX_ATTACHMENT_SIZE + 2) // 3) * 4 + 512)
+
+
+ATTACHMENT_UPLOAD_OPENAPI = {
+    "requestBody": {
+        "required": True,
+        "content": {"application/json": {"schema": AttachmentUploadPayload.model_json_schema()}},
+    }
+}
 
 
 class PlanAttachment(BaseModel):
@@ -529,16 +545,41 @@ async def create_remote_hands(payload: RemoteHandsPayload):
         return Fail(msg=f"新增运维记录失败: {exc}")
 
 
-@auth_router.post("/plans/attachments/upload", summary="上传运维计划附件", dependencies=[DependAuth])
-@auth_router.post("/attachments/upload", summary="上传运维日志附件", dependencies=[DependAuth])
-async def upload_plan_attachment(file: UploadFile = File(...)):
+@auth_router.post(
+    "/plans/attachments/upload", summary="上传运维计划附件", dependencies=[DependAuth],
+    openapi_extra=ATTACHMENT_UPLOAD_OPENAPI,
+)
+@auth_router.post(
+    "/attachments/upload", summary="上传运维日志附件", dependencies=[DependAuth],
+    openapi_extra=ATTACHMENT_UPLOAD_OPENAPI,
+)
+async def upload_plan_attachment(request: Request, file: UploadFile | None = File(None)):
     try:
-        content = await file.read(MAX_ATTACHMENT_SIZE + 1)
+        if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() == "application/json":
+            try:
+                payload = AttachmentUploadPayload.model_validate(await request.json())
+            except (ValidationError, ValueError, UnicodeDecodeError):
+                return Fail(code=422, msg="附件参数无效或编码内容过大")
+            encoded = payload.data.strip()
+            if encoded.startswith("data:"):
+                header, separator, encoded = encoded.partition(",")
+                if not separator or not header.endswith(";base64"):
+                    return Fail(msg="附件编码无效")
+            try:
+                content = await asyncio.to_thread(base64.b64decode, encoded, validate=True)
+            except (binascii.Error, ValueError):
+                return Fail(msg="附件编码无效")
+            original_name = payload.filename
+        elif file is not None:
+            content = await file.read(MAX_ATTACHMENT_SIZE + 1)
+            original_name = file.filename or "attachment"
+        else:
+            return Fail(code=422, msg="请选择上传附件")
         if not content:
             return Fail(msg="附件不能为空")
         if len(content) > MAX_ATTACHMENT_SIZE:
             return Fail(msg="单个附件不能超过20MB")
-        name = (file.filename or "attachment").replace("\\", "/").rsplit("/", 1)[-1][:255]
+        name = original_name.replace("\\", "/").rsplit("/", 1)[-1][:255]
         filename = f"{uuid4().hex}.bin"
         await asyncio.to_thread(PLAN_ATTACHMENT_DIR.mkdir, parents=True, exist_ok=True)
         await asyncio.to_thread((PLAN_ATTACHMENT_DIR / filename).write_bytes, content)
@@ -550,7 +591,8 @@ async def upload_plan_attachment(file: UploadFile = File(...)):
         logger.exception("remote plan attachment upload failed")
         return Fail(code=500, msg="附件上传失败，请重试")
     finally:
-        await file.close()
+        if file is not None:
+            await file.close()
 
 
 @auth_router.delete("/attachments", summary="删除运维日志附件")

@@ -1,3 +1,4 @@
+import base64
 import json
 import tempfile
 import unittest
@@ -11,6 +12,8 @@ from tortoise import Tortoise
 from app.api.v1 import v1_router
 from app.api.v1.remote_assistance import remote_assistance as module
 from app.core.dependency import AuthControl
+from app.core.middlewares import HttpAuditLogMiddleware
+from starlette.requests import Request
 from app.models.admin import Api, Role, User
 from app.models.remote_assistance import RemoteHands, RemoteHandsPlan
 
@@ -55,6 +58,52 @@ class RemoteAttachmentTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(response.status_code, 200)
             self.assertFalse(path.exists())
+
+    async def test_json_upload_matches_project_board_and_can_be_deleted(self):
+        content = b"\x00\xff\x80binary attachment"
+        encoded = base64.b64encode(content).decode("ascii")
+        for route in ("attachments/upload", "plans/attachments/upload"):
+            for data in (encoded, f"data:application/octet-stream;base64,{encoded}"):
+                response = await self.client.post(
+                    f"/remote-assistance/{route}",
+                    json={"filename": "sample.bin", "content_type": "application/octet-stream", "data": data},
+                )
+                self.assertEqual(response.status_code, 200, response.text)
+                attachment = response.json()["data"]
+                path = Path(self.directory.name) / attachment["url"].split("/")[-1]
+                self.assertEqual(path.read_bytes(), content)
+                self.assertEqual(attachment["size"], len(content))
+                response = await self.client.request(
+                    "DELETE", "/remote-assistance/attachments", json={"url": attachment["url"]}
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertFalse(path.exists())
+
+    async def test_json_invalid_empty_and_oversized_content(self):
+        for data in ("%%%", "data:text/plain,hello", "", "data:text/plain;base64,", "非Base64"):
+            response = await self.client.post(
+                "/remote-assistance/attachments/upload", json={"filename": "test.txt", "data": data}
+            )
+            self.assertEqual(response.status_code, 400, response.text)
+        response = await self.client.post("/remote-assistance/attachments/upload", json={"filename": "missing"})
+        self.assertEqual(response.status_code, 422)
+        with patch.object(module, "MAX_ATTACHMENT_SIZE", 3):
+            response = await self.client.post(
+                "/remote-assistance/attachments/upload", json={"filename": "large", "data": "aGVsbG8="}
+            )
+            self.assertEqual(response.status_code, 400)
+        self.assertEqual(list(Path(self.directory.name).iterdir()), [])
+
+    async def test_json_upload_requires_auth_and_excludes_content_from_audit(self):
+        self.app.dependency_overrides.clear()
+        response = await self.client.post(
+            "/remote-assistance/attachments/upload", json={"filename": "test", "data": "aGVsbG8="}
+        )
+        self.assertEqual(response.status_code, 422)
+        middleware = HttpAuditLogMiddleware(self.app, methods=["POST"], exclude_paths=[])
+        for route in ("attachments/upload", "plans/attachments/upload"):
+            request = Request({"type": "http", "path": f"/api/v1/remote-assistance/{route}", "headers": []})
+            self.assertEqual(await middleware.get_request_args(request), {})
 
     async def test_authentication_and_validation(self):
         self.app.dependency_overrides.clear()

@@ -64,6 +64,12 @@ class HttpAuditLogMiddleware(BaseHTTPMiddleware):
 
     async def get_request_args(self, request: Request) -> dict:
         args = {}
+        # File contents must not be copied into the audit log for JSON uploads either.
+        if request.url.path in {
+            "/api/v1/remote-assistance/attachments/upload",
+            "/api/v1/remote-assistance/plans/attachments/upload",
+        }:
+            return args
         # 获取查询参数
         for key, value in request.query_params.items():
             args[key] = value

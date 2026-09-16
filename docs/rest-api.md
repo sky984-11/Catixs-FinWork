@@ -34,6 +34,8 @@
 ### 运维计划与记录附件
 
 - 通用上传：`POST /api/v1/remote-assistance/attachments/upload`，原 `/plans/attachments/upload` 保持兼容。两者均仅要求 `token` 登录，不要求独立上传 API 权限；前后端需同步部署并重启后端。
+- 运维日志前端参照项目看板，使用 `application/json` 上传：`{"filename":"说明.txt","content_type":"text/plain","data":"data:text/plain;base64,aGVsbG8="}`。`filename` 必填且不超过255字符，`content_type` 可选，`data` 必填，支持纯 Base64 或 Base64 Data URL；响应格式保持不变。原 multipart `file` 上传仍可用。
+- JSON 上传错误码：`400` 编码无效、解码后为空或超过20MiB；`422` JSON/字段无效或编码内容超限；`401` 登录无效（缺少 token 为 `422`）；`500` 写入失败。审计日志不记录附件编码内容。Base64 请求体比原文件约大三分之一，部署代理需允许至少30MiB请求体；仓库 Nginx 配置已同步，业务文件上限仍为20MiB。Cloudflare 若按路径发起挑战，仍需按其事件记录调整规则，JSON 上传不能保证解除所有代理拦截。
 - 运维记录创建 `POST /api/v1/remote-assistance/remote-hands`、编辑 `PUT /api/v1/remote-assistance/remote-hands/{item_id}` 支持同格式的 `attachments` 数组（最多50项）；省略字段保留原附件。概览的 `remote_hands[].attachments` 返回记录自身及关联计划附件，按 URL 去重；完成计划时将附件保留到生成的记录。
 - 立即删除：`DELETE /api/v1/remote-assistance/attachments`，JSON 请求示例 `{"url":"/uploads/remote-plans/0123456789abcdef0123456789abcdef.bin"}`。成功响应 `{"code":200,"msg":"附件已删除","data":null}`。物理文件与所有关联计划、记录的附件引用一并删除；之后取消编辑不会恢复附件。重复删除不存在的文件也返回成功。
 - 删除权限：必须登录；未关联的新上传附件可直接删除；已关联附件要求具有每个关联计划/记录的 `PUT` 编辑权限（或管理员权限），无需独立分配删除附件 API。错误码：`401` 无效登录；`403` 缺少关联对象编辑权限；`422` 缺少 token 或 URL 格式不合法；`500` 删除失败。

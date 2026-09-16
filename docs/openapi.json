@@ -12330,9 +12330,6 @@
     },
     "/api/v1/remote-assistance/plans/attachments/upload": {
       "post": {
-        "tags": [
-          "运维记录模块"
-        ],
         "summary": "上传运维计划附件",
         "operationId": "upload_plan_attachment_api_v1_remote_assistance_plans_attachments_upload_post",
         "parameters": [
@@ -12349,14 +12346,43 @@
           }
         ],
         "requestBody": {
-          "required": true,
           "content": {
             "multipart/form-data": {
               "schema": {
                 "$ref": "#/components/schemas/Body_upload_plan_attachment_api_v1_remote_assistance_plans_attachments_upload_post"
               }
+            },
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "filename": {
+                    "maxLength": 255,
+                    "minLength": 1,
+                    "title": "Filename",
+                    "type": "string"
+                  },
+                  "content_type": {
+                    "default": "application/octet-stream",
+                    "maxLength": 255,
+                    "title": "Content Type",
+                    "type": "string"
+                  },
+                  "data": {
+                    "maxLength": 27962540,
+                    "title": "Data",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "filename",
+                  "data"
+                ],
+                "title": "AttachmentUploadPayload",
+                "type": "object"
+              }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
@@ -12596,9 +12622,6 @@
     },
     "/api/v1/remote-assistance/attachments/upload": {
       "post": {
-        "tags": [
-          "运维记录模块"
-        ],
         "summary": "上传运维日志附件",
         "operationId": "upload_plan_attachment_api_v1_remote_assistance_attachments_upload_post",
         "parameters": [
@@ -12615,14 +12638,43 @@
           }
         ],
         "requestBody": {
-          "required": true,
           "content": {
             "multipart/form-data": {
               "schema": {
                 "$ref": "#/components/schemas/Body_upload_plan_attachment_api_v1_remote_assistance_attachments_upload_post"
               }
+            },
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "filename": {
+                    "maxLength": 255,
+                    "minLength": 1,
+                    "title": "Filename",
+                    "type": "string"
+                  },
+                  "content_type": {
+                    "default": "application/octet-stream",
+                    "maxLength": 255,
+                    "title": "Content Type",
+                    "type": "string"
+                  },
+                  "data": {
+                    "maxLength": 27962540,
+                    "title": "Data",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "filename",
+                  "data"
+                ],
+                "title": "AttachmentUploadPayload",
+                "type": "object"
+              }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
@@ -18567,15 +18619,19 @@
       "Body_upload_plan_attachment_api_v1_remote_assistance_plans_attachments_upload_post": {
         "properties": {
           "file": {
-            "type": "string",
-            "format": "binary",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "binary"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "File"
           }
         },
         "type": "object",
-        "required": [
-          "file"
-        ],
         "title": "Body_upload_plan_attachment_api_v1_remote_assistance_plans_attachments_upload_post"
       },
       "PlanAttachment": {
@@ -18785,15 +18841,19 @@
       "Body_upload_plan_attachment_api_v1_remote_assistance_attachments_upload_post": {
         "properties": {
           "file": {
-            "type": "string",
-            "format": "binary",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "binary"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "File"
           }
         },
         "type": "object",
-        "required": [
-          "file"
-        ],
         "title": "Body_upload_plan_attachment_api_v1_remote_assistance_attachments_upload_post"
       }
     }
