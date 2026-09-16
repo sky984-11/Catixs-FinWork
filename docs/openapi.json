@@ -12330,6 +12330,9 @@
     },
     "/api/v1/remote-assistance/plans/attachments/upload": {
       "post": {
+        "tags": [
+          "运维记录模块"
+        ],
         "summary": "上传运维计划附件",
         "operationId": "upload_plan_attachment_api_v1_remote_assistance_plans_attachments_upload_post",
         "parameters": [
@@ -12379,6 +12382,9 @@
     },
     "/api/v1/remote-assistance/plans": {
       "post": {
+        "tags": [
+          "运维记录模块"
+        ],
         "summary": "新增运维计划",
         "operationId": "create_plan_api_v1_remote_assistance_plans_post",
         "parameters": [
@@ -12428,6 +12434,9 @@
     },
     "/api/v1/remote-assistance/plans/create": {
       "post": {
+        "tags": [
+          "运维记录模块"
+        ],
         "summary": "新增运维计划",
         "operationId": "create_plan_compat_api_v1_remote_assistance_plans_create_post",
         "parameters": [
@@ -12477,6 +12486,9 @@
     },
     "/api/v1/remote-assistance/plans/{plan_id}": {
       "put": {
+        "tags": [
+          "运维记录模块"
+        ],
         "summary": "变更运维计划",
         "operationId": "update_plan_api_v1_remote_assistance_plans__plan_id__put",
         "parameters": [
@@ -12533,6 +12545,9 @@
         }
       },
       "delete": {
+        "tags": [
+          "运维记录模块"
+        ],
         "summary": "删除运维计划",
         "operationId": "delete_plan_api_v1_remote_assistance_plans__plan_id__delete",
         "parameters": [
@@ -12544,6 +12559,284 @@
               "type": "integer",
               "title": "Plan Id"
             }
+          },
+          {
+            "name": "token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "token验证",
+              "title": "Token"
+            },
+            "description": "token验证"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/remote-assistance/attachments/upload": {
+      "post": {
+        "tags": [
+          "运维记录模块"
+        ],
+        "summary": "上传运维日志附件",
+        "operationId": "upload_plan_attachment_api_v1_remote_assistance_attachments_upload_post",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "token验证",
+              "title": "Token"
+            },
+            "description": "token验证"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_plan_attachment_api_v1_remote_assistance_attachments_upload_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/remote-assistance/attachments": {
+      "delete": {
+        "tags": [
+          "运维记录模块"
+        ],
+        "summary": "删除运维日志附件",
+        "operationId": "delete_attachment_api_v1_remote_assistance_attachments_delete",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "token验证",
+              "title": "Token"
+            },
+            "description": "token验证"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttachmentDeletePayload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/remote-assistance/plans/{plan_id}/notify": {
+      "post": {
+        "tags": [
+          "运维记录模块"
+        ],
+        "summary": "发送运维计划飞书通知",
+        "operationId": "notify_plan_api_v1_remote_assistance_plans__plan_id__notify_post",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Plan Id"
+            }
+          },
+          {
+            "name": "token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "token验证",
+              "title": "Token"
+            },
+            "description": "token验证"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/remote-assistance/plans/{plan_id}/complete": {
+      "post": {
+        "tags": [
+          "运维记录模块"
+        ],
+        "summary": "完成运维计划并生成运维记录",
+        "operationId": "complete_plan_api_v1_remote_assistance_plans__plan_id__complete_post",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Plan Id"
+            }
+          },
+          {
+            "name": "token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "token验证",
+              "title": "Token"
+            },
+            "description": "token验证"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoteHandsPlanCompletePayload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/remote-assistance/plans/{plan_id}/cancel": {
+      "post": {
+        "tags": [
+          "运维记录模块"
+        ],
+        "summary": "取消运维计划",
+        "operationId": "cancel_plan_api_v1_remote_assistance_plans__plan_id__cancel_post",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Plan Id"
+            }
+          },
+          {
+            "name": "token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "token验证",
+              "title": "Token"
+            },
+            "description": "token验证"
           }
         ],
         "responses": {
@@ -16539,15 +16832,29 @@
           "timezone": {
             "type": "string",
             "title": "Timezone",
-            "default": "UTC"
+            "default": "Asia/Shanghai"
           },
           "arrived_at": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Arrived At",
             "default": ""
           },
           "left_at": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Left At",
             "default": ""
           },
@@ -16567,10 +16874,49 @@
             "title": "Status",
             "default": "scheduled"
           },
+          "is_settled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Settled"
+          },
+          "ops_settlement_status": {
+            "type": "string",
+            "enum": [
+              "unbilled",
+              "billed",
+              "settled"
+            ],
+            "title": "Ops Settlement Status",
+            "default": "unbilled"
+          },
+          "customer_settlement_status": {
+            "type": "string",
+            "enum": [
+              "unbilled",
+              "billed",
+              "settled"
+            ],
+            "title": "Customer Settlement Status",
+            "default": "unbilled"
+          },
           "note": {
             "type": "string",
             "title": "Note",
             "default": ""
+          },
+          "attachments": {
+            "items": {
+              "$ref": "#/components/schemas/PlanAttachment"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "Attachments"
           }
         },
         "additionalProperties": true,
@@ -18385,6 +18731,70 @@
         "additionalProperties": true,
         "type": "object",
         "title": "RemoteHandsPlanPayload"
+      },
+      "RemoteHandsPlanCompletePayload": {
+        "properties": {
+          "arrived_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arrived At",
+            "default": ""
+          },
+          "left_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Left At",
+            "default": ""
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "RemoteHandsPlanCompletePayload"
+      },
+      "AttachmentDeletePayload": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "pattern": "^/uploads/remote-plans/[0-9a-f]{32}\\.bin$",
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "title": "AttachmentDeletePayload"
+      },
+      "Body_upload_plan_attachment_api_v1_remote_assistance_attachments_upload_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_plan_attachment_api_v1_remote_assistance_attachments_upload_post"
       }
     }
   }

@@ -55,6 +55,7 @@ class RemoteEngineer(BaseModel, TimestampMixin):
 
 
 class RemoteHands(BaseModel, TimestampMixin):
+    attachments = fields.JSONField(default=list, description="record attachments")
     created_at = NaiveDatetimeField(auto_now_add=True, index=True)
     updated_at = NaiveDatetimeField(auto_now=True, index=True)
 

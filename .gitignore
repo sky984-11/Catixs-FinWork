@@ -5,7 +5,10 @@ venv/
 .vscode
 .ruff_cache/
 .pytest_cache/
-migrations/
+migrations/*
+!migrations/models/
+migrations/models/*
+!migrations/models/41_20260916120000_record_attachments.py
 .env
 .pnpm-store/
 

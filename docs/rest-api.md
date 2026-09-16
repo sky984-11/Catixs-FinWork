@@ -31,14 +31,21 @@
 - 空列表校验：资源汇总仅返回宿主节点或空资源时，需成功查询 QEMU 和 LXC 列表才能确认节点没有虚拟机；查询失败或结构不完整时保留旧数据并返回同步异常，避免错误清空快照。
 - `POST /api/v1/pve/vms/delete`：等待 PVE 删除任务明确成功后，才移除快照资源、释放 DHCP 租约并清理元数据。短期删除标记防止并发同步及云端缓存将旧资源写回，最长保留10分钟。任务报错、状态查询失败、缺少任务编号或等待超时均返回失败，不执行上述清理。
 
-### 运维计划附件
+### 运维计划与记录附件
+
+- 通用上传：`POST /api/v1/remote-assistance/attachments/upload`，原 `/plans/attachments/upload` 保持兼容。两者均仅要求 `token` 登录，不要求独立上传 API 权限；前后端需同步部署并重启后端。
+- 运维记录创建 `POST /api/v1/remote-assistance/remote-hands`、编辑 `PUT /api/v1/remote-assistance/remote-hands/{item_id}` 支持同格式的 `attachments` 数组（最多50项）；省略字段保留原附件。概览的 `remote_hands[].attachments` 返回记录自身及关联计划附件，按 URL 去重；完成计划时将附件保留到生成的记录。
+- 立即删除：`DELETE /api/v1/remote-assistance/attachments`，JSON 请求示例 `{"url":"/uploads/remote-plans/0123456789abcdef0123456789abcdef.bin"}`。成功响应 `{"code":200,"msg":"附件已删除","data":null}`。物理文件与所有关联计划、记录的附件引用一并删除；之后取消编辑不会恢复附件。重复删除不存在的文件也返回成功。
+- 删除权限：必须登录；未关联的新上传附件可直接删除；已关联附件要求具有每个关联计划/记录的 `PUT` 编辑权限（或管理员权限），无需独立分配删除附件 API。错误码：`401` 无效登录；`403` 缺少关联对象编辑权限；`422` 缺少 token 或 URL 格式不合法；`500` 删除失败。
+- 新增迁移 `41_20260916120000_record_attachments.py`，为 `remote_hands` 增加 JSONB 附件字段；PostgreSQL 启动前补列也已同步，旧计划附件通过关联查询兼容。无字段更名或旧接口删除。
+- 权限匹配兼容实际路径及 FastAPI 路由模板，例如 `PUT /api/v1/remote-assistance/remote-hands/{item_id}`；仍要求角色具有对应方法和路径权限。
 
 - `POST /api/v1/remote-assistance/plans/attachments/upload`：使用 `multipart/form-data`，必填字段 `file`。多附件逐个调用此接口；单文件非空且不超过20MB。
 - 认证：请求头 `token`；附件上传与工单上传一致，仅校验登录，无需单独分配上传接口权限。计划创建、编辑和查询仍沿用运维记录模块的 API 权限校验。
 - 成功响应：`{"code":200,"msg":"OK","data":{"name":"操作说明.pdf","url":"/uploads/remote-plans/0123456789abcdef0123456789abcdef.bin","size":1024}}`。
 - `POST /api/v1/remote-assistance/plans`、兼容路径 `POST /api/v1/remote-assistance/plans/create` 和 `PUT /api/v1/remote-assistance/plans/{plan_id}` 的 JSON 请求新增可选字段 `attachments`，最多50项，每项使用上传响应的 `name`、`url`、`size`。创建、编辑响应及 `GET /api/v1/remote-assistance/overview` 中的计划均返回该数组。
 - 请求示例（附件字段）：`{"attachments":[{"name":"操作说明.pdf","url":"/uploads/remote-plans/0123456789abcdef0123456789abcdef.bin","size":1024}]}`，其他计划必填字段保持原样。
-- 编辑时省略 `attachments` 保留已有附件，传 `[]` 移除所有附件关联；仅待执行计划允许编辑。移除或取消编辑不删除磁盘文件。附件按现有 `/uploads` 静态资源方式下载，前端使用原文件名保存。
+- 编辑时省略 `attachments` 保留已有附件，传 `[]` 移除当前对象附件关联；仅待执行计划允许编辑。界面删除按钮调用上述立即删除接口；仅取消编辑不会删除新上传文件。附件按现有 `/uploads` 静态资源方式下载，前端使用原文件名保存。
 - 错误码：`400` 空文件、超过20MB、引用文件不存在或计划不可编辑；`401` 登录无效；`403` 无接口权限；`422` 缺少文件或附件字段校验失败（含超过50项）；`500` 文件写入失败。
 - 数据库升级：新增迁移 `39_20260910120000_plan_attachments.py`，为历史计划填充空附件数组。
 - 启动兼容：PostgreSQL 的 `ensure_pre_schema_columns()` 会在生成模型 schema 前补齐附件字段，避免旧表缺列导致启动失败；重复启动及后续正式迁移均可安全重复执行。

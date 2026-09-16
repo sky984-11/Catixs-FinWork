@@ -59,7 +59,8 @@ class PermissionControl:
         permission_apis = list(set((api.method, api.path) for api in sum(apis, [])))
         # path = "/api/v1/auth/userinfo"
         # method = "GET"
-        if (method, path) not in permission_apis:
+        route_path = getattr(request.scope.get("route"), "path", path)
+        if (method, path) not in permission_apis and (method, route_path) not in permission_apis:
             raise HTTPException(status_code=403, detail=f"Permission denied method:{method} path:{path}")
 
 

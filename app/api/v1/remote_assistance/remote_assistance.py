@@ -8,10 +8,11 @@ from typing import Any, Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, File, UploadFile
+from tortoise.transactions import in_transaction
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.log import logger
-from app.core.dependency import DependAuth
+from app.core.dependency import DependAuth, has_admin_role
 from app.models.asset import AssetLocation
 from app.models.admin import User
 from app.models.remote_assistance import RemoteEngineer, RemoteHands, RemoteHandsPlan
@@ -29,6 +30,10 @@ class PlanAttachment(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     url: str = Field(pattern=r"^/uploads/remote-plans/[0-9a-f]{32}\.bin$")
     size: int = Field(gt=0, le=MAX_ATTACHMENT_SIZE)
+
+
+class AttachmentDeletePayload(BaseModel):
+    url: str = Field(pattern=r"^/uploads/remote-plans/[0-9a-f]{32}\.bin$")
 
 
 class RemoteHandsPayload(BaseModel):
@@ -53,6 +58,7 @@ class RemoteHandsPayload(BaseModel):
     ops_settlement_status: Literal["unbilled", "billed", "settled"] = "unbilled"
     customer_settlement_status: Literal["unbilled", "billed", "settled"] = "unbilled"
     note: str = ""
+    attachments: list[PlanAttachment] = Field(default_factory=list, max_length=50)
 
 
 class EngineerPayload(BaseModel):
@@ -270,14 +276,15 @@ def _is_settled_from_item(item: RemoteHands) -> bool:
     )
 
 
-def _remote_payload_data(payload: RemoteHandsPayload) -> dict[str, Any]:
+async def _remote_payload_data(payload: RemoteHandsPayload) -> dict[str, Any]:
+    await _validate_attachments(payload.attachments)
     arrived_at = _naive_datetime(_parse_datetime(payload.arrived_at))
     left_at = _naive_datetime(_parse_datetime(payload.left_at))
     is_settled = bool(payload.is_settled) if payload.is_settled is not None else (
         payload.ops_settlement_status == "settled" and payload.customer_settlement_status == "settled"
     )
     settlement_status = "settled" if is_settled else "unbilled"
-    return {
+    data = {
         "customer": _clean_text(payload.customer),
         "ticket": _clean_text(payload.ticket) or None,
         "engineer_id": payload.engineer_id,
@@ -298,6 +305,9 @@ def _remote_payload_data(payload: RemoteHandsPayload) -> dict[str, Any]:
         "customer_settlement_status": settlement_status,
         "note": _clean_text(payload.note) or None,
     }
+    if "attachments" in payload.model_fields_set:
+        data["attachments"] = [item.model_dump() for item in payload.attachments]
+    return data
 
 
 def _engineer_payload_data(payload: EngineerPayload) -> dict[str, Any]:
@@ -312,11 +322,15 @@ def _engineer_payload_data(payload: EngineerPayload) -> dict[str, Any]:
     }
 
 
-async def _plan_payload_data(payload: RemoteHandsPlanPayload) -> dict[str, Any]:
-    for attachment in payload.attachments:
+async def _validate_attachments(attachments: list[PlanAttachment]) -> None:
+    for attachment in attachments:
         path = PLAN_ATTACHMENT_DIR / attachment.url.rsplit("/", 1)[-1]
         if not await asyncio.to_thread(path.is_file):
             raise ValueError("附件不存在，请重新上传")
+
+
+async def _plan_payload_data(payload: RemoteHandsPlanPayload) -> dict[str, Any]:
+    await _validate_attachments(payload.attachments)
     assignee_ids = int_list(payload.assignee_ids) or int_list(payload.assignee_id)
     users = await User.filter(id__in=assignee_ids, is_active=True) if assignee_ids else []
     user_map = {int(user.id): user for user in users}
@@ -351,9 +365,16 @@ def _normalize_plan_datetimes(plan: RemoteHandsPlan) -> None:
     plan.reminder_notified_at = _naive_datetime(plan.reminder_notified_at)
 
 
-async def _remote_to_dict(item: RemoteHands) -> dict[str, Any]:
+async def _remote_to_dict(item: RemoteHands, plans: list[RemoteHandsPlan] | None = None) -> dict[str, Any]:
+    attachments = {value["url"]: value for value in (item.attachments or [])}
+    if plans is None:
+        plans = await RemoteHandsPlan.filter(remote_hands_id=item.id)
+    for plan in plans:
+        for value in plan.attachments or []:
+            attachments.setdefault(value["url"], value)
     return {
         "id": item.id,
+        "attachments": list(attachments.values()),
         "customer": item.customer,
         "ticket": item.ticket or "",
         "engineer_id": item.engineer_id,
@@ -472,9 +493,13 @@ async def overview():
         remote_hands = await RemoteHands.all().order_by("-arrived_at", "-created_at")
         plans = await RemoteHandsPlan.all().order_by("-planned_at", "-created_at")
         engineers = await RemoteEngineer.all().order_by("-is_active", "name")
+        linked_plans: dict[int, list[RemoteHandsPlan]] = {}
+        for plan in plans:
+            if plan.remote_hands_id:
+                linked_plans.setdefault(plan.remote_hands_id, []).append(plan)
         return Success(
             data={
-                "remote_hands": [await _remote_to_dict(item) for item in remote_hands],
+                "remote_hands": [await _remote_to_dict(item, linked_plans.get(item.id, [])) for item in remote_hands],
                 "plans": [await _plan_to_dict(item) for item in plans],
                 "engineers": [await _engineer_to_dict(item) for item in engineers],
                 "datacenters": await _datacenter_options(),
@@ -488,7 +513,7 @@ async def overview():
 @router.post("/remote-hands", summary="新增运维记录")
 async def create_remote_hands(payload: RemoteHandsPayload):
     try:
-        data = _remote_payload_data(payload)
+        data = await _remote_payload_data(payload)
         logger.info(
             "remote assistance create record parsed: customer={}, site={}, raw_arrived_at={}, parsed_arrived_at={}, raw_left_at={}, parsed_left_at={}",
             data["customer"],
@@ -505,6 +530,7 @@ async def create_remote_hands(payload: RemoteHandsPayload):
 
 
 @auth_router.post("/plans/attachments/upload", summary="上传运维计划附件", dependencies=[DependAuth])
+@auth_router.post("/attachments/upload", summary="上传运维日志附件", dependencies=[DependAuth])
 async def upload_plan_attachment(file: UploadFile = File(...)):
     try:
         content = await file.read(MAX_ATTACHMENT_SIZE + 1)
@@ -525,6 +551,52 @@ async def upload_plan_attachment(file: UploadFile = File(...)):
         return Fail(code=500, msg="附件上传失败，请重试")
     finally:
         await file.close()
+
+
+@auth_router.delete("/attachments", summary="删除运维日志附件")
+async def delete_attachment(payload: AttachmentDeletePayload, current_user: User = DependAuth):
+    # Check every reference before deleting the physical file, including completed plans.
+    path = PLAN_ATTACHMENT_DIR / payload.url.rsplit("/", 1)[-1]
+    staged_path = path.with_suffix(f".deleting-{uuid4().hex}")
+    staged = False
+    try:
+        async with in_transaction():
+            references = []
+            for model, route in ((RemoteHands, "remote-hands/{item_id}"), (RemoteHandsPlan, "plans/{plan_id}")):
+                for item in await model.all().select_for_update():
+                    if any(attachment.get("url") == payload.url for attachment in (item.attachments or [])):
+                        references.append((item, route))
+            if references and not current_user.is_superuser and not await has_admin_role(current_user):
+                permissions = set()
+                for role in await current_user.roles:
+                    permissions.update((api.method, api.path) for api in await role.apis)
+                for item, route in references:
+                    paths = {
+                        f"/api/v1/remote-assistance/{route}",
+                        f"/api/v1/remote-assistance/{route.split('/')[0]}/{item.id}",
+                    }
+                    if not any(("PUT", path) in permissions for path in paths):
+                        return Fail(code=403, msg="无关联运维记录或计划的编辑权限")
+            try:
+                await asyncio.to_thread(path.rename, staged_path)
+                staged = True
+            except FileNotFoundError:
+                pass
+            for item, _ in references:
+                item.attachments = [value for value in item.attachments if value.get("url") != payload.url]
+                await item.save(update_fields=["attachments", "updated_at"])
+    except Exception:
+        if staged:
+            await asyncio.to_thread(staged_path.rename, path)
+        logger.exception("remote attachment deletion failed")
+        return Fail(code=500, msg="附件删除失败，请重试")
+    try:
+        await asyncio.to_thread(staged_path.unlink, missing_ok=True)
+    except OSError:
+        logger.exception("remote attachment staged file cleanup failed: file={}", staged_path.name)
+        return Fail(code=500, msg="附件文件清理失败，请联系管理员")
+    logger.info("remote attachment deleted: file={}, user={}", path.name, current_user.id)
+    return Success(msg="附件已删除")
 
 
 @router.post("/plans", summary="新增运维计划")
@@ -660,6 +732,7 @@ async def complete_plan(plan_id: int, payload: RemoteHandsPlanCompletePayload):
             ops_settlement_status="unbilled",
             customer_settlement_status="unbilled",
             note=note,
+            attachments=plan.attachments or [],
         )
         plan.status = "done"
         plan.remote_hands_id = remote.id
@@ -713,7 +786,7 @@ async def delete_plan(plan_id: int):
 @router.put("/remote-hands/{item_id}", summary="更新运维记录")
 async def update_remote_hands(item_id: int, payload: RemoteHandsPayload):
     try:
-        data = _remote_payload_data(payload)
+        data = await _remote_payload_data(payload)
         logger.info(
             "remote assistance update record parsed: item_id={}, customer={}, site={}, raw_arrived_at={}, parsed_arrived_at={}, raw_left_at={}, parsed_left_at={}",
             item_id,

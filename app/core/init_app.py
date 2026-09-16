@@ -2559,7 +2559,8 @@ async def ensure_pre_schema_columns():
             ADD COLUMN IF NOT EXISTS "default_contract_months" INT NOT NULL DEFAULT 12;
 
         ALTER TABLE IF EXISTS "remote_hands"
-            ADD COLUMN IF NOT EXISTS "is_settled" BOOLEAN NOT NULL DEFAULT FALSE;
+            ADD COLUMN IF NOT EXISTS "is_settled" BOOLEAN NOT NULL DEFAULT FALSE,
+            ADD COLUMN IF NOT EXISTS "attachments" JSONB NOT NULL DEFAULT '[]'::jsonb;
 
         ALTER TABLE IF EXISTS "remote_hands_plan"
             ADD COLUMN IF NOT EXISTS "created_by_id" BIGINT,

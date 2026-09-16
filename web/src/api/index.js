@@ -313,10 +313,11 @@ export default {
     updateRemoteHands: (id, data = {}) => request.put(`/remote-assistance/remote-hands/${id}`, data),
     deleteRemoteHands: (id) => request.delete(`/remote-assistance/remote-hands/${id}`),
     createPlan: (data = {}) => request.post('/remote-assistance/plans/create', data),
+    deleteAttachment: (url) => request.delete('/remote-assistance/attachments', { data: { url } }),
     uploadPlanAttachment: (file) => {
       const data = new FormData()
       data.append('file', file)
-      return request.post('/remote-assistance/plans/attachments/upload', data, { timeout: 120000 })
+      return request.post('/remote-assistance/attachments/upload', data, { timeout: 120000 })
     },
     updatePlan: (id, data = {}) => request.put(`/remote-assistance/plans/${id}`, data),
     notifyPlan: (id) => request.post(`/remote-assistance/plans/${id}/notify`),

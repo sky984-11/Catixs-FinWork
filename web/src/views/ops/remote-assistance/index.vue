@@ -158,6 +158,9 @@
         v-model:show="remoteEditor.show"
         preset="card"
         :title="remoteEditor.form.id ? '编辑运维记录' : '新增运维记录'"
+        :closable="!remoteUploading && !remoteEditor.saving"
+        :mask-closable="!remoteUploading && !remoteEditor.saving"
+        :close-on-esc="!remoteUploading && !remoteEditor.saving"
         class="editor-modal remote-editor-modal"
         style="width: min(640px, calc(100vw - 40px))"
         :bordered="false"
@@ -237,13 +240,49 @@
               :autosize="{ minRows: 3, maxRows: 6 }"
             />
           </n-form-item>
-          <n-form-item v-if="remoteEditor.form.id" label="附件">
-            <div v-if="remoteRecordAttachments.length" class="plan-attachments">
-              <div v-for="attachment in remoteRecordAttachments" :key="attachment.url" class="plan-attachment">
+          <n-form-item label="附件">
+            <div class="plan-attachments">
+              <label
+                class="plan-upload-zone"
+                :class="{ 'is-dragging': remoteDragging, 'is-disabled': remoteUploading || remoteEditor.saving }"
+                @dragover.prevent="remoteDragging = !remoteUploading && !remoteEditor.saving"
+                @dragleave.prevent="remoteDragging = false"
+                @drop.prevent="handleRemoteAttachmentDrop"
+              >
+                <input
+                  class="plan-upload-input"
+                  type="file"
+                  multiple
+                  aria-label="上传运维记录附件，支持选择多个文件"
+                  :disabled="remoteUploading || remoteEditor.saving"
+                  @change="handleRemoteAttachmentSelect"
+                />
+                <n-spin :show="remoteUploading" size="small">
+                  <div class="plan-upload-content">
+                    <svg class="plan-upload-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path
+                        d="M12 16V4m-4 4 4-4 4 4M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"
+                        stroke="currentColor"
+                        stroke-width="1.6"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                    <span class="plan-upload-title">{{ remoteUploading ? '附件上传中，请稍候…' : '点击或拖拽文件到此处上传' }}</span>
+                    <n-text depth="3" class="plan-upload-tip">支持多文件上传 · 单个最大20MB · 最多50个</n-text>
+                  </div>
+                </n-spin>
+              </label>
+              <div v-for="attachment in remoteEditor.form.attachments" :key="attachment.url" class="plan-attachment">
                 <a :href="attachment.url" :download="attachment.name">{{ attachment.name }}</a>
+                <CButton
+                  show-delete
+                  size="tiny"
+                  :disabled="remoteUploading || remoteEditor.saving"
+                  @delete="deleteAttachment(remoteEditor, attachment)"
+                />
               </div>
             </div>
-            <n-text v-else depth="3">暂无附件</n-text>
           </n-form-item>
         </n-form>
         <template #footer>
@@ -253,6 +292,7 @@
               show-save
               size="small"
               :save-loading="remoteEditor.saving"
+              :disabled="remoteUploading || remoteEditor.saving"
               @cancel="remoteEditor.show = false"
               @save="saveRemoteHands"
             />
@@ -367,13 +407,13 @@
                   </div>
                 </n-spin>
               </label>
-              <div v-for="(attachment, index) in planEditor.form.attachments" :key="attachment.url" class="plan-attachment">
+              <div v-for="attachment in planEditor.form.attachments" :key="attachment.url" class="plan-attachment">
                 <a :href="attachment.url" :download="attachment.name">{{ attachment.name }}</a>
                 <CButton
                   show-delete
                   size="tiny"
                   :disabled="planUploading || planEditor.saving"
-                  @delete="planEditor.form.attachments.splice(index, 1)"
+                  @delete="deleteAttachment(planEditor, attachment)"
                 />
               </div>
             </div>
@@ -536,6 +576,8 @@ import { translateCity, translateCountry, translateLocationPath } from '@/utils/
 const message = useMessage()
 const loading = ref(false)
 const planDragging = ref(false)
+const remoteUploading = ref(false)
+const remoteDragging = ref(false)
 const planUploading = ref(false)
 const remoteSettlementSaving = ref(new Set())
 const activeTab = ref('plans')
@@ -641,14 +683,6 @@ const planStatusOptions = [
 ]
 
 const remoteEditor = reactive({ show: false, saving: false, form: createRemoteForm() })
-const remoteRecordAttachments = computed(() => {
-  const recordId = remoteEditor.form.id
-  if (!recordId) return []
-  const attachments = plans.value
-    .filter((plan) => String(plan.remote_hands_id) === String(recordId))
-    .flatMap((plan) => plan.attachments || [])
-  return [...new Map(attachments.map((item) => [item.url, item])).values()]
-})
 const planEditor = reactive({ show: false, saving: false, form: createPlanForm() })
 const completeEditor = reactive({ show: false, saving: false, form: createCompleteForm() })
 const engineerEditor = reactive({ show: false, saving: false, form: createEngineerForm() })
@@ -988,6 +1022,7 @@ function createRemoteForm(source = {}) {
     work_minutes: Number(source.work_minutes || 0),
     status: source.status || 'scheduled',
     is_settled: readSettledFlag(source),
+    attachments: (source.attachments || []).map((item) => ({ ...item })),
     note: source.note || '',
   }
 }
@@ -1537,6 +1572,7 @@ function isEndBeforeStart(start, end) {
 }
 
 async function saveRemoteHands() {
+  if (remoteUploading.value || remoteEditor.saving) return
   const form = remoteEditor.form
   if (!form.customer.trim()) return message.warning('请输入客户名称')
   if (!fieldText(form.region)) return message.warning('请选择或输入地区')
@@ -1572,28 +1608,61 @@ function handlePlanAttachmentDrop(event) {
   uploadPlanAttachments(Array.from(event.dataTransfer?.files || []))
 }
 
-async function uploadPlanAttachments(files) {
-  if (!files.length || planUploading.value || planEditor.saving) return
-  const form = planEditor.form
+function handleRemoteAttachmentSelect(event) {
+  const files = Array.from(event.target.files || [])
+  event.target.value = ''
+  uploadAttachments(files, remoteEditor, remoteUploading)
+}
+
+function handleRemoteAttachmentDrop(event) {
+  remoteDragging.value = false
+  uploadAttachments(Array.from(event.dataTransfer?.files || []), remoteEditor, remoteUploading)
+}
+
+function uploadPlanAttachments(files) {
+  return uploadAttachments(files, planEditor, planUploading)
+}
+
+async function deleteAttachment(editor, attachment) {
+  const busy = editor === planEditor ? planUploading : remoteUploading
+  if (busy.value || editor.saving) return
+  busy.value = true
+  try {
+    await api.remoteAssistanceApi.deleteAttachment(attachment.url)
+    // Deletion is immediate, including when editing is later cancelled.
+    for (const item of [...plans.value, ...remoteHands.value, editor.form]) {
+      if (item.attachments) item.attachments = item.attachments.filter((value) => value.url !== attachment.url)
+    }
+    message.success('附件已删除')
+  } catch (error) {
+    message.error(error.message || '附件删除失败，请重试')
+  } finally {
+    busy.value = false
+  }
+}
+
+async function uploadAttachments(files, editor, busy) {
+  if (!files.length || busy.value || editor.saving) return
+  const form = editor.form
   if (form.attachments.length + files.length > 50) return message.warning('最多添加50个附件')
   if (files.some((file) => !file.size || file.size > 20 * 1024 * 1024)) {
     return message.warning('请选择非空文件，单个附件不能超过20MB')
   }
-  planUploading.value = true
+  busy.value = true
   let failed = 0
   try {
     for (const file of files) {
       try {
         const result = await api.remoteAssistanceApi.uploadPlanAttachment(file)
         form.attachments.push(result.data)
-      } catch {
+      } catch (error) {
         failed += 1
-        message.error(`${file.name} 上传失败，请重新添加`)
+        message.error(`${file.name} 上传失败：${error.message || '请重新添加'}`)
       }
     }
     if (!failed) message.success(`已上传${files.length}个附件`)
   } finally {
-    planUploading.value = false
+    busy.value = false
   }
 }
 
