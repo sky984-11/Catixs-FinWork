@@ -1,10 +1,20 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
-class BaseVendor(BaseModel):
+class VendorContacts(BaseModel):
+    legal_name: Optional[str] = Field(None, max_length=200, description="供应商全称")
+    signing_entity_id: Optional[int] = Field(None, gt=0, description="客户管理签约主体ID")
+    payment_terms: str = Field("", max_length=200)
+    sales_contact: str = Field("", max_length=10000)
+    billing_contact: str = Field("", max_length=10000)
+    noc_contact: str = Field("", max_length=10000)
+    attachment_ids: list[int] = Field(default_factory=list, max_length=50)
+
+
+class BaseVendor(VendorContacts):
     id: int
     name: Optional[str] = None
     code: Optional[str] = None
@@ -23,11 +33,11 @@ class BaseVendor(BaseModel):
     updated_at: Optional[datetime] = None
 
 
-class VendorCreate(BaseModel):
+class VendorCreate(VendorContacts):
     # 供应商管理默认 role=2，由后端写入，不在弹窗展示
     # 编号自动生成，如果不传则自动生成
-    name: str = Field(..., example="Chief Telecom Inc")
-    code: str = Field("", example="")
+    name: str = Field(..., min_length=1, max_length=100, example="Chief Telecom Inc")
+    code: str = Field("", max_length=50, example="")
     country: str = Field("", example="台湾")
     address: str = Field("", example="台北市內湖區阳光街250号")
     noc_email: str = Field("", example="noc@example.com")
@@ -40,11 +50,19 @@ class VendorCreate(BaseModel):
     contract_company_id: Optional[int] = Field(None, example=None)
     status: bool = Field(True, example=True)
 
+    @field_validator("name", "code")
+    @classmethod
+    def trim_identity(cls, value: str, info):
+        value = value.strip()
+        if info.field_name == "name" and not value:
+            raise ValueError("供应商名称不能为空")
+        return value
 
-class VendorUpdate(BaseModel):
+
+class VendorUpdate(VendorCreate):
     id: int = Field(..., example=1)
-    name: str = Field(..., example="Chief Telecom Inc")
-    code: str = Field("", example="VU00024")
+    name: str = Field(..., min_length=1, max_length=100, example="Chief Telecom Inc")
+    code: str = Field("", max_length=50, example="VU00024")
     country: str = Field("", example="台湾")
     address: str = Field("", example="台北市內湖區阳光街250号")
     noc_email: str = Field("", example="noc@example.com")

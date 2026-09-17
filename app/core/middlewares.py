@@ -59,7 +59,7 @@ class HttpAuditLogMiddleware(BaseHTTPMiddleware):
         self.exclude_paths = exclude_paths
         self.audit_log_paths = ["/api/v1/auditlog/list"]
         # 排除不记录日志的路径（如静态文件、导入导出）
-        self.exclude_response_log_paths = ["/uploads", "/api/v1/vendor/import", "/api/v1/vendor/export"]
+        self.exclude_response_log_paths = ["/uploads", "/api/v1/vendor/import", "/api/v1/vendor/export", "/api/v1/vendor/attachments/download"]
         self.max_body_size = 1024 * 1024  # 1MB 响应体大小限制
 
     async def get_request_args(self, request: Request) -> dict:
@@ -68,6 +68,7 @@ class HttpAuditLogMiddleware(BaseHTTPMiddleware):
         if request.url.path in {
             "/api/v1/remote-assistance/attachments/upload",
             "/api/v1/remote-assistance/plans/attachments/upload",
+            "/api/v1/vendor/attachments/upload",
         }:
             return args
         # 获取查询参数

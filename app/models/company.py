@@ -23,6 +23,14 @@ class Company(BaseModel, TimestampMixin):
     company_phone = fields.CharField(max_length=50, null=True, description="公司电话")
     registration_no = fields.CharField(max_length=50, null=True, description="公司注册号")
     default_contract_months = fields.IntField(default=12, description="默认合同月数")
+    payment_terms = fields.CharField(max_length=200, null=True, description="供应商付款条件")
+    sales_contact = fields.TextField(null=True, description="供应商销售联系信息")
+    billing_contact = fields.TextField(null=True, description="供应商账单联系信息")
+    noc_contact = fields.TextField(null=True, description="供应商NOC联系信息")
+    signing_entity = fields.ForeignKeyField(
+        "models.CrmSigningEntity", related_name="vendors", null=True,
+        on_delete=fields.SET_NULL, description="供应商签约主体（复用客户管理）",
+    )
     contract_company = fields.ForeignKeyField(
         "models.Company",
         related_name="contract_companies",
@@ -33,6 +41,20 @@ class Company(BaseModel, TimestampMixin):
 
     class Meta:
         table = "company"
+
+
+class VendorAttachment(BaseModel, TimestampMixin):
+    vendor = fields.ForeignKeyField(
+        "models.Company", related_name="vendor_attachments", null=True, on_delete=fields.RESTRICT
+    )
+    owner_id = fields.BigIntField(index=True)
+    filename = fields.CharField(max_length=255)
+    stored_name = fields.CharField(max_length=64, unique=True)
+    content_type = fields.CharField(max_length=200, default="application/octet-stream")
+    size = fields.IntField()
+
+    class Meta:
+        table = "vendor_attachment"
 
 
 class Bank(BaseModel, TimestampMixin):

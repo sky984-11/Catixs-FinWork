@@ -280,6 +280,7 @@ async def init_menus():
     await ensure_requirement_menu()
     await ensure_resource_menu()
     await ensure_customer_center_menu()
+    await ensure_vendor_center_menu()
     await ensure_product_center_menu()
     await remove_disabled_feature_menus()
     await ensure_task_menu()
@@ -381,6 +382,74 @@ async def ensure_customer_center_menu():
                 await menu.save()
         else:
             await Menu.create(**values)
+
+
+async def ensure_vendor_center_menu():
+    catalog = await ensure_menu_catalog(
+        name="供应商中心",
+        path="/vendor-center",
+        order=3,
+        icon="mdi:truck-outline",
+        redirect="/vendor-center/vendors",
+    )
+    for name, path, order, icon in (
+        ("供应商管理", "vendors", 1, "mdi:office-building-outline"),
+        ("供应商联系人", "contacts", 2, "mdi:card-account-phone-outline"),
+    ):
+        component = f"/vendor-center/{path}"
+        menu = await Menu.filter(component=component).first()
+        values = dict(
+            menu_type=MenuType.MENU,
+            name=name,
+            path=path,
+            order=order,
+            parent_id=catalog.id,
+            icon=icon,
+            is_hidden=False,
+            component=component,
+            keepalive=False,
+            redirect="",
+        )
+        if menu:
+            await menu.update_from_dict(values).save()
+        else:
+            await Menu.create(**values)
+    # Preserve bookmarks to the old finance entry without showing a duplicate menu.
+    await Menu.filter(path="/vendor").update(
+        name="供应商旧入口",
+        parent_id=0,
+        is_hidden=True,
+        component="/vendor",
+        redirect="/vendor-center/vendors",
+    )
+    await Menu.filter(parent_id=catalog.id).exclude(
+        component__in=["/vendor-center/vendors", "/vendor-center/contacts"]
+    ).update(is_hidden=True)
+
+
+async def ensure_vendor_center_permissions():
+    catalog = await Menu.filter(path="/vendor-center").first()
+    if not catalog:
+        return
+    children = await Menu.filter(parent_id=catalog.id, is_hidden=False)
+    read_apis = await Api.filter(
+        Q(method="GET", path="/api/v1/vendor/list")
+        | Q(method="GET", path="/api/v1/vendor/next-code")
+        | Q(method="GET", path="/api/v1/vendor/get")
+        | Q(method="GET", path="/api/v1/vendor/attachments/download")
+        | Q(method="GET", path="/api/v1/customer-center/signing-entities")
+        | Q(method="GET", path="/api/v1/asset/region/list")
+        | Q(method="GET", path="/api/v1/company/list")
+    )
+    manage_apis = await Api.filter(path__startswith="/api/v1/vendor/")
+    for role in await Role.all():
+        await role.menus.add(catalog, *children)
+        if read_apis:
+            await role.apis.add(*read_apis)
+        if is_admin_role_name(role.name) and manage_apis:
+            await role.apis.add(*manage_apis)
+
+
 async def ensure_product_center_menu():
     product_menu = await ensure_menu_catalog(
         name="产品中心",
@@ -1327,6 +1396,7 @@ def is_admin_role_name(name: str | None) -> bool:
 
 
 async def ensure_business_api_permissions():
+    await ensure_vendor_center_permissions()
     roles = await Role.all()
     if not roles:
         return
@@ -2704,6 +2774,9 @@ async def init_db():
 
     await ensure_user_columns()
     await ensure_company_columns()
+    from app.controllers.vendor_attachments import ensure_vendor_columns
+
+    await ensure_vendor_columns()
     await ensure_customer_center_columns()
     await ensure_product_center_columns()
     await ensure_asset_columns()

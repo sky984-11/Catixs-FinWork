@@ -10,6 +10,7 @@ __pycache__
 db.sqlite3
 app/logs
 uploads
+private_uploads
 web/node_modules
 web/.pnpm-store
 web/dist

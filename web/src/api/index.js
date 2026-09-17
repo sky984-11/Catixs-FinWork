@@ -77,10 +77,14 @@ export default {
 
   // vendor
   getVendorList: (params = {}) => request.get('/vendor/list', { params }),
+  nextVendorCode: (signingEntityId) => request.get('/vendor/next-code', { params: { signing_entity_id: signingEntityId } }),
   getVendorById: (params = {}) => request.get('/vendor/get', { params }),
   createVendor: (data = {}) => request.post('/vendor/create', data),
   updateVendor: (data = {}) => request.post('/vendor/update', data),
   deleteVendor: (params = {}) => request.delete(`/vendor/delete`, { params }),
+  uploadVendorAttachment: (data) => request.post('/vendor/attachments/upload', data, { timeout: 120000 }),
+  deleteVendorAttachment: (id) => request.delete('/vendor/attachments/delete', { params: { attachment_id: id } }),
+  downloadVendorAttachment: (id) => request.get('/vendor/attachments/download', { params: { attachment_id: id }, responseType: 'blob', skipErrorHandle: true }),
   exportVendor: () => {
     return request.get('/vendor/export', { responseType: 'blob', skipErrorHandle: true })
   },
@@ -343,6 +347,7 @@ export default {
   },
 
   customerCenterApi: {
+    signingEntities: () => request.get('/customer-center/signing-entities'),
     options: () => request.get('/customer-center/options'),
     dashboard: () => request.get('/customer-center/dashboard'),
     listCustomers: (params = {}) => request.get('/customer-center/customers', { params }),

@@ -12,27 +12,51 @@
           </div>
 
           <div class="meta">
-            <n-descriptions label-placement="left" title="" size="large" :column="4" bordered>
+            <n-descriptions label-placement="left" title="" size="large" :column="2" bordered>
               <n-descriptions-item>
                 <template #label> 编号 </template>
                 {{ vendor.code }}
               </n-descriptions-item>
-              <n-descriptions-item v-if="vendor.address" label="地址"> {{ vendor.address }} </n-descriptions-item>
-              <n-descriptions-item v-if="vendor.noc_email" label="NOC邮箱"> {{ vendor.noc_email }} </n-descriptions-item>
-              <n-descriptions-item v-if="vendor.noc_phone" label="NOC电话"> {{ vendor.noc_phone }} </n-descriptions-item>
-              <n-descriptions-item v-if="vendor.company_email" label="公司邮箱"> {{ vendor.company_email }} </n-descriptions-item>
-              <n-descriptions-item v-if="vendor.company_phone" label="公司电话"> {{ vendor.company_phone }} </n-descriptions-item>
-              <n-descriptions-item v-if="vendor.registration_no" label="注册号"> {{ vendor.registration_no }} </n-descriptions-item>
-              <n-descriptions-item v-if="vendor.tax_no" label="税号"> {{ vendor.tax_no }} </n-descriptions-item>
-              <n-descriptions-item v-if="vendor.remark" label="备注"> {{ vendor.remark }} </n-descriptions-item>
+              <n-descriptions-item v-if="vendor.legal_name" label="供应商全称">{{
+                vendor.legal_name
+              }}</n-descriptions-item>
+              <n-descriptions-item v-if="vendor.address" label="地址">
+                {{ vendor.address }}
+              </n-descriptions-item>
+              <n-descriptions-item v-if="vendor.noc_email" label="NOC邮箱">
+                {{ vendor.noc_email }}
+              </n-descriptions-item>
+              <n-descriptions-item v-if="vendor.noc_phone" label="NOC电话">
+                {{ vendor.noc_phone }}
+              </n-descriptions-item>
+              <n-descriptions-item v-if="vendor.company_email" label="公司邮箱">
+                {{ vendor.company_email }}
+              </n-descriptions-item>
+              <n-descriptions-item v-if="vendor.company_phone" label="公司电话">
+                {{ vendor.company_phone }}
+              </n-descriptions-item>
+              <n-descriptions-item v-if="vendor.remark" label="备注">
+                {{ vendor.remark }}
+              </n-descriptions-item>
+              <n-descriptions-item v-if="vendor.country" label="所属地区">
+                {{ vendor.country }}
+              </n-descriptions-item>
+              <n-descriptions-item
+                v-for="field in contactFields"
+                :key="field.key"
+                :label="field.label"
+                :span="2"
+              >
+                <div class="contact-text">{{ vendor[field.key] || '-' }}</div>
+              </n-descriptions-item>
             </n-descriptions>
           </div>
         </div>
 
         <n-space>
           <CButton
-            showEdit
-            showDelete
+            show-edit
+            show-delete
             :disabled="!vendor"
             :edit-loading="editLoading"
             :delete-loading="deleteLoading"
@@ -46,8 +70,15 @@
     <!-- Tabs -->
     <n-card :bordered="false" class="mt">
       <n-tabs type="line" animated>
+        <n-tab-pane name="attachments" tab="供应商附件">
+          <VendorAttachments :model-value="vendor.attachments || []" readonly />
+        </n-tab-pane>
         <n-tab-pane name="bank" tab="银行账户">
-          <BankCard :company-id="vendor.id" :company-name="vendor.name" :company-tax-no="vendor.tax_no" />
+          <BankCard
+            :company-id="vendor.id"
+            :company-name="vendor.name"
+            :company-tax-no="vendor.tax_no"
+          />
         </n-tab-pane>
 
         <n-tab-pane name="invoice" tab="账单(PDF)">
@@ -64,6 +95,13 @@
 import BankCard from './BankCard.vue'
 import CButton from '@/components/public/CButton.vue'
 import InvoiceTable from './InvoiceTable.vue'
+import VendorAttachments from './VendorAttachments.vue'
+
+const contactFields = [
+  { key: 'sales_contact', label: '销售联系人' },
+  { key: 'billing_contact', label: '账单联系人' },
+  { key: 'noc_contact', label: 'NOC 联系信息' },
+]
 
 defineProps({
   vendor: {
@@ -86,6 +124,12 @@ const emit = defineEmits(['edit', 'delete'])
 .header {
   display: flex;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.contact-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .title {

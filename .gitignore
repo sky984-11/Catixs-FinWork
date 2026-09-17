@@ -9,6 +9,8 @@ migrations/*
 !migrations/models/
 migrations/models/*
 !migrations/models/41_20260916120000_record_attachments.py
+!migrations/models/170_20260917120000_vendor_contacts_attachments.py
+!migrations/models/171_20260917150000_vendor_shared_signing_entity.py
 .env
 .pnpm-store/
 
@@ -30,4 +32,5 @@ uploads/avatars/
 uploads/bills/
 uploads/projects/
 backups/
+private_uploads/
 
