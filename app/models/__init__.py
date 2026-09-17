@@ -11,3 +11,4 @@ from .device_maintenance import *
 from .tg_assistant import *
 from .customer_center import *
 from .product_center import *
+from .vendor_contact import *

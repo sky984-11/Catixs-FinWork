@@ -434,6 +434,7 @@ async def ensure_vendor_center_permissions():
     children = await Menu.filter(parent_id=catalog.id, is_hidden=False)
     read_apis = await Api.filter(
         Q(method="GET", path="/api/v1/vendor/list")
+        | Q(method="GET", path="/api/v1/vendor/contacts/list")
         | Q(method="GET", path="/api/v1/vendor/next-code")
         | Q(method="GET", path="/api/v1/vendor/get")
         | Q(method="GET", path="/api/v1/vendor/attachments/download")

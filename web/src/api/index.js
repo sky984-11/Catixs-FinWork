@@ -78,6 +78,12 @@ export default {
   // vendor
   getVendorList: (params = {}) => request.get('/vendor/list', { params }),
   nextVendorCode: (signingEntityId) => request.get('/vendor/next-code', { params: { signing_entity_id: signingEntityId } }),
+  vendorContactApi: {
+    list: () => request.get('/vendor/contacts/list'),
+    create: (data) => request.post('/vendor/contacts/create', data),
+    update: (data) => request.post('/vendor/contacts/update', data),
+    delete: (id) => request.delete('/vendor/contacts/delete', { params: { contact_id: id } }),
+  },
   getVendorById: (params = {}) => request.get('/vendor/get', { params }),
   createVendor: (data = {}) => request.post('/vendor/create', data),
   updateVendor: (data = {}) => request.post('/vendor/update', data),

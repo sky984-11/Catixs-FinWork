@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from tortoise.expressions import Q
 
 from app.controllers import vendor_attachments
+from app.controllers import vendor_contacts
 from app.controllers.vendor import generate_vendor_code, vendor_controller
 from app.controllers.vendor_entities import entity_context, entity_fields, resolve_entity
 from app.core.dependency import DependAuth
@@ -22,6 +23,27 @@ from app.schemas.vendors import VendorCreate, VendorUpdate
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+@router.get("/contacts/list", summary="供应商联系人列表")
+async def list_vendor_contacts():
+    return Success(data=await vendor_contacts.list_contacts())
+
+
+@router.post("/contacts/create", summary="新增供应商联系人")
+async def create_vendor_contact(payload: vendor_contacts.ContactInput):
+    return Success(data=await vendor_contacts.save_contact(payload))
+
+
+@router.post("/contacts/update", summary="编辑供应商联系人")
+async def update_vendor_contact(payload: vendor_contacts.ContactUpdate):
+    return Success(data=await vendor_contacts.save_contact(payload, payload.id))
+
+
+@router.delete("/contacts/delete", summary="删除供应商联系人")
+async def delete_vendor_contact(contact_id: str = Query(..., min_length=1, max_length=80)):
+    await vendor_contacts.delete_contact(contact_id)
+    return Success(msg="联系人已删除")
 
 
 @router.get("/next-code", summary="预览供应商编号")
