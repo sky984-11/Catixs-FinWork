@@ -277,10 +277,10 @@ async def init_menus():
     await ensure_finance_quote_menu()
     await remove_inventory_sale_menu()
     await ensure_customer_project_menu()
+    await ensure_vendor_center_menu()
     await ensure_requirement_menu()
     await ensure_resource_menu()
     await ensure_customer_center_menu()
-    await ensure_vendor_center_menu()
     await ensure_product_center_menu()
     await remove_disabled_feature_menus()
     await ensure_task_menu()
@@ -455,7 +455,7 @@ async def ensure_product_center_menu():
     product_menu = await ensure_menu_catalog(
         name="产品中心",
         path="/product-center",
-        order=4,
+        order=5,
         icon="mdi:cube-outline",
         redirect="/product-center/products",
     )
@@ -541,7 +541,7 @@ async def ensure_service_module_menus():
     ops_menu = await ensure_menu_catalog(
         name="运维中心",
         path="/ops",
-        order=3,
+        order=4,
         icon="mdi:tools",
         redirect="/ticket",
     )
@@ -1168,7 +1168,7 @@ async def ensure_requirement_menu():
     values = {
         "name": "需求管理",
         "path": "/requirements",
-        "order": 3,
+        "order": 6,
         "parent_id": 0,
         "icon": "mdi:clipboard-list-outline",
         "is_hidden": False,
