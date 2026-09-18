@@ -55,8 +55,8 @@
 
         <n-space>
           <CButton
-            show-edit
             show-delete
+            show-edit
             :disabled="!vendor"
             :edit-loading="editLoading"
             :delete-loading="deleteLoading"
@@ -70,6 +70,26 @@
     <!-- Tabs -->
     <n-card :bordered="false" class="mt">
       <n-tabs type="line" animated>
+        <n-tab-pane name="contacts" tab="供应商联系人">
+          <n-empty v-if="!vendor.contacts?.length" description="暂无供应商联系人" />
+          <n-descriptions
+            v-for="contact in vendor.contacts || []"
+            :key="contact.id"
+            :title="contact.name || contact.email"
+            :column="2"
+            bordered
+            class="mb-16"
+          >
+            <n-descriptions-item label="邮箱">{{ contact.email || '-' }}</n-descriptions-item>
+            <n-descriptions-item label="电话">{{ contact.phone || '-' }}</n-descriptions-item>
+            <n-descriptions-item label="地址" :span="2">{{
+              contact.address || '-'
+            }}</n-descriptions-item>
+            <n-descriptions-item label="备注" :span="2"
+              ><div class="contact-text">{{ contact.remark || '-' }}</div></n-descriptions-item
+            >
+          </n-descriptions>
+        </n-tab-pane>
         <n-tab-pane name="attachments" tab="供应商附件">
           <VendorAttachments :model-value="vendor.attachments || []" readonly />
         </n-tab-pane>

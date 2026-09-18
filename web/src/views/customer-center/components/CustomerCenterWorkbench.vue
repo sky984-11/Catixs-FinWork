@@ -217,51 +217,15 @@
         <template #footer><ModalFooter :loading="contractModal.loading" @cancel="contractModal.show = false" @save="saveContract" /></template>
       </n-modal>
 
-      <n-modal
+      <ContactEditorModal
         v-model:show="contactModal.show"
-        preset="card"
-        :title="contactModal.form.id ? '编辑联系人' : '新增联系人'"
-        class="crm-modal contact-modal"
-        style="width: min(720px, calc(100vw - 32px))"
-      >
-        <div class="contact-modal__intro">
-          <span class="contact-modal__icon">
-            <TheIcon icon="mdi:card-account-phone-outline" :size="24" />
-          </span>
-          <div>
-            <strong>{{ contactModal.form.contact_type === 'group' ? '维护组邮箱' : '维护客户联系人' }}</strong>
-            <p>用于记录客户侧商务、技术、财务、运维或紧急沟通入口。</p>
-          </div>
-        </div>
-        <n-form :model="contactModal.form" label-placement="top" class="contact-form">
-          <section class="form-section">
-            <div class="form-section__head">
-              <span>归属与身份</span>
-              <small>确认联系人归属客户、类型和沟通角色</small>
-            </div>
-            <n-grid :cols="2" :x-gap="16" :y-gap="2" responsive="screen">
-              <n-form-item-gi label="所属客户" required :span="2"><n-select v-model:value="contactModal.form.customer_ids" multiple filterable :options="options.customers" placeholder="请选择客户" /></n-form-item-gi>
-              <n-form-item-gi label="联系人类型"><n-select v-model:value="contactModal.form.contact_type" :options="options.contactTypes" /></n-form-item-gi>
-              <n-form-item-gi label="联系人角色"><n-select v-model:value="contactModal.form.role" multiple :options="options.contactRoles" /></n-form-item-gi>
-              <n-form-item-gi :label="contactModal.form.contact_type === 'group' ? '组名 / 部门名' : '联系人姓名'" :span="2"><n-input v-model:value="contactModal.form.name" :placeholder="contactModal.form.contact_type === 'group' ? '如：NOC / Accounting / Billing' : '请输入联系人姓名'" /></n-form-item-gi>
-            </n-grid>
-          </section>
-
-          <section class="form-section">
-            <div class="form-section__head">
-              <span>联系方式</span>
-              <small>组邮箱可只维护邮箱，个人联系人可补充电话和地址</small>
-            </div>
-            <n-grid :cols="2" :x-gap="16" :y-gap="2" responsive="screen">
-              <n-form-item-gi label="邮箱"><n-input v-model:value="contactModal.form.email" placeholder="name@example.com" /></n-form-item-gi>
-              <n-form-item-gi label="电话"><n-input v-model:value="contactModal.form.phone" placeholder="国家码 + 电话号码" /></n-form-item-gi>
-              <n-form-item-gi label="联系地址" :span="2"><n-input v-model:value="contactModal.form.address" placeholder="可填写办公地址、邮寄地址或所在地" /></n-form-item-gi>
-              <n-form-item-gi label="备注" :span="2"><n-input v-model:value="contactModal.form.remark" type="textarea" placeholder="内部备注、沟通偏好、账单抄送说明等" /></n-form-item-gi>
-            </n-grid>
-          </section>
-        </n-form>
-        <template #footer><ModalFooter :loading="contactModal.loading" @cancel="contactModal.show = false" @save="saveContact" /></template>
-      </n-modal>
+        :form="contactModal.form"
+        :loading="contactModal.loading"
+        :owners="options.customers"
+        :roles="options.contactRoles"
+        :types="options.contactTypes"
+        @save="saveContact"
+      />
 
       <n-modal v-model:show="billModal.show" preset="card" :title="billModal.form.id ? '编辑账单' : '新增账单'" class="crm-modal">
         <n-form :model="billModal.form" label-placement="top">
@@ -313,6 +277,7 @@ import {
   NTag,
 } from 'naive-ui'
 import api from '@/api'
+import ContactEditorModal from '@/components/business/ContactEditorModal.vue'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import { buildCustomerRegionOptions, customerRegionFilter } from '@/utils/customer-region'
 

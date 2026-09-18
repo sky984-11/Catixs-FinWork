@@ -262,6 +262,113 @@ class VendorCenterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.json()["data"]["noc_email"], "noc@example.test")
         self.assertEqual(response.json()["data"]["noc_phone"], "+1 555 0102")
 
+    async def test_contact_records_multiple_owners_and_independent_deletion(self):
+        from app.models.vendor_contact import VendorContact, VendorContactLink
+
+        first = (await self.create_vendor()).json()["data"]
+        second = (await self.create_vendor(name="Second vendor")).json()["data"]
+        payload = {
+            "vendor_ids": [first["id"], second["id"]],
+            "name": " Alice ",
+            "roles": ["business", "finance"],
+            "email": "alice@example.test",
+            "phone": "+1 555 0100",
+            "address": "Office",
+            "remark": "Billing copy",
+        }
+        response = await self.client.post("/vendor/contacts/create", json=payload)
+        self.assertEqual(response.status_code, 200, response.text)
+        contact = response.json()["data"]
+        self.assertEqual(contact["name"], "Alice")
+        self.assertEqual(set(contact["vendor_ids"]), {first["id"], second["id"]})
+        group = await self.client.post("/vendor/contacts/create", json={**payload, "name": "", "contact_type": "group"})
+        self.assertEqual(group.status_code, 200, group.text)
+        changed = await self.client.post(
+            "/vendor/contacts/update",
+            json={**payload, "id": contact["id"], "vendor_ids": [second["id"]], "roles": ["ops"]},
+        )
+        self.assertEqual(changed.status_code, 200, changed.text)
+        self.assertEqual(changed.json()["data"]["vendor_ids"], [second["id"]])
+        self.assertEqual(changed.json()["data"]["roles"], ["ops"])
+        detail = await self.client.get("/vendor/get", params={"vendor_id": second["id"]})
+        self.assertEqual(len(detail.json()["data"]["contacts"]), 2)
+        blocked = await self.client.delete("/vendor/delete", params={"vendor_id": second["id"]})
+        self.assertEqual(blocked.status_code, 409)
+        deleted = await self.client.delete("/vendor/contacts/delete", params={"contact_id": contact["id"]})
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        self.assertFalse(await VendorContactLink.filter(contact_id=int(contact["id"])).exists())
+        self.assertEqual(await VendorContact.all().count(), 1)
+        self.assertTrue(await Company.filter(id=second["id"]).exists())
+
+    async def test_contact_record_validation_and_permissions(self):
+        vendor = (await self.create_vendor()).json()["data"]
+        payload = {"vendor_ids": [vendor["id"]], "name": "Example"}
+        for invalid in (
+            {"vendor_ids": []},
+            {"name": " "},
+            {"email": "bad"},
+            {"roles": ["unknown"]},
+            {"name": "x" * 101},
+            {"contact_type": "unknown"},
+        ):
+            response = await self.client.post("/vendor/contacts/create", json={**payload, **invalid})
+            self.assertEqual(response.status_code, 422, response.text)
+        for ids in ([self.entity.id], [999999]):
+            response = await self.client.post("/vendor/contacts/create", json={**payload, "vendor_ids": ids})
+            self.assertEqual(response.status_code, 400)
+        self.user.is_superuser = False
+        for method, path, kwargs in [
+            ("GET", "/vendor/contacts/list", {}),
+            ("POST", "/vendor/contacts/create", {"json": payload}),
+            ("POST", "/vendor/contacts/update", {"json": {**payload, "id": "1"}}),
+            ("DELETE", "/vendor/contacts/delete", {"params": {"contact_id": "1"}}),
+        ]:
+            self.assertEqual((await self.client.request(method, path, **kwargs)).status_code, 403)
+        self.app.dependency_overrides.clear()
+        self.assertIn((await self.client.get("/vendor/contacts/list")).status_code, (401, 422))
+
+    async def test_legacy_contact_conversion_preserves_other_roles_and_rejects_stale_edits(self):
+        vendor = (
+            await self.create_vendor(
+                sales_contact="Alex\nalex@example.test", billing_contact="Billing", noc_email="noc@example.test"
+            )
+        ).json()["data"]
+        rows = (await self.client.get("/vendor/contacts/list")).json()["data"]
+        row = next(item for item in rows if item["id"].endswith(":sales_contact"))
+        self.assertEqual(row["remark"], "Alex\nalex@example.test")
+        response = await self.client.post(
+            "/vendor/contacts/update", json={**row, "name": "Alex", "contact_type": "person"}
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertFalse(response.json()["data"]["id"].startswith("legacy:"))
+        stored = await Company.get(id=vendor["id"])
+        self.assertEqual(stored.sales_contact, "")
+        self.assertEqual(stored.billing_contact, "Billing")
+        self.assertEqual(stored.noc_email, "noc@example.test")
+        self.assertEqual((await self.client.post("/vendor/contacts/update", json=row)).status_code, 404)
+        self.assertEqual(
+            (
+                await self.client.delete(
+                    "/vendor/contacts/delete", params={"contact_id": f"legacy:{vendor['id']}:noc_contact"}
+                )
+            ).status_code,
+            200,
+        )
+        self.assertEqual((await Company.get(id=vendor["id"])).noc_email, "")
+
+    async def test_contact_write_rolls_back_links_and_legacy_source_on_failure(self):
+        from app.models.vendor_contact import VendorContact, VendorContactLink
+        from app.controllers.vendor_contacts import ContactInput, save_contact
+
+        vendor = (await self.create_vendor(sales_contact="Legacy source")).json()["data"]
+        with patch.object(VendorContactLink, "create", side_effect=RuntimeError("synthetic failure")):
+            with self.assertRaises(RuntimeError):
+                await save_contact(
+                    ContactInput(vendor_ids=[vendor["id"]], name="New"), f"legacy:{vendor['id']}:sales_contact"
+                )
+        self.assertEqual(await VendorContact.all().count(), 0)
+        self.assertEqual((await Company.get(id=vendor["id"])).sales_contact, "Legacy source")
+
     async def test_startup_schema_upgrade_preserves_legacy_rows_and_is_repeatable(self):
         connection = Company._meta.db
         for name in ("payment_terms", "sales_contact", "billing_contact", "noc_contact", "signing_entity_id"):

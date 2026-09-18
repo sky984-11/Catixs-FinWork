@@ -61,6 +61,7 @@ async def vendor_data(vendor: Company) -> dict:
         vendor_attachments.attachment_data(item)
         for item in await VendorAttachment.filter(vendor_id=vendor.id).order_by("id")
     ]
+    data["contacts"] = await vendor_contacts.list_contacts(vendor.id)
     return data
 
 

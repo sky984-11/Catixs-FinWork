@@ -8,12 +8,19 @@ from tortoise.transactions import in_transaction
 from app.models.company import Company
 from app.models.vendor_contact import VendorContact, VendorContactLink
 
-ROLES = {"business": "商务", "technical": "技术", "finance": "财务", "noc": "运维 / NOC", "emergency": "紧急", "company": "公司"}
+ROLES = {
+    "business": "商务联系人",
+    "procurement": "采购联系人",
+    "technical": "技术联系人",
+    "finance": "财务联系人",
+    "ops": "运维联系人",
+    "emergency": "紧急联系人",
+}
 LEGACY = {
-    "company_contact": ("company", ("company_email", "company_phone")),
+    "company_contact": ("business", ("company_email", "company_phone")),
     "sales_contact": ("business", ("sales_contact",)),
     "billing_contact": ("finance", ("billing_contact",)),
-    "noc_contact": ("noc", ("noc_contact", "noc_email", "noc_phone")),
+    "noc_contact": ("ops", ("noc_contact", "noc_email", "noc_phone")),
 }
 
 
@@ -21,7 +28,7 @@ class ContactInput(BaseModel):
     vendor_ids: list[int] = Field(min_length=1, max_length=100)
     contact_type: Literal["person", "group"] = "person"
     name: str = Field("", max_length=100)
-    roles: list[Literal["business", "technical", "finance", "noc", "emergency", "company"]] = Field(
+    roles: list[Literal["business", "procurement", "technical", "finance", "ops", "emergency"]] = Field(
         default_factory=lambda: ["business"], min_length=1, max_length=6
     )
     email: str = Field("", max_length=200)
@@ -54,7 +61,9 @@ class ContactUpdate(ContactInput):
 async def serialize(contact):
     data = await contact.to_dict()
     vendors = [link.vendor for link in await contact.links.all().prefetch_related("vendor")]
-    data.update(id=str(contact.id), vendor_ids=[v.id for v in vendors], vendor_name="、".join(v.name or "" for v in vendors))
+    data.update(
+        id=str(contact.id), vendor_ids=[v.id for v in vendors], vendor_name="、".join(v.name or "" for v in vendors)
+    )
     return data
 
 
@@ -65,18 +74,28 @@ def legacy_row(vendor, key):
     email_field = "company_email" if key == "company_contact" else "noc_email" if key == "noc_contact" else None
     phone_field = "company_phone" if key == "company_contact" else "noc_phone" if key == "noc_contact" else None
     return {
-        "id": f"legacy:{vendor.id}:{key}", "vendor_ids": [vendor.id], "vendor_name": vendor.name,
-        "contact_type": "group", "name": ROLES[role], "roles": [role],
+        "id": f"legacy:{vendor.id}:{key}",
+        "vendor_ids": [vendor.id],
+        "vendor_name": vendor.name,
+        "contact_type": "group",
+        "name": ROLES[role],
+        "roles": [role],
         "email": getattr(vendor, email_field) or "" if email_field else "",
         "phone": getattr(vendor, phone_field) or "" if phone_field else "",
-        "address": "", "remark": getattr(vendor, key) or "" if key != "company_contact" else "",
+        "address": "",
+        "remark": getattr(vendor, key) or "" if key != "company_contact" else "",
         "legacy": True,
     }
 
 
-async def list_contacts():
-    rows = [await serialize(contact) for contact in await VendorContact.all().order_by("-id")]
-    for vendor in await Company.filter(role=2).order_by("id"):
+async def list_contacts(vendor_id=None):
+    query = VendorContact.all()
+    vendors = Company.filter(role=2)
+    if vendor_id is not None:
+        query = query.filter(links__vendor_id=vendor_id)
+        vendors = vendors.filter(id=vendor_id)
+    rows = [await serialize(contact) for contact in await query.order_by("-id")]
+    for vendor in await vendors.order_by("id"):
         rows.extend(row for key in LEGACY if (row := legacy_row(vendor, key)))
     return rows
 
