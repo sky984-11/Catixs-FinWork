@@ -429,6 +429,7 @@ def build_project_task_due_card(
     due_date: str,
     assignee: str | None = None,
     customer_name: str | None = None,
+    party_label: str = "客户",
     project_code: str | None = None,
     remark: str | None = None,
     url: str | None = None,
@@ -442,7 +443,7 @@ def build_project_task_due_card(
         ("负责人", assignee or "未设置"),
     ]
     if customer_name:
-        fields.append(("客户", customer_name))
+        fields.append((party_label, customer_name))
     if project_code:
         fields.append(("项目编号", project_code))
     if remark:
@@ -461,6 +462,7 @@ def build_project_due_card(
     due_date: str,
     owner: str | None = None,
     customer_name: str | None = None,
+    party_label: str = "客户",
     project_code: str | None = None,
     progress: int | None = None,
     url: str | None = None,
@@ -473,7 +475,7 @@ def build_project_due_card(
         ("负责人", owner or "未设置"),
     ]
     if customer_name:
-        fields.append(("客户", customer_name))
+        fields.append((party_label, customer_name))
     if project_code:
         fields.append(("项目编号", project_code))
     if progress is not None:

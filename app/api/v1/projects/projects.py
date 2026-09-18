@@ -12,6 +12,7 @@ from tortoise.expressions import Q
 from app.controllers.project import customer_project_controller
 from app.core.ctx import CTX_USER_ID
 from app.models.admin import User
+from app.models.company import Company
 from app.models.project import (
     CustomerProject,
     CustomerProjectAttachment,
@@ -28,7 +29,11 @@ from app.schemas.projects import (
     ProjectTaskCreate,
     ProjectTaskUpdate,
 )
-from app.services.project_task_notifier import notify_project_created, notify_project_shared, notify_project_task_created
+from app.services.project_task_notifier import (
+    notify_project_created,
+    notify_project_shared,
+    notify_project_task_created,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +59,9 @@ async def serialize_project(project: CustomerProject) -> dict:
     data["customer_id"] = data.get("crm_customer_id")
     data["customer_name"] = customer.name if customer else ""
     data["customer_legal_name"] = customer.legal_name if customer else ""
+    vendor = await project.vendor if data.get("vendor_id") else None
+    data["vendor_name"] = (vendor.name or vendor.legal_name or "") if vendor else ""
+    data["vendor_legal_name"] = (vendor.legal_name or "") if vendor else ""
     tasks = await CustomerProjectTask.filter(project_id=project.id, is_done=False).order_by("due_date", "sort_order")
     data["open_tasks"] = [
         {
@@ -181,6 +189,25 @@ def normalize_project_payload(payload: dict) -> dict:
     return payload
 
 
+async def validate_project_party(payload: dict, existing: CustomerProject | None = None) -> None:
+    project_type = payload.get("project_type", existing.project_type if existing else "customer")
+    vendor_id = payload.get("vendor_id", existing.vendor_id if existing else None)
+    customer_id = payload.get("crm_customer_id", existing.crm_customer_id if existing else None)
+    if project_type == "vendor":
+        if payload.get("crm_customer_id"):
+            raise HTTPException(400, "供应商项目不能同时关联客户")
+        if not vendor_id or not await Company.filter(id=vendor_id, role=2).exists():
+            raise HTTPException(400, "请选择有效的供应商")
+        payload["customer_id"] = None
+        payload["crm_customer_id"] = None
+    else:
+        if payload.get("vendor_id"):
+            raise HTTPException(400, "客户项目不能同时关联供应商")
+        payload["vendor_id"] = None
+        if existing and existing.project_type == "vendor" and not customer_id:
+            raise HTTPException(400, "切换为客户项目时请选择客户")
+
+
 def project_integrity_error_response(exc: IntegrityError) -> Success:
     message = str(exc)
     if "code" in message.lower():
@@ -215,6 +242,8 @@ async def list_project(
     page_size: int = Query(100, description="每页数量"),
     keyword: str = Query("", description="项目名、编号、合同号或负责人"),
     customer_id: int | None = Query(None, description="客户ID"),
+    vendor_id: int | None = Query(None, gt=0, description="供应商ID"),
+    project_type: str = Query("", pattern="^(customer|vendor)?$", description="项目类型"),
     status: str = Query("", description="项目状态"),
     priority: str = Query("", description="优先级"),
     health: str = Query("", description="健康度"),
@@ -239,6 +268,10 @@ async def list_project(
         )
     if customer_id:
         q &= Q(crm_customer_id=customer_id)
+    if vendor_id:
+        q &= Q(vendor_id=vendor_id)
+    if project_type:
+        q &= Q(project_type=project_type)
     if status:
         q &= Q(status=status)
     if priority:
@@ -270,10 +303,10 @@ async def get_project(project_id: int | None = Query(None, description="项目ID
 
 @router.post("/create", summary="创建客户项目")
 async def create_project(project_in: CustomerProjectCreate):
+    payload = normalize_project_payload(project_in.model_dump())
+    await validate_project_party(payload)
     try:
-        project_obj = await customer_project_controller.create(
-            normalize_project_payload(project_in.model_dump())
-        )
+        project_obj = await customer_project_controller.create(payload)
     except IntegrityError as exc:
         return project_integrity_error_response(exc)
     except Exception as exc:
@@ -300,6 +333,7 @@ async def update_project(project_in: CustomerProjectUpdate):
         logger.exception("project update load failed: project_id=%s", project_in.id)
         return Success(msg=f"项目读取失败：{exc}", code=500)
     await ensure_project_access(existing_project)
+    await validate_project_party(payload, existing_project)
     current_user = await get_current_project_user()
     if "shared_users" in payload and not can_manage_project_share(existing_project, current_user):
         raise HTTPException(status_code=403, detail="Only project owner or admin can share project")

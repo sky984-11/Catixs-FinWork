@@ -2790,8 +2790,8 @@ async def init_db():
     await ensure_finance_quote_columns()
     await ensure_remote_assistance_datetime_columns()
     await ensure_tg_assistant_tables()
-    await Tortoise.generate_schemas(safe=True)
-    await ensure_billing_product_templates()
+    # Existing tables must be migrated before schema generation emits comments or
+    # indexes referring to newly added columns (for example project_type).
     if os.getenv("AUTO_DB_MIGRATE", "false").lower() in {"1", "true", "yes", "on"}:
         try:
             await command.migrate()
@@ -2806,6 +2806,8 @@ async def init_db():
         if not is_ignorable_asset_migration_error(exc):
             raise
         logger.warning("asset compatibility columns already exist, skipped duplicate migration")
+    await Tortoise.generate_schemas(safe=True)
+    await ensure_billing_product_templates()
     logger.info("database schema checked, missing tables have been created")
 
 

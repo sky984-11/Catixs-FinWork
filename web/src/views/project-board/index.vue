@@ -27,7 +27,6 @@ import {
 } from 'naive-ui'
 
 import CommonPage from '@/components/page/CommonPage.vue'
-import CrudModal from '@/components/table/CrudModal.vue'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import CButton from '@/components/public/CButton.vue'
 import api from '@/api'
@@ -47,6 +46,7 @@ const detailLoading = ref(false)
 const activeDetailTab = ref('overview')
 const projects = ref([])
 const customerList = ref([])
+const vendorList = ref([])
 const userList = ref([])
 const detailProject = ref(null)
 const draggedProject = ref(null)
@@ -79,7 +79,7 @@ const taskContextMenu = reactive({
 })
 const queryItems = reactive({
   keyword: '',
-  customer_id: null,
+  party: null,
   priority: '',
   health: '',
 })
@@ -120,6 +120,25 @@ let progressSaveTimer = null
 let progressSaveSeq = 0
 
 const modalTitle = computed(() => (modalAction.value === 'add' ? '新增项目' : '编辑项目'))
+const projectTypeOptions = [
+  { label: '客户项目', value: 'customer' },
+  { label: '供应商项目', value: 'vendor' },
+]
+const vendorOptions = computed(() =>
+  vendorList.value.map((item) => ({
+    label: item.name || item.legal_name || item.code,
+    value: item.id,
+    searchText: buildPinyinSearchText([item.name, item.legal_name, item.code]),
+  }))
+)
+const partyFilterOptions = computed(() => [
+  ...customerOptions.value.map((item) => ({ ...item, value: `customer:${item.value}` })),
+  ...vendorOptions.value.map((item) => ({
+    ...item,
+    label: `供应商 · ${item.label}`,
+    value: `vendor:${item.value}`,
+  })),
+])
 const customerOptions = computed(() =>
   customerList.value.map((item) => {
     const mainLabel = getCustomerMainLabel(item)
@@ -159,12 +178,17 @@ const visibleProjects = computed(() =>
         project.name,
         project.code,
         project.customer_name,
+        project.vendor_name,
         project.contract_no,
         project.owner,
       ].join(' ').toLowerCase()
       if (!haystack.includes(keyword)) return false
     }
-    if (queryItems.customer_id && project.customer_id !== queryItems.customer_id) return false
+    if (queryItems.party) {
+      const party =
+        project.project_type === 'vendor' ? `vendor:${project.vendor_id}` : `customer:${project.customer_id}`
+      if (party !== queryItems.party) return false
+    }
     if (queryItems.priority && project.priority !== queryItems.priority) return false
     if (queryItems.health && project.health !== queryItems.health) return false
     return project.status !== 'archived'
@@ -214,9 +238,16 @@ const rules = {
   customer_id: [
     {
       validator: (_rule, value) => {
+        if (modalForm.project_type === 'vendor') return true
         if (value || (modalAction.value === 'edit' && modalForm.legacy_customer_id)) return true
         return new Error('请选择客户')
       },
+      trigger: 'change',
+    },
+  ],
+  vendor_id: [
+    {
+      validator: (_rule, value) => modalForm.project_type !== 'vendor' || !!value || new Error('请选择供应商'),
       trigger: 'change',
     },
   ],
@@ -229,6 +260,9 @@ function createEmptyForm() {
     name: '',
     code: '',
     customer_id: null,
+    legacy_customer_id: null,
+    vendor_id: null,
+    project_type: 'customer',
     status: 'planning',
     priority: 'medium',
     health: 'green',
@@ -274,6 +308,28 @@ async function loadCustomers() {
     contract_company_name: item.signing_entity_name || '',
     code: item.customer_code || '',
   }))
+}
+
+async function loadVendors() {
+  try {
+    const res = await api.getVendorList({ page: 1, page_size: 9999 })
+    vendorList.value = res?.data || []
+  } catch {
+    window.$message?.error?.('供应商列表加载失败，请刷新后重试')
+  }
+}
+
+function changeProjectType() {
+  modalForm.customer_id = null
+  modalForm.legacy_customer_id = null
+  modalForm.vendor_id = null
+  modalFormRef.value?.restoreValidation()
+}
+
+function getProjectPartyLabel(project) {
+  return project.project_type === 'vendor'
+    ? `供应商 · ${project.vendor_name || '未绑定供应商'}`
+    : project.customer_name || '未绑定客户'
 }
 
 async function loadUsers() {
@@ -383,6 +439,7 @@ function openEdit(project) {
 }
 
 async function handleSave() {
+  if (modalLoading.value) return
   try {
     modalLoading.value = true
     await modalFormRef.value?.validate()
@@ -457,6 +514,8 @@ function buildProjectUpdatePayload(project, progress) {
     name: project.name,
     code: project.code || '',
     customer_id: project.customer_id,
+    vendor_id: project.vendor_id || null,
+    project_type: project.project_type || 'customer',
     status: project.status || 'planning',
     priority: project.priority || 'medium',
     health: project.health || 'green',
@@ -822,7 +881,7 @@ async function onDrop(status) {
 
 function clearFilters() {
   queryItems.keyword = ''
-  queryItems.customer_id = null
+  queryItems.party = null
   queryItems.priority = ''
   queryItems.health = ''
 }
@@ -1058,7 +1117,7 @@ function toggleTaskCollapse(task) {
 }
 
 onMounted(async () => {
-  await Promise.all([loadCustomers(), loadUsers()])
+  await Promise.all([loadCustomers(), loadVendors(), loadUsers()])
   await loadProjects()
   await openDetailFromRoute()
 })
@@ -1087,17 +1146,17 @@ onMounted(async () => {
       <NInput
         v-model:value="queryItems.keyword"
         clearable
-        placeholder="搜索项目、客户、编号、合同、负责人"
+        placeholder="搜索项目、客户、供应商、编号、合同、负责人"
       />
       <NSelect
-        v-model:value="queryItems.customer_id"
+        v-model:value="queryItems.party"
         clearable
         filterable
-        :options="customerOptions"
+        :options="partyFilterOptions"
         :filter="pinyinOptionFilter"
-        :render-label="renderCustomerOptionLabel"
+        :render-label="(option) => (option.mainLabel ? renderCustomerOptionLabel(option) : option.label)"
         :show-checkmark="false"
-        placeholder="客户"
+        placeholder="客户 / 供应商"
       />
       <NSelect
         v-model:value="queryItems.priority"
@@ -1163,7 +1222,7 @@ onMounted(async () => {
             <div class="card-head">
               <div class="project-title">
                 <strong>{{ project.name }}</strong>
-                <span>{{ project.customer_name || '未绑定客户' }}</span>
+                <span>{{ getProjectPartyLabel(project) }}</span>
               </div>
               <NSpace size="small" :wrap="false" @click.stop>
                 <NTooltip trigger="hover" placement="top">
@@ -1280,7 +1339,7 @@ onMounted(async () => {
               <div class="detail-title-row">
                 <div>
                   <h2>{{ detailProject.name }}</h2>
-                  <p>{{ detailProject.customer_name || '未绑定客户' }}</p>
+                  <p>{{ getProjectPartyLabel(detailProject) }}</p>
                 </div>
                 <NSpace size="small">
                   <NTag :type="getPriorityType(detailProject.priority)" :bordered="false" round>
@@ -1693,100 +1752,317 @@ onMounted(async () => {
       </template>
     </NModal>
 
-    <CrudModal
-      v-model:visible="modalVisible"
-      width="860px"
+    <NModal
+      v-model:show="modalVisible"
+      preset="card"
+      class="project-form-modal"
+      style="width: min(820px, calc(100vw - 32px))"
       :title="modalTitle"
-      :loading="modalLoading"
-      @save="handleSave"
+      :bordered="false"
+      :mask-closable="false"
+      :closable="!modalLoading"
+      :close-on-esc="!modalLoading"
     >
+      <div class="project-form-intro">
+        <span class="project-form-icon">
+          <TheIcon icon="mdi:clipboard-text-outline" :size="24" />
+        </span>
+        <div>
+          <strong>{{ modalAction === 'add' ? '创建项目档案' : '维护项目档案' }}</strong>
+          <p>关联客户或供应商，明确负责人、交付计划和预算。</p>
+        </div>
+      </div>
       <NForm
         ref="modalFormRef"
-        label-placement="left"
-        label-align="left"
-        :label-width="90"
+        class="project-form"
+        label-placement="top"
         :model="modalForm"
         :rules="rules"
+        :disabled="modalLoading"
       >
-        <NGrid :cols="2" :x-gap="16">
-          <NFormItemGi label="项目名称" path="name">
-            <NInput v-model:value="modalForm.name" clearable maxlength="255" show-count />
-          </NFormItemGi>
-          <NFormItemGi label="项目编号" path="code">
-            <NInput v-model:value="modalForm.code" clearable />
-          </NFormItemGi>
-          <NFormItemGi label="客户" path="customer_id">
-            <NSelect
-              v-model:value="modalForm.customer_id"
-              filterable
-              clearable
-              :options="customerOptions"
-              :filter="pinyinOptionFilter"
-              :render-label="renderCustomerOptionLabel"
-              :show-checkmark="false"
-            />
-          </NFormItemGi>
-          <NFormItemGi label="合同编号" path="contract_no">
-            <NInput v-model:value="modalForm.contract_no" clearable />
-          </NFormItemGi>
-          <NFormItemGi label="状态" path="status">
-            <NSelect
-              v-model:value="modalForm.status"
-              :options="boardColumns.map((item) => ({ label: item.label, value: item.key }))"
-            />
-          </NFormItemGi>
-          <NFormItemGi label="优先级" path="priority">
-            <NSelect v-model:value="modalForm.priority" :options="priorityOptions" />
-          </NFormItemGi>
-          <NFormItemGi label="健康度" path="health">
-            <NSelect v-model:value="modalForm.health" :options="healthOptions" />
-          </NFormItemGi>
-          <NFormItemGi label="负责人" path="owner">
-            <NSelect
-              v-model:value="modalForm.owner"
-              filterable
-              :options="userOptions"
-            />
-          </NFormItemGi>
-          <NFormItemGi label="开始日期" path="start_date">
-            <NDatePicker
-              v-model:formatted-value="modalForm.start_date"
-              type="date"
-              value-format="yyyy-MM-dd"
-              clearable
-            />
-          </NFormItemGi>
-          <NFormItemGi label="截止日期" path="due_date">
-            <NDatePicker
-              v-model:formatted-value="modalForm.due_date"
-              type="date"
-              value-format="yyyy-MM-dd"
-              clearable
-            />
-          </NFormItemGi>
-          <NFormItemGi label="项目进度" path="progress">
-            <NInputNumber v-model:value="modalForm.progress" :min="0" :max="100" :precision="0" />
-          </NFormItemGi>
-          <NFormItemGi label="预算币种" path="budget_currency">
-            <NSelect v-model:value="modalForm.budget_currency" filterable tag :options="currencyOptions" />
-          </NFormItemGi>
-          <NFormItemGi label="预算金额" path="budget_amount">
-            <NInputNumber v-model:value="modalForm.budget_amount" :min="0" :precision="2" />
-          </NFormItemGi>
-          <NFormItemGi :span="2" label="项目说明" path="description">
-            <NInput
-              v-model:value="modalForm.description"
-              type="textarea"
-              :autosize="{ minRows: 3, maxRows: 6 }"
-            />
-          </NFormItemGi>
-        </NGrid>
+        <section class="project-form-section">
+          <div class="project-form-section-head">
+            <span>基本信息</span>
+            <small>项目识别、关联对象与负责人</small>
+          </div>
+          <NGrid cols="1 620:2" :x-gap="16" :y-gap="2">
+            <NFormItemGi label="项目名称" path="name">
+              <NInput
+                v-model:value="modalForm.name"
+                placeholder="请输入项目名称"
+                clearable
+                maxlength="255"
+                show-count
+              />
+            </NFormItemGi>
+            <NFormItemGi label="项目编号" path="code">
+              <NInput v-model:value="modalForm.code" placeholder="请输入项目编号（选填）" clearable />
+            </NFormItemGi>
+            <NFormItemGi label="项目类型" path="project_type">
+              <NSelect
+                v-model:value="modalForm.project_type"
+                :options="projectTypeOptions"
+                @update:value="changeProjectType"
+              />
+            </NFormItemGi>
+            <NFormItemGi
+              v-if="modalForm.project_type === 'vendor'"
+              label="供应商"
+              path="vendor_id"
+              required
+            >
+              <NSelect
+                v-model:value="modalForm.vendor_id"
+                filterable
+                clearable
+                :options="vendorOptions"
+                :filter="pinyinOptionFilter"
+                placeholder="请选择供应商"
+              />
+            </NFormItemGi>
+            <NFormItemGi v-else label="客户" path="customer_id" required>
+              <NSelect
+                v-model:value="modalForm.customer_id"
+                filterable
+                clearable
+                :options="customerOptions"
+                :filter="pinyinOptionFilter"
+                :render-label="renderCustomerOptionLabel"
+                :show-checkmark="false"
+                placeholder="请选择客户"
+              />
+            </NFormItemGi>
+            <NFormItemGi label="负责人" path="owner">
+              <NSelect
+                v-model:value="modalForm.owner"
+                filterable
+                :options="userOptions"
+                placeholder="请选择负责人"
+              />
+            </NFormItemGi>
+            <NFormItemGi label="合同编号" path="contract_no">
+              <NInput
+                v-model:value="modalForm.contract_no"
+                placeholder="请输入关联合同编号（选填）"
+                clearable
+              />
+            </NFormItemGi>
+          </NGrid>
+        </section>
+        <section class="project-form-section">
+          <div class="project-form-section-head">
+            <span>交付计划</span>
+            <small>排期、进度与风险管理</small>
+          </div>
+          <NGrid cols="1 620:2" :x-gap="16" :y-gap="2">
+            <NFormItemGi label="状态" path="status">
+              <NSelect
+                v-model:value="modalForm.status"
+                :options="boardColumns.map((item) => ({ label: item.label, value: item.key }))"
+              />
+            </NFormItemGi>
+            <NFormItemGi label="优先级" path="priority">
+              <NSelect v-model:value="modalForm.priority" :options="priorityOptions" />
+            </NFormItemGi>
+            <NFormItemGi label="健康度" path="health">
+              <NSelect v-model:value="modalForm.health" :options="healthOptions" />
+            </NFormItemGi>
+            <NFormItemGi label="项目进度" path="progress">
+              <NInputNumber v-model:value="modalForm.progress" :min="0" :max="100" :precision="0">
+                <template #suffix>%</template>
+              </NInputNumber>
+            </NFormItemGi>
+            <NFormItemGi label="开始日期" path="start_date">
+              <NDatePicker
+                v-model:formatted-value="modalForm.start_date"
+                type="date"
+                value-format="yyyy-MM-dd"
+                clearable
+              />
+            </NFormItemGi>
+            <NFormItemGi label="截止日期" path="due_date">
+              <NDatePicker
+                v-model:formatted-value="modalForm.due_date"
+                type="date"
+                value-format="yyyy-MM-dd"
+                clearable
+              />
+            </NFormItemGi>
+          </NGrid>
+        </section>
+        <section class="project-form-section">
+          <div class="project-form-section-head">
+            <span>预算与说明</span>
+            <small>费用预估与项目背景 · 选填</small>
+          </div>
+          <NGrid cols="1 620:2" :x-gap="16" :y-gap="2">
+            <NFormItemGi label="预算币种" path="budget_currency">
+              <NSelect
+                v-model:value="modalForm.budget_currency"
+                filterable
+                tag
+                :options="currencyOptions"
+              />
+            </NFormItemGi>
+            <NFormItemGi label="预算金额" path="budget_amount">
+              <NInputNumber v-model:value="modalForm.budget_amount" :min="0" :precision="2" />
+            </NFormItemGi>
+          </NGrid>
+          <NGrid :cols="1">
+            <NFormItemGi label="项目说明" path="description">
+              <NInput
+                v-model:value="modalForm.description"
+                type="textarea"
+                placeholder="记录交付范围、关键需求和需要协同的事项"
+                :autosize="{ minRows: 3, maxRows: 6 }"
+              />
+            </NFormItemGi>
+          </NGrid>
+        </section>
       </NForm>
-    </CrudModal>
+      <template #footer>
+        <div class="project-form-footer">
+          <span>标记 * 的字段为必填项</span>
+          <CButton
+            show-cancel
+            show-save
+            :save-loading="modalLoading"
+            :disabled="modalLoading"
+            @cancel="modalVisible = false"
+            @save="handleSave"
+          />
+        </div>
+      </template>
+    </NModal>
   </CommonPage>
 </template>
 
 <style scoped>
+.project-form-modal :deep(.n-card-header) {
+  padding: 20px 24px 12px;
+}
+
+.project-form-modal :deep(.n-card__content) {
+  padding: 0 24px 8px;
+  max-height: min(72vh, 720px);
+  overflow: auto;
+}
+
+.project-form-modal :deep(.n-card__footer) {
+  padding: 14px 24px 20px;
+  border-top: 1px solid #e8edf3;
+  background: #fbfdff;
+}
+
+.project-form-intro {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid #dceafe;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #f8fbff 0%, #eef8f5 100%);
+}
+
+.project-form-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  border-radius: 8px;
+  color: #0f766e;
+  background: #dff7f1;
+}
+
+.project-form-intro strong {
+  color: #0f172a;
+  font-size: 16px;
+}
+
+.project-form-intro p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.project-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.project-form :deep(.n-date-picker),
+.project-form :deep(.n-input-number) {
+  width: 100%;
+}
+
+.project-form-section {
+  padding: 14px 16px 2px;
+  border: 1px solid #e8edf3;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.project-form-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #edf2f7;
+}
+
+.project-form-section-head span {
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.project-form-section-head small,
+.project-form-footer > span {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.project-form-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+@media (max-width: 640px) {
+  .project-form-modal :deep(.n-card-header),
+  .project-form-modal :deep(.n-card__content),
+  .project-form-modal :deep(.n-card__footer) {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .project-form-intro {
+    align-items: flex-start;
+  }
+
+  .project-form-section {
+    padding: 12px 12px 0;
+  }
+
+  .project-form-section-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .project-form-footer {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+}
+
 :global(.n-base-select-option.customer-select-option .n-base-select-option__content) {
   display: flex;
   width: 100%;

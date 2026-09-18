@@ -92,7 +92,7 @@ async def notify_project_due(
     if not await claim_project_due_notification(project, stage, now):
         return False
 
-    customer = await project.customer if getattr(project, "customer_id", None) else None
+    party_label, party_name = await get_project_party(project)
     url = build_project_url(project.id)
     try:
         card = build_project_due_card(
@@ -100,7 +100,8 @@ async def notify_project_due(
             project_name=project.name,
             due_date=format_due_date(project.due_date),
             owner=project.owner,
-            customer_name=getattr(customer, "name", "") or getattr(customer, "legal_name", ""),
+            customer_name=party_name,
+            party_label=party_label,
             project_code=project.code,
             progress=project.progress,
             url=url,
@@ -291,7 +292,7 @@ async def notify_project_task(
     if not await claim_project_task_notification(task, stage, now):
         return False
 
-    customer = await project.customer if getattr(project, "customer_id", None) else None
+    party_label, party_name = await get_project_party(project)
     url = build_project_url(project.id, task.id)
     try:
         card = build_project_task_due_card(
@@ -300,7 +301,8 @@ async def notify_project_task(
             task_title=task.title,
             due_date=format_due_date(task.due_date),
             assignee=task.assignee,
-            customer_name=getattr(customer, "name", "") or getattr(customer, "legal_name", ""),
+            customer_name=party_name,
+            party_label=party_label,
             project_code=project.code,
             remark=task.remark,
             url=url,
@@ -354,12 +356,12 @@ async def notify_project_created(project: CustomerProject, creator: User | None 
     owner = str(project.owner or "").strip()
     if not owner or is_same_person(owner, creator):
         return False
-    customer = await project.customer if getattr(project, "customer_id", None) else None
+    party_label, party_name = await get_project_party(project)
     card = build_assignment_card(
         title="你有一个新的负责项目",
         fields=[
             ("项目", project.name),
-            ("客户", getattr(customer, "name", "") or getattr(customer, "legal_name", "") or "-"),
+            (party_label, party_name or "-"),
             ("项目编号", project.code or "-"),
             ("状态", project.status or "-"),
             ("ETA", project.due_date.isoformat() if project.due_date else "未设置"),
@@ -401,14 +403,14 @@ async def notify_project_shared(
     recipients = [user for user in unique_people(shared_users) if not is_same_person(user, sharer)]
     if not recipients:
         return 0
-    customer = await project.customer if getattr(project, "customer_id", None) else None
+    party_label, party_name = await get_project_party(project)
     sharer_name = get_user_display_name(sharer)
     card = build_assignment_card(
         title="你收到一个共享项目",
         fields=[
             ("分享人", sharer_name),
             ("项目", project.name),
-            ("客户", getattr(customer, "name", "") or getattr(customer, "legal_name", "") or "-"),
+            (party_label, party_name or "-"),
             ("项目编号", project.code or "-"),
             ("负责人", project.owner or "-"),
             ("ETA", project.due_date.isoformat() if project.due_date else "未设置"),
@@ -672,3 +674,15 @@ def unique_people(values: list[str]) -> list[str]:
         seen.add(item)
         result.append(item)
     return result
+
+
+async def get_project_party(project: CustomerProject) -> tuple[str, str]:
+    if getattr(project, "project_type", "customer") == "vendor":
+        party = await project.vendor if project.vendor_id else None
+        label = "供应商"
+    else:
+        party = await project.crm_customer if getattr(project, "crm_customer_id", None) else None
+        if party is None and getattr(project, "customer_id", None):
+            party = await project.customer
+        label = "客户"
+    return label, (getattr(party, "name", "") or getattr(party, "legal_name", "") or "")

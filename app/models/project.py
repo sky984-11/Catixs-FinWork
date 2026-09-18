@@ -4,6 +4,14 @@ from .base import BaseModel, TimestampMixin
 
 
 class CustomerProject(BaseModel, TimestampMixin):
+    project_type = fields.CharField(max_length=20, default="customer", description="客户或供应商项目")
+    vendor = fields.ForeignKeyField(
+        "models.Company",
+        related_name="vendor_projects",
+        null=True,
+        on_delete=fields.SET_NULL,
+        description="供应商",
+    )
     name = fields.CharField(max_length=255, description="项目名称", index=True)
     code = fields.CharField(max_length=50, null=True, description="项目编号", index=True, unique=True)
     customer = fields.ForeignKeyField(

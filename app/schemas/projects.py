@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -10,6 +10,8 @@ PROJECT_HEALTH = {"green", "yellow", "red"}
 
 
 class BaseCustomerProject(BaseModel):
+    project_type: Literal["customer", "vendor"] = "customer"
+    vendor_id: Optional[int] = None
     id: int
     name: str
     code: Optional[str] = None
@@ -32,6 +34,8 @@ class BaseCustomerProject(BaseModel):
 
 
 class CustomerProjectCreate(BaseModel):
+    project_type: Literal["customer", "vendor"] = "customer"
+    vendor_id: Optional[int] = Field(None, gt=0)
     name: str = Field(..., max_length=255)
     code: Optional[str] = Field(None, max_length=50)
     customer_id: Optional[int] = None
