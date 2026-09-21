@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FinWork · IDC工单至账单流程设计</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f6fa;color:#142438;font:15px/1.75 system-ui,"Microsoft YaHei",sans-serif}header{background:#12243b;color:#fff;padding:32px max(24px,5vw)}header p{color:#bbcadb;margin:8px 0}h1{font-size:28px;margin:0}main{max-width:1500px;margin:auto;padding:24px}section{background:#fff;border:1px solid #e0e7ef;border-radius:16px;margin-bottom:24px;padding:24px}h2{font-size:22px;margin:0 0 12px}a{color:#176bc1}header a{color:#bae1ff}.flow{overflow:auto}.flow svg{width:100%;height:auto;min-width:1000px;display:block}.controls{display:flex;flex-wrap:wrap;gap:16px;margin:18px 0}.controls label{min-width:210px;flex:1;color:#546277;font-size:13px}select{display:block;width:100%;margin-top:6px;border:1px solid #cad5e2;border-radius:8px;padding:10px;background:#fff;color:#142438;font:inherit;min-height:44px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.card{background:#f8fafd;padding:18px;border:1px solid #e4ebf3;border-radius:10px}.card strong{display:block;color:#245797;margin-bottom:8px}.note{border-left:4px solid #10968b;background:#effbf7;padding:12px 16px;margin-top:14px}.warn{border-color:#d89a21;background:#fff8e8}.muted{color:#66788e}.tag{display:inline-block;border:1px solid #bad9fc;background:#eff6ff;color:#2563a7;border-radius:5px;padding:2px 9px;font-size:12px;margin-right:8px}button{cursor:pointer;border:1px solid #cad5e2;background:#fff;border-radius:8px;padding:8px 14px;font:inherit}footer{padding:12px 24px 35px;color:#66788e;text-align:center}ul{padding-left:22px}nav{display:flex;gap:24px;margin-top:16px;flex-wrap:wrap}.hidden{display:none!important}@media(max-width:700px){main{padding:12px}section{padding:16px}.grid{grid-template-columns:1fr}h1{font-size:23px}}@media print{header{background:white;color:#142438}.controls,button,nav{display:none}.flow svg{min-width:0}section{break-inside:avoid}body{background:white}}
+</style></head><body>
+<header><span class="tag">设计稿 v1 · 2026-09-21</span><h1>从工单入口，到客户账单生成</h1><p>多级分类 · 按产品展示参数 · 交付验收 · 客户产品 · 计费追溯</p><nav><a href="#flow">总流程图</a><a href="#products">产品参数预览</a><a href="#rules">关键规则</a><a href="idc-ticket-to-billing-design.md">完整设计文档</a><a href="idc-ticket-to-billing-flow.svg" download>下载SVG流程图</a></nav></header>
+<main><section id="flow"><h2>01 / 业务总流程</h2><p class="muted">每行从左向右阅读，再进入下一阶段。窄屏可横向滚动；SVG可放大。完整分支图见设计文档。</p><div class="flow"><svg xmlns="http://www.w3.org/2000/svg" width="1560" height="1240" viewBox="0 0 1560 1240" role="img" aria-labelledby="title desc">
+<title id="title">FinWork IDC 工单到客户账单总流程</title>
+<desc id="desc">主流程按每行从左到右阅读：创建工单、选择分类和参数、报价、交付、验收、形成客户产品与费用、生成审核账单。故障维护默认不计费，楼宇接入和未知成本须询价。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#64748b"/></marker></defs>
+<rect width="1560" height="1240" fill="#f4f7fb"/>
+<text x="44" y="54" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="29" fill="#0f172a" font-weight="700">FINWORK / IDC 服务交付与计费</text>
+<text x="44" y="88" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="17" fill="#64748b" font-weight="400">设计稿 v1 · 工单结构化采集 → 客户产品 → 费用项目 → 客户账单</text>
+<rect x="28" y="125" width="1504" height="185" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+<text x="48" y="155" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="18" fill="#2563eb" font-weight="700">01 需求与分类</text>
+<text x="420" y="155" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#64748b" font-weight="400">销售 / 客户 / 技术</text>
+<rect x="48" y="173" width="275" height="116" rx="10" fill="#f8fafc" stroke="#dbe4ef"/>
+<rect x="48" y="173" width="5" height="116" rx="2" fill="#2563eb" stroke="none"/>
+<text x="66" y="203" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="18" fill="#0f172a" font-weight="700">创建工单</text>
+<text x="66" y="232" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">客户、签约主体、联系人</text>
+<text x="66" y="257" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">工单类型与业务动作</text>
+<path d="M325 231H340" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="343" y="173" width="275" height="116" rx="10" fill="#f8fafc" stroke="#dbe4ef"/>
+<rect x="343" y="173" width="5" height="116" rx="2" fill="#2563eb" stroke="none"/>
+<text x="361" y="203" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="18" fill="#0f172a" font-weight="700">选产品分类</text>
+<text x="361" y="232" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">一级类别 → 产品 → 子类型</text>
+<text x="361" y="257" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">一单可有多个产品明细</text>
+<path d="M620 231H635" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="638" y="173" width="275" height="116" rx="10" fill="#f8fafc" stroke="#dbe4ef"/>
+<rect x="638" y="173" width="5" height="116" rx="2" fill="#2563eb" stroke="none"/>
+<text x="656" y="203" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="18" fill="#0f172a" font-weight="700">加载动态表单</text>
+<text x="656" y="232" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">地区、规格、A/Z端</text>
+<text x="656" y="257" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">On-net / Off-net / 附加项</text>
+<path d="M915 231H930" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="933" y="173" width="275" height="116" rx="10" fill="#f8fafc" stroke="#dbe4ef"/>
+<rect x="933" y="173" width="5" height="116" rx="2" fill="#2563eb" stroke="none"/>
+<text x="951" y="203" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="18" fill="#0f172a" font-weight="700">校验与可行性</text>
+<text x="951" y="232" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">按阶段校验必填参数</text>
+<text x="951" y="257" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">检查归属、覆盖与资源</text>
+<path d="M1210 231H1225" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="1228" y="173" width="275" height="116" rx="10" fill="#f8fafc" stroke="#dbe4ef"/>
+<rect x="1228" y="173" width="5" height="116" rx="2" fill="#2563eb" stroke="none"/>
+<text x="1246" y="203" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="18" fill="#0f172a" font-weight="700">生成需求版本</text>
+<text x="1246" y="232" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">冻结本次需求快照</text>
+<text x="1246" y="257" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">缺资料或不可交付则退回</text>
+<path d="M1493 290V320H38V438H46" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="28" y="332" width="1504" height="185" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+<text x="48" y="362" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="18" fill="#0891b2" font-weight="700">02 询价与确认</text>
+<text x="420" y="362" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#64748b" font-weight="400">销售 / 采购 / 客户</text>
+<rect x="48" y="380" width="275" height="116" rx="10" fill="#f8fafc" stroke="#dbe4ef"/>
+<rect x="48" y="380" width="5" height="116" rx="2" fill="#0891b2" stroke="none"/>
+<text x="66" y="410" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="18" fill="#0f172a" font-weight="700">匹配或询价</text>
+<text x="66" y="439" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">匹配有效协议价 / 标准价</text>
+<text x="66" y="464" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">楼宇接入强制询价</text>
+<path d="M325 438H340" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="343" y="380" width="275" height="116" rx="10" fill="#f8fafc" stroke="#dbe4ef"/>
+<rect x="343" y="380" width="5" height="116" rx="2" fill="#0891b2" stroke="none"/>
+<text x="361" y="410" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="18" fill="#0f172a" font-weight="700">拆分费用组成</text>
+<text x="361" y="439" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">NRC / 周期费 / 用量费</text>
+<text x="361" y="464" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">明确本地传输与包含项</text>
+<path d="M620 438H635" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="638" y="380" width="275" height="116" rx="10" fill="#f8fafc" stroke="#dbe4ef"/>
+<rect x="638" y="380" width="5" height="116" rx="2" fill="#0891b2" stroke="none"/>
+<text x="656" y="410" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="18" fill="#0f172a" font-weight="700">商务复核报价</text>
+<text x="656" y="439" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">售价、币种、合同、账期</text>
+<text x="656" y="464" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">技术变更则重新报价</text>
+<path d="M915 438H930" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="933" y="380" width="275" height="116" rx="10" fill="#f8fafc" stroke="#dbe4ef"/>
+<rect x="933" y="380" width="5" height="116" rx="2" fill="#0891b2" stroke="none"/>
+<text x="951" y="410" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="18" fill="#0f172a" font-weight="700">客户确认版本</text>
+<text x="951" y="439" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">确认交付与计费条款</text>
+<text x="951" y="464" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">拒绝或过期则取消明细</text>
+<path d="M1210 438H1225" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="1228" y="380" width="275" height="116" rx="10" fill="#f8fafc" stroke="#dbe4ef"/>
+<rect x="1228" y="380" width="5" height="116" rx="2" fill="#0891b2" stroke="none"/>
+<text x="1246" y="410" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="18" fill="#0f172a" font-weight="700">预留资源与排期</text>
+<text x="1246" y="439" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">新开通进入交付</text>
+<text x="1246" y="464" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">仅询价在此结束</text>
+<path d="M1493 497V527H38V645H46" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="28" y="539" width="1504" height="185" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+<text x="48" y="569" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="18" fill="#7c3aed" font-weight="700">03 交付与生效</text>
+<text x="420" y="569" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#64748b" font-weight="400">运维 / 网络 / 客户</text>
+<rect x="48" y="587" width="275" height="116" rx="10" fill="#f8fafc" stroke="#dbe4ef"/>
+<rect x="48" y="587" width="5" height="116" rx="2" fill="#7c3aed" stroke="none"/>
+<text x="66" y="617" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="18" fill="#0f172a" font-weight="700">生成交付任务</text>
+<text x="66" y="646" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">主产品与附加项依赖</text>
+<text x="66" y="671" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">机房 / 计算 / 网络任务</text>
+<path d="M325 645H340" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="343" y="587" width="275" height="116" rx="10" fill="#f8fafc" stroke="#dbe4ef"/>
+<rect x="343" y="587" width="5" height="116" rx="2" fill="#7c3aed" stroke="none"/>
+<text x="361" y="617" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="18" fill="#0f172a" font-weight="700">实施与回填</text>
+<text x="361" y="646" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">设备、VM、IP、线路ID</text>
+<text x="361" y="671" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">填写实际配置和测试证据</text>
+<path d="M620 645H635" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="638" y="587" width="275" height="116" rx="10" fill="#f8fafc" stroke="#dbe4ef"/>
+<rect x="638" y="587" width="5" height="116" rx="2" fill="#7c3aed" stroke="none"/>
+<text x="656" y="617" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="18" fill="#0f172a" font-weight="700">逐明细验收</text>
+<text x="656" y="646" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">支持部分交付与验收</text>
+<text x="656" y="671" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">失败返工；差异重新确认</text>
+<path d="M915 645H930" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="933" y="587" width="275" height="116" rx="10" fill="#f8fafc" stroke="#dbe4ef"/>
+<rect x="933" y="587" width="5" height="116" rx="2" fill="#7c3aed" stroke="none"/>
+<text x="951" y="617" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="18" fill="#0f172a" font-weight="700">确认计费生效</text>
+<text x="951" y="646" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">验收 + 报价 + 起租条件</text>
+<text x="951" y="671" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">未达条件保持待生效</text>
+<path d="M1210 645H1225" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="1228" y="587" width="275" height="116" rx="10" fill="#f8fafc" stroke="#dbe4ef"/>
+<rect x="1228" y="587" width="5" height="116" rx="2" fill="#7c3aed" stroke="none"/>
+<text x="1246" y="617" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="18" fill="#0f172a" font-weight="700">形成客户产品</text>
+<text x="1246" y="646" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">稳定服务ID与配置版本</text>
+<text x="1246" y="671" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">绑定工单、资源和报价</text>
+<path d="M1493 704V734H38V852H46" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="28" y="746" width="1504" height="185" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+<text x="48" y="776" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="18" fill="#059669" font-weight="700">04 结算与账单</text>
+<text x="420" y="776" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#64748b" font-weight="400">计费任务 / 财务</text>
+<rect x="48" y="794" width="275" height="116" rx="10" fill="#f8fafc" stroke="#dbe4ef"/>
+<rect x="48" y="794" width="5" height="116" rx="2" fill="#059669" stroke="none"/>
+<text x="66" y="824" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="18" fill="#0f172a" font-weight="700">生成费用项目</text>
+<text x="66" y="853" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">一次性事件 / 周期订阅</text>
+<text x="66" y="878" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">用量规则及计量来源</text>
+<path d="M325 852H340" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="343" y="794" width="275" height="116" rx="10" fill="#f8fafc" stroke="#dbe4ef"/>
+<rect x="343" y="794" width="5" height="116" rx="2" fill="#059669" stroke="none"/>
+<text x="361" y="824" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="18" fill="#0f172a" font-weight="700">按生效区间结算</text>
+<text x="361" y="853" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">起租、改价、暂停、终止</text>
+<text x="361" y="878" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">缺报价或用量进入异常队列</text>
+<path d="M620 852H635" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="638" y="794" width="275" height="116" rx="10" fill="#f8fafc" stroke="#dbe4ef"/>
+<rect x="638" y="794" width="5" height="116" rx="2" fill="#059669" stroke="none"/>
+<text x="656" y="824" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="18" fill="#0f172a" font-weight="700">防重复与合并</text>
+<text x="656" y="853" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">一次性费只计一次</text>
+<text x="656" y="878" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">按客户、主体、币种分组</text>
+<path d="M915 852H930" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="933" y="794" width="275" height="116" rx="10" fill="#f8fafc" stroke="#dbe4ef"/>
+<rect x="933" y="794" width="5" height="116" rx="2" fill="#059669" stroke="none"/>
+<text x="951" y="824" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="18" fill="#0f172a" font-weight="700">账单草稿审核</text>
+<text x="951" y="853" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">每行可追溯产品与工单</text>
+<text x="951" y="878" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">退回修正；已含项不重复计</text>
+<path d="M1210 852H1225" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="1228" y="794" width="275" height="116" rx="10" fill="#f8fafc" stroke="#dbe4ef"/>
+<rect x="1228" y="794" width="5" height="116" rx="2" fill="#059669" stroke="none"/>
+<text x="1246" y="824" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="18" fill="#0f172a" font-weight="700">生成客户账单</text>
+<text x="1246" y="853" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">锁定明细和价格快照</text>
+<text x="1246" y="878" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#475569" font-weight="400">后续授权发送与收款核销</text>
+<text x="44" y="984" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="21" fill="#0f172a" font-weight="700">关键控制与例外</text>
+<text x="44" y="1021" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="15" fill="#334155" font-weight="700">类型独立</text>
+<text x="162" y="1021" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#64748b" font-weight="400">故障/维护默认不收费；需收费时关联服务请求。</text>
+<text x="794" y="1021" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="15" fill="#334155" font-weight="700">端点独立</text>
+<text x="912" y="1021" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#64748b" font-weight="400">IEPL / Wave 的 A、Z 端分别选接入方式与本地传输。</text>
+<text x="44" y="1078" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="15" fill="#334155" font-weight="700">起租独立</text>
+<text x="162" y="1078" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#64748b" font-weight="400">交付完成 ≠ 工单完成 ≠ 计费开始；预付款按批准条款处理。</text>
+<text x="794" y="1078" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="15" fill="#334155" font-weight="700">历史可追溯</text>
+<text x="912" y="1078" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#64748b" font-weight="400">变更新增生效版本；尾期已终止产品仍纳入结算。</text>
+<text x="44" y="1135" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="15" fill="#334155" font-weight="700">收入成本分开</text>
+<text x="162" y="1135" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#64748b" font-weight="400">供应商成本用于内部核算，不自动变成客户售价。</text>
+<text x="794" y="1135" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="15" fill="#334155" font-weight="700">先结构化后计费</text>
+<text x="912" y="1135" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#64748b" font-weight="400">文字解析只提供候选值；未确认数据不激活、不出账。</text>
+<text x="44" y="1211" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="14" fill="#64748b" font-weight="400">详细分类树、全部产品参数、状态图、费用映射与验收场景：idc-ticket-to-billing-design.md</text>
+</svg></div></section>
+<section id="products"><h2>02 / 产品与条件参数预览</h2><p class="muted">选择产品查看建议申请字段、条件字段和交付回填。此页面是设计说明，不会创建工单、占用资源或产生费用。</p>
+<div class="controls"><label>产品分类 / 产品<select id="product"></select></label><label>工单业务动作<select id="action"><option value="new">新开通</option><option value="quote">询价</option><option value="change">变更 / 升降配 / 迁移</option><option value="renew">续约</option><option value="stop">暂停 / 恢复 / 退订</option><option value="incident">故障 / 维护</option></select></label></div>
+<div id="action-note" class="note"></div>
+<div class="controls" id="network"><label>A端接入方式<select id="a"><option>On-net</option><option>Off-net</option><option>待勘查</option></select></label><label id="z-wrap">Z端接入方式<select id="z"><option>On-net</option><option>Off-net</option><option>待勘查</option></select></label><label id="burst-wrap">IEPL是否突发<select id="burst"><option value="no">否</option><option value="yes">是</option></select></label></div>
+<div id="access-note" class="note warn hidden"></div>
+<div id="loop-wrap" class="controls hidden"><label>需本地传输的端点：供应方式<select id="loop"><option value="own">FinWork提供：附加明细单独报价</option><option value="included">主产品已含：保留依赖，不重复收费</option><option value="customer">客户自备：记录交付边界</option></select></label></div>
+<div id="loop-note" class="note hidden"></div><div id="burst-note" class="note hidden"></div>
+<div class="grid" style="margin-top:18px"><div class="card"><strong>申请参数</strong><div id="request"></div></div><div class="card"><strong>条件参数</strong><div id="conditional"></div></div><div class="card"><strong>验收前实际交付信息</strong><div id="delivery"></div></div><div class="card"><strong>建议费用组件</strong><div id="charges"></div></div></div>
+</section><section id="rules"><h2>03 / 分类和计费边界</h2><div class="grid"><div class="card"><strong>分类按三个维度分开</strong>工单类型（REQ / INC / MTN）× 业务动作 × 产品目录。地区、机房、On-net / Off-net、A/Z端、带宽属于参数；DIA按Datacenter与Retail Building分场景。</div><div class="card"><strong>结构化明细形成客户产品</strong>工单参数 + 实际交付 + 已确认报价 + 验收生效，生成稳定服务ID及版本。历史文本解析只生成候选值，须确认后生效。</div><div class="card"><strong>交付、工单完成和起租分开</strong>支持部分交付、附加项依赖和未来起租。工单完成不直接等于收费。预付款按已批准条款单独记录及抵扣。</div><div class="card"><strong>出账必须可重复执行而不重复收费</strong>一次性费用事件只计一次；周期费按生效区间和版本切段。账单按客户、签约主体、币种及账单配置分组，财务审核后锁定。</div></div><p class="note">完整文档包含：分类树、17个产品场景参数（16种产品，DIA分两类）、动态规则、状态图、数据映射、计费分段、DIA首账单示例、现有模型差距和实施验收清单。</p></section></main>
+<footer>仅供业务设计评审；实际价格、计费和验收规则以确认后的合同及配置为准。<br>术语参考：<a href="https://docs.equinix.com/cross-connect/">Cross Connect</a> · <a href="https://docs.equinix.com/fabric/">Fabric</a> · <a href="https://docs.equinix.com/internet-exchange/">Internet Exchange</a></footer>
+<script>
+const products=[{"name": "整柜整租", "request": "地区、机房、柜数、每柜U数、额定电力kW、合同期", "conditional": "A/B路电、计量电费、超额电力、带宽/IP、安全围笼（可选）", "delivery": "实际柜号、位置、电路/电表、交付电力与起租日期", "charges": "柜租周期费；安装NRC；电力包内或独立用量项"}, {"name": "散柜机位", "request": "地区、机房、设备台数、每台高度U、额定电力", "conditional": "双路电、设备尺寸/重量、管理服务、带宽/IP", "delivery": "柜号、起始U位、高度、设备/资产ID、用电配置", "charges": "U位或设备周期费；安装NRC；电力附加项"}, {"name": "Cross Connect", "request": "地区、机房、A/Z端主体与位置、介质、芯数/对数、接头", "conditional": "LOA、机房工单、跨楼/园区说明、冗余、是否已含在其他产品中", "delivery": "两端配线架/面板/端口、XC编号、线路测试、供应商订单", "charges": "安装NRC、维护周期费；已包含时不重复计费"}, {"name": "物理服务器", "request": "地区、机房、型号/配置组、CPU、内存、磁盘、带宽", "conditional": "操作系统、RAID、IP数、备份、管理服务、四节点子节点", "delivery": "设备ID、节点名、SN、柜/U位、实际配置、IP", "charges": "台/节点周期费；安装NRC；带宽/IP附加项"}, {"name": "云主机", "request": "地区、可用区/资源池、vCPU、内存GiB、磁盘GiB、系统", "conditional": "IP/DHCP、网络/VLAN、备份、流量限额、到期时间", "delivery": "云平台、remote+vmid、实际规格、IP、开通时间", "charges": "实例周期费或批准的按量模式；存储/IP附加项"}, {"name": "IPv4", "request": "资源来源、地区、地址数量或CIDR前缀长度、用途、路由方式", "conditional": "客户自带前缀、目标ASN、宣告授权、rDNS、地理信息要求", "delivery": "实际地址段、分配ID、宣告网络、绑定产品", "charges": "按地址/地址段周期费；配置/宣告NRC或已包含"}, {"name": "IPv6", "request": "资源来源、地区、前缀长度、用途、路由方式", "conditional": "目标ASN、宣告授权、rDNS、下级分配要求", "delivery": "实际前缀、分配ID、宣告记录", "charges": "按前缀周期费或已包含；配置NRC"}, {"name": "ASN", "request": "服务模式、申请主体、适用注册管理机构、用途、联系人", "conditional": "已有ASN、申请材料、上游与路由策略、管理服务期", "delivery": "ASN号、申请/变更凭证、管理范围", "charges": "代办NRC；持续管理周期费仅在明确购买时启用"}, {"name": "IX Peering", "request": "地区、IX名称、直连/远程、端口速率、承诺带宽、客户ASN", "conditional": "Route Server/双边对等、VLAN、IPv4/IPv6、前缀限制、Cross Connect", "delivery": "端口/接入线路ID、VLAN、对等IP、会话与连通测试", "charges": "端口周期费；接入传输/XC按包含关系计价"}, {"name": "Cloud Connect", "request": "云厂商、目标云区域、连接类型、带宽、客户接入端", "conditional": "云连接标识、冗余、VLAN、BGP ASN/对等地址、接入本地传输", "delivery": "云线路/虚拟连接ID、端口、实际带宽、连通测试", "charges": "端口/连接周期费、NRC、约定用量费；标明云侧费用承担方"}, {"name": "IP Transit", "request": "地区、A端位置、On-net/Off-net、端口速率、承诺带宽、计费模式", "conditional": "BGP/静态、ASN、前缀、IPv6、突发上限、附加本地传输", "delivery": "实际端口/线路、客户前缀、对等信息、采样对象", "charges": "NRC、带宽周期费、批准的超量/95计费、本地传输"}, {"name": "DIA–Datacenter", "request": "地区、机房、A端位置、On-net/Off-net、上下行速率、IP需求", "conditional": "路由方式、CPE、附加本地传输、SLA", "delivery": "A端线路、端口、IP/网关、测试与交付记录", "charges": "带宽周期费、NRC、设备/本地传输附加项"}, {"name": "DIA–Retail Building", "request": "地区、完整楼宇地址、楼层/房间、现场联系人、上下行速率", "conditional": "勘查、物业入场、施工、CPE、路由方式", "delivery": "覆盖核实、供应商线路ID、楼宇交接点、IP、验收资料", "charges": "强制询价/自定义批准售价；接入NRC、周期费、施工附加项"}, {"name": "China Route 回国带宽", "request": "地区、A端位置、On-net/Off-net、回国目标网络/地区、承诺带宽", "conditional": "路由质量档位、突发、双栈、附加本地传输、性能目标", "delivery": "实际线路/端口、路由交付范围、约定测试结果", "charges": "带宽周期费、NRC、批准用量费与本地传输"}, {"name": "IEPL", "request": "A/Z端地区及地点、两端接入方式、承诺带宽、是否突发、接口、保护要求", "conditional": "突发上限/计费规则、VLAN/MTU、两端本地传输、性能目标", "delivery": "端到端线路ID、A/Z交付端口、实际配置、测试报告", "charges": "主线路周期费、NRC、A/Z本地传输、批准突发费用"}, {"name": "Wave", "request": "A/Z端地区及地点、波道容量、客户端接口、保护方式", "conditional": "波长/光接口参数、两端接入段、路径分离、性能目标", "delivery": "波道/电路ID、两端端口、实际光接口、测试报告", "charges": "波道周期费、NRC、接入段；默认不按IP流量收费"}, {"name": "Remote Hands", "request": "地区、机房、关联设备/服务、任务类型、操作步骤、窗口", "conditional": "预计工时、最低计费时长、进位单位、夜间/节假日、材料、预算上限", "delivery": "操作起止、实际工时、材料、完成证据、客户确认", "charges": "按次或确认工时；已有套餐先扣额度，超额另计"}];
+const families=['机房资源','机房资源','机房资源','计算资源','计算资源','互联网资源','互联网资源','互联网资源','上云互联','上云互联','网络传输','网络传输','网络传输','网络传输','网络传输','网络传输','增值服务'];
+const $=id=>document.getElementById(id);
+products.forEach((p,i)=>{const option=document.createElement('option');option.value=String(i);option.textContent=families[i]+' / '+p.name;$('product').append(option)});
+function show(id,visible){$(id).classList.toggle('hidden',!visible)}
+function render(){
+ const p=products[Number($('product').value)];
+ for(const key of ['request','conditional','delivery','charges'])$(key).textContent=p[key];
+ const actions={new:'新开通：填写目标产品参数；报价确认、验收及起租条件满足后激活服务。',quote:'询价：可暂不分配真实资源。确认报价不会自动开通或启动周期收费。',change:'变更：必须选择已有客户产品，展示原配置、目标配置、差异和生效时间。保留服务ID并新增版本。',renew:'续约：关联已有客户产品，确认新合同期限、价格版本和续约生效日。',stop:'暂停 / 恢复 / 退订：必须关联已有服务，收费变化按条款执行；已终止服务仍需结算尾款。',incident:'故障 / 维护：关联受影响客户产品与资源；默认不新增销售产品、不收费。额外收费另建关联REQ确认。'};
+ $('action-note').textContent=actions[$('action').value];
+ const network=['IP Transit','DIA–Datacenter','China Route 回国带宽','IEPL','Wave'].includes(p.name);
+ const two=['IEPL','Wave'].includes(p.name),burst=p.name==='IEPL';
+ show('network',network);show('z-wrap',two);show('burst-wrap',burst);
+ const needs=network&&($('a').value!=='On-net'||(two&&$('z').value!=='On-net'));
+ const retail=p.name==='DIA–Retail Building';
+ show('access-note',network||retail);
+ $('access-note').textContent=retail?'Retail Building：强制覆盖勘查与采购询价，确认自定义售价后进入交付。':needs?'Off-net / 待勘查端点：补充地址、覆盖与供应商方案。A/Z端分别判断，附加本地传输独立明细化。':'On-net：从可交付PoP和端口选择，仍须确认是否需要本地传输以及Cross Connect是否已含。';
+ show('loop-wrap',network||retail);show('loop-note',network||retail);
+ $('loop-note').textContent={own:'需要附加接入段时，创建本地传输子明细：端别、起终点、带宽、供应商、NRC、周期费；主产品绑定交付依赖。',included:'需要接入段但主产品已含：记录资源、成本和依赖，禁止再次生成独立销售费用。',customer:'客户自备接入段：登记线路标识、联系人、交付边界和可用性；不创建我方本地传输销售费用。'}[$('loop').value];
+ show('burst-note',burst&&$('burst').value==='yes');
+ $('burst-note').textContent='突发开启：必填突发上限、计量结算方式、超量单价/封顶。上限不得低于承诺带宽或超过端口；未明确计价规则不能确认报价。';
+}
+$('product').addEventListener('change',()=>{$('a').value='On-net';$('z').value='On-net';$('burst').value='no';$('loop').value='own';render()});
+for(const id of ['action','a','z','burst','loop'])$(id).addEventListener('change',render);
+render();
+</script></body></html>
