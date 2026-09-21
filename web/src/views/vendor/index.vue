@@ -5,6 +5,10 @@
       :companies="contractCompanyList"
       :loading="loading"
       :error="loadError"
+      :pagination="pagination"
+      @query-change="handleQueryChange"
+      @page-change="handlePageChange"
+      @page-size-change="handlePageSizeChange"
       @select="handleSelect"
       @add="openAdd"
       @edit="openEdit"
@@ -177,6 +181,26 @@ import api from '@/api'
 import { buildCustomerRegionOptions, customerRegionFilter } from '@/utils/customer-region'
 
 const vendorList = ref([])
+const pagination = reactive({ page: 1, pageSize: 20, itemCount: 0, pageSizes: [20, 50, 100] })
+const vendorQuery = reactive({ keyword: '', signing_entity_id: null, status: null })
+let vendorRequestId = 0
+
+function handleQueryChange(query) {
+  Object.assign(vendorQuery, query)
+  pagination.page = 1
+  fetchVendors()
+}
+
+function handlePageChange(page) {
+  pagination.page = page
+  fetchVendors()
+}
+
+function handlePageSizeChange(size) {
+  pagination.pageSize = size
+  pagination.page = 1
+  fetchVendors()
+}
 const attachments = ref([])
 const attachmentBusy = ref(false)
 const loading = ref(false)
@@ -304,10 +328,24 @@ function handleModalVisibility(show) {
 }
 
 async function fetchVendors() {
+  const requestId = ++vendorRequestId
   loading.value = true
   loadError.value = ''
   try {
-    const res = await api.getVendorList({ page: 1, page_size: 9999 })
+    const res = await api.getVendorList({
+      page: pagination.page,
+      page_size: pagination.pageSize,
+      keyword: vendorQuery.keyword,
+      signing_entity_id: vendorQuery.signing_entity_id || undefined,
+      status: vendorQuery.status === null ? undefined : Boolean(vendorQuery.status),
+    })
+    if (requestId !== vendorRequestId) return
+    pagination.itemCount = res?.total || 0
+    const lastPage = Math.max(1, Math.ceil(pagination.itemCount / pagination.pageSize))
+    if (pagination.page > lastPage) {
+      pagination.page = lastPage
+      return await fetchVendors()
+    }
     vendorList.value = res?.data || []
 
     // 维持当前选中
@@ -321,9 +359,12 @@ async function fetchVendors() {
     currentVendor.value = vendorList.value[0] || null
     activeId.value = currentVendor.value?.id ?? null
   } catch {
-    loadError.value = '获取供应商失败，请点击刷新重试'
+    if (requestId === vendorRequestId) {
+      vendorList.value = []
+      loadError.value = '获取供应商失败，请点击刷新重试'
+    }
   } finally {
-    loading.value = false
+    if (requestId === vendorRequestId) loading.value = false
   }
 }
 

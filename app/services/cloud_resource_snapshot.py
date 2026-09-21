@@ -42,7 +42,6 @@ async def remove_snapshot_vm(remote, vmid):
         )
         await CloudResourceSnapshot.filter(id=row.id).using_db(connection).update(
             payload=apply_deletions(payload, deletions),
-            dirty=True,
         )
 
 

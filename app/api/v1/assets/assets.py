@@ -623,7 +623,7 @@ def normalize_device_status_value(value, default: int = 0) -> int:
         status = int(value)
     except (TypeError, ValueError):
         return default
-    return status if status in {0, 1, 2, 3, 4} else default
+    return status if status in {0, 1, 2, 3, 4, 6} else default
 
 
 def is_four_node_attributes(attributes: dict) -> bool:
@@ -689,6 +689,8 @@ def aggregate_four_node_status(nodes: list) -> int:
         return 2
     if any(status == 1 for status in statuses):
         return 1
+    if any(status == 6 for status in statuses):
+        return 6
     if any(status == 0 for status in statuses):
         return 0
     return statuses[0]
@@ -736,6 +738,10 @@ async def validate_node_customer_mapping(device_in: AssetDeviceCreate | AssetDev
             previous = old_nodes.get(node.get("name"), {}).get("customer_id")
             node["customer_id"] = previous if previous in allowed else None
         value = node.get("customer_id")
+        if value and value == old_nodes.get(node.get("name"), {}).get("customer_id") and value not in allowed:
+            node["customer_id"] = None
+            node["status"] = 0
+            continue
         if value is None or value == "":
             node["customer_id"] = None
             continue
@@ -774,6 +780,8 @@ async def device_to_dict(device: AssetDevice, can_view_secrets: bool = False) ->
     if is_four_node_attributes(normalized_attributes):
         nodes = normalized_attributes.get("nodes") if isinstance(normalized_attributes.get("nodes"), list) else []
         data["status"] = aggregate_four_node_status(nodes)
+        if data.get("customer_ids") and (data["status"] == 0 or device.status == 1):
+            data["status"] = 1
     if not can_view_secrets:
         data["attributes"] = mask_device_secret_attributes(data.get("attributes"))
     cabinet = await AssetCabinet.get_or_none(id=device.cabinet_id)
@@ -2149,6 +2157,24 @@ async def device_ipmi_logs(payload: AssetDeviceIpmiLogRequest):
     return Success(data=data)
 
 
+async def sync_device_customer_status(device_in):
+    if device_in.type != 0 or "customer_ids" not in device_in.model_fields_set:
+        return
+    previous = await AssetDevice.get_or_none(id=device_in.id) if isinstance(device_in, AssetDeviceUpdate) else None
+    old_ids = set(previous.customer_ids or []) if previous else set()
+    if previous and previous.customer_id:
+        old_ids.add(previous.customer_id)
+    new_ids = set(device_in.customer_ids)
+    if new_ids and (new_ids != old_ids or device_in.status == 0):
+        device_in.status = 1
+    elif old_ids and not new_ids:
+        device_in.status = 0
+        if is_four_node_attributes(device_in.attributes):
+            for node in device_in.attributes.get("nodes", []):
+                node["customer_id"] = None
+                node["status"] = 0
+
+
 @router.post("/device/create", summary="创建设备")
 async def create_device(device_in: AssetDeviceCreate):
     error = await validate_device_u_range(device_in)
@@ -2160,6 +2186,7 @@ async def create_device(device_in: AssetDeviceCreate):
         return Success(msg=message, code=400)
     await prepare_device_attributes_for_save(device_in)
     normalize_four_node_status_for_save(device_in)
+    await sync_device_customer_status(device_in)
     obj = await asset_device_controller.create_device(device_in)
     await sync_physical_server_specs(region_id=obj.region_id)
     return Success(data=await device_to_dict(obj, can_view_secrets=await can_view_device_secrets()), msg="Created Successfully")
@@ -2176,6 +2203,7 @@ async def update_device(device_in: AssetDeviceUpdate):
         return Success(msg=message, code=400)
     await prepare_device_attributes_for_save(device_in)
     normalize_four_node_status_for_save(device_in)
+    await sync_device_customer_status(device_in)
     obj = await asset_device_controller.update_device(id=device_in.id, obj_in=device_in)
     await sync_physical_server_specs(region_id=obj.region_id)
     return Success(data=await device_to_dict(obj, can_view_secrets=await can_view_device_secrets()), msg="Updated Successfully")

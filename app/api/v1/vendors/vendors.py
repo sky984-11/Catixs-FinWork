@@ -13,7 +13,7 @@ from tortoise.expressions import Q
 from app.controllers import vendor_attachments
 from app.controllers import vendor_contacts
 from app.controllers.vendor import generate_vendor_code, vendor_controller
-from app.controllers.vendor_entities import entity_context, entity_fields, resolve_entity
+from app.controllers.vendor_entities import entity_context, entity_fields, match_entity, resolve_entity
 from app.core.dependency import DependAuth
 from app.models.admin import User
 from app.models.company import Company, VendorAttachment
@@ -105,13 +105,27 @@ async def delete_vendor_attachment(attachment_id: int = Query(..., gt=0), user: 
 
 @router.get("/list", summary="查看供应商列表")
 async def list_vendor(
-    page: int = Query(1, description="页码"),
-    page_size: int = Query(10, description="每页数量"),
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(10, ge=1, description="每页数量"),
     name: str = Query("", description="供应商名称，用于搜索"),
     code: str = Query("", description="供应商编号"),
     status: bool | None = Query(None, description="启用状态"),
+    keyword: str = Query("", description="供应商编号或名称"),
+    signing_entity_id: int | None = Query(None, gt=0, description="CRM签约主体ID"),
 ):
     q = Q()
+    entities, companies = await entity_context()
+    if keyword.strip():
+        keyword = keyword.strip()
+        q &= Q(name__icontains=keyword) | Q(code__icontains=keyword)
+    if signing_entity_id is not None:
+        legacy_ids = [
+            company.id for company in companies
+            if (entity := match_entity(company, entities)) and entity.id == signing_entity_id
+        ]
+        q &= Q(signing_entity_id=signing_entity_id) | Q(
+            signing_entity_id=None, contract_company_id__in=legacy_ids
+        )
     if name:
         q &= Q(name__contains=name)
     if code:
@@ -119,9 +133,8 @@ async def list_vendor(
     if status is not None:
         q &= Q(status=status)
 
-    total, vendor_objs = await vendor_controller.list_vendors(page=page, page_size=page_size, search=q)
+    total, vendor_objs = await vendor_controller.list_vendors(page=page, page_size=page_size, search=q, order=["id"])
     data = [await obj.to_dict() for obj in vendor_objs]
-    entities, companies = await entity_context()
     for vendor, item in zip(vendor_objs, data):
         item.update(entity_fields(vendor, entities, companies))
     return SuccessExtra(data=data, total=total, page=page, page_size=page_size)

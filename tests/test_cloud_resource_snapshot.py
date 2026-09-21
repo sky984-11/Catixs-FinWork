@@ -107,6 +107,18 @@ class SnapshotTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.gather(*list(service._tasks))
             read.assert_awaited_once_with(force=True)
 
+    async def test_confirmed_delete_does_not_schedule_full_sync(self):
+        await CloudResourceSnapshot.create(
+            key="fleet", dirty=False, synced_at=datetime.now(timezone.utc),
+            payload={"items": [{"remote": "a", "vmid": 1}, {"remote": "b", "vmid": 1}]},
+        )
+        await service.remove_snapshot_vm("a", 1)
+        with patch.object(service, "spawn") as spawn:
+            payload, sync = await service.read_snapshot()
+            spawn.assert_not_called()
+        self.assertEqual(payload["items"], [{"remote": "b", "vmid": 1}])
+        self.assertFalse(sync["stale"])
+
     async def test_immediate_delete_and_inflight_refresh_cannot_restore_vm(self):
         original = {
             "nodes": [{"remote": "a", "vm_count": 2}, {"remote": "b", "vm_count": 1}],
@@ -160,7 +172,7 @@ class SnapshotTests(unittest.IsolatedAsyncioTestCase):
             response = await pve.delete_vm(request)
             self.assertEqual(response.status_code, 200)
             self.assertEqual((await CloudResourceSnapshot.get(id=row.id)).payload["items"], [])
-            followup.assert_awaited_once_with("a", deleted_vmid=1)
+            followup.assert_not_awaited()
 
     async def test_failed_delete_task_releases_tombstone(self):
         from app.api.v1.pve import pve

@@ -873,9 +873,11 @@ async function onDrop(status) {
   dragTargetStatus.value = ''
   if (!project || project.status === status) return
   const nextOrder = getProjectsByStatus(status).length + 1
-  project.status = status
-  project.sort_order = nextOrder
   await api.projectApi.updateStatus({ id: project.id, status, sort_order: nextOrder })
+  project.status = status
+  if (detailProject.value?.id === project.id) detailProject.value.status = status
+  if (status === 'completed') syncProjectProgress(project.id, 100)
+  project.sort_order = nextOrder
   window.$message?.success?.('状态已更新')
 }
 
@@ -1413,6 +1415,7 @@ onMounted(async () => {
                     class="progress-slider"
                     :style="getProgressStyle(detailProject.progress)"
                     :value="Number(detailProject.progress || 0)"
+                    :disabled="detailProject.status === 'completed'"
                     :min="0"
                     :max="100"
                     :step="1"

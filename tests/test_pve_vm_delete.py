@@ -15,7 +15,7 @@ class VmDeleteTests(unittest.IsolatedAsyncioTestCase):
             patch.object(pve, "remove_snapshot_vm", AsyncMock()) as remove,
             patch.object(pve, "release_vm_dhcp_lease", AsyncMock()) as release,
             patch.object(pve.PveVmMetadata, "filter") as metadata,
-            patch.object(pve, "after_resource_change", AsyncMock()),
+            patch.object(pve, "after_resource_change", AsyncMock()) as refresh,
             patch.object(pve.asyncio, "sleep", AsyncMock()) as sleep,
         ):
             metadata.return_value.delete = AsyncMock()
@@ -27,6 +27,7 @@ class VmDeleteTests(unittest.IsolatedAsyncioTestCase):
 
             sleep.side_effect = during_wait
             response = await pve.delete_vm(request)
+            refresh.assert_not_awaited()
             if response.status_code != 200:
                 remove.assert_not_awaited()
                 release.assert_not_awaited()

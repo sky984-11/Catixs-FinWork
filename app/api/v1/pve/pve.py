@@ -2639,7 +2639,6 @@ async def delete_vm(payload: VMDeleteRequest):
         metadata_q |= Q(vmid=payload.vmid, vm_name=payload.name)
     await PveVmMetadata.filter(metadata_q).delete()
     _PDM_RESOURCE_CACHE = []
-    await after_resource_change(payload.remote, deleted_vmid=payload.vmid)
     return Success(msg="虚拟机删除完成", data={"remote": payload.remote, "vmid": payload.vmid, "deleted": True})
 
 

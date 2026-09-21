@@ -3673,3 +3673,10 @@ curl 'http://localhost:9999/api/v1/finance/quote/list?page=1&page_size=20' \
 | `ValidationError` | object | loc, msg, type | loc:array[string \| integer], msg:string, type:string |
 | `VendorCreate` | object | name | name:string, code:string, country:string, address:string, noc_email:string, noc_phone:string, remark:string, tax_no:string, company_email:string, company_phone:string, registration_no:string, contract_company_id:integer \| null, status:boolean |
 | `VendorUpdate` | object | id, name | id:integer, name:string, code:string, country:string, address:string, noc_email:string, noc_phone:string, remark:string, tax_no:string, company_email:string, company_phone:string, registration_no:string, contract_company_id:integer \| null, status:boolean |
+
+
+### 资源状态更新（2026-09-21）
+
+- `POST /api/v1/pve/vms/delete` 成功后只定点移除目标 `remote` + `vmid` 的快照、租约和元数据；不触发全量同步。前端立即移除对应行、更新数量与分页，失败保留原行。请求、响应、权限与错误码沿用上文。
+- `POST /api/v1/asset/device/create`、`POST /api/v1/asset/device/update` 的 `status` 新增 `6`（预留），保留 0–4 及历史值含义。示例：`{"cabinet_id":1,"asset_no":"S01","name":"Server-01","u_position":1,"type":0,"customer_ids":[],"status":6}`；更新另传 `id`。返回原设备对象，含 `status`、`customer_ids`。服务器选择客户默认使用（1）；移除所有客户后为空闲（0），同时清除旧单客户引用和已解除的节点客户映射。未关联客户时可手动预留，已有客户且未改变关联时可保留维护等显式状态。
+- 设备接口沿用登录及对应 POST 权限；无效客户/节点映射返回业务码400，认证失败401、权限不足403、字段校验422；请求和成功响应结构不变。预留设备不计入空闲资源，无数据库结构变更。

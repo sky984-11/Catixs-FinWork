@@ -229,3 +229,8 @@ https://finwork.catixs.net
 ```
 
 修改配置后需要重启后端服务。
+
+
+### 已完成项目进度
+
+`POST /api/v1/project/create`、`/update` 和 `/status` 在 `status="completed"` 时将 `progress` 保存为100；列表与详情也将历史已完成项目显示为100%。状态更新示例：`{"id":1,"status":"completed","sort_order":1}`，成功响应 `data` 包含 `{"id":1,"status":"completed","progress":100}`（其余项目字段保留）。沿用登录及项目访问权限、现有请求/响应结构和错误码（401/403/404/422）。完成状态下详情进度滑块不可调低，其他状态继续允许手动调整。

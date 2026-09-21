@@ -64,11 +64,14 @@ class AssetDeviceController(CRUDBase[AssetDevice, AssetDeviceCreate, AssetDevice
 
     async def create_device(self, obj_in: AssetDeviceCreate) -> AssetDevice:
         data = obj_in.model_dump()
+        data["customer_id"] = next(iter(data.get("customer_ids") or []), None)
         await self.fill_location_fields(data)
         return await self.create(data)
 
     async def update_device(self, id: int, obj_in: AssetDeviceUpdate) -> AssetDevice:
         data = obj_in.model_dump(exclude_unset=True, exclude={"id"})
+        if "customer_ids" in data:
+            data["customer_id"] = next(iter(data["customer_ids"]), None)
         if "cabinet_id" in data:
             await self.fill_location_fields(data)
         return await self.update(id=id, obj_in=data)

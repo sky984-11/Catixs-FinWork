@@ -12,7 +12,7 @@ from app.schemas.vendors import VendorCreate, VendorUpdate
 
 
 async def generate_vendor_code(contract_company_id: int, signing_entity_id: int | None = None) -> str:
-    """生成供应商编号，格式: 签约主体公司code + 0000(自增)"""
+    """生成供应商编号，格式: V + 客户签约主体前缀 + 五位流水号"""
     prefix = "V"
 
     # 获取签约主体公司的code作为前缀
@@ -27,7 +27,7 @@ async def generate_vendor_code(contract_company_id: int, signing_entity_id: int 
             prefix = "VH"
         elif "科特思" in identity or "catixs-cn" in identity:
             prefix = "VC"
-        elif "catixs" in identity:
+        elif "catixs" in identity and "cn" not in identity:
             prefix = "VU"
         else:
             prefix = "V" + next(
@@ -38,7 +38,7 @@ async def generate_vendor_code(contract_company_id: int, signing_entity_id: int 
     numbers = [int(code[len(prefix) :]) for code in codes if code[len(prefix) :].isdigit()]
     new_num = max(numbers, default=0) + 1
 
-    return f"{prefix}{new_num:04d}"
+    return f"{prefix}{new_num:05d}"
 
 
 class VendorController(CRUDBase[Company, VendorCreate, VendorUpdate]):

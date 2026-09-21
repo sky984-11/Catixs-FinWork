@@ -48,6 +48,8 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 async def serialize_project(project: CustomerProject) -> dict:
     data = await project.to_dict()
     data.pop("next_action", None)
+    if data.get("status") == "completed":
+        data["progress"] = 100
     data["shared_users"] = normalize_shared_users(data.get("shared_users"))
     data["can_share"] = can_manage_project_share(project, await get_current_project_user())
     if data.get("status") == "blocked":
@@ -185,7 +187,9 @@ def normalize_project_payload(payload: dict) -> dict:
     for key in ["contract_no", "description"]:
         if payload.get(key) is None:
             payload[key] = ""
-    payload["progress"] = max(0, min(100, int(payload.get("progress") or 0)))
+    payload["progress"] = (
+        100 if payload.get("status") == "completed" else max(0, min(100, int(payload.get("progress") or 0)))
+    )
     return payload
 
 
@@ -371,6 +375,7 @@ async def update_project_status(project_in: CustomerProjectStatusUpdate):
     project_obj = await customer_project_controller.get(id=project_in.id)
     await ensure_project_access(project_obj)
     await CustomerProject.filter(id=project_in.id).update(
+        progress=100 if project_in.status == "completed" else project_obj.progress,
         status=project_in.status,
         sort_order=project_in.sort_order,
         updated_at=datetime.now(),

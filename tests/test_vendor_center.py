@@ -20,19 +20,45 @@ from app.models.customer_center import CrmSigningEntity
 
 
 class VendorCenterTests(unittest.IsolatedAsyncioTestCase):
+    async def test_vendor_pagination_and_filters(self):
+        entity = await CrmSigningEntity.create(name="Catixs Ltd", code="CATIXS-LTD")
+        other = await CrmSigningEntity.create(name="Other Entity", code="OTHER")
+        legacy = await Company.create(name="Legacy Vendor", code="VU0100", role=2, contract_company_id=self.entity.id)
+        direct = await Company.create(name="Direct Vendor", code="VU0101", role=2, signing_entity_id=entity.id)
+        await Company.create(name="Disabled", code="VU0102", role=2, signing_entity_id=entity.id, status=False)
+        await Company.create(name="Other", code="VX0100", role=2, signing_entity_id=other.id)
+        params = {"page": 1, "page_size": 1, "signing_entity_id": entity.id, "status": "true"}
+        response = await self.client.get("/vendor/list", params=params)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["total"], 2)
+        self.assertEqual(response.json()["data"][0]["id"], legacy.id)
+        response = await self.client.get("/vendor/list", params={**params, "page": 2})
+        self.assertEqual(response.json()["data"][0]["id"], direct.id)
+        response = await self.client.get("/vendor/list", params={**params, "page": 3})
+        self.assertEqual(response.json()["data"], [])
+        self.assertEqual(response.json()["total"], 2)
+        for keyword in ("direct", "vu0101"):
+            response = await self.client.get("/vendor/list", params={**params, "keyword": keyword})
+            self.assertEqual(response.json()["total"], 1)
+            self.assertEqual(response.json()["data"][0]["id"], direct.id)
+        response = await self.client.get("/vendor/list", params={**params, "signing_entity_id": 999999})
+        self.assertEqual(response.json()["total"], 0)
+        for invalid in ({"page": 0}, {"page_size": 0}, {"signing_entity_id": -1}):
+            self.assertEqual((await self.client.get("/vendor/list", params=invalid)).status_code, 422)
+
     async def test_supplier_code_preview_and_legal_name(self):
         entity = await CrmSigningEntity.create(name="Catixs Ltd", code="CATIXS-LTD")
         response = await self.client.get("/vendor/next-code", params={"signing_entity_id": entity.id})
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json()["data"]["code"], "VU0001")
+        self.assertEqual(response.json()["data"]["code"], "VU00001")
         self.assertEqual(await Company.filter(role=2).count(), 0)
         vendor = (await self.create_vendor(signing_entity_id=entity.id, legal_name="Example Networks Limited")).json()[
             "data"
         ]
         self.assertEqual(vendor["legal_name"], "Example Networks Limited")
-        self.assertEqual(vendor["code"], "VU0001")
+        self.assertEqual(vendor["code"], "VU00001")
         response = await self.client.get("/vendor/next-code", params={"signing_entity_id": entity.id})
-        self.assertEqual(response.json()["data"]["code"], "VU0002")
+        self.assertEqual(response.json()["data"]["code"], "VU00002")
         response = await self.client.post("/vendor/update", json={"id": vendor["id"], "name": "Renamed"})
         self.assertEqual(response.json()["data"]["legal_name"], "Example Networks Limited")
         self.assertEqual((await self.create_vendor(legal_name="x" * 201)).status_code, 422)
@@ -57,7 +83,7 @@ class VendorCenterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(vendor["signing_entity_id"], 901)
         self.assertEqual(vendor["signing_entity_name"], "Catixs Ltd")
         self.assertEqual(vendor["contract_company_id"], self.entity.id)
-        self.assertEqual(vendor["code"], "VU0001")
+        self.assertEqual(vendor["code"], "VU00001")
         self.assertEqual((await Company.get(id=vendor["id"])).signing_entity_id, 901)
         invalid = await self.create_vendor(signing_entity_id=self.entity.id)
         self.assertEqual(invalid.status_code, 400)
@@ -110,7 +136,7 @@ class VendorCenterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200, response.text)
         vendor = await Company.get(name="Shared Entity Vendor")
         self.assertEqual(vendor.signing_entity_id, entity.id)
-        self.assertEqual(vendor.code, "VH0001")
+        self.assertEqual(vendor.code, "VH00001")
         self.assertIn("77 Telecom Ltd", (await self.client.get("/vendor/export")).text)
 
     async def test_vendor_menus_are_visible_unique_and_repeatable(self):
@@ -247,7 +273,7 @@ class VendorCenterTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(response.status_code, 200, response.text)
         vendor = response.json()["data"]
-        self.assertEqual(vendor["code"], "VU0001")
+        self.assertEqual(vendor["code"], "VU00001")
         response = await self.client.post(
             "/vendor/update", json={"id": vendor["id"], "name": "Updated", "country": "中国 / 香港"}
         )
@@ -388,7 +414,7 @@ class VendorCenterTests(unittest.IsolatedAsyncioTestCase):
         for kwargs in ({"name": "   "}, {"payment_terms": "x" * 201}, {"noc_contact": "x" * 10001}):
             self.assertEqual((await self.create_vendor(**kwargs)).status_code, 422)
         vendor = (await self.create_vendor(code="VU0009")).json()["data"]
-        self.assertEqual((await self.create_vendor()).json()["data"]["code"], "VU0010")
+        self.assertEqual((await self.create_vendor()).json()["data"]["code"], "VU00010")
         self.assertEqual((await self.create_vendor(code="VU0009")).status_code, 409)
         self.assertEqual((await self.create_vendor(contract_company_id=vendor["id"])).status_code, 400)
         response = await self.client.post("/vendor/update", json={"id": self.entity.id, "name": "Cannot change"})

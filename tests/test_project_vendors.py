@@ -52,6 +52,20 @@ class ProjectVendorTests(unittest.IsolatedAsyncioTestCase):
             "/project/update", json={"id": project_id, "name": "Project", "owner": "project-test", **kwargs}
         )
 
+    async def test_completed_progress_on_create_update_status_and_legacy_read(self):
+        response = await self.create(status="completed", progress=12)
+        project_id = response.json()["data"]["id"]
+        self.assertEqual(response.json()["data"]["progress"], 100)
+        self.assertEqual((await CustomerProject.get(id=project_id)).progress, 100)
+        response = await self.update(project_id, status="completed", progress=20)
+        self.assertEqual(response.json()["data"]["progress"], 100)
+        await self.update(project_id, status="active", progress=30)
+        response = await self.client.post("/project/status", json={"id": project_id, "status": "completed", "sort_order": 1})
+        self.assertEqual(response.json()["data"]["progress"], 100)
+        await CustomerProject.filter(id=project_id).update(progress=10)
+        response = await self.client.get("/project/get", params={"project_id": project_id})
+        self.assertEqual(response.json()["data"]["progress"], 100)
+
     async def test_vendor_create_detail_update_and_filter(self):
         response = await self.create(project_type="vendor", vendor_id=self.vendor.id)
         self.assertEqual(response.json()["code"], 200, response.text)

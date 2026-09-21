@@ -2,7 +2,7 @@
 
 供应商入口为一级菜单“供应商中心”（`/vendor-center`），仅保留“供应商管理”（`/vendor-center/vendors`）与“供应商联系人”（`/vendor-center/contacts`）。旧 `/vendor` 入口隐藏并重定向到供应商管理，不再放在隐藏的财务目录中。后端启动会幂等补齐菜单；更新后需重新加载前端菜单（刷新页面或重新登录）。
 
-API 沿用 `/api/v1/vendor`，数据仍保存在 `company`（`role=2`），保留公司 ID、银行账户、账单及原字段。供应商编号沿用既有签约主体前缀规则；自动编号取已有最大序号加一，手动重复编号返回 409。
+API 沿用 `/api/v1/vendor`，数据仍保存在 `company`（`role=2`），保留公司 ID、银行账户、账单及原字段。供应商编号为 V + 客户编号规则（科特思 VC、77 Telecom VH、Catixs VU + 五位流水号，如 VU00001），供应商独立递增，历史编号保持不变；自动编号取已有最大序号加一，手动重复编号返回 409。
 
 供应商新增、编辑表单只维护基本资料、签约主体、所属地区和附件，不包含邮箱、电话或联系人字段，也不在保存请求中提交这些字段，因此不会覆盖已有联系人。注册号、税号和付款条件已从表单与展示中移除，更新请求不提交这三个字段，保留历史数据及 API/CSV 兼容性。
 
@@ -46,13 +46,15 @@ API 沿用 `/api/v1/vendor`，数据仍保存在 `company`（`role=2`），保�
 
 ## 信息录入
 
+供应商管理按服务端分页，默认每页20条，可切换20/50/100条，底部显示筛选后的总条数。关键字、签约主体、状态筛选或调整每页数量时回到第一页；删除末页最后一条后自动回退到有效页。列表接口示例：`GET /api/v1/vendor/list?page=1&page_size=20&keyword=network&signing_entity_id=1&status=true`，响应示例：`{"code":200,"data":[],"total":0,"page":1,"page_size":20}`。翻页与筛选均沿用供应商查询权限，无数据库迁移。
+
 所有接口通过 `token` 请求头登录，并按 `DependPermission` 校验当前用户角色的接口权限。供应商模块采用共享档案权限，具有对应接口权限的用户可以操作任意供应商；不引入销售归属限制。获取、编辑、删除仅接受供应商 ID，内部公司或客户 ID 返回 404。
 
 | 路由 | 参数与响应 |
 | --- | --- |
-| `GET /api/v1/vendor/list` | 保留 `page`、`page_size`、`name`、`code`、`status`；返回 `{code:200,data:[供应商],total,page,page_size}`。供应商包含新增联系信息字段。 |
+| `GET /api/v1/vendor/list` | 保留 `page`（默认1）、`page_size`（默认10）、`name`、`code`、`status`；新增 `keyword`（名称或编号，不区分大小写）和 `signing_entity_id`（CRM主体ID）。返回 `{code:200,data:[供应商],total,page,page_size}`，按ID升序稳定分页，`total` 为筛选后总条数。主体筛选兼容可唯一映射到CRM主体的历史关联。页码、每页数量及主体ID必须为正数，否则422；鉴权权限沿用原接口。 |
 | `GET /api/v1/vendor/get` | `vendor_id`；返回 `{code:200,data:供应商}`，包含 `attachments` 元数据列表。 |
-| `GET /api/v1/vendor/next-code` | 必填 `signing_entity_id`（正整数、启用的 CRM 主体），返回 `{code:200,data:{code:"VU0001"}}`；只预览、不占用编号。缺少参数/格式错误 422，无效/停用主体 400，未授权 401/403（缺少 token 沿用 422）。需要对应 GET 接口权限，启动时按供应商查询权限补齐。 |
+| `GET /api/v1/vendor/next-code` | 必填 `signing_entity_id`（正整数、启用的 CRM 主体），返回 `{code:200,data:{code:"VU00001"}}`；只预览、不占用编号。缺少参数/格式错误 422，无效/停用主体 400，未授权 401/403（缺少 token 沿用 422）。需要对应 GET 接口权限，启动时按供应商查询权限补齐。 |
 | `POST /api/v1/vendor/create` | JSON；名称必填，`signing_entity_id` 使用客户管理的 CRM 签约主体 ID。旧调用方仍可使用内部公司 `contract_company_id`，两类 ID 不混用。 |
 | `POST /api/v1/vendor/update` | JSON；必填 `id`、`name`，旧调用方未传新增字段时保留原值，空编号不会清空现有编号。 |
 | `DELETE /api/v1/vendor/delete` | `vendor_id`；有供应商附件时返回 409，需先在编辑窗口删除附件。 |
@@ -93,7 +95,7 @@ API 沿用 `/api/v1/vendor`，数据仍保存在 `company`（`role=2`），保�
     "id": 42,
     "name": "Example Networks Ltd",
     "role": 2,
-    "code": "VU0001",
+    "code": "VU00001",
     "contract_company_id": 1,
     "signing_entity_id": 1,
     "signing_entity_name": "Catixs Ltd",

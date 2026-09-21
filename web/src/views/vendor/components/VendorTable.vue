@@ -35,24 +35,39 @@
     </div>
     <NAlert v-if="error" type="error">{{ error }}</NAlert>
     <NDataTable
+      remote
       striped
+      flex-height
+      class="vendor-table"
       :loading="loading"
       :columns="columns"
-      :data="filtered"
-      :pagination="{ pageSize: 20, showSizePicker: true, pageSizes: [20, 50, 100] }"
+      :data="vendors"
+      :pagination="false"
       :row-key="(row) => row.id"
       :scroll-x="scrollX"
       :scrollbar-props="{ trigger: 'none' }"
     >
       <template #empty><NEmpty description="暂无供应商" /></template>
     </NDataTable>
-    <p class="total">共 {{ filtered.length }} 条</p>
+    <div class="vendor-pagination">
+      <span>共 {{ pagination.itemCount }} 条</span>
+      <NPagination
+        :page="pagination.page"
+        :page-size="pagination.pageSize"
+        :item-count="pagination.itemCount"
+        :page-sizes="pagination.pageSizes"
+        :disabled="loading"
+        show-size-picker
+        @update:page="emit('page-change', $event)"
+        @update:page-size="emit('page-size-change', $event)"
+      />
+    </div>
   </section>
 </template>
 
 <script setup>
-import { computed, h, ref } from 'vue'
-import { NButton, NSpace, NTag } from 'naive-ui'
+import { computed, h, ref, watch } from 'vue'
+import { NButton, NPagination, NSpace, NTag } from 'naive-ui'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import api from '@/api'
 
@@ -61,8 +76,9 @@ const props = defineProps({
   companies: { type: Array, default: () => [] },
   loading: Boolean,
   error: { type: String, default: '' },
+  pagination: { type: Object, required: true },
 })
-const emit = defineEmits(['select', 'add', 'edit', 'delete', 'refresh'])
+const emit = defineEmits(['select', 'add', 'edit', 'delete', 'refresh', 'query-change', 'page-change', 'page-size-change'])
 const keyword = ref('')
 const entityId = ref(null)
 const status = ref(null)
@@ -70,20 +86,9 @@ const exporting = ref(false)
 const importing = ref(false)
 const fileInput = ref(null)
 const entityOptions = computed(() => props.companies.map((c) => ({ label: c.name, value: c.id })))
-const filtered = computed(() =>
-  props.vendors.filter((row) => {
-    const matches = ['code', 'name'].some((key) =>
-      String(row[key] || '')
-        .toLowerCase()
-        .includes(keyword.value.trim().toLowerCase())
-    )
-    return (
-      matches &&
-      (entityId.value === null || row.signing_entity_id === entityId.value) &&
-      (status.value === null || Number(row.status) === status.value)
-    )
-  })
-)
+watch([keyword, entityId, status], () => {
+  emit('query-change', { keyword: keyword.value.trim(), signing_entity_id: entityId.value, status: status.value })
+})
 function reset() {
   keyword.value = ''
   entityId.value = null
@@ -174,6 +179,9 @@ async function importVendors(event) {
   border-radius: 16px;
   background: var(--n-color, #fff);
 }
+.vendor-table {
+  height: clamp(320px, calc(100vh - 340px), 720px);
+}
 .panel-head {
   display: flex;
   justify-content: space-between;
@@ -197,8 +205,17 @@ h2 {
   gap: 12px;
   margin-bottom: 20px;
 }
-.total {
+.vendor-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
   color: #718096;
+}
+.vendor-pagination :deep(.n-pagination) {
+  flex-wrap: wrap;
 }
 @media (max-width: 760px) {
   .vendor-panel {

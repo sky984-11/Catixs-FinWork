@@ -289,10 +289,18 @@
         title="添加虚拟机"
         class="vm-create-modal"
         :style="vmCreateModalStyle"
+        :mask-closable="!createModal.submitting"
+        :closable="!createModal.submitting"
       >
+        <div v-if="!createModal.created" class="vm-create-intro">
+          <span class="vm-create-icon"><TheIcon icon="mdi:server-plus" :size="24" /></span>
+          <div><strong>创建云端虚拟机</strong><p>配置系统、计算资源与网络，关联客户并设置使用期限。</p></div>
+        </div>
         <n-spin v-if="!createModal.created" :show="createModal.loading">
-          <n-form class="vm-create-form" :label-placement="mobileFormLabelPlacement" :label-width="mobileFormLabelWidth">
-            <n-grid :cols="createFormCols" :x-gap="14">
+          <n-form class="vm-create-form" label-placement="top" :disabled="createModal.submitting">
+            <section class="vm-form-section">
+              <div class="vm-form-section-head"><span>基本信息</span><small>系统与客户归属</small></div>
+            <n-grid :cols="createFormCols" :x-gap="16">
               <n-form-item-gi label="操作系统" required>
                 <n-cascader
                   v-model:value="createModal.form.os_selection"
@@ -305,7 +313,7 @@
               <n-form-item-gi label="虚拟机名称">
                 <n-input-group>
                   <n-input v-model:value="createModal.form.vm_name" placeholder="请输入虚拟机名称" />
-                  <n-button class="random-addon-button" ghost type="primary" @click="refreshCreateVmName">随机</n-button>
+                  <CButton show-save save-text="随机" :disabled="createModal.submitting" @save="refreshCreateVmName" />
                 </n-input-group>
               </n-form-item-gi>
               <n-form-item-gi label="所属客户">
@@ -328,6 +336,11 @@
                   placeholder="选择存储"
                 />
               </n-form-item-gi>
+            </n-grid>
+            </section>
+            <section class="vm-form-section">
+              <div class="vm-form-section-head"><span>计算资源与安全</span><small>规格配置与登录凭据</small></div>
+            <n-grid :cols="createFormCols" :x-gap="16">
               <n-form-item-gi label="CPU 核心">
                 <n-input-number v-model:value="createModal.form.cpu_cores" :min="1" :max="64" class="full-width" />
               </n-form-item-gi>
@@ -351,9 +364,14 @@
                     show-password-on="click"
                     placeholder="请输入 root 密码"
                   />
-                  <n-button class="random-addon-button" ghost type="primary" @click="refreshCreatePassword">随机</n-button>
+                  <CButton show-save save-text="随机" :disabled="createModal.submitting" @save="refreshCreatePassword" />
                 </n-input-group>
               </n-form-item-gi>
+            </n-grid>
+            </section>
+            <section class="vm-form-section">
+              <div class="vm-form-section-head"><span>网络配置</span><small>连接方式与带宽限制</small></div>
+            <n-grid :cols="createFormCols" :x-gap="16">
               <n-form-item-gi label="网络模式" required>
                 <n-radio-group v-model:value="createModal.form.network.mode">
                   <n-radio-button value="dhcp">DHCP</n-radio-button>
@@ -406,6 +424,11 @@
               <n-form-item-gi v-if="createModal.form.network.mode === 'static'" label="VLAN" required>
                 <n-input-number v-model:value="createModal.form.network.vlan" :min="1" :max="4094" class="full-width" />
               </n-form-item-gi>
+            </n-grid>
+            </section>
+            <section class="vm-form-section">
+              <div class="vm-form-section-head"><span>使用设置</span><small>有效期限与用途备注</small></div>
+            <n-grid :cols="createFormCols" :x-gap="16">
               <n-form-item-gi label="有效时间" :span="createWideSpan">
                 <n-date-picker
                   v-model:value="createModal.form.expire_at"
@@ -427,6 +450,7 @@
                 />
               </n-form-item-gi>
             </n-grid>
+            </section>
           </n-form>
         </n-spin>
         <div v-else class="create-result-panel">
@@ -469,20 +493,21 @@
                 </n-descriptions-item>
               </n-descriptions>
               <div class="create-config-actions">
-                <n-button type="primary" secondary @click="copyCreateConfig">复制配置</n-button>
+                <CButton show-save save-text="复制配置" @save="copyCreateConfig" />
               </div>
             </template>
           </n-result>
         </div>
         <template #footer>
           <div class="modal-footer">
-            <span>{{ createModal.created ? '虚拟机已在目标 PVE 节点创建完成，请刷新列表查看。' : '创建时会通过 SSH 在目标节点执行平台内置创建脚本。' }}</span>
+            <span>{{ createModal.created ? '虚拟机已在目标 PVE 节点创建完成，请刷新列表查看。' : '请确认资源配置和网络信息后创建。' }}</span>
             <CButton
               v-if="!createModal.created"
               show-cancel
               show-save
               save-text="创建"
               :save-loading="createModal.submitting"
+              :disabled="createModal.submitting || createModal.loading"
               @cancel="createModal.show = false"
               @save="submitCreateVm"
             />
@@ -863,8 +888,6 @@ const isMobileVmView = computed(() => viewportWidth.value <= 768)
 const isCompactVmList = computed(() => viewportWidth.value <= 1280)
 const createFormCols = computed(() => (isMobileVmView.value ? 1 : 2))
 const createWideSpan = computed(() => (isMobileVmView.value ? 1 : 2))
-const mobileFormLabelPlacement = computed(() => (isMobileVmView.value ? 'top' : 'left'))
-const mobileFormLabelWidth = computed(() => (isMobileVmView.value ? undefined : 110))
 
 const createExpireTimePickerProps = {
   format: 'HH:00',
@@ -1859,8 +1882,17 @@ async function executeDeleteVm(row) {
       message.error('删除虚拟机失败：未确认 PVE 删除完成，请稍后刷新核实')
       return
     }
-    await fetchVms()
-    await loadCreateDhcpPools()
+    const remaining = vmList.value.filter((vm) => !(vm.remote === row.remote && Number(vm.vmid) === Number(row.vmid)))
+    vmList.value = remaining
+    Object.assign(vmSummary, {
+      total: remaining.length,
+      running: remaining.filter((vm) => vm.status === 'running').length,
+      stopped: remaining.filter((vm) => vm.status === 'stopped').length,
+    })
+    syncSelectedNodeSummary(vmSummary)
+    pagination.itemCount = remaining.length
+    pagination.page = Math.min(pagination.page, Math.max(1, Math.ceil(remaining.length / pagination.pageSize)))
+    saveVmPageCache()
     message.success('删除完成')
   } catch (error) {
     message.error(error.message || '删除虚拟机失败')
@@ -3421,6 +3453,43 @@ onBeforeUnmount(() => {
   justify-content: flex-end;
 }
 
+.vm-create-intro {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid #dceafe;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+.vm-create-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  border-radius: 8px;
+  color: #0f766e;
+  background: #dff7f1;
+}
+.vm-create-intro strong { font-size: 16px; color: #0f172a; }
+.vm-create-intro p { margin: 4px 0 0; color: #64748b; font-size: 13px; }
+.vm-create-form { display: flex; flex-direction: column; gap: 14px; }
+.vm-form-section { padding: 14px 16px 2px; border: 1px solid #e8edf3; border-radius: 8px; }
+.vm-form-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #edf2f7;
+}
+.vm-form-section-head span { font-size: 15px; font-weight: 700; }
+.vm-form-section-head small { font-size: 12px; color: #94a3b8; }
 .vm-create-dhcp-field {
   display: flex;
   min-width: 0;

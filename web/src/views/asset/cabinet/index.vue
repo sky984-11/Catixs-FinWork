@@ -777,8 +777,13 @@ const nodeCustomerOptions = computed(() => customerOptions.value.filter((option)
 ))
 
 function handleDeviceCustomersChange(ids) {
+  if (deviceModal.form.type === 0) deviceModal.form.status = ids.length ? 1 : 0
   deviceModal.form.nodeList.forEach((node) => {
-    if (!ids.some((id) => Number(id) === Number(node.customer_id))) node.customer_id = null
+    if (node.customer_id && !ids.some((id) => Number(id) === Number(node.customer_id))) {
+      node.customer_id = null
+      node.status = 0
+    }
+    if (!ids.length) node.status = 0
   })
 }
 const REGION_POINT_CACHE_KEY = 'finwork:cabinet-region-points:v1'
@@ -840,6 +845,7 @@ const deviceTypeOptions = [
 
 const deviceStatusOptions = [
   { label: '空闲', value: 0 },
+  { label: '预留', value: 6 },
   { label: '待维护', value: 2 },
   { label: '故障', value: 3 },
   { label: '使用', value: 1 },
@@ -848,6 +854,7 @@ const deviceStatusOptions = [
 const rackStatusLegend = [
   { label: '使用', value: 1 },
   { label: '空闲', value: 0 },
+  { label: '预留', value: 6 },
   { label: '待维护', value: 2 },
   { label: '故障', value: 3 },
   { label: '下架', value: 4 },
@@ -1193,6 +1200,7 @@ function aggregateFourNodeStatus(nodes) {
   if (statuses.some((status) => status === 3)) return 3
   if (statuses.some((status) => status === 2)) return 2
   if (statuses.some((status) => status === 1)) return 1
+  if (statuses.some((status) => status === 6)) return 6
   if (statuses.some((status) => status === 0)) return 0
   return statuses[0] ?? 0
 }
@@ -3209,6 +3217,10 @@ onBeforeUnmount(() => {
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.86);
 }
 
+.rack-status-legend-item.device-status-6 i,
+.rack-device-cell.device-status-6 .rack-status-dot {
+  background: #8b5cf6;
+}
 .rack-status-legend-item.device-status-0 i {
   background: #38bdf8;
 }
