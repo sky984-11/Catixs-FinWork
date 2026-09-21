@@ -2987,3 +2987,7 @@ async def init_data():
     await init_companies()
     await ensure_company_branding()
     await ensure_required_signing_entities()
+
+    from app.services.idc_setup import setup_idc
+
+    await setup_idc()

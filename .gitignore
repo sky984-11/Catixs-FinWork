@@ -13,6 +13,7 @@ migrations/models/*
 !migrations/models/171_20260917150000_vendor_shared_signing_entity.py
 !migrations/models/172_20260918010000_vendor_contact_records.py
 !migrations/models/173_20260918020000_project_vendor.py
+!migrations/models/174_20260921120000_idc_workflow.py
 .env
 .pnpm-store/
 

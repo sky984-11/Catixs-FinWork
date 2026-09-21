@@ -18,6 +18,7 @@
       
       <n-card title=" " class="ticket-list-container" :segmented="true" rounded-10>
         <template #header-extra>
+          <n-button secondary type="info" style="margin-right: 12px; border-radius: 12px" @click="router.push('/idc/orders')">IDC产品工单</n-button>
           <n-button secondary type="primary" style="border-radius: 12px" @click="handleCreate">新增工单</n-button>
         </template>
 
@@ -229,6 +230,7 @@ async function loadData(reset = false) {
       
       const formatTickets = result.data.map(ticket => ({
         id: ticket.id,
+        idcOrderId: ticket.idc_order_id,
         ticketNo: ticket.ticket_no,
         title: ticket.title,
         type: ticket.type,
@@ -320,6 +322,10 @@ function handleCreate() {
 }
 
 function handleView(ticket) {
+  if (ticket.idcOrderId) {
+    router.push({ path: '/idc/orders', query: { order_id: ticket.idcOrderId } })
+    return
+  }
   if (!isAdminOrNoc.value && String(ticket.customerId) !== String(userStore.userId || 1)) {
     window.$message?.error('无权限查看该工单')
     return
@@ -328,6 +334,10 @@ function handleView(ticket) {
 }
 
 function handleEdit(ticket) {
+  if (ticket.idcOrderId) {
+    router.push({ path: '/idc/orders', query: { order_id: ticket.idcOrderId } })
+    return
+  }
   if (!isAdminOrNoc.value && String(ticket.customerId) !== String(userStore.userId || 1)) {
     window.$message?.error('无权限编辑该工单')
     return

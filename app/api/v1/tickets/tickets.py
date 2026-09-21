@@ -87,6 +87,10 @@ async def ticket_to_dict(ticket_obj: Ticket) -> dict:
     assignee = await User.get_or_none(id=ticket_obj.assignee_id) if ticket_obj.assignee_id else None
     data["creator_name"] = get_user_display_name(creator)
     data["assignee_name"] = get_user_display_name(assignee) if assignee else ""
+    from app.models.idc import IdcOrder
+
+    order = await IdcOrder.get_or_none(ticket_id=ticket_obj.id)
+    data["idc_order_id"] = order.id if order else None
     data["attachment_urls"] = get_ticket_attachment_urls(ticket_obj)
     return data
 
@@ -453,6 +457,10 @@ async def update_ticket(
     if ticket_obj is None:
         raise HTTPException(status_code=404, detail="工单不存在")
     await ensure_ticket_access(ticket_obj, current_user)
+    from app.models.idc import IdcOrder
+
+    if await IdcOrder.filter(ticket_id=ticket_obj.id).exists():
+        raise HTTPException(409, "结构化IDC工单请在IDC业务中处理，状态由明细流转汇总")
     old_status = ticket_obj.status
     status_changed = ticket_in.status is not None and ticket_in.status != old_status
     if status_changed:
@@ -499,6 +507,10 @@ async def delete_ticket(
     current_user = await get_current_ticket_user()
     ticket_obj = await ticket_controller.get(id=ticket_id)
     await ensure_ticket_access(ticket_obj, current_user)
+    from app.models.idc import IdcOrder
+
+    if await IdcOrder.filter(ticket_id=ticket_id).exists():
+        raise HTTPException(409, "IDC工单需保留业务追溯记录，请在IDC工单中取消明细")
     await ticket_controller.remove(id=ticket_id)
     return Success(msg="工单删除成功")
 

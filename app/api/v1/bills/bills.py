@@ -1047,6 +1047,10 @@ async def update_bill_status(bill_id: int, payload: BillStatusPayload):
     if not bill:
         raise HTTPException(status_code=404, detail="账单不存在")
     action = payload.action.strip()
+    if bill.source == "idc" and action not in {"send", "mark_paid"}:
+        raise HTTPException(409, "请在IDC账单中执行审核或作废")
+    if bill.source == "idc" and bill.status not in {"issued", "sent", "overdue"}:
+        raise HTTPException(409, "IDC账单审核通过后才能发送或结清")
     transition = BILL_TRANSITIONS.get(action)
     if not transition:
         raise HTTPException(status_code=400, detail="不支持的状态动作")
@@ -1074,6 +1078,8 @@ async def create_payment(bill_id: int, payload: BillPaymentPayload):
     bill = await bill_controller.model.get_or_none(id=bill_id)
     if not bill:
         raise HTTPException(status_code=404, detail="账单不存在")
+    if bill.source == "idc" and bill.status not in {"issued", "sent", "overdue"}:
+        raise HTTPException(409, "IDC账单审核通过后才能登记收款")
     before = await bill_to_dict(bill)
     payment = await BillPayment.create(
         bill_id=bill.id,
@@ -1172,6 +1178,8 @@ async def update_bill(
     obj_in: BillUpdate,
 ):
     existing = await bill_controller.get(id=obj_in.id)
+    if existing.source == "idc":
+        raise HTTPException(409, "IDC账单由费用版本生成，请在IDC账单中重算草稿或登记调整项")
     before = await bill_to_dict(existing, include_items=True)
     if (existing.status or "issued") != "pending_approval":
         locked_fields = {"invoice_no", "invoice_date", "company_id", "customer_name"}
@@ -1198,6 +1206,9 @@ async def update_bill(
 async def delete_bill(
     bill_id: int = Query(..., description="账单ID"),
 ):
+    existing = await bill_controller.get(id=bill_id)
+    if existing.source == "idc":
+        raise HTTPException(409, "IDC账单保留审计，不可删除；请作废未审核草稿或登记调整项")
     await bill_controller.remove(id=bill_id)
     return Success(msg="Deleted Successfully")
 
