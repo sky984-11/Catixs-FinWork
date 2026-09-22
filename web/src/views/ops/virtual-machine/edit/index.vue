@@ -307,6 +307,15 @@ function goBackToList() {
     path: returnPath.value,
     query: {
       selected_node: route.query.selected_node || remote.value,
+      ...(returnPath.value === '/virtual-machine/detail'
+        ? {
+            remote: remote.value,
+            vmid: vmid.value,
+            type: vmType.value,
+            node: route.query.node || '',
+            name: vmName.value,
+          }
+        : {}),
     },
   })
 }

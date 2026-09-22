@@ -165,6 +165,21 @@ export const basicRoutes = [
     },
   },
   {
+    name: 'OpsVirtualMachineDetail',
+    path: '/virtual-machine/detail',
+    component: Layout,
+    isHidden: true,
+    children: [
+      {
+        name: 'OpsVirtualMachineDetailDefault',
+        path: '',
+        component: () => import('@/views/ops/virtual-machine/detail/index.vue'),
+        meta: { title: '虚拟机详情', icon: 'mdi:monitor' },
+      },
+    ],
+    meta: { title: '虚拟机详情' },
+  },
+  {
     name: 'OpsVirtualMachineEdit',
     path: '/virtual-machine/edit',
     component: Layout,

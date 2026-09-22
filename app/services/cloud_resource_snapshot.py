@@ -159,6 +159,9 @@ async def collect_snapshot(previous):
             vm["region_name"] = node.get("region_name") or ""
         vms.extend(current)
     await pve.apply_vm_metadata(vms)
+    from app.services.cloud_vm_display import enrich_display_metadata
+
+    await enrich_display_metadata([vm for vm in vms if vm.get("remote") not in failures])
     return {"nodes": nodes, "items": vms}, (f"同步失败的节点：{'、'.join(failures)}" if failures else "")
 
 

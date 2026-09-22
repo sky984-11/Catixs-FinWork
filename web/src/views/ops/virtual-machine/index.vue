@@ -1,11 +1,6 @@
 ﻿<template>
   <AppPage :show-footer="false" class="cloud-resource-page">
     <div class="vm-page">
-      <n-alert :type="snapshotSync.error ? 'warning' : 'info'" :show-icon="false" style="margin-bottom: 12px">
-        {{ snapshotSync.refreshing ? '云资源正在后台同步，当前显示本地快照' : snapshotSync.error || '当前显示本地资源快照' }}
-        · 最近同步：{{ snapshotSync.synced_at ? new Date(snapshotSync.synced_at).toLocaleString('zh-CN') : '尚未同步' }}
-        <n-button text type="primary" :disabled="snapshotSync.refreshing" @click="syncCloudResources">立即同步</n-button>
-      </n-alert>
       <section class="vm-layout" :class="{ 'node-sidebar-collapsed': nodeSidebarCollapsed }">
         <aside class="vm-sidebar" :class="{ collapsed: nodeSidebarCollapsed }">
           <div class="panel-head">
@@ -21,10 +16,21 @@
                 @click="nodeSidebarCollapsed = !nodeSidebarCollapsed"
               >
                 <template #icon>
-                  <TheIcon :icon="nodeSidebarCollapsed ? 'mdi:chevron-double-right' : 'mdi:chevron-double-left'" :size="18" />
+                  <TheIcon
+                    :icon="
+                      nodeSidebarCollapsed ? 'mdi:chevron-double-right' : 'mdi:chevron-double-left'
+                    "
+                    :size="18"
+                  />
                 </template>
               </n-button>
-              <n-button v-if="!nodeSidebarCollapsed" type="primary" secondary circle @click="openAddNodeModal">
+              <n-button
+                v-if="!nodeSidebarCollapsed"
+                type="primary"
+                circle
+                secondary
+                @click="openAddNodeModal"
+              >
                 <template #icon>
                   <TheIcon icon="mdi:server-plus" :size="18" />
                 </template>
@@ -32,7 +38,13 @@
             </div>
           </div>
 
-          <n-input v-if="!nodeSidebarCollapsed" v-model:value="filters.nodeKeyword" clearable placeholder="搜索节点 / Remote" class="side-search">
+          <n-input
+            v-if="!nodeSidebarCollapsed"
+            v-model:value="filters.nodeKeyword"
+            clearable
+            placeholder="搜索节点 / Remote"
+            class="side-search"
+          >
             <template #prefix>
               <TheIcon icon="mdi:magnify" :size="18" />
             </template>
@@ -60,7 +72,12 @@
                       <strong>{{ node.label }}</strong>
                       <em>{{ nodeMetaText(node) }}</em>
                     </span>
-                    <n-tag v-if="!nodeSidebarCollapsed" size="small" round :type="nodeVmCountTagType(node)">
+                    <n-tag
+                      v-if="!nodeSidebarCollapsed"
+                      size="small"
+                      round
+                      :type="nodeVmCountTagType(node)"
+                    >
                       {{ node.vm_count ?? '-' }}
                     </n-tag>
                   </button>
@@ -88,66 +105,39 @@
         </aside>
 
         <main class="vm-main">
-          <section class="summary-band">
-            <article>
-              <span class="summary-label">
-                <TheIcon icon="mdi:cpu-64-bit" :size="15" />
-                CPU 利用率
-              </span>
-              <strong>{{ formatPercent(selectedNode?.cpu_usage ?? selectedNode?.cpu) }}</strong>
-            </article>
-            <article>
-              <span class="summary-label">
-                <TheIcon icon="mdi:chip" :size="15" />
-                CPU 总数
-              </span>
-              <strong>{{ selectedNode?.cpu_total || '-' }} 核</strong>
-            </article>
-            <article>
-              <span class="summary-label">
-                <TheIcon icon="mdi:memory" :size="15" />
-                内存利用率
-              </span>
-              <strong>{{ formatPercent(selectedNode?.mem_usage) }}</strong>
-            </article>
-            <article>
-              <span class="summary-label">
-                <TheIcon icon="mdi:server" :size="15" />
-                内存总量
-              </span>
-              <strong>{{ formatShortBytes(selectedNode?.maxmem) }}</strong>
-            </article>
-            <article>
-              <span class="summary-label">
-                <TheIcon icon="mdi:harddisk" :size="15" />
-                磁盘利用率
-              </span>
-              <strong>{{ formatPercent(selectedNode?.disk_usage) }}</strong>
-            </article>
-            <article>
-              <span class="summary-label">
-                <TheIcon icon="mdi:database" :size="15" />
-                磁盘总量
-              </span>
-              <strong>{{ formatShortBytes(selectedNode?.maxdisk) }}</strong>
-            </article>
-            <article class="summary-ip-card">
-              <span class="summary-label">
-                <TheIcon icon="mdi:lan" :size="15" />
-                节点 IP
-              </span>
-              <strong>{{ nodeAddress(selectedNode) }}</strong>
-            </article>
-          </section>
+          <ClusterLoadCard :node="selectedNode" />
 
           <section class="content-panel">
-            <div class="panel-head">
-              <div>
-                <span class="eyebrow">{{ selectedNode?.label || '全部节点' }}</span>
-                <h2>虚拟机列表</h2>
+            <div class="vm-toolbar">
+              <div class="vm-filter-bar">
+                <n-input v-model:value="filters.keyword" clearable placeholder="搜索名称、用户或 IP"
+                  ><template #prefix><TheIcon icon="mdi:magnify" :size="17" /></template></n-input
+                ><n-select
+                  v-model:value="filters.status"
+                  clearable
+                  placeholder="全部状态"
+                  :options="[
+                    { label: '运行中', value: 'running' },
+                    { label: '已停止', value: 'stopped' },
+                    { label: '已暂停', value: 'paused' },
+                  ]"
+                />
               </div>
               <div class="vm-list-actions">
-                <n-button secondary round :disabled="!selectedNode || loading.vms" :loading="loading.ips" @click="reloadVmIps">
+                <n-button
+                  secondary
+                  :loading="loading.nodes || snapshotSync.refreshing"
+                  @click="syncCloudResources"
+                  ><template #icon><TheIcon icon="mdi:refresh" :size="17" /></template
+                  >刷新</n-button
+                >
+                <n-button
+                  secondary
+                  round
+                  :disabled="!selectedNode || loading.vms"
+                  :loading="loading.ips"
+                  @click="reloadVmIps"
+                >
                   <template #icon>
                     <TheIcon icon="mdi:ip-network" :size="18" />
                   </template>
@@ -161,8 +151,12 @@
                 </n-button>
               </div>
             </div>
-
-            <div v-if="!isCompactVmList" ref="vmTableHost" class="vm-table-host" @mouseup="syncVmNameColumnFixedState">
+            <div
+              v-if="!isCompactVmList"
+              ref="vmTableHost"
+              class="vm-table-host"
+              @mouseup="syncVmNameColumnFixedState"
+            >
               <n-data-table
                 :key="tableRenderKey"
                 remote
@@ -171,30 +165,33 @@
                 :columns="columns"
                 :data="pagedVmList"
                 :pagination="false"
-                :scroll-x="2350"
+                :scroll-x="1540"
                 :row-key="(row) => row.id"
                 :row-class-name="() => 'vm-table-row'"
-                :row-props="vmRowProps"
               />
             </div>
             <div v-else class="mobile-vm-list">
               <VanSkeleton v-if="loading.vms" title :row="8" />
               <VanEmpty v-else-if="!pagedVmList.length" image-size="70" description="暂无虚拟机" />
               <template v-else>
-                <article
-                  v-for="vm in pagedVmList"
-                  :key="vm.id"
-                  class="mobile-vm-card"
-                  @dblclick="openNoVnc(vm)"
-                >
+                <article v-for="vm in pagedVmList" :key="vm.id" class="mobile-vm-card">
                   <header class="mobile-vm-card__head">
                     <div>
                       <span>VMID {{ vm.vmid }}</span>
-                      <strong>{{ vm.name || '-' }}</strong>
+                      <button class="vm-name-link" @click="openDetail(vm)">
+                        {{ vm.name || '-' }}
+                      </button>
                     </div>
-                    <VanTag :type="mobileVmStatusType(vm)" round>{{ mobileVmStatusText(vm) }}</VanTag>
+                    <VanTag :type="mobileVmStatusType(vm)" round>{{
+                      mobileVmStatusText(vm)
+                    }}</VanTag>
                   </header>
 
+                  <div class="mobile-vm-owner">
+                    <TheIcon icon="mdi:account-outline" :size="14" />{{
+                      vm.customer_name || '未分配用户'
+                    }}<span>{{ vmOs(vm).label }}</span>
+                  </div>
                   <div class="mobile-vm-ips">
                     <span v-if="!mobileVmIps(vm).length">IP -</span>
                     <VanTag v-for="ip in mobileVmIps(vm)" :key="ip" plain type="primary">
@@ -217,12 +214,14 @@
                     </span>
                     <span>
                       <em>运行时间</em>
-                      <strong>{{ formatUptime(vm.uptime) }}</strong>
+                      <strong>{{ uptimeText(vm.uptime) }}</strong>
                     </span>
                     <span>
                       <em>有效时间</em>
                       <strong>
-                        <VanTag :type="mobileExpireType(vm)" plain>{{ resolveVmExpire(vm).text }}</VanTag>
+                        <VanTag :type="mobileExpireType(vm)" plain>{{
+                          resolveVmExpire(vm).text
+                        }}</VanTag>
                       </strong>
                     </span>
                   </div>
@@ -230,7 +229,21 @@
                   <p v-if="vm.remark" class="mobile-vm-remark">{{ vm.remark }}</p>
 
                   <div class="mobile-vm-actions">
-                    <VanButton size="small" plain type="primary" icon="bar-chart-o" @click.stop="openMonitor(vm)">
+                    <VanButton
+                      size="small"
+                      plain
+                      type="primary"
+                      icon="desktop-o"
+                      @click.stop="openNoVnc(vm)"
+                      >控制台</VanButton
+                    >
+                    <VanButton
+                      size="small"
+                      plain
+                      type="primary"
+                      icon="bar-chart-o"
+                      @click.stop="openMonitor(vm)"
+                    >
                       监控
                     </VanButton>
                     <VanButton
@@ -244,7 +257,13 @@
                     >
                       {{ mobileVmPowerText(vm) }}
                     </VanButton>
-                    <VanButton size="small" plain type="primary" icon="edit" @click.stop="openEditVm(vm)">
+                    <VanButton
+                      size="small"
+                      plain
+                      type="primary"
+                      icon="edit"
+                      @click.stop="openEditVm(vm)"
+                    >
                       编辑
                     </VanButton>
                     <VanButton
@@ -258,7 +277,13 @@
                     >
                       删除
                     </VanButton>
-                    <VanButton size="small" plain type="warning" icon="share-o" @click.stop="openMigration(vm)">
+                    <VanButton
+                      size="small"
+                      plain
+                      type="warning"
+                      icon="share-o"
+                      @click.stop="openMigration(vm)"
+                    >
                       迁移
                     </VanButton>
                   </div>
@@ -273,7 +298,7 @@
               <n-pagination
                 v-model:page="pagination.page"
                 v-model:page-size="pagination.pageSize"
-                :item-count="pagination.itemCount"
+                :item-count="filteredVmList.length"
                 :page-sizes="pagination.pageSizes"
                 show-size-picker
                 @update:page-size="handlePageSizeChange"
@@ -294,167 +319,242 @@
       >
         <div v-if="!createModal.created" class="vm-create-intro">
           <span class="vm-create-icon"><TheIcon icon="mdi:server-plus" :size="24" /></span>
-          <div><strong>创建云端虚拟机</strong><p>配置系统、计算资源与网络，关联客户并设置使用期限。</p></div>
+          <div>
+            <strong>创建云端虚拟机</strong>
+            <p>配置系统、计算资源与网络，关联客户并设置使用期限。</p>
+          </div>
         </div>
         <n-spin v-if="!createModal.created" :show="createModal.loading">
           <n-form class="vm-create-form" label-placement="top" :disabled="createModal.submitting">
             <section class="vm-form-section">
-              <div class="vm-form-section-head"><span>基本信息</span><small>系统与客户归属</small></div>
-            <n-grid :cols="createFormCols" :x-gap="16">
-              <n-form-item-gi label="操作系统" required>
-                <n-cascader
-                  v-model:value="createModal.form.os_selection"
-                  :options="createModal.osOptions"
-                  placeholder="选择系统版本"
-                  check-strategy="child"
-                  @update:value="handleCreateOsChange"
-                />
-              </n-form-item-gi>
-              <n-form-item-gi label="虚拟机名称">
-                <n-input-group>
-                  <n-input v-model:value="createModal.form.vm_name" placeholder="请输入虚拟机名称" />
-                  <CButton show-save save-text="随机" :disabled="createModal.submitting" @save="refreshCreateVmName" />
-                </n-input-group>
-              </n-form-item-gi>
-              <n-form-item-gi label="所属客户">
-                <n-select
-                  v-model:value="createModal.form.customer_id"
-                  :options="customerOptions"
-                  :render-label="renderCustomerOption"
-                  :show-checkmark="false"
-                  clearable
-                  filterable
-                  placeholder="选择客户"
-                  @update:value="handleCreateCustomerChange"
-                />
-              </n-form-item-gi>
-              <n-form-item-gi label="存储位置">
-                <n-select
-                  v-model:value="createModal.form.storage"
-                  :options="createStorageOptions"
-                  filterable
-                  placeholder="选择存储"
-                />
-              </n-form-item-gi>
-            </n-grid>
-            </section>
-            <section class="vm-form-section">
-              <div class="vm-form-section-head"><span>计算资源与安全</span><small>规格配置与登录凭据</small></div>
-            <n-grid :cols="createFormCols" :x-gap="16">
-              <n-form-item-gi label="CPU 核心">
-                <n-input-number v-model:value="createModal.form.cpu_cores" :min="1" :max="64" class="full-width" />
-              </n-form-item-gi>
-              <n-form-item-gi label="内存 GiB">
-                <n-input-number v-model:value="createModal.form.memory_gb" :min="1" :max="256" class="full-width" />
-              </n-form-item-gi>
-              <n-form-item-gi label="磁盘 GiB">
-                <n-input-number
-                  v-model:value="createModal.form.disk_gb"
-                  :min="10"
-                  :max="2000"
-                  :step="10"
-                  class="full-width"
-                />
-              </n-form-item-gi>
-              <n-form-item-gi label="root 密码">
-                <n-input-group>
-                  <n-input
-                    v-model:value="createModal.form.password"
-                    type="password"
-                    show-password-on="click"
-                    placeholder="请输入 root 密码"
+              <div class="vm-form-section-head">
+                <span>基本信息</span><small>系统与客户归属</small>
+              </div>
+              <n-grid :cols="createFormCols" :x-gap="16">
+                <n-form-item-gi label="操作系统" required>
+                  <n-cascader
+                    v-model:value="createModal.form.os_selection"
+                    :options="createModal.osOptions"
+                    placeholder="选择系统版本"
+                    check-strategy="child"
+                    @update:value="handleCreateOsChange"
                   />
-                  <CButton show-save save-text="随机" :disabled="createModal.submitting" @save="refreshCreatePassword" />
-                </n-input-group>
-              </n-form-item-gi>
-            </n-grid>
-            </section>
-            <section class="vm-form-section">
-              <div class="vm-form-section-head"><span>网络配置</span><small>连接方式与带宽限制</small></div>
-            <n-grid :cols="createFormCols" :x-gap="16">
-              <n-form-item-gi label="网络模式" required>
-                <n-radio-group v-model:value="createModal.form.network.mode">
-                  <n-radio-button value="dhcp">DHCP</n-radio-button>
-                  <n-radio-button value="static">静态 IP</n-radio-button>
-                </n-radio-group>
-              </n-form-item-gi>
-              <n-form-item-gi v-if="createModal.form.network.mode === 'dhcp'" label="DHCP 池" required>
-                <div class="vm-create-dhcp-field">
+                </n-form-item-gi>
+                <n-form-item-gi label="虚拟机名称">
+                  <n-input-group>
+                    <n-input
+                      v-model:value="createModal.form.vm_name"
+                      placeholder="请输入虚拟机名称"
+                    />
+                    <CButton
+                      show-save
+                      save-text="随机"
+                      :disabled="createModal.submitting"
+                      @save="refreshCreateVmName"
+                    />
+                  </n-input-group>
+                </n-form-item-gi>
+                <n-form-item-gi label="所属客户">
                   <n-select
-                    v-model:value="createModal.form.network.dhcp_pool_id"
-                    :options="createDhcpPoolOptions"
-                    :loading="createModal.dhcpLoading"
+                    v-model:value="createModal.form.customer_id"
+                    :options="customerOptions"
+                    :render-label="renderCustomerOption"
+                    :show-checkmark="false"
                     clearable
                     filterable
-                    placeholder="从 DHCP 池中选择"
+                    placeholder="选择客户"
+                    @update:value="handleCreateCustomerChange"
                   />
-                  <div v-if="selectedCreateDhcpPool" class="vm-create-dhcp-hint">
-                    VLAN {{ selectedCreateDhcpPool.vlan }} · {{ selectedCreateDhcpPool.next_ip || '-' }} · 剩余 {{ selectedCreateDhcpPool.available_count || 0 }} / {{ selectedCreateDhcpPool.total_count || 0 }}
-                  </div>
-                </div>
-              </n-form-item-gi>
-              <n-form-item-gi label="桥接网卡" required>
-                <n-select
-                  v-model:value="createModal.form.network.bridge"
-                  :options="createBridgeOptions"
-                  filterable
-                  placeholder="选择桥接网卡"
-                />
-              </n-form-item-gi>
-              <n-form-item-gi label="速率限制">
-                <n-input-number
-                  v-model:value="createModal.form.network.rate_limit"
-                  clearable
-                  :min="0"
-                  placeholder="可为空"
-                  class="full-width"
-                >
-                  <template #suffix>MB/s</template>
-                </n-input-number>
-              </n-form-item-gi>
-              <n-form-item-gi v-if="createModal.form.network.mode === 'static'" label="IP/掩码" required>
-                <n-input v-model:value="createModal.form.network.ip" placeholder="例如 192.168.1.100/24" />
-              </n-form-item-gi>
-              <n-form-item-gi v-if="createModal.form.network.mode === 'static'" label="网关" required>
-                <n-input v-model:value="createModal.form.network.gw" placeholder="例如 192.168.1.1" />
-              </n-form-item-gi>
-              <n-form-item-gi v-if="createModal.form.network.mode === 'static'" label="DNS" required>
-                <n-input v-model:value="createModal.form.network.dns" placeholder="例如 8.8.8.8" />
-              </n-form-item-gi>
-              <n-form-item-gi v-if="createModal.form.network.mode === 'static'" label="VLAN" required>
-                <n-input-number v-model:value="createModal.form.network.vlan" :min="1" :max="4094" class="full-width" />
-              </n-form-item-gi>
-            </n-grid>
+                </n-form-item-gi>
+                <n-form-item-gi label="存储位置">
+                  <n-select
+                    v-model:value="createModal.form.storage"
+                    :options="createStorageOptions"
+                    filterable
+                    placeholder="选择存储"
+                  />
+                </n-form-item-gi>
+              </n-grid>
             </section>
             <section class="vm-form-section">
-              <div class="vm-form-section-head"><span>使用设置</span><small>有效期限与用途备注</small></div>
-            <n-grid :cols="createFormCols" :x-gap="16">
-              <n-form-item-gi label="有效时间" :span="createWideSpan">
-                <n-date-picker
-                  v-model:value="createModal.form.expire_at"
-                  type="datetime"
-                  clearable
-                  class="full-width"
-                  placeholder="不选择则为无限制"
-                  format="yyyy-MM-dd HH:00"
-                  :time-picker-props="createExpireTimePickerProps"
-                  :shortcuts="createExpireShortcuts"
-                />
-              </n-form-item-gi>
-              <n-form-item-gi label="描述" :span="createWideSpan">
-                <n-input
-                  v-model:value="createModal.form.description"
-                  type="textarea"
-                  placeholder="请输入用途或备注"
-                  :autosize="{ minRows: 2, maxRows: 4 }"
-                />
-              </n-form-item-gi>
-            </n-grid>
+              <div class="vm-form-section-head">
+                <span>计算资源与安全</span><small>规格配置与登录凭据</small>
+              </div>
+              <n-grid :cols="createFormCols" :x-gap="16">
+                <n-form-item-gi label="CPU 核心">
+                  <n-input-number
+                    v-model:value="createModal.form.cpu_cores"
+                    :min="1"
+                    :max="64"
+                    class="full-width"
+                  />
+                </n-form-item-gi>
+                <n-form-item-gi label="内存 GiB">
+                  <n-input-number
+                    v-model:value="createModal.form.memory_gb"
+                    :min="1"
+                    :max="256"
+                    class="full-width"
+                  />
+                </n-form-item-gi>
+                <n-form-item-gi label="磁盘 GiB">
+                  <n-input-number
+                    v-model:value="createModal.form.disk_gb"
+                    :min="10"
+                    :max="2000"
+                    :step="10"
+                    class="full-width"
+                  />
+                </n-form-item-gi>
+                <n-form-item-gi label="root 密码">
+                  <n-input-group>
+                    <n-input
+                      v-model:value="createModal.form.password"
+                      type="password"
+                      show-password-on="click"
+                      placeholder="请输入 root 密码"
+                    />
+                    <CButton
+                      show-save
+                      save-text="随机"
+                      :disabled="createModal.submitting"
+                      @save="refreshCreatePassword"
+                    />
+                  </n-input-group>
+                </n-form-item-gi>
+              </n-grid>
+            </section>
+            <section class="vm-form-section">
+              <div class="vm-form-section-head">
+                <span>网络配置</span><small>连接方式与带宽限制</small>
+              </div>
+              <n-grid :cols="createFormCols" :x-gap="16">
+                <n-form-item-gi label="网络模式" required>
+                  <n-radio-group v-model:value="createModal.form.network.mode">
+                    <n-radio-button value="dhcp">DHCP</n-radio-button>
+                    <n-radio-button value="static">静态 IP</n-radio-button>
+                  </n-radio-group>
+                </n-form-item-gi>
+                <n-form-item-gi
+                  v-if="createModal.form.network.mode === 'dhcp'"
+                  label="DHCP 池"
+                  required
+                >
+                  <div class="vm-create-dhcp-field">
+                    <n-select
+                      v-model:value="createModal.form.network.dhcp_pool_id"
+                      :options="createDhcpPoolOptions"
+                      :loading="createModal.dhcpLoading"
+                      clearable
+                      filterable
+                      placeholder="从 DHCP 池中选择"
+                    />
+                    <div v-if="selectedCreateDhcpPool" class="vm-create-dhcp-hint">
+                      VLAN {{ selectedCreateDhcpPool.vlan }} ·
+                      {{ selectedCreateDhcpPool.next_ip || '-' }} · 剩余
+                      {{ selectedCreateDhcpPool.available_count || 0 }} /
+                      {{ selectedCreateDhcpPool.total_count || 0 }}
+                    </div>
+                  </div>
+                </n-form-item-gi>
+                <n-form-item-gi label="桥接网卡" required>
+                  <n-select
+                    v-model:value="createModal.form.network.bridge"
+                    :options="createBridgeOptions"
+                    filterable
+                    placeholder="选择桥接网卡"
+                  />
+                </n-form-item-gi>
+                <n-form-item-gi label="速率限制">
+                  <n-input-number
+                    v-model:value="createModal.form.network.rate_limit"
+                    clearable
+                    :min="0"
+                    placeholder="可为空"
+                    class="full-width"
+                  >
+                    <template #suffix>MB/s</template>
+                  </n-input-number>
+                </n-form-item-gi>
+                <n-form-item-gi
+                  v-if="createModal.form.network.mode === 'static'"
+                  label="IP/掩码"
+                  required
+                >
+                  <n-input
+                    v-model:value="createModal.form.network.ip"
+                    placeholder="例如 192.168.1.100/24"
+                  />
+                </n-form-item-gi>
+                <n-form-item-gi
+                  v-if="createModal.form.network.mode === 'static'"
+                  label="网关"
+                  required
+                >
+                  <n-input
+                    v-model:value="createModal.form.network.gw"
+                    placeholder="例如 192.168.1.1"
+                  />
+                </n-form-item-gi>
+                <n-form-item-gi
+                  v-if="createModal.form.network.mode === 'static'"
+                  label="DNS"
+                  required
+                >
+                  <n-input
+                    v-model:value="createModal.form.network.dns"
+                    placeholder="例如 8.8.8.8"
+                  />
+                </n-form-item-gi>
+                <n-form-item-gi
+                  v-if="createModal.form.network.mode === 'static'"
+                  label="VLAN"
+                  required
+                >
+                  <n-input-number
+                    v-model:value="createModal.form.network.vlan"
+                    :min="1"
+                    :max="4094"
+                    class="full-width"
+                  />
+                </n-form-item-gi>
+              </n-grid>
+            </section>
+            <section class="vm-form-section">
+              <div class="vm-form-section-head">
+                <span>使用设置</span><small>有效期限与用途备注</small>
+              </div>
+              <n-grid :cols="createFormCols" :x-gap="16">
+                <n-form-item-gi label="有效时间" :span="createWideSpan">
+                  <n-date-picker
+                    v-model:value="createModal.form.expire_at"
+                    type="datetime"
+                    clearable
+                    class="full-width"
+                    placeholder="不选择则为无限制"
+                    format="yyyy-MM-dd HH:00"
+                    :time-picker-props="createExpireTimePickerProps"
+                    :shortcuts="createExpireShortcuts"
+                  />
+                </n-form-item-gi>
+                <n-form-item-gi label="描述" :span="createWideSpan">
+                  <n-input
+                    v-model:value="createModal.form.description"
+                    type="textarea"
+                    placeholder="请输入用途或备注"
+                    :autosize="{ minRows: 2, maxRows: 4 }"
+                  />
+                </n-form-item-gi>
+              </n-grid>
             </section>
           </n-form>
         </n-spin>
         <div v-else class="create-result-panel">
-          <n-result status="success" title="虚拟机已创建" description="请记录这台虚拟机的初始配置，root 密码只对应当前创建的机器。">
+          <n-result
+            status="success"
+            title="虚拟机已创建"
+            description="请记录这台虚拟机的初始配置，root 密码只对应当前创建的机器。"
+          >
             <template #footer>
               <n-descriptions bordered :column="createFormCols" size="small">
                 <n-descriptions-item label="虚拟机名称">
@@ -469,7 +569,9 @@
                   {{ createModal.createdConfig?.storage || '-' }}
                 </n-descriptions-item>
                 <n-descriptions-item label="root 密码" :span="2">
-                  <code class="password-code">{{ createModal.createdConfig?.password || '-' }}</code>
+                  <code class="password-code">{{
+                    createModal.createdConfig?.password || '-'
+                  }}</code>
                 </n-descriptions-item>
                 <n-descriptions-item label="网络模式">
                   {{ createModal.createdConfig?.network?.mode === 'static' ? '静态 IP' : 'DHCP' }}
@@ -481,15 +583,28 @@
                       : '不限速'
                   }}
                 </n-descriptions-item>
-                <n-descriptions-item v-if="createModal.createdConfig?.network?.mode === 'static'" label="IP/VLAN" :span="2">
+                <n-descriptions-item
+                  v-if="createModal.createdConfig?.network?.mode === 'static'"
+                  label="IP/VLAN"
+                  :span="2"
+                >
                   {{ createModal.createdConfig.network.ip || '-' }}
-                  <span v-if="createModal.createdConfig.network.vlan"> / VLAN {{ createModal.createdConfig.network.vlan }}</span>
+                  <span v-if="createModal.createdConfig.network.vlan">
+                    / VLAN {{ createModal.createdConfig.network.vlan }}</span
+                  >
                 </n-descriptions-item>
-                <n-descriptions-item v-if="createModal.createdConfig?.network?.mode === 'static'" label="桥接网卡">
+                <n-descriptions-item
+                  v-if="createModal.createdConfig?.network?.mode === 'static'"
+                  label="桥接网卡"
+                >
                   {{ createModal.createdConfig.network.bridge || '-' }}
                 </n-descriptions-item>
                 <n-descriptions-item label="有效时间" :span="2">
-                  {{ createModal.createdConfig?.expire_at ? formatCreateExpireTime(createModal.createdConfig.expire_at) : '无限制' }}
+                  {{
+                    createModal.createdConfig?.expire_at
+                      ? formatCreateExpireTime(createModal.createdConfig.expire_at)
+                      : '无限制'
+                  }}
                 </n-descriptions-item>
               </n-descriptions>
               <div class="create-config-actions">
@@ -500,11 +615,15 @@
         </div>
         <template #footer>
           <div class="modal-footer">
-            <span>{{ createModal.created ? '虚拟机已在目标 PVE 节点创建完成，请刷新列表查看。' : '请确认资源配置和网络信息后创建。' }}</span>
+            <span>{{
+              createModal.created
+                ? '虚拟机已在目标 PVE 节点创建完成，请刷新列表查看。'
+                : '请确认资源配置和网络信息后创建。'
+            }}</span>
             <CButton
               v-if="!createModal.created"
-              show-cancel
               show-save
+              show-cancel
               save-text="创建"
               :save-loading="createModal.submitting"
               :disabled="createModal.submitting || createModal.loading"
@@ -595,7 +714,10 @@
           <n-grid v-else :cols="2" :x-gap="36">
             <n-gi>
               <n-form-item label="令牌" required>
-                <n-input v-model:value="addNodeModal.form.authid" placeholder="user@realm!token-id" />
+                <n-input
+                  v-model:value="addNodeModal.form.authid"
+                  placeholder="user@realm!token-id"
+                />
               </n-form-item>
             </n-gi>
             <n-gi>
@@ -613,12 +735,22 @@
         </n-form>
 
         <n-descriptions v-else bordered :column="1" size="small">
-          <n-descriptions-item label="服务器地址">{{ addNodeModal.form.hostname || '-' }}</n-descriptions-item>
-          <n-descriptions-item label="远程 ID">{{ addNodeModal.form.remote_id || '使用 PDM 探测结果' }}</n-descriptions-item>
+          <n-descriptions-item label="服务器地址">{{
+            addNodeModal.form.hostname || '-'
+          }}</n-descriptions-item>
+          <n-descriptions-item label="远程 ID">{{
+            addNodeModal.form.remote_id || '使用 PDM 探测结果'
+          }}</n-descriptions-item>
           <n-descriptions-item label="认证方式">
-            {{ addNodeModal.form.authMode === 'login' ? 'Login and create Token' : 'Use existing Token' }}
+            {{
+              addNodeModal.form.authMode === 'login'
+                ? 'Login and create Token'
+                : 'Use existing Token'
+            }}
           </n-descriptions-item>
-          <n-descriptions-item label="Auth ID">{{ resolvedAddNodeAuthid || '-' }}</n-descriptions-item>
+          <n-descriptions-item label="Auth ID">{{
+            resolvedAddNodeAuthid || '-'
+          }}</n-descriptions-item>
         </n-descriptions>
         <template #footer>
           <div class="modal-footer">
@@ -629,12 +761,7 @@
                 show-cancel
                 @cancel="addNodeModal.show = false"
               />
-              <CButton
-                v-else
-                show-cancel
-                cancel-text="返回"
-                @cancel="addNodeModal.step -= 1"
-              />
+              <CButton v-else show-cancel cancel-text="返回" @cancel="addNodeModal.step -= 1" />
               <CButton
                 v-if="addNodeModal.step < 3"
                 show-save
@@ -746,13 +873,24 @@
                 />
               </n-form-item-gi>
               <n-form-item-gi label="目标存储">
-                <n-select v-model:value="migrationModal.form.targetStorage" :options="targetStorageOptions" filterable />
+                <n-select
+                  v-model:value="migrationModal.form.targetStorage"
+                  :options="targetStorageOptions"
+                  filterable
+                />
               </n-form-item-gi>
               <n-form-item-gi label="Target Network">
-                <n-select v-model:value="migrationModal.form.targetBridge" :options="targetNetworkOptions" filterable />
+                <n-select
+                  v-model:value="migrationModal.form.targetBridge"
+                  :options="targetNetworkOptions"
+                  filterable
+                />
               </n-form-item-gi>
               <n-form-item-gi label="在线迁移">
-                <n-switch v-model:value="migrationModal.form.online" :disabled="migrationModal.row?.status !== 'running'" />
+                <n-switch
+                  v-model:value="migrationModal.form.online"
+                  :disabled="migrationModal.row?.status !== 'running'"
+                />
               </n-form-item-gi>
               <n-form-item-gi label="Delete Source">
                 <n-switch v-model:value="migrationModal.form.deleteSource" />
@@ -812,7 +950,9 @@
           <span>结束时间</span>
           <strong>{{ formatTimestamp(taskModal.detail?.endtime) }}</strong>
           <span>任务状态</span>
-          <strong>{{ taskModal.detail?.result_status || taskModal.detail?.status || taskStatusText }}</strong>
+          <strong>{{
+            taskModal.detail?.result_status || taskModal.detail?.status || taskStatusText
+          }}</strong>
           <template v-if="taskModal.detail?.failure_reason">
             <span>失败原因</span>
             <strong class="task-error-reason">{{ taskModal.detail.failure_reason }}</strong>
@@ -820,10 +960,20 @@
         </div>
         <template #footer>
           <div class="modal-footer">
-            <span>{{ taskFinished ? '任务已结束，可以关闭此提示。' : '正在迁移中，请不要重复提交迁移。' }}</span>
+            <span>{{
+              taskFinished ? '任务已结束，可以关闭此提示。' : '正在迁移中，请不要重复提交迁移。'
+            }}</span>
             <n-space>
-              <n-button round secondary :loading="taskModal.loading" @click="fetchTaskStatus({ silent: false })">刷新状态</n-button>
-              <n-button v-if="!taskFinished" round secondary @click="taskModal.show = false">最小化</n-button>
+              <n-button
+                round
+                secondary
+                :loading="taskModal.loading"
+                @click="fetchTaskStatus({ silent: false })"
+                >刷新状态</n-button
+              >
+              <n-button v-if="!taskFinished" round secondary @click="taskModal.show = false"
+                >最小化</n-button
+              >
               <CButton show-cancel cancel-text="关闭" @cancel="closeTaskModal" />
             </n-space>
           </div>
@@ -850,7 +1000,11 @@
         />
       </n-modal>
 
-      <button v-if="taskModal.upid && !taskModal.show" class="task-float-button" @click="taskModal.show = true">
+      <button
+        v-if="taskModal.upid && !taskModal.show"
+        class="task-float-button"
+        @click="taskModal.show = true"
+      >
         <TheIcon icon="mdi:progress-clock" :size="18" />
         <span>{{ taskModal.vmName || '迁移任务' }}</span>
         <n-tag size="small" round :type="taskStateType">{{ taskStatusText }}</n-tag>
@@ -860,15 +1014,22 @@
 </template>
 
 <script setup>
-import { computed, h, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useWindowSize } from '@vueuse/core'
-import { Button as VanButton, Empty as VanEmpty, Skeleton as VanSkeleton, Tag as VanTag } from 'vant'
-import { NButton, NSpace, NTag, useDialog, useMessage } from 'naive-ui'
+import {
+  Button as VanButton,
+  Empty as VanEmpty,
+  Skeleton as VanSkeleton,
+  Tag as VanTag,
+} from 'vant'
+import { NButton, NSpace, NTag, NTooltip, useDialog, useMessage } from 'naive-ui'
 import api from '@/api'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import CButton from '@/components/public/CButton.vue'
 import NoVncConsole from './NoVncConsole.vue'
+import ClusterLoadCard from './components/ClusterLoadCard.vue'
+import { bytes, vmStatus, vmOs, uptimeText, vmIps } from './utils/display.mjs'
 import { translateCity, translateCountry, translateLocationPath } from '@/utils/location-i18n'
 
 const message = useMessage()
@@ -877,15 +1038,20 @@ let snapshotTimer
 let snapshotDisposed = false
 
 async function syncCloudResources() {
-  await api.virtualMachineApi.pveVms({ refresh: true })
-  await refreshNodes()
+  if (snapshotSync.value.refreshing || loading.nodes) return
+  try {
+    await api.virtualMachineApi.pveVms({ refresh: true })
+    await refreshNodes()
+  } catch (error) {
+    message.error(error.message || '刷新失败，请重试')
+  }
 }
 const dialog = useDialog()
 const router = useRouter()
 const route = useRoute()
 const { width: viewportWidth } = useWindowSize()
 const isMobileVmView = computed(() => viewportWidth.value <= 768)
-const isCompactVmList = computed(() => viewportWidth.value <= 1280)
+const isCompactVmList = computed(() => viewportWidth.value <= 768)
 const createFormCols = computed(() => (isMobileVmView.value ? 1 : 2))
 const createWideSpan = computed(() => (isMobileVmView.value ? 1 : 2))
 
@@ -905,6 +1071,8 @@ const loading = reactive({
 
 const filters = reactive({
   nodeKeyword: '',
+  keyword: '',
+  status: null,
 })
 
 const nodeSidebarCollapsed = ref(false)
@@ -915,6 +1083,7 @@ const vmList = ref([])
 const poweringVmKeys = reactive({})
 const deletingVmKeys = reactive({})
 let vmIpRequestId = 0
+let vmListRequestId = 0
 const VM_SELECTED_NODE_STORAGE_KEY = 'ops.virtualMachine.selectedNode'
 const VM_PAGE_CACHE_STORAGE_KEY = 'ops.virtualMachine.pageCache'
 const VM_EDIT_PATCH_STORAGE_KEY = 'ops.virtualMachine.editPatch'
@@ -1069,20 +1238,35 @@ const filteredNodes = computed(() => {
   const keyword = filters.nodeKeyword.trim().toLowerCase()
   if (!keyword) return nodeOptions.value
   return nodeOptions.value.filter((node) =>
-    [node.label, node.remote, node.ip, node.address, node.status, node.region_name, node.location_name, node.device_name].some((value) =>
-      String(value || '').toLowerCase().includes(keyword)
+    [
+      node.label,
+      node.remote,
+      node.ip,
+      node.address,
+      node.status,
+      node.region_name,
+      node.location_name,
+      node.device_name,
+    ].some((value) =>
+      String(value || '')
+        .toLowerCase()
+        .includes(keyword)
     )
   )
 })
 
 const nodeLocationCascaderOptions = computed(() => {
   const roots = []
-  const regionMap = new Map(nodeBindingOptions.regions.map((region) => [Number(region.value), region]))
+  const regionMap = new Map(
+    nodeBindingOptions.regions.map((region) => [Number(region.value), region])
+  )
   nodeBindingOptions.locations.forEach((location) => {
     const region = regionMap.get(Number(location.region_id))
     const locationName = fieldText(location.name || location.label)
     if (!region || !locationName) return
-    const regionText = displayRegion(region.label || [region.country, region.city].filter(Boolean).join(' / ') || region.name)
+    const regionText = displayRegion(
+      region.label || [region.country, region.city].filter(Boolean).join(' / ') || region.name
+    )
     const parent = ensureNodeCascaderPath(roots, regionPathParts(regionText), 'region')
     const value = nodeLocationKey(location.value)
     if (parent.children.some((item) => item.value === value)) return
@@ -1093,7 +1277,15 @@ const nodeLocationCascaderOptions = computed(() => {
       location_id: location.value,
       site: locationName,
       region: regionText,
-      searchText: uniqueValues([regionText, locationName, location.label, region.name, region.code, region.country, region.city]).join(' '),
+      searchText: uniqueValues([
+        regionText,
+        locationName,
+        location.label,
+        region.name,
+        region.code,
+        region.country,
+        region.city,
+      ]).join(' '),
     })
   })
   return sortNodeCascaderTree(roots)
@@ -1114,14 +1306,18 @@ const nodeDeviceOptions = computed(() => {
     }))
 })
 
-const createDhcpPoolOptions = computed(() => createModal.dhcpPools.map((item) => ({
-  ...item,
-  label: `VLAN ${item.vlan}`,
-  value: item.value || item.id,
-})))
+const createDhcpPoolOptions = computed(() =>
+  createModal.dhcpPools.map((item) => ({
+    ...item,
+    label: `VLAN ${item.vlan}`,
+    value: item.value || item.id,
+  }))
+)
 
 const selectedCreateDhcpPool = computed(() =>
-  createDhcpPoolOptions.value.find((item) => String(item.value) === String(createModal.form.network.dhcp_pool_id))
+  createDhcpPoolOptions.value.find(
+    (item) => String(item.value) === String(createModal.form.network.dhcp_pool_id)
+  )
 )
 
 const nodeMenuOptions = computed(() => [
@@ -1142,9 +1338,27 @@ const nodeMenuOptions = computed(() => [
   },
 ])
 
+const filteredVmList = computed(() => {
+  const keyword = filters.keyword.trim().toLowerCase()
+  return vmList.value.filter(
+    (vm) =>
+      (!filters.status || vm.status === filters.status) &&
+      (!keyword ||
+        [vm.name, vm.customer_name, vm.vmid, ...vmIps(vm)]
+          .join(' ')
+          .toLowerCase()
+          .includes(keyword))
+  )
+})
+watch(
+  () => [filters.keyword, filters.status],
+  () => {
+    pagination.page = 1
+  }
+)
 const pagedVmList = computed(() => {
   const start = (pagination.page - 1) * pagination.pageSize
-  return vmList.value.slice(start, start + pagination.pageSize)
+  return filteredVmList.value.slice(start, start + pagination.pageSize)
 })
 
 const selectedTargetRemote = computed(() =>
@@ -1158,16 +1372,25 @@ const targetRemoteOptions = computed(() =>
 )
 
 const targetStorageOptions = computed(() =>
-  (selectedTargetRemote.value?.storages || []).map((storage) => ({ label: storage, value: storage }))
+  (selectedTargetRemote.value?.storages || []).map((storage) => ({
+    label: storage,
+    value: storage,
+  }))
 )
 
 const targetNetworkOptions = computed(() =>
-  (selectedTargetRemote.value?.networks || []).map((network) => ({ label: network, value: network }))
+  (selectedTargetRemote.value?.networks || []).map((network) => ({
+    label: network,
+    value: network,
+  }))
 )
 
 const targetEndpointOptions = computed(() => [
   { label: '自动', value: '' },
-  ...(selectedTargetRemote.value?.endpoints || []).map((endpoint) => ({ label: endpoint, value: endpoint })),
+  ...(selectedTargetRemote.value?.endpoints || []).map((endpoint) => ({
+    label: endpoint,
+    value: endpoint,
+  })),
 ])
 
 const createStorageOptions = computed(() =>
@@ -1315,8 +1538,10 @@ function readVmPageCache() {
 function buildVmRowPatch(patch) {
   const rowPatch = {}
   if (patch.vm_name || patch.name) rowPatch.name = patch.vm_name || patch.name
-  if (Object.prototype.hasOwnProperty.call(patch, 'customer_id')) rowPatch.customer_id = patch.customer_id || null
-  if (Object.prototype.hasOwnProperty.call(patch, 'customer_name')) rowPatch.customer_name = patch.customer_name || ''
+  if (Object.prototype.hasOwnProperty.call(patch, 'customer_id'))
+    rowPatch.customer_id = patch.customer_id || null
+  if (Object.prototype.hasOwnProperty.call(patch, 'customer_name'))
+    rowPatch.customer_name = patch.customer_name || ''
   if (patch.cores !== undefined) rowPatch.maxcpu = Number(patch.cores) || 0
   const memoryBytes = gbToBytes(patch.memory_gb)
   if (memoryBytes !== undefined) rowPatch.maxmem = memoryBytes
@@ -1333,7 +1558,8 @@ function applyPendingVmEditPatch() {
     const patch = JSON.parse(raw)
     if (!patch?.remote || !patch?.vmid) return false
     const patchNode = patch.selected_node || patch.remote
-    if (selectedNode.value?.value && patchNode && selectedNode.value.value !== patchNode) return false
+    if (selectedNode.value?.value && patchNode && selectedNode.value.value !== patchNode)
+      return false
     const rowPatch = buildVmRowPatch(patch)
     let changed = false
     vmList.value = vmList.value.map((vm) => {
@@ -1357,7 +1583,9 @@ function hydrateVmPageFromCache() {
   nodeOptions.value = cache.nodes || []
   const selectedValue = readRememberedNodeValue() || cache.selected_node
   selectedNode.value =
-    nodeOptions.value.find((node) => node.value === selectedValue || node.remote === selectedValue) ||
+    nodeOptions.value.find(
+      (node) => node.value === selectedValue || node.remote === selectedValue
+    ) ||
     nodeOptions.value[0] ||
     null
   if ((cache.vms_node || '') !== (selectedNode.value?.value || '')) return false
@@ -1371,166 +1599,122 @@ function hydrateVmPageFromCache() {
   return true
 }
 
-function noVncCellProps() {
+function detailLocation(row) {
   return {
-    title: '双击打开 noVNC 控制台',
+    path: '/virtual-machine/detail',
+    query: {
+      remote: row.remote,
+      vmid: row.vmid,
+      type: row.type || 'pve-qemu',
+      node: row.node || '',
+      selected_node: selectedNode.value?.value || row.remote,
+    },
   }
+}
+function openDetail(row) {
+  router.push(detailLocation(row))
 }
 
 const columns = reactive([
-  { title: 'VMID', key: 'vmid', width: 90, fixed: 'left', cellProps: noVncCellProps },
   {
-    title: '虚拟机名称',
+    title: '名称',
     key: 'name',
-    width: 340,
+    width: 280,
     fixed: 'left',
-    ellipsis: { tooltip: true },
-    cellProps: noVncCellProps,
-    render(row) {
-      return h('div', { class: 'vm-name-cell' }, [
-        h('strong', row.name || '-'),
-      ])
-    },
+    render: (row) =>
+      h('div', { class: 'vm-identity' }, [
+        h(
+          'span',
+          { class: 'vm-identity-icon' },
+          h(TheIcon, {
+            icon: row.type === 'pve-lxc' ? 'mdi:cube-outline' : 'mdi:monitor',
+            size: 18,
+          })
+        ),
+        h('div', { class: 'vm-identity-text' }, [
+          h(
+            RouterLink,
+            { to: detailLocation(row), class: 'vm-name-link', title: row.name },
+            () => row.name || `VM ${row.vmid}`
+          ),
+          h('small', `#${row.vmid} · ${row.node || row.remote}`),
+        ]),
+      ]),
   },
   {
-    title: 'IP 地址',
-    key: 'primary_ip',
-    width: 190,
-    ellipsis: { tooltip: true },
-    cellProps: noVncCellProps,
-    render(row) {
-      const ips = row.ips || row.ip_addresses || []
-      if (!ips.length) {
-        if (row.ip_loading) {
-          return h(NTag, { size: 'small', round: true, type: 'default' }, { default: () => '查询中' })
-        }
-        return '-'
-      }
-      return h(
-        NSpace,
-        { size: 4, wrap: true },
-        {
-          default: () => ips.slice(0, 3).map((ip) => h(NTag, { size: 'small', round: true, type: 'info' }, { default: () => ip })),
-        }
-      )
-    },
-  },
-  {
-    title: '客户',
+    title: '用户',
     key: 'customer_name',
-    width: 180,
+    width: 160,
     ellipsis: { tooltip: true },
-    cellProps: noVncCellProps,
-    render(row) {
-      return row.customer_name || '-'
-    },
+    render: (row) => row.customer_name || '未分配',
   },
   {
     title: '状态',
     key: 'status',
     width: 110,
-    cellProps: noVncCellProps,
-    render(row) {
-      const running = row.status === 'running'
-      return h(
+    render: (row) =>
+      h(
         NTag,
-        { size: 'small', round: true, type: running ? 'success' : 'default' },
-        { default: () => (running ? '运行中' : '已停止') }
-      )
-    },
+        { size: 'small', round: true, bordered: false, type: vmStatus(row).tone },
+        () => vmStatus(row).label
+      ),
   },
   {
-    title: 'CPU',
-    key: 'cpu',
-    width: 150,
-    cellProps: noVncCellProps,
-    render(row) {
-      return `${row.cpu || 0}% / ${row.maxcpu || 0} 核`
-    },
+    title: '资源',
+    key: 'resources',
+    width: 225,
+    render: (row) =>
+      h('div', { class: 'vm-resource-cell' }, [
+        h('span', `${row.maxcpu || '—'} vCPU · ${bytes(row.maxmem)} RAM`),
+        h('small', `${bytes(row.maxdisk)} 磁盘`),
+      ]),
   },
   {
-    title: '内存',
-    key: 'mem',
-    width: 260,
-    cellProps: noVncCellProps,
-    render(row) {
-      return `${formatBytes(row.mem)} / ${formatBytes(row.maxmem)}`
-    },
+    title: '系统',
+    key: 'os_type',
+    width: 165,
+    render: (row) =>
+      h('span', { class: 'vm-os-cell' }, [
+        h(TheIcon, { icon: vmOs(row).icon, size: 17 }),
+        vmOs(row).label,
+      ]),
   },
   {
-    title: '磁盘',
-    key: 'disk',
-    width: 190,
-    cellProps: noVncCellProps,
-    render(row) {
-      const disk = formatBytes(row.disk)
-      const maxdisk = formatBytes(row.maxdisk)
-      if (disk === '-' && maxdisk !== '-') return maxdisk
-      if (disk !== '-' && maxdisk !== '-') return `${disk} / ${maxdisk}`
-      return disk
-    },
+    title: 'IP',
+    key: 'primary_ip',
+    width: 185,
+    render: (row) =>
+      h(
+        'div',
+        { class: 'vm-ip-cell' },
+        vmIps(row).length
+          ? vmIps(row).map((ip) => h('span', { title: ip }, ip))
+          : row.ip_loading
+          ? '查询中'
+          : '—'
+      ),
   },
   {
     title: '运行时间',
     key: 'uptime',
-    width: 150,
-    cellProps: noVncCellProps,
-    render(row) {
-      return formatUptime(row.uptime)
-    },
-  },
-  {
-    title: '备注',
-    key: 'remark',
-    width: 220,
-    ellipsis: { tooltip: true },
-    cellProps: noVncCellProps,
-    render(row) {
-      return row.remark || '暂无备注'
-    },
-  },
-  {
-    title: '有效时间',
-    key: 'expire',
-    width: 140,
-    cellProps: noVncCellProps,
-    render(row) {
-      const expire = resolveVmExpire(row)
-      return h(
-        NTag,
-        { size: 'small', type: expire.type },
-        { default: () => expire.text }
-      )
-    },
+    width: 180,
+    render: (row) => uptimeText(row.uptime),
   },
   {
     title: '操作',
     key: 'actions',
-    width: 400,
+    width: 235,
     fixed: 'right',
     className: 'vm-actions-column',
-    render(row) {
-      return h(
-        NSpace,
-        {
-          class: 'vm-row-actions',
-          size: 6,
-          wrap: false,
-          onClick: (event) => event.stopPropagation(),
-          onDblclick: (event) => event.stopPropagation(),
-          onMousedown: (event) => event.stopPropagation(),
-        },
-        {
-          default: () => [
-            actionButton('监控', 'mdi:chart-line', 'info', row, 'vm-button-monitor', openMonitor),
-            powerButton(row),
-            actionButton('编辑', 'material-symbols:edit-outline-rounded', 'info', row, '', openEditVm),
-            actionButton('删除', 'material-symbols:delete-outline-rounded', 'error', row, '', confirmDeleteVm),
-            actionButton('迁移', 'material-symbols:send-rounded', 'warning', row, 'vm-button-send', openMigration),
-          ],
-        }
-      )
-    },
+    render: (row) =>
+      h(NSpace, { class: 'vm-row-actions', size: 4, wrap: false }, () => [
+        actionButton('控制台', 'mdi:console', 'default', row, '', openNoVnc),
+        actionButton('监控', 'mdi:chart-line', 'default', row, '', openMonitor),
+        powerButton(row),
+        actionButton('编辑', 'mdi:pencil-outline', 'default', row, '', openEditVm),
+        actionButton('迁移', 'mdi:server-network-outline', 'default', row, '', openMigration),
+        actionButton('删除', 'mdi:trash-can-outline', 'error', row, '', confirmDeleteVm),
+      ]),
   },
 ])
 
@@ -1555,16 +1739,6 @@ function syncVmNameColumnFixedState() {
     nameColumn.fixed = fixed
     if (fixedChanged) tableRenderKey.value += 1
   })
-}
-
-function vmRowProps(row) {
-  return {
-    onDblclick: (event) => {
-      const target = event?.target
-      if (target?.closest?.('.vm-actions-column, .vm-row-actions')) return
-      openNoVnc(row)
-    },
-  }
 }
 
 async function openNoVnc(row) {
@@ -1632,36 +1806,30 @@ function openNodeMonitor(node) {
 }
 
 function actionButton(label, icon, type, row, className = '', handler = null) {
-  const isPowerAction = label === '关机' || label === '开机'
-  const isDeleteAction = label === '删除'
-  const actionLoading = isPowerAction ? isVmPowering(row) : isDeleteAction ? isVmDeleting(row) : false
-  return h(
-    NButton,
-    {
-      class: className,
-      size: 'tiny',
-      round: true,
-      secondary: true,
-      type,
-      loading: actionLoading,
-      disabled: actionLoading,
-      onClick: (event) => {
-        event.stopPropagation()
-        if (actionLoading) return
-        if (handler) {
-          handler(row)
-          return
-        }
-        message.info(`${label}功能后续实现：${row.name}`)
-      },
-      onDblclick: (event) => event.stopPropagation(),
-      onMousedown: (event) => event.stopPropagation(),
-    },
-    {
-      icon: () => h(TheIcon, { icon, size: 14 }),
-      default: () => label,
-    }
-  )
+  const power = label === '关机' || label === '开机'
+  const actionLoading = power ? isVmPowering(row) : label === '删除' ? isVmDeleting(row) : false
+  return h(NTooltip, null, {
+    trigger: () =>
+      h(
+        NButton,
+        {
+          class: className,
+          size: 'small',
+          circle: true,
+          quaternary: true,
+          type,
+          'aria-label': label,
+          loading: actionLoading,
+          disabled: actionLoading || isVmDeleting(row),
+          onClick: (event) => {
+            event.stopPropagation()
+            if (!actionLoading && handler) handler(row)
+          },
+        },
+        { icon: () => h(TheIcon, { icon, size: 17 }) }
+      ),
+    default: () => label,
+  })
 }
 
 function powerButton(row) {
@@ -1681,15 +1849,26 @@ function resolveVmExpire(row) {
   if (!remark) return { text: '无限', type: 'info' }
 
   const match =
-    remark.match(/有效期至[:：]\s*(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})(?:日)?(?:\s+(\d{1,2})(?::(\d{1,2}))?)?/) ||
+    remark.match(
+      /有效期至[:：]\s*(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})(?:日)?(?:\s+(\d{1,2})(?::(\d{1,2}))?)?/
+    ) ||
     remark.match(/(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})(?:日)?(?:\s+(\d{1,2})(?::(\d{1,2}))?)?/)
   if (!match) return { text: '未设置', type: 'default' }
 
   const [, year, month, day, hour = '0', minute = '0'] = match
-  const expireAt = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute))
+  const expireAt = new Date(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute)
+  )
   if (Number.isNaN(expireAt.getTime())) return { text: '未设置', type: 'default' }
 
-  const text = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+  const text = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')} ${String(hour).padStart(
+    2,
+    '0'
+  )}:${String(minute).padStart(2, '0')}`
   const diff = expireAt.getTime() - Date.now()
   if (diff < 0) return { text, type: 'error' }
   if (diff <= 3 * 24 * 60 * 60 * 1000) return { text, type: 'warning' }
@@ -1750,11 +1929,12 @@ function mobileVmIps(row) {
 }
 
 function mobileVmStatusText(row) {
-  return row?.status === 'running' ? '运行中' : '已停止'
+  return vmStatus(row).label
 }
 
 function mobileVmStatusType(row) {
-  return row?.status === 'running' ? 'success' : 'default'
+  const tone = vmStatus(row).tone
+  return tone === 'info' ? 'primary' : tone === 'default' ? 'default' : tone
 }
 
 function mobileVmPowerText(row) {
@@ -1882,7 +2062,9 @@ async function executeDeleteVm(row) {
       message.error('删除虚拟机失败：未确认 PVE 删除完成，请稍后刷新核实')
       return
     }
-    const remaining = vmList.value.filter((vm) => !(vm.remote === row.remote && Number(vm.vmid) === Number(row.vmid)))
+    const remaining = vmList.value.filter(
+      (vm) => !(vm.remote === row.remote && Number(vm.vmid) === Number(row.vmid))
+    )
     vmList.value = remaining
     Object.assign(vmSummary, {
       total: remaining.length,
@@ -1891,7 +2073,10 @@ async function executeDeleteVm(row) {
     })
     syncSelectedNodeSummary(vmSummary)
     pagination.itemCount = remaining.length
-    pagination.page = Math.min(pagination.page, Math.max(1, Math.ceil(remaining.length / pagination.pageSize)))
+    pagination.page = Math.min(
+      pagination.page,
+      Math.max(1, Math.ceil(remaining.length / pagination.pageSize))
+    )
     saveVmPageCache()
     message.success('删除完成')
   } catch (error) {
@@ -2046,9 +2231,12 @@ async function loadCreateDhcpPools() {
       : { region: selectedNode.value?.region_name || selectedNode.value?.location_name || '' }
     const res = await api.virtualMachineApi.dhcpPoolOptions(params)
     createModal.dhcpPools = res.data || []
-    const currentExists = createModal.dhcpPools.some((item) => String(item.value || item.id) === String(createModal.form.network.dhcp_pool_id))
+    const currentExists = createModal.dhcpPools.some(
+      (item) => String(item.value || item.id) === String(createModal.form.network.dhcp_pool_id)
+    )
     if (!currentExists) {
-      createModal.form.network.dhcp_pool_id = createModal.dhcpPools.find((item) => Number(item.available_count || 0) > 0)?.value || null
+      createModal.form.network.dhcp_pool_id =
+        createModal.dhcpPools.find((item) => Number(item.available_count || 0) > 0)?.value || null
     }
   } catch (error) {
     createModal.dhcpPools = []
@@ -2117,7 +2305,11 @@ async function openCreateModal() {
     applyCreateOptions(cached.data)
   } else if (cached?.promise) {
     cached.promise.then((options) => {
-      if (createModal.show && createModal.form.region === createNodeTarget(selectedNode.value) && options) {
+      if (
+        createModal.show &&
+        createModal.form.region === createNodeTarget(selectedNode.value) &&
+        options
+      ) {
         applyCreateOptions(options)
       }
     })
@@ -2125,7 +2317,11 @@ async function openCreateModal() {
     createModal.loading = true
     try {
       const options = await preloadCreateOptions(createModal.form.region, { silent: false })
-      if (createModal.show && createModal.form.region === createNodeTarget(selectedNode.value) && options) {
+      if (
+        createModal.show &&
+        createModal.form.region === createNodeTarget(selectedNode.value) &&
+        options
+      ) {
         applyCreateOptions(options)
       }
     } catch (error) {
@@ -2142,8 +2338,10 @@ function validateCreateForm() {
   if (!createModal.form.vm_name) return '请输入虚拟机名称'
   if (!createModal.form.os_type || !createModal.form.os_version) return '请选择操作系统'
   if (!createModal.form.storage) return '请选择存储位置'
-  if (!createModal.form.password || createModal.form.password.length < 6) return 'root 密码不能少于 6 位'
-  if (createModal.form.network.mode === 'dhcp' && !createModal.form.network.dhcp_pool_id) return '请选择 DHCP 池'
+  if (!createModal.form.password || createModal.form.password.length < 6)
+    return 'root 密码不能少于 6 位'
+  if (createModal.form.network.mode === 'dhcp' && !createModal.form.network.dhcp_pool_id)
+    return '请选择 DHCP 池'
   if (!createModal.form.network.bridge) return '请选择桥接网卡'
   if (createModal.form.network.mode === 'static') {
     if (!createModal.form.network.ip) return '请输入静态 IP/掩码'
@@ -2203,7 +2401,8 @@ function resetCreateModalForNext() {
   }
   createModal.form.customer_id = null
   createModal.form.customer_name = ''
-  createModal.form.network.dhcp_pool_id = dhcpPools.find((item) => Number(item.available_count || 0) > 0)?.value || null
+  createModal.form.network.dhcp_pool_id =
+    dhcpPools.find((item) => Number(item.available_count || 0) > 0)?.value || null
 }
 
 async function loadCustomerOptions() {
@@ -2230,10 +2429,10 @@ function renderCustomerOption(option) {
   const tag = signingEntity.includes('科特思')
     ? { text: '科', type: 'success' }
     : normalized.includes('77')
-      ? { text: '7', type: 'warning' }
-      : normalized.includes('catixs')
-        ? { text: 'C', type: 'info' }
-        : null
+    ? { text: '7', type: 'warning' }
+    : normalized.includes('catixs')
+    ? { text: 'C', type: 'info' }
+    : null
 
   if (!tag) return option.label
   return h(
@@ -2249,9 +2448,13 @@ function renderCustomerOption(option) {
       },
     },
     [
-      h('span', { style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' }, option.label),
+      h(
+        'span',
+        { style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' },
+        option.label
+      ),
       h(NTag, { size: 'small', round: true, type: tag.type }, { default: () => tag.text }),
-    ],
+    ]
   )
 }
 
@@ -2273,7 +2476,9 @@ function formatCreateExpireTime(value) {
   if (Number.isNaN(date.getTime())) return ''
   date.setMinutes(0, 0, 0)
   const pad = (number) => String(number).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:00`
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
+    date.getHours()
+  )}:00`
 }
 
 function toCreateExpireHour(value) {
@@ -2332,7 +2537,9 @@ function nodeLocationKey(value) {
 function fieldText(value) {
   if (value == null) return ''
   if (typeof value === 'object') {
-    return String(value.name || value.label || value.title || value.value || value.code || value.id || '').trim()
+    return String(
+      value.name || value.label || value.title || value.value || value.code || value.id || ''
+    ).trim()
   }
   return String(value).trim()
 }
@@ -2345,7 +2552,7 @@ function displayRegion(value) {
 
 function regionPathParts(value) {
   const parts = displayRegion(value)
-    .split(/[\/,，、;；\\]+/)
+    .split(/[/,，、;；\\]+/)
     .map((item) => item.trim())
     .filter(Boolean)
   return parts.length ? parts : [displayRegion(value)].filter(Boolean)
@@ -2376,7 +2583,9 @@ function ensureNodeCascaderPath(roots, parts, valuePrefix) {
 
 function sortNodeCascaderTree(nodes) {
   return nodes
-    .sort((left, right) => String(left.label || '').localeCompare(String(right.label || ''), 'zh-Hans-CN'))
+    .sort((left, right) =>
+      String(left.label || '').localeCompare(String(right.label || ''), 'zh-Hans-CN')
+    )
     .map((node) => ({
       ...node,
       children: node.children?.length ? sortNodeCascaderTree(node.children) : undefined,
@@ -2390,8 +2599,8 @@ function uniqueValues(values) {
 function normalizeNodeSearchText(value) {
   return String(value || '')
     .toLowerCase()
-    .replace(/[\s　]+/g, '')
-    .replace(/[\/,，、;；_-]+/g, '')
+    .replace(/[\s\u3000]+/g, '')
+    .replace(/[/,，、;；_-]+/g, '')
     .trim()
 }
 
@@ -2410,16 +2619,20 @@ function physicalDeviceOptionLabel(device) {
   const name = fieldText(device?.name || device?.label)
   const model = [device?.brand, device?.model].map(fieldText).filter(Boolean).join(' ')
   const uText = device?.u_position
-    ? (device?.u_height && Number(device.u_height) > 1 ? `U${device.u_position}/${device.u_height}U` : `U${device.u_position}`)
+    ? device?.u_height && Number(device.u_height) > 1
+      ? `U${device.u_position}/${device.u_height}U`
+      : `U${device.u_position}`
     : ''
   const details = uniqueValues([
-    fieldText(device?.asset_no) && fieldText(device?.asset_no) !== name ? `资产 ${fieldText(device.asset_no)}` : '',
+    fieldText(device?.asset_no) && fieldText(device?.asset_no) !== name
+      ? `资产 ${fieldText(device.asset_no)}`
+      : '',
     model,
     fieldText(device?.mgmt_ip) ? `IP ${fieldText(device.mgmt_ip)}` : '',
     uText,
     fieldText(device?.cabinet_name) ? `机柜 ${fieldText(device.cabinet_name)}` : '',
   ])
-  return details.length ? `${name || '服务器设备'}（${details.join(' / ')}）` : (name || '服务器设备')
+  return details.length ? `${name || '服务器设备'}（${details.join(' / ')}）` : name || '服务器设备'
 }
 
 function parseNodeLocationKey(value) {
@@ -2431,15 +2644,18 @@ function parseNodeLocationKey(value) {
 
 function handleNodeLocationPathChange(value, option) {
   const locationId = parseNodeLocationKey(value)
-  const location = nodeBindingOptions.locations.find((item) => Number(item.value) === Number(locationId))
+  const location = nodeBindingOptions.locations.find(
+    (item) => Number(item.value) === Number(locationId)
+  )
   editNodeModal.form.location_id = location?.value || null
   editNodeModal.form.region_id = option?.region_id || location?.region_id || null
   if (
     editNodeModal.form.device_id &&
-    !nodeBindingOptions.devices.some((item) => (
-      Number(item.value) === Number(editNodeModal.form.device_id) &&
-      Number(item.location_id) === Number(editNodeModal.form.location_id)
-    ))
+    !nodeBindingOptions.devices.some(
+      (item) =>
+        Number(item.value) === Number(editNodeModal.form.device_id) &&
+        Number(item.location_id) === Number(editNodeModal.form.location_id)
+    )
   ) {
     editNodeModal.form.device_id = null
   }
@@ -2506,7 +2722,10 @@ async function submitEditNode() {
       location_id: editNodeModal.form.location_id || null,
       device_id: editNodeModal.form.device_id || null,
     })
-    nodeRemarkCache[editNodeModal.form.remote] = { loading: false, remark: editNodeModal.form.remark || '' }
+    nodeRemarkCache[editNodeModal.form.remote] = {
+      loading: false,
+      remark: editNodeModal.form.remark || '',
+    }
     message.success(res.msg || 'PVE 节点已更新')
     editNodeModal.show = false
     await refreshNodes()
@@ -2579,9 +2798,12 @@ async function nextAddNodeStep() {
       addNodeModal.realms = realmsRes.data || []
       if (
         addNodeModal.realms.length &&
-        !addNodeModal.realms.some((item) => (item.realm || item.value || item.id) === addNodeModal.form.realm)
+        !addNodeModal.realms.some(
+          (item) => (item.realm || item.value || item.id) === addNodeModal.form.realm
+        )
       ) {
-        addNodeModal.form.realm = addNodeModal.realms[0].realm || addNodeModal.realms[0].value || 'pam'
+        addNodeModal.form.realm =
+          addNodeModal.realms[0].realm || addNodeModal.realms[0].value || 'pam'
       }
       addNodeModal.step = 2
     } catch (error) {
@@ -2636,7 +2858,9 @@ async function submitAddNode() {
     if (zabbixSync?.enabled && zabbixSync?.synced) {
       message.success(`${res.msg || 'PVE 节点已添加'}，Zabbix 已同步`)
     } else if (zabbixSync?.enabled && !zabbixSync?.synced) {
-      message.warning(`${res.msg || 'PVE 节点已添加'}，Zabbix 同步失败：${zabbixSync.message || '请检查后端日志'}`)
+      message.warning(
+        `${res.msg || 'PVE 节点已添加'}，Zabbix 同步失败：${zabbixSync.message || '请检查后端日志'}`
+      )
     } else {
       message.success(res.msg || 'PVE 节点已添加')
     }
@@ -2698,9 +2922,10 @@ function scheduleTaskPolling() {
   clearTaskPolling()
   if (!taskModal.upid || taskFinished.value) return
 
-  const delay = document.hidden || !taskModal.show
-    ? 60000
-    : taskPollDelays[Math.min(taskPollAttempt.value, taskPollDelays.length - 1)]
+  const delay =
+    document.hidden || !taskModal.show
+      ? 60000
+      : taskPollDelays[Math.min(taskPollAttempt.value, taskPollDelays.length - 1)]
   taskTimer.value = setTimeout(async () => {
     taskTimer.value = null
     await pollTaskStatus()
@@ -2756,9 +2981,19 @@ async function fetchTaskStatus({ silent = true } = {}) {
       if (!taskModal.notified) {
         taskModal.notified = true
         if (taskModal.detail.state === 'error') {
-          message.error(`迁移任务失败：${taskModal.detail.failure_reason || taskModal.detail.result_status || '请查看 PDM 任务日志'}`)
+          message.error(
+            `迁移任务失败：${
+              taskModal.detail.failure_reason ||
+              taskModal.detail.result_status ||
+              '请查看 PDM 任务日志'
+            }`
+          )
         } else if (taskModal.detail.state === 'warning') {
-          message.warning(`迁移任务完成但有警告：${taskModal.detail.failure_reason || taskModal.detail.result_status || ''}`)
+          message.warning(
+            `迁移任务完成但有警告：${
+              taskModal.detail.failure_reason || taskModal.detail.result_status || ''
+            }`
+          )
           await refreshNodes()
         } else {
           await refreshNodes()
@@ -2861,7 +3096,9 @@ async function fetchNodes() {
     nodeOptions.value = res.data || []
     const selectedValue = selectedNode.value?.value || readRememberedNodeValue()
     const rememberedNode = selectedValue
-      ? nodeOptions.value.find((node) => node.value === selectedValue || node.remote === selectedValue)
+      ? nodeOptions.value.find(
+          (node) => node.value === selectedValue || node.remote === selectedValue
+        )
       : null
     if (rememberedNode) {
       selectedNode.value = rememberedNode
@@ -2881,7 +3118,10 @@ async function fetchNodes() {
 
 async function refreshNodes() {
   await fetchNodes()
-  if (selectedNode.value && !nodeOptions.value.some((node) => node.value === selectedNode.value.value)) {
+  if (
+    selectedNode.value &&
+    !nodeOptions.value.some((node) => node.value === selectedNode.value.value)
+  ) {
     selectedNode.value = nodeOptions.value[0] || null
     rememberSelectedNode(selectedNode.value)
   }
@@ -2889,6 +3129,7 @@ async function refreshNodes() {
 }
 
 async function fetchVms({ resetPage = true, silent = false } = {}) {
+  const listRequestId = ++vmListRequestId
   const requestNode = selectedNode.value?.value
   if (!selectedNode.value?.value) {
     vmIpRequestId += 1
@@ -2904,6 +3145,12 @@ async function fetchVms({ resetPage = true, silent = false } = {}) {
     const res = await api.virtualMachineApi.pveVms({
       node: requestNode,
     })
+    if (
+      listRequestId !== vmListRequestId ||
+      selectedNode.value?.value !== requestNode ||
+      snapshotDisposed
+    )
+      return
     snapshotSync.value = res.data?.sync || {}
     clearTimeout(snapshotTimer)
     if (snapshotSync.value.refreshing && !snapshotDisposed) {
@@ -2922,12 +3169,21 @@ async function fetchVms({ resetPage = true, silent = false } = {}) {
     if (resetPage) {
       pagination.page = 1
     } else {
-      pagination.page = Math.min(pagination.page, Math.max(1, Math.ceil(pagination.itemCount / pagination.pageSize)))
+      pagination.page = Math.min(
+        pagination.page,
+        Math.max(1, Math.ceil(pagination.itemCount / pagination.pageSize))
+      )
     }
     await nextTick()
     tableRenderKey.value += 1
     saveVmPageCache()
   } catch (error) {
+    if (
+      listRequestId !== vmListRequestId ||
+      selectedNode.value?.value !== requestNode ||
+      snapshotDisposed
+    )
+      return
     vmIpRequestId += 1
     vmList.value = []
     Object.assign(vmSummary, { total: 0, running: 0, stopped: 0 })
@@ -2937,7 +3193,8 @@ async function fetchVms({ resetPage = true, silent = false } = {}) {
       message.error(error.message || '读取 PDM 虚拟机失败')
     }
   } finally {
-    loading.vms = false
+    if (listRequestId === vmListRequestId && selectedNode.value?.value === requestNode)
+      loading.vms = false
   }
 }
 
@@ -3026,7 +3283,16 @@ function nodeAddress(node) {
 
 function createNodeTarget(node) {
   if (!node) return ''
-  return node.ip || node.address || node.host || node.endpoint || node.server || node.value || node.remote || ''
+  return (
+    node.ip ||
+    node.address ||
+    node.host ||
+    node.endpoint ||
+    node.server ||
+    node.value ||
+    node.remote ||
+    ''
+  )
 }
 
 function nodeCacheKey(node) {
@@ -3037,27 +3303,6 @@ function nodeTooltipRemark(node) {
   const key = nodeCacheKey(node)
   const cached = key ? nodeRemarkCache[key] : null
   return String(cached?.remark || '').trim()
-}
-
-function formatPercent(value) {
-  const number = Number(value || 0)
-  return `${Number.isInteger(number) ? number : number.toFixed(2).replace(/\.?0+$/, '')}%`
-}
-
-function nodeCpuSummary(node) {
-  if (!node) return '-'
-  const total = Number(node.cpu_total || 0)
-  return `${formatPercent(node.cpu_usage ?? node.cpu)} / ${total || '-'} 核`
-}
-
-function nodeMemorySummary(node) {
-  if (!node) return '-'
-  return `${formatPercent(node.mem_usage)} / ${formatBytes(node.maxmem)}`
-}
-
-function nodeDiskSummary(node) {
-  if (!node) return '-'
-  return `${formatPercent(node.disk_usage)} / ${formatBytes(node.maxdisk)}`
 }
 
 function syncSelectedNodeSummary(summary) {
@@ -3087,30 +3332,6 @@ function formatBytes(value) {
   return `${size.toFixed(index === 0 ? 0 : 2)} ${units[index]}`
 }
 
-function formatShortBytes(value) {
-  const bytes = Number(value || 0)
-  if (!bytes) return '-'
-  const units = ['B', 'K', 'M', 'G', 'T']
-  let size = bytes
-  let index = 0
-  while (size >= 1024 && index < units.length - 1) {
-    size /= 1024
-    index += 1
-  }
-  return `${size.toFixed(index === 0 ? 0 : 2)} ${units[index]}`
-}
-
-function formatUptime(value) {
-  const seconds = Number(value || 0)
-  if (!seconds) return '-'
-  const days = Math.floor(seconds / 86400)
-  const hours = Math.floor((seconds % 86400) / 3600)
-  const minutes = Math.floor((seconds % 3600) / 60)
-  if (days) return `${days}天 ${hours}小时`
-  if (hours) return `${hours}小时 ${minutes}分钟`
-  return `${minutes}分钟`
-}
-
 function formatTimestamp(value) {
   const timestamp = Number(value || 0)
   if (!timestamp) return '-'
@@ -3121,6 +3342,10 @@ onMounted(async () => {
   hydrateVmPageFromCache()
   await fetchNodes()
   await fetchVms()
+  if (route.query.action === 'migrate' && route.query.vmid) {
+    const target = vmList.value.find((vm) => String(vm.vmid) === String(route.query.vmid))
+    if (target) await openMigration(target)
+  }
 })
 
 onBeforeUnmount(() => {
@@ -3131,6 +3356,118 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.vm-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+.vm-filter-bar {
+  flex: 1 1 280px;
+  min-width: 0;
+  display: flex;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.vm-filter-bar > :first-child {
+  max-width: 360px;
+}
+.vm-filter-bar > :last-child {
+  max-width: 160px;
+}
+:global(html.dark) :deep(.vm-name-link) {
+  color: #e2e8f0;
+}
+:global(html.dark) :deep(.vm-identity-icon) {
+  border-color: #374151;
+}
+@media (max-height: 780px) and (min-width: 961px) {
+  .vm-main {
+    overflow-y: auto;
+  }
+  .content-panel {
+    flex: 1 0 340px !important;
+  }
+}
+
+:deep(.vm-identity) {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+:deep(.vm-identity-icon) {
+  width: 34px;
+  height: 34px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  color: #64748b;
+}
+:deep(.vm-identity-text),
+:deep(.vm-resource-cell) {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+:deep(.vm-identity small),
+:deep(.vm-resource-cell small) {
+  color: #94a3b8;
+  font-size: 11px;
+}
+:deep(.vm-name-link),
+.vm-name-link {
+  color: #334155;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 0;
+  padding: 0;
+  background: none;
+  text-align: left;
+}
+:deep(.vm-name-link:hover),
+.vm-name-link:hover {
+  color: #fb5b2f;
+  text-decoration: underline;
+}
+:deep(.vm-os-cell) {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+:deep(.vm-ip-cell) {
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  font-family: ui-monospace, monospace;
+}
+:deep(.vm-ip-cell span) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobile-vm-owner {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #64748b;
+  font-size: 12px;
+  margin: 10px 0;
+}
+.mobile-vm-owner span {
+  margin-left: auto;
+}
+
 :global(.n-base-select-option.customer-select-option .n-base-select-option__content) {
   display: flex;
   width: 100%;
@@ -3474,10 +3811,25 @@ onBeforeUnmount(() => {
   color: #0f766e;
   background: #dff7f1;
 }
-.vm-create-intro strong { font-size: 16px; color: #0f172a; }
-.vm-create-intro p { margin: 4px 0 0; color: #64748b; font-size: 13px; }
-.vm-create-form { display: flex; flex-direction: column; gap: 14px; }
-.vm-form-section { padding: 14px 16px 2px; border: 1px solid #e8edf3; border-radius: 8px; }
+.vm-create-intro strong {
+  font-size: 16px;
+  color: #0f172a;
+}
+.vm-create-intro p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+.vm-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.vm-form-section {
+  padding: 14px 16px 2px;
+  border: 1px solid #e8edf3;
+  border-radius: 8px;
+}
 .vm-form-section-head {
   display: flex;
   align-items: baseline;
@@ -3488,8 +3840,14 @@ onBeforeUnmount(() => {
   padding-bottom: 10px;
   border-bottom: 1px solid #edf2f7;
 }
-.vm-form-section-head span { font-size: 15px; font-weight: 700; }
-.vm-form-section-head small { font-size: 12px; color: #94a3b8; }
+.vm-form-section-head span {
+  font-size: 15px;
+  font-weight: 700;
+}
+.vm-form-section-head small {
+  font-size: 12px;
+  color: #94a3b8;
+}
 .vm-create-dhcp-field {
   display: flex;
   min-width: 0;
@@ -4008,7 +4366,7 @@ html.dark .task-float-button {
   .vm-list-actions {
     display: grid;
     width: 100%;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     margin-left: 0;
   }
   .vm-list-actions :deep(.n-button) {

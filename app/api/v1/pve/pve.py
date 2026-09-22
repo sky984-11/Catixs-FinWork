@@ -2693,8 +2693,13 @@ async def vm_config(
 
     cores_per_socket, sockets, total_cores = vm_cpu_topology(config)
     metadata = await PveVmMetadata.filter(remote=remote, vmid=vmid).first()
+    from app.services.cloud_vm_display import display_metadata
+
     return Success(
         data={
+            **display_metadata(config),
+            "name": str(config.get("name") or config.get("hostname") or ""),
+            "description": str(config.get("description") or ""),
             "remote": remote,
             "vmid": vmid,
             "type": type,
