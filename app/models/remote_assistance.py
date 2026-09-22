@@ -43,6 +43,7 @@ class RemoteEngineer(BaseModel, TimestampMixin):
 
     source_id = fields.BigIntField(null=True, unique=True, description="external source id", index=True)
     name = fields.CharField(max_length=100, description="engineer name", index=True)
+    billing_rules = fields.JSONField(null=True, description="tiered hourly billing rules")
     contact = fields.CharField(max_length=180, null=True, description="contact")
     wechat_id = fields.CharField(max_length=180, null=True, description="wechat")
     wechat_group = fields.CharField(max_length=180, null=True, description="wechat group")

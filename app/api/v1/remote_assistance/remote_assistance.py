@@ -19,6 +19,7 @@ from app.models.asset import AssetLocation
 from app.models.admin import User
 from app.models.remote_assistance import RemoteEngineer, RemoteHands, RemoteHandsPlan
 from app.schemas.base import Fail, Success
+from app.schemas.remote_billing import EngineerBillingRules
 from app.services.remote_hands_plan_notifier import int_list, notify_remote_hands_plan
 
 router = APIRouter()
@@ -87,6 +88,7 @@ class EngineerPayload(BaseModel):
     region: str = ""
     is_active: int = 1
     note: str = ""
+    billing_rules: EngineerBillingRules | None = None
 
 
 class RemoteHandsPlanPayload(BaseModel):
@@ -327,7 +329,7 @@ async def _remote_payload_data(payload: RemoteHandsPayload) -> dict[str, Any]:
 
 
 def _engineer_payload_data(payload: EngineerPayload) -> dict[str, Any]:
-    return {
+    data = {
         "name": _clean_text(payload.name),
         "contact": _clean_text(payload.contact) or None,
         "wechat_id": _clean_text(payload.wechat_id) or None,
@@ -336,6 +338,9 @@ def _engineer_payload_data(payload: EngineerPayload) -> dict[str, Any]:
         "is_active": int(payload.is_active or 0),
         "note": _clean_text(payload.note) or None,
     }
+    if "billing_rules" in payload.model_fields_set:
+        data["billing_rules"] = payload.billing_rules.model_dump(mode="json") if payload.billing_rules else None
+    return data
 
 
 async def _validate_attachments(attachments: list[PlanAttachment]) -> None:
@@ -417,6 +422,7 @@ async def _remote_to_dict(item: RemoteHands, plans: list[RemoteHandsPlan] | None
 
 async def _engineer_to_dict(item: RemoteEngineer) -> dict[str, Any]:
     return {
+        "billing_rules": item.billing_rules,
         "id": item.id,
         "name": item.name,
         "contact": item.contact or "",

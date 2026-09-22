@@ -67,7 +67,7 @@
               :pagination="planPagination"
               :row-key="(row) => row.id"
               flex-height
-              :scroll-x="1600"
+              :scroll-x="tableWidth(planColumns)"
               striped
             >
               <template #empty><n-empty description="暂无运维计划" /></template>
@@ -103,6 +103,10 @@
                 />
               </div>
               <n-space>
+                <n-button secondary :disabled="loading || !filteredRemoteHands.length" @click="exportRemoteHands">
+                  <template #icon><TheIcon icon="mdi:download" :size="18" /></template>
+                  导出记录
+                </n-button>
                 <n-button secondary circle :loading="loading" title="刷新" @click="fetchOverview">
                   <template #icon><TheIcon icon="mdi:refresh" :size="18" /></template>
                 </n-button>
@@ -115,7 +119,7 @@
               :pagination="remotePagination"
               :row-key="(row) => row.id"
               flex-height
-              :scroll-x="1600"
+              :scroll-x="tableWidth(remoteColumns)"
               striped
             >
               <template #empty><n-empty description="暂无运维记录" /></template>
@@ -146,7 +150,7 @@
               :pagination="engineerPagination"
               :row-key="(row) => row.id"
               flex-height
-              :scroll-x="1100"
+              :scroll-x="tableWidth(engineerColumns)"
               striped
             >
               <template #empty><n-empty description="暂无工程师" /></template>
@@ -498,10 +502,13 @@
         preset="card"
         :title="engineerEditor.form.id ? '编辑工程师' : '新增工程师'"
         class="editor-modal engineer-editor-modal"
-        style="width: min(420px, calc(100vw - 40px))"
+        style="width: min(660px, calc(100vw - 40px))"
         :bordered="false"
+        :mask-closable="!engineerEditor.saving"
+        :close-on-esc="!engineerEditor.saving"
+        :closable="!engineerEditor.saving"
       >
-        <n-form class="engineer-form" label-placement="left" label-width="76" size="small" :model="engineerEditor.form">
+        <n-form class="engineer-form" label-placement="left" label-width="76" size="small" :model="engineerEditor.form" :disabled="engineerEditor.saving">
           <div class="engineer-form-grid">
             <n-form-item label="姓名" required>
               <n-input v-model:value="engineerEditor.form.name" placeholder="工程师姓名" />
@@ -540,6 +547,34 @@
               </n-switch>
             </n-form-item>
           </div>
+          <n-form-item label="阶梯计费">
+            <n-switch v-model:value="engineerEditor.form.billing_enabled" />
+          </n-form-item>
+          <div v-if="engineerEditor.form.billing_enabled" class="billing-rules">
+            <n-form-item label="币种">
+              <n-select v-model:value="engineerEditor.form.billing_rules.currency" :options="billingCurrencyOptions" />
+            </n-form-item>
+            <p class="muted-text">按单次工时分段累加，按实际分钟折算，合计四舍五入到两位小数。最后一档不限时长。</p>
+            <div v-for="(tier, index) in engineerEditor.form.billing_rules.tiers" :key="index" class="billing-tier">
+              <n-form-item :label="`第 ${index + 1} 档`">
+                <n-input-number
+                  v-if="index < engineerEditor.form.billing_rules.tiers.length - 1"
+                  v-model:value="tier.up_to_minutes" :min="1" :max="525600" :precision="0"
+                  placeholder="累计上限（分钟）" aria-label="累计工时上限（分钟）"
+                />
+                <span v-else>超过前档上限（首档则从 0 分钟起）</span>
+              </n-form-item>
+              <n-form-item label="小时单价">
+                <n-input-number v-model:value="tier.hourly_rate" :min="0" :max="9999999999.99" :precision="2" aria-label="小时单价" />
+              </n-form-item>
+              <CButton show-delete size="small" :disabled="engineerEditor.saving || engineerEditor.form.billing_rules.tiers.length === 1" @delete="removeBillingTier(index)" />
+            </div>
+            <CButton show-save save-text="添加阶梯" size="small" :disabled="engineerEditor.saving || engineerEditor.form.billing_rules.tiers.length >= 20" @save="addBillingTier" />
+            <n-form-item label="试算分钟" class="billing-preview">
+              <n-input-number v-model:value="billingPreviewMinutes" :min="0" :max="525600" :precision="0" />
+              <span>{{ billingPreviewAmount }} {{ engineerEditor.form.billing_rules.currency }}</span>
+            </n-form-item>
+          </div>
           <n-form-item label="备注">
             <n-input
               v-model:value="engineerEditor.form.note"
@@ -556,6 +591,7 @@
               show-save
               size="small"
               :save-loading="engineerEditor.saving"
+              :disabled="engineerEditor.saving"
               @cancel="engineerEditor.show = false"
               @save="saveEngineer"
             />
@@ -570,6 +606,9 @@
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import { NButton, NPopconfirm, NSpace, NSelect, NSwitch, NTag, NTooltip, useMessage } from 'naive-ui'
 import api from '@/api'
+import TheIcon from '@/components/icon/TheIcon.vue'
+import { recordsCsv } from './export.mjs'
+import { billingCurrencies, calculateTierFee, validateBillingRules } from './billing.mjs'
 import CButton from '@/components/public/CButton.vue'
 import { translateCity, translateCountry, translateLocationPath } from '@/utils/location-i18n'
 
@@ -588,6 +627,9 @@ const users = ref([])
 const datacenters = ref([])
 const popRegions = ref([])
 const engineerKeyword = ref('')
+const billingCurrencyOptions = billingCurrencies.map((value) => ({ label: value, value }))
+const billingPreviewMinutes = ref(120)
+const billingPreviewAmount = computed(() => calculateTierFee(engineerEditor.form.billing_rules, billingPreviewMinutes.value) ?? '请完善规则')
 
 const remoteFilters = reactive({ engineer_id: null, site: null, site_key: null, status: null })
 const planFilters = reactive({ assignee_id: null, site: null, site_key: null, status: null })
@@ -858,21 +900,20 @@ const remoteColumns = [
     render: (row) => renderNoteCell(row.note),
   },
   {
-    title: '操作', key: 'actions', width: 260, fixed: 'right',
+    title: '操作', key: 'actions', width: 124, fixed: 'right',
     render: (row) => h(NSpace, { size: 6, wrap: false }, {
       default: () => [
         row.status === 'scheduled' && !row.left_at
-          ? h(NButton, { size: 'tiny', type: 'success', secondary: true, round: true, onClick: () => updateRemoteStatus(row, 'arrived') }, { default: () => '到场' })
+          ? renderActionButton('到场', 'mdi:login', 'success', () => updateRemoteStatus(row, 'arrived'))
           : null,
         row.status === 'arrived' && row.arrived_at && !row.left_at
-          ? h(NButton, { size: 'tiny', type: 'warning', secondary: true, round: true, onClick: () => updateRemoteStatus(row, 'done') }, { default: () => '离场' })
+          ? renderActionButton('离场', 'mdi:logout', 'warning', () => updateRemoteStatus(row, 'done'))
           : null,
-        h(NButton, { size: 'tiny', type: 'primary', secondary: true, round: true, onClick: () => openRemoteEditor(row) }, { default: () => '编辑' }),
+        renderActionButton('编辑', 'mdi:pencil-outline', 'primary', () => openRemoteEditor(row)),
         renderDeleteConfirm({
           title: `确认删除 ${row.customer || row.ticket || '这条运维记录'}？`,
           actionText: '删除',
           onConfirm: () => deleteRemoteHands(row),
-          buttonProps: { size: 'tiny', round: true },
         }),
       ].filter(Boolean),
     }),
@@ -926,31 +967,29 @@ const planColumns = [
     ]),
   },
   {
-    title: '操作', key: 'actions', width: 310, fixed: 'right',
+    title: '操作', key: 'actions', width: 124, fixed: 'right',
     render: (row) => h(NSpace, { size: 6, wrap: false }, {
       default: () => [
         row.status === 'pending'
-          ? h(NButton, { size: 'tiny', type: 'success', secondary: true, round: true, onClick: () => openCompleteEditor(row) }, { default: () => '完成' })
+          ? renderActionButton('完成', 'mdi:check-circle-outline', 'success', () => openCompleteEditor(row))
           : null,
         row.status === 'pending'
-          ? h(NButton, { size: 'tiny', type: 'primary', secondary: true, round: true, onClick: () => openPlanEditor(row) }, { default: () => '变更' })
+          ? renderActionButton('变更', 'mdi:pencil-outline', 'primary', () => openPlanEditor(row))
           : null,
         row.status === 'pending'
           ? renderDeleteConfirm({
             title: `确认取消 ${row.customer || row.ticket || '这条运维计划'}？`,
             actionText: '取消',
-            buttonProps: { size: 'tiny', type: 'warning', secondary: true, round: true },
             onConfirm: () => cancelPlan(row),
           })
           : null,
         row.remote_hands_id
-          ? h(NButton, { size: 'tiny', secondary: true, round: true, onClick: () => { activeTab.value = 'remote' } }, { default: () => '查看记录' })
+          ? renderActionButton('查看记录', 'mdi:clipboard-text-outline', 'default', () => { activeTab.value = 'remote' })
           : null,
         ['done', 'cancelled'].includes(row.status)
           ? renderDeleteConfirm({
             title: `确认删除 ${row.customer || row.ticket || '这条运维计划'}？`,
             actionText: '删除',
-            buttonProps: { size: 'tiny', type: 'error', secondary: true, round: true },
             onConfirm: () => deletePlan(row),
           })
           : null,
@@ -959,12 +998,15 @@ const planColumns = [
   },
 ]
 
-planColumns.forEach((column) => {
-  column.resizable = column.key !== 'actions'
-})
-
 const engineerColumns = [
   { title: '姓名', key: 'name', width: 150, render: (row) => h('strong', row.name || '-') },
+  {
+    title: '阶梯计费', key: 'billing_rules', width: 280,
+    render: (row) => row.billing_rules
+      ? h('div', { class: 'primary-cell' }, row.billing_rules.tiers.map((tier, index) => h('small',
+        `${index ? row.billing_rules.tiers[index - 1].up_to_minutes : 0}–${tier.up_to_minutes ?? '不限'} 分钟：${tier.hourly_rate} ${row.billing_rules.currency}/小时`)))
+      : '未配置',
+  },
   { title: '联系方式', key: 'contact', width: 180, render: (row) => row.contact || '-' },
   {
     title: '微信', key: 'wechat_id', width: 200,
@@ -988,10 +1030,10 @@ const engineerColumns = [
     render: (row) => renderNoteCell(row.note),
   },
   {
-    title: '操作', key: 'actions', width: 170, fixed: 'right',
+    title: '操作', key: 'actions', width: 90, fixed: 'right',
     render: (row) => h(NSpace, { size: 6, wrap: false }, {
       default: () => [
-        h(NButton, { size: 'small', type: 'primary', secondary: true, onClick: () => openEngineerEditor(row) }, { default: () => '编辑' }),
+        renderActionButton('编辑', 'mdi:pencil-outline', 'primary', () => openEngineerEditor(row)),
         renderDeleteConfirm({
           title: `确认删除工程师 ${row.name || ''}？`,
           actionText: '删除',
@@ -1001,6 +1043,39 @@ const engineerColumns = [
     }),
   },
 ]
+
+for (const columns of [remoteColumns, planColumns, engineerColumns]) {
+  columns.forEach((column) => { column.resizable = column.key !== 'actions' })
+}
+
+function tableWidth(columns) {
+  return columns.reduce((total, column) => total + Number(column.width || column.minWidth || 100), 0)
+}
+
+function exportRemoteHands() {
+  const rows = filteredRemoteHands.value
+  if (!rows.length) return message.warning('暂无可导出的运维记录')
+  try {
+    const content = recordsCsv([
+      ['客户', '工单', '工程师', '联系方式', '微信', '联系群', '地区', '机房', '机柜', '时区', '到场时间', '离场时间', '工时（分钟）', '状态', '是否结算', '备注'],
+      ...rows.map((row) => [row.customer, row.ticket, row.engineer_name, row.engineer_contact,
+        row.engineer_wechat, row.engineer_group, displayRegion(row.region), row.site, row.rack,
+        row.timezone, row.arrived_at, row.left_at, row.work_minutes, statusLabel(row.status),
+        readSettledFlag(row) ? '已结算' : '未结算', row.note]),
+    ])
+    const url = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8;' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `运维记录-${localDateTime().slice(0, 10)}.csv`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    message.success(`已导出 ${rows.length} 条运维记录`)
+  } catch {
+    message.error('导出失败，请重试')
+  }
+}
 
 function createRemoteForm(source = {}) {
   return {
@@ -1070,6 +1145,11 @@ function createEngineerForm(source = {}) {
     wechat_group: source.wechat_group || '',
     regions: uniqueRegionValues(splitRegions(source.region)),
     is_active: Number(source.is_active ?? 1),
+    billing_enabled: Boolean(source.billing_rules),
+    billing_rules: source.billing_rules ? {
+      currency: source.billing_rules.currency,
+      tiers: source.billing_rules.tiers.map((tier) => ({ ...tier, hourly_rate: Number(tier.hourly_rate) })),
+    } : { currency: 'CNY', tiers: [{ up_to_minutes: null, hourly_rate: 0 }] },
     note: source.note || '',
   }
 }
@@ -1691,13 +1771,33 @@ async function savePlan() {
   }
 }
 
+function addBillingTier() {
+  const tiers = engineerEditor.form.billing_rules.tiers
+  if (tiers.length >= 20) return
+  const previous = tiers.length > 1 ? Number(tiers[tiers.length - 2].up_to_minutes) : 0
+  tiers[tiers.length - 1].up_to_minutes = previous + 60
+  tiers.push({ up_to_minutes: null, hourly_rate: tiers[tiers.length - 1].hourly_rate })
+}
+
+function removeBillingTier(index) {
+  const tiers = engineerEditor.form.billing_rules.tiers
+  if (tiers.length <= 1) return
+  tiers.splice(index, 1)
+  tiers[tiers.length - 1].up_to_minutes = null
+}
+
 async function saveEngineer() {
+  if (engineerEditor.saving) return
   const form = engineerEditor.form
   if (!form.name.trim()) return message.warning('请输入工程师姓名')
+  const billingRules = form.billing_enabled ? form.billing_rules : null
+  const billingError = validateBillingRules(billingRules)
+  if (billingError) return message.warning(billingError)
   engineerEditor.saving = true
   try {
     const payload = {
       name: form.name,
+      billing_rules: billingRules,
       contact: form.contact,
       wechat_id: form.wechat_id,
       wechat_group: form.wechat_group,
@@ -1994,13 +2094,22 @@ function renderSettlementSwitch(row) {
   })
 }
 
-function renderDeleteConfirm({ title, actionText, onConfirm, buttonProps = {} }) {
+function renderActionButton(label, icon, type, onClick) {
+  return h(NTooltip, null, {
+    trigger: () => h(NButton, {
+      size: 'small', circle: true, quaternary: true, type, 'aria-label': label, onClick,
+    }, { icon: () => h(TheIcon, { icon, size: 17 }) }),
+    default: () => label,
+  })
+}
+
+function renderDeleteConfirm({ title, actionText, onConfirm }) {
   return h(NPopconfirm, {
     positiveText: actionText,
     negativeText: '取消',
     onPositiveClick: onConfirm,
   }, {
-    trigger: () => h(NButton, { size: 'small', type: 'error', secondary: true, ...buttonProps }, { default: () => actionText }),
+    trigger: () => renderActionButton(actionText, actionText === '取消' ? 'mdi:close-circle-outline' : 'mdi:delete-outline', actionText === '取消' ? 'warning' : 'error'),
     default: () => title,
   })
 }
@@ -2270,6 +2379,11 @@ onMounted(fetchOverview)
 .remote-form :deep(.n-base-selection),
 .remote-form :deep(.n-date-picker) { min-height: 30px; }
 .engineer-form-grid { display: grid; grid-template-columns: 1fr; }
+.billing-rules { margin-bottom: 16px; }
+.billing-tier { padding: 12px; margin-bottom: 8px; border: 1px solid var(--n-border-color); border-radius: 8px; }
+.billing-tier .n-input-number { width: 100%; }
+.billing-preview { margin-top: 16px; }
+.billing-preview span { margin-left: 12px; }
 .engineer-form :deep(.n-form-item) { margin-bottom: 12px; }
 .engineer-form :deep(.n-input),
 .engineer-form :deep(.n-base-selection) { min-height: 30px; }

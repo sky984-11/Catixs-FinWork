@@ -15681,6 +15681,17 @@
             "type": "string",
             "title": "Note",
             "default": ""
+          },
+          "billing_rules": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EngineerBillingRules"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
         "additionalProperties": true,
@@ -18855,6 +18866,73 @@
         },
         "type": "object",
         "title": "Body_upload_plan_attachment_api_v1_remote_assistance_attachments_upload_post"
+      },
+      "BillingTier": {
+        "properties": {
+          "up_to_minutes": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "maximum": 525600,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Up To Minutes"
+          },
+          "hourly_rate": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Hourly Rate"
+          }
+        },
+        "required": [
+          "hourly_rate"
+        ],
+        "title": "BillingTier",
+        "type": "object"
+      },
+      "EngineerBillingRules": {
+        "properties": {
+          "currency": {
+            "default": "CNY",
+            "enum": [
+              "CNY",
+              "USD",
+              "HKD",
+              "EUR",
+              "GBP",
+              "SGD",
+              "JPY"
+            ],
+            "title": "Currency",
+            "type": "string"
+          },
+          "tiers": {
+            "items": {
+              "$ref": "#/components/schemas/BillingTier"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Tiers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tiers"
+        ],
+        "title": "EngineerBillingRules",
+        "type": "object"
       }
     }
   }

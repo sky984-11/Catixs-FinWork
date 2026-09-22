@@ -14,6 +14,7 @@ migrations/models/*
 !migrations/models/172_20260918010000_vendor_contact_records.py
 !migrations/models/173_20260918020000_project_vendor.py
 !migrations/models/174_20260921120000_idc_workflow.py
+!migrations/models/175_20260922090000_engineer_billing_rules.py
 .env
 .pnpm-store/
 

@@ -396,6 +396,17 @@ curl 'http://localhost:9999/api/v1/finance/quote/list?page=1&page_size=20' \
 | `POST` | `/api/v1/asset/region/update` | 更新区域 | application/json: AssetRegionUpdate | application/json: - |
 | `GET` | `/api/v1/asset/tree` | 资产位置树 | - | application/json: - |
 
+### 运维记录导出与工程师阶梯计费
+
+- 运维记录页“导出记录”导出当前筛选条件下的全部记录（包含其他分页），CSV 使用 UTF-8 BOM，包含客户、工单、工程师及联系方式、地区、机房、机柜、时区、到离场时间、工时分钟、状态、结算状态和备注。导出复用已鉴权的概览数据，不新增接口；无数据或加载期间禁用。文本按 CSV 规则转义并防止表格公式执行。
+- `POST /api/v1/remote-assistance/engineers`、`PUT /api/v1/remote-assistance/engineers/{engineer_id}` 新增可选 `billing_rules`。省略时保持已有规则，传 `null` 清除规则。`GET /api/v1/remote-assistance/overview` 的 `data.engineers[]` 返回 `billing_rules`（未配置为 `null`）。路由及其他字段保持兼容。
+- 请求示例：`{"name":"示例工程师","billing_rules":{"currency":"CNY","tiers":[{"up_to_minutes":60,"hourly_rate":"120.00"},{"up_to_minutes":180,"hourly_rate":"90.00"},{"up_to_minutes":null,"hourly_rate":"60.00"}]}}`。PUT 的其他工程师字段仍按既有完整表单方式提交。
+- 币种支持 CNY、USD、HKD、EUR、GBP、SGD、JPY；1–20 档，累计工时上限为严格递增的正整数分钟，最大525600，最后一档必须为 `null`（无上限），其他档不得为空。小时单价非负、最多两位小数、最大9999999999.99。前后端均校验。
+- 规则按单次运维工时分段累加，实际分钟折算小时，合计四舍五入保留两位小数。上述规则下240分钟费用为360.00 CNY。工程师编辑窗口提供费用试算；本次仅保存规则并提供试算，不自动生成账单、不修改运维记录结算状态或历史金额。
+- 创建成功：`{"code":200,"msg":"工程师已创建","data":null}`；修改成功：`{"code":200,"msg":"工程师已更新","data":null}`；概览片段：`{"code":200,"data":{"engineers":[{"id":1,"name":"示例工程师","billing_rules":{"currency":"CNY","tiers":[{"up_to_minutes":null,"hourly_rate":"120.00"}]}}]}}`（其他字段略）。
+- 权限：沿用请求头 `token` 登录与各方法/路由的角色 API 权限。缺少 token 返回422，无效 token 返回401，无权限返回403，规则不合法返回422；工程师不存在、数据库错误沿用 `Fail` 业务响应（`code:400`）。
+- 部署前执行 `aerich upgrade` 应用新增迁移 `175_20260922090000_engineer_billing_rules.py`，为 `remote_engineer` 增加可空 JSONB 字段，历史数据无需回填。回滚迁移会删除已配置规则。
+
 ### 运维记录模块
 
 | Method | Path | Summary | Request Body | Response |
