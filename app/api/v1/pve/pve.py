@@ -2035,7 +2035,31 @@ def ssh_execute_pve(host: str, command: str) -> tuple[int, str, str]:
 
 
 @router.get("/nodes", summary="PDM remote list")
-async def list_nodes(refresh: bool = Query(False)):
+async def list_nodes(refresh: bool = Query(False), live_remote: str | None = Query(None)):
+    if isinstance(live_remote, str):
+        from app.models.asset import CloudResourceSnapshot
+
+        row = await CloudResourceSnapshot.get_or_none(key="fleet")
+        node = next(
+            (item for item in ((row.payload or {}).get("nodes", []) if row else [])
+             if item.get("remote") == live_remote), None,
+        )
+        if node is None:
+            return Fail(code=404, msg="节点不存在，请刷新节点列表")
+        try:
+            async def load():
+                resources = normalize_remote_items(
+                    await pdm_get(f"/pve/remotes/{live_remote}/nodes", timeout=3), live_remote, "pve-node"
+                )
+                statuses = await pdm_remote_node_status_summary(live_remote, resources)
+                if not statuses:
+                    raise RuntimeError("Node status unavailable")
+                return statuses
+
+            metrics = await asyncio.wait_for(load(), timeout=10)
+            return Success(data=[{**node, **metrics, "cpu": metrics["cpu_usage"], "error": ""}])
+        except Exception:
+            return Fail(code=502, msg="节点负载暂时不可用")
     snapshot, sync = await read_snapshot(force=refresh)
     return Success(data=snapshot.get("nodes", []), sync=sync)
 

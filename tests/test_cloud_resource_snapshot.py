@@ -96,6 +96,77 @@ class SnapshotTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["items"], previous["items"])
         self.assertTrue(error)
 
+    async def test_missing_storage_uses_node_status_without_overwriting_cpu(self):
+        from app.api.v1.pve import pve
+
+        for mode in ("available", "unavailable", "zero-used", "inventory-complete"):
+            with self.subTest(mode=mode):
+                host = {"type": "pve-node", "node": "host", "maxcpu": 8, "cpu": 0.25}
+                if mode == "inventory-complete":
+                    host.update(disk=20, maxdisk=100)
+                groups = [{"remote": "a", "resources": [host], "queried": True}]
+
+                async def get(path, **kwargs):
+                    if path.endswith("/status"):
+                        if mode == "unavailable":
+                            raise RuntimeError("status unavailable")
+                        return {"rootfs": {"used": 0 if mode == "zero-used" else 40, "total": 200}}
+                    return []
+
+                with (
+                    patch.object(pve, "pdm_remote_list", AsyncMock(return_value=["a"])),
+                    patch.object(pve, "pve_node_binding_map", AsyncMock(return_value={})),
+                    patch.object(pve, "pdm_remote_config_detail_map", AsyncMock(return_value={})),
+                    patch.object(pve, "pdm_live_resources_list", AsyncMock(return_value=groups)),
+                    patch.object(pve, "pdm_get", AsyncMock(side_effect=get)) as get_mock,
+                    patch.object(pve, "sync_vm_spec_metadata_from_list", AsyncMock()),
+                    patch.object(pve, "apply_vm_metadata", AsyncMock()),
+                ):
+                    payload, error = await service.collect_snapshot({})
+                node = payload["nodes"][0]
+                self.assertEqual(error, "")
+                self.assertEqual(node["cpu_usage"], 25)
+                self.assertEqual(node["cpu_total"], 8)
+                expected = {
+                    "available": (40, 200, 20),
+                    "zero-used": (0, 200, 0),
+                    "unavailable": (0, 0, 0),
+                    "inventory-complete": (20, 100, 20),
+                }[mode]
+                self.assertEqual((node["disk"], node["maxdisk"], node["disk_usage"]), expected)
+                status_calls = [call for call in get_mock.await_args_list if call.args[0].endswith("/status")]
+                self.assertEqual(len(status_calls), 0 if mode == "inventory-complete" else 1)
+
+    async def test_live_node_load_does_not_refresh_inventory(self):
+        import json
+        from app.api.v1.pve import pve
+
+        original = {"nodes": [{"remote": "a", "vm_count": 3}], "items": [{"vmid": 1}]}
+        await CloudResourceSnapshot.create(key="fleet", payload=original)
+        async def get(path, **kwargs):
+            if path.endswith("/nodes"):
+                return [{"node": "host"}]
+            return {"cpu": 0.5, "cpuinfo": {"cpus": 4}, "rootfs": {"used": 10, "total": 100}}
+
+        with (
+            patch.object(pve, "pdm_get", AsyncMock(side_effect=get)) as cloud,
+            patch.object(pve, "read_snapshot", AsyncMock()) as snapshot,
+        ):
+            response = await pve.list_nodes(refresh=False, live_remote="a")
+            node = json.loads(response.body)["data"][0]
+            self.assertEqual(node["cpu_usage"], 50)
+            self.assertEqual(node["disk_usage"], 10)
+            self.assertEqual(node["vm_count"], 3)
+            self.assertEqual(cloud.await_count, 2)
+            snapshot.assert_not_awaited()
+            response = await pve.list_nodes(refresh=False, live_remote="missing")
+            self.assertEqual(response.status_code, 404)
+            self.assertEqual(cloud.await_count, 2)
+        with patch.object(pve, "pdm_get", AsyncMock(side_effect=RuntimeError("offline"))):
+            response = await pve.list_nodes(refresh=False, live_remote="a")
+            self.assertEqual(response.status_code, 502)
+        self.assertEqual((await CloudResourceSnapshot.get(key="fleet")).payload, original)
+
     async def test_completed_operation_requests_refresh(self):
         from app.api.v1.pve import pve
 

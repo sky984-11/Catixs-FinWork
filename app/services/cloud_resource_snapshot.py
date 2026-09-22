@@ -115,7 +115,7 @@ async def collect_snapshot(previous):
             guests.extend(pve.normalize_remote_items(raw, remote, f"pve-{kind}"))
         return [*resources, *guests]
 
-    async def fetch(remote):
+    async def fetch_resources(remote):
         async with semaphore:
             group = live_groups.get(remote)
             if group and not group.get("error") and (group.get("resources") or group.get("queried")):
@@ -132,6 +132,23 @@ async def collect_snapshot(previous):
                     continue
             raise RuntimeError("Cannot obtain a complete resource list")
 
+    async def fetch(remote):
+        resources = await fetch_resources(remote)
+        hosts = [item for item in resources if pve.canonical_resource_type(item.get("type")) == "pve-node"]
+        summary = pve.node_resource_summary(hosts)
+        storage = {}
+        # PDM resource inventories can omit host disk capacity. Read rootfs from
+        # node status only when needed; optional metrics must not fail inventory.
+        if not hosts or any(pve.number_value(item.get("maxdisk")) <= 0 for item in hosts):
+            async with semaphore:
+                try:
+                    status = await asyncio.wait_for(pve.pdm_remote_node_status_summary(remote, resources), timeout=6)
+                    if status.get("maxdisk", 0) > 0:
+                        storage = {key: status[key] for key in ("disk", "maxdisk", "disk_usage")}
+                except Exception:
+                    pass
+        return resources, {key: storage.get(key, summary[key]) for key in ("disk", "maxdisk", "disk_usage")}
+
     results = await asyncio.gather(*(fetch(remote) for remote in remotes), return_exceptions=True)
     nodes, vms, failures = [], [], []
     for remote, result in zip(remotes, results):
@@ -146,8 +163,10 @@ async def collect_snapshot(previous):
             )
             vms.extend(item for item in previous.get("items", []) if item.get("remote") == remote)
             continue
-        group = {"remote": remote, "resources": result, "queried": True}
+        resources, storage = result
+        group = {"remote": remote, "resources": resources, "queried": True}
         node = pve.resource_groups([group], addresses, remote_details=details)[0]
+        node.update(storage)
         node.update(bindings.get(remote, {}))
         # Preserve connection display fields that aren't part of resource responses.
         for key in ("ip", "address", "fingerprint"):

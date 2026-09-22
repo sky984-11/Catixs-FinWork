@@ -281,7 +281,7 @@ export default {
 
   // virtual machine
   virtualMachineApi: {
-    pveNodes: () => request.get('/pve/nodes'),
+    pveNodes: (params = {}, options = {}) => request.get('/pve/nodes', { ...options, params }),
     pveVms: (params = {}) => request.get('/pve/vms', { params }),
     pveVmIps: (params = {}) => request.get('/pve/vms/ips', { params }),
     addNode: (data = {}) => request.post('/pve/nodes/add', data),

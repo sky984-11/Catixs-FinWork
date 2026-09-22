@@ -1014,7 +1014,18 @@
 </template>
 
 <script setup>
-import { computed, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import {
+  computed,
+  h,
+  nextTick,
+  onActivated,
+  onDeactivated,
+  onBeforeUnmount,
+  onMounted,
+  reactive,
+  ref,
+  watch,
+} from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useWindowSize } from '@vueuse/core'
 import {
@@ -1036,6 +1047,75 @@ const message = useMessage()
 const snapshotSync = ref({})
 let snapshotTimer
 let snapshotDisposed = false
+
+let nodeLoadTimer
+let nodeLoadPending = false
+let nodeLoadActive = true
+
+function scheduleNodeLoad(delay = 30000) {
+  clearTimeout(nodeLoadTimer)
+  if (!snapshotDisposed && nodeLoadActive && !document.hidden)
+    nodeLoadTimer = setTimeout(refreshNodeLoad, delay)
+}
+
+async function refreshNodeLoad() {
+  if (snapshotDisposed || !nodeLoadActive || document.hidden) return
+  if (nodeLoadPending) {
+    scheduleNodeLoad(1000)
+    return
+  }
+  const remote = selectedNode.value?.remote
+  if (!remote) {
+    scheduleNodeLoad()
+    return
+  }
+  nodeLoadPending = true
+  try {
+    const res = await api.virtualMachineApi.pveNodes(
+      { live_remote: remote },
+      { skipErrorHandle: true }
+    )
+    if (
+      snapshotDisposed ||
+      !nodeLoadActive ||
+      document.hidden ||
+      selectedNode.value?.remote !== remote
+    )
+      return
+    const metrics = res.data?.find((node) => node.remote === remote)
+    if (!metrics) return
+    // Update metrics only; preserve newer names, bindings and VM counts.
+    const target = nodeOptions.value.find((node) => node.remote === remote)
+    if (target) {
+      for (const key of [
+        'cpu',
+        'cpu_usage',
+        'cpu_total',
+        'mem',
+        'maxmem',
+        'mem_usage',
+        'disk',
+        'maxdisk',
+        'disk_usage',
+      ]) {
+        target[key] = metrics[key]
+      }
+      target.error = metrics.error || ''
+      selectedNode.value = target
+      saveVmPageCache()
+    }
+  } catch {
+    // Keep the last successful measurement and retry on the next interval.
+  } finally {
+    nodeLoadPending = false
+    scheduleNodeLoad(selectedNode.value?.remote === remote ? 30000 : 0)
+  }
+}
+
+function handleNodeLoadVisibility() {
+  clearTimeout(nodeLoadTimer)
+  if (!document.hidden) scheduleNodeLoad(0)
+}
 
 async function syncCloudResources() {
   if (snapshotSync.value.refreshing || loading.nodes) return
@@ -3338,7 +3418,13 @@ function formatTimestamp(value) {
   return new Date(timestamp * 1000).toLocaleString()
 }
 
+watch(
+  () => selectedNode.value?.remote,
+  () => scheduleNodeLoad(0)
+)
+
 onMounted(async () => {
+  document.addEventListener('visibilitychange', handleNodeLoadVisibility)
   hydrateVmPageFromCache()
   await fetchNodes()
   await fetchVms()
@@ -3348,8 +3434,19 @@ onMounted(async () => {
   }
 })
 
+onActivated(() => {
+  nodeLoadActive = true
+  scheduleNodeLoad(0)
+})
+onDeactivated(() => {
+  nodeLoadActive = false
+  clearTimeout(nodeLoadTimer)
+})
+
 onBeforeUnmount(() => {
   snapshotDisposed = true
+  clearTimeout(nodeLoadTimer)
+  document.removeEventListener('visibilitychange', handleNodeLoadVisibility)
   clearTimeout(snapshotTimer)
   clearTaskPolling()
 })
