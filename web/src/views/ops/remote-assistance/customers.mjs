@@ -39,3 +39,30 @@ export function selectedCustomerValue(options, name, selected) {
   const match = options.find((item) => item.value === selected && item.aliases.includes(name))
   return match?.value ?? options.find((item) => item.aliases.includes(name))?.value ?? null
 }
+
+export function buildPlanCustomerOptions(customers, plans) {
+  const options = buildCustomerOptions(customers)
+  for (const plan of plans) {
+    if (!plan.customer) continue
+    const value = plan.customer_id ? `customer:${plan.customer_id}` : `legacy:${plan.customer}`
+    const exists = plan.customer_id
+      ? options.some((option) => option.value === value)
+      : options.some((option) => option.aliases.includes(plan.customer))
+    if (!exists)
+      options.push({
+        value,
+        label: plan.customer,
+        customerName: plan.customer,
+        customerId: plan.customer_id,
+        aliases: [plan.customer],
+        class: 'remote-customer-option',
+      })
+  }
+  return options
+}
+
+export function matchesPlanCustomer(plan, option) {
+  if (!option) return false
+  if (plan.customer_id) return String(plan.customer_id) === String(option.customerId)
+  return option.aliases.includes(plan.customer)
+}

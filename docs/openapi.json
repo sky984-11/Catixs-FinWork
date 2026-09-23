@@ -19308,6 +19308,32 @@
             "type": "array",
             "maxItems": 50,
             "title": "Expenses"
+          },
+          "additional_fee_minutes": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 10080.0,
+                  "minimum": 0.0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "maxProperties": 30,
+            "title": "Additional Fee Minutes"
+          },
+          "excluded_fee_ids": {
+            "items": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "type": "array",
+            "maxItems": 30,
+            "title": "Excluded Fee Ids"
           }
         },
         "additionalProperties": false,
@@ -19416,6 +19442,14 @@
               }
             ],
             "title": "Hourly Rate"
+          },
+          "additional_fees": {
+            "items": {
+              "$ref": "#/components/schemas/AdditionalFeeRule"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "title": "Additional Fees"
           },
           "tiers": {
             "items": {
@@ -20076,6 +20110,88 @@
           "currency"
         ],
         "title": "ReimbursedExpense"
+      },
+      "AdditionalFeeRule": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "fixed",
+              "hourly"
+            ],
+            "title": "Mode",
+            "default": "fixed"
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount"
+          },
+          "minutes_source": {
+            "type": "string",
+            "enum": [
+              "fixed",
+              "actual",
+              "work"
+            ],
+            "title": "Minutes Source",
+            "default": "actual"
+          },
+          "minutes": {
+            "type": "integer",
+            "maximum": 10080.0,
+            "minimum": 0.0,
+            "title": "Minutes",
+            "default": 60
+          },
+          "increment_minutes": {
+            "type": "integer",
+            "maximum": 1440.0,
+            "minimum": 1.0,
+            "title": "Increment Minutes",
+            "default": 30
+          },
+          "excluded_regions": {
+            "items": {
+              "type": "string",
+              "maxLength": 100,
+              "minLength": 1
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Excluded Regions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "AdditionalFeeRule"
       }
     }
   }

@@ -131,7 +131,7 @@ def calculate_record_fee(
     )
     if ctx.service_type == "project":
         return result | {"notices": ["此服务按项目内容单独报价"]}
-    if minutes == 0 and not ctx.expenses and not ctx.actual_commute_minutes:
+    if minutes == 0 and not ctx.expenses and not ctx.actual_commute_minutes and not rules.additional_fees:
         return result | {"status": "calculated", "total": "0.00", "night_minutes": 0}
     notices = result["notices"]
     if pricing and (pricing.kind == "pending" or (pricing.kind == "hourly" and pricing.hourly_rate is None)):
@@ -263,6 +263,34 @@ def calculate_record_fee(
             notices.append("实报实销交通费待确认")
         else:
             add("报销交通费", ctx.reimbursed_transport, original_currency)
+    for fee in rules.additional_fees:
+        if fee.id in ctx.excluded_fee_ids or region in fee.excluded_regions:
+            continue
+        if fee.excluded_regions and not region:
+            notices.append(f"{fee.name}适用地区待确认")
+            continue
+        if fee.amount is None:
+            notices.append(f"{fee.name}金额待确认")
+            continue
+        if fee.mode == "fixed":
+            add(fee.name, fee.amount, original_currency)
+            continue
+        duration = (
+            fee.minutes
+            if fee.minutes_source == "fixed"
+            else (
+                minutes
+                if fee.minutes_source == "work"
+                else ctx.additional_fee_minutes.get(
+                    fee.id, ctx.actual_commute_minutes if fee.id == "legacy-transport" else None
+                )
+            )
+        )
+        if duration is None:
+            notices.append(f"{fee.name}实际时长待填写")
+            continue
+        billed_duration = (duration + fee.increment_minutes - 1) // fee.increment_minutes * fee.increment_minutes
+        add(f"{fee.name}（计费{billed_duration}分钟）", fee.amount * billed_duration / 60, original_currency)
     for expense in ctx.expenses:
         if expense.amount is None:
             notices.append(f"实报实销待确认：{expense.name}")

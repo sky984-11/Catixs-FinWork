@@ -398,9 +398,9 @@ curl 'http://localhost:9999/api/v1/finance/quote/list?page=1&page_size=20' \
 
 ### 运维记录费用与通用计费规则
 
-2026-09-23更新：[按次施工报价、现场费用及多币种结果](maintenance-billing.md)。客户管理已移除报价字段，改在计划/记录中选择小时报价、一口价或工程师规则；多币种结果使用`totals`，不能仅通过`total:null`判断待确认。
+2026-09-24更新：[按次施工报价、通用附加费用及多币种结果](maintenance-billing.md)。客户管理已移除报价字段，计划/记录界面仅选择一口价或工程师规则，默认工程师规则；历史小时报价继续兼容。附加费用使用 `billing_rules.additional_fees`，实际时长和本次免收项使用 `billing_context.additional_fee_minutes` / `excluded_fee_ids`。多币种结果使用`totals`，不能仅通过`total:null`判断待确认。下述紧急维护、交通及商务条款字段仅用于历史兼容，新工程师界面不再提供。
 
-- 工程师 `POST /api/v1/remote-assistance/engineers`、`PUT /api/v1/remote-assistance/engineers/{engineer_id}` 的 `billing_rules` 支持通用模式 `mode: general`。省略保持原规则，null清除；旧小时阶梯和旧固定档位请求仍兼容。新建规则默认不填单价，不设地区、交通费、夜班、收款方式；实例仅通过前端“用模板替换当前规则”显式载入，不绑定任何工程师。
+- 工程师 `POST /api/v1/remote-assistance/engineers`、`PUT /api/v1/remote-assistance/engineers/{engineer_id}` 的 `billing_rules` 支持通用模式 `mode: general`。省略保持原规则，null清除；旧小时阶梯和旧固定档位请求仍兼容。新建规则默认不填单价，不设地区、附加费用及夜班时段；前端参考模板功能已移除。
 - 通用示例：`{"name":"示例工程师","billing_rules":{"mode":"general","currency":"GBP","pricing":"hourly","hourly_rate":"30.00","transport_mode":"hourly","commute_minutes":60}}`。2小时人工60 GBP，加一次通勤30 GBP，总计90 GBP。创建响应 `{"code":200,"msg":"工程师已创建","data":null}`；编辑响应 `{"code":200,"msg":"工程师已更新","data":null}`。概览 `GET /api/v1/remote-assistance/overview` 的 `data.engineers[].billing_rules` 返回完整规则。
 - `pricing`：hourly固定小时单价、package按时长所在档位收固定总价、tiered_hourly按区间小时单价累加。对应 `hourly_rate`、`tiers:[{up_to_minutes,total_fee}]`、`hourly_tiers:[{up_to_minutes,hourly_rate}]`。package档位上限严格递增且价格不降低；tiered_hourly最后一档上限为null。最多20档。`minimum_minutes`为最低计费分钟，`billing_increment_minutes`为向上取整步长（默认1）。0分钟不产生费用。金额非负、最多两位小数，不同币种不自动换汇。
 - package超出最后一档：`overtime_enabled`、`overtime_hourly_rate`、`overtime_threshold_minutes`（1–60）和`overtime_rounding`配置加班；未配置时超出档位显示待确认。取整支持half_hour_round（每小时余量达到阈值进一小时）、ceil_after_threshold（达到阈值后按小时向上取整）、actual_after_threshold（达到阈值后按实际分钟折算）。
@@ -409,7 +409,7 @@ curl 'http://localhost:9999/api/v1/finance/quote/list?page=1&page_size=20' \
 - 紧急维护：`emergency_fee`、`emergency_response_minutes`、`emergency_regions`、`emergency_confirmation_regions`，覆盖地区留空表示不限地区，待确认区优先；地区按记录的地区名称精确匹配。`night_applies_to_emergency`默认false，即夜班加价后再加紧急费。未勾选本次紧急维护时不收紧急费；勾选但费用或区域未确认时不生成最终合计。
 - 交通：`transport_mode`支持none、fixed（每次transport_fee）、hourly（每次commute_minutes工时费）、reimburse（本次实报实销）。通勤单价`commute_hourly_rate`留空时仅hourly模式沿用人工小时单价，其他模式须填写。`transport_included_regions`指定免交通费地区，留空表示每次收取。交通/通勤仅加一次，不增加运维工时、不参与夜班倍率。
 - 商务条款：`project_services`配置单独报价服务；`settlement_cycles`可填日结、周结、月结、按次及自定义文字；`payment_methods`可配置多个自定义名称，字段name、note、tax_mode（none不另加税、included已含税、extra按约定税率另加、confirm待确认）、tax_rate（百分数，0–100，可空）、tax_base（labor人工费或subtotal人工+交通）。未选择已配置的收款方式、税费未确认时，不生成最终合计。`note`存放规则说明。地区、结算及收款名称不绑定国家。
-- 可选Catixs模板：新加坡Aden陈工30 USD/小时+每次100 USD交通费；首尔HM 50 USD/小时；纽约昆仑60 USD/小时、2小时起步；洛杉矶Anson 55 USD/小时，现场整小时、实际往返通勤半小时分别向上取整；法兰克福小冯20 USD/小时+1小时通勤；英国JOE 30 GBP/小时+1小时通勤；东京陈雷4小时1100 CNY、8小时1650 CNY、超时300 CNY/小时。东京夜班时段待确认，人工费乘1.25后再加紧急费500 CNY。
+- 地区报价示例仅保留为自动化测试数据，不作为产品内可选模板。
 
 #### 费用试算接口
 

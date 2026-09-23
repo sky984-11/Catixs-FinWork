@@ -358,7 +358,7 @@ async def _customer_name(customer_id, name):
 
 
 def _default_customer_pricing(name):
-    return {"kind": "internal" if str(name or "").strip().lower() == "catixs" else "pending"}
+    return {"kind": "internal"}
 
 
 async def _billing_snapshot(data: dict, context: BillingContext | None = None, existing: RemoteHands | None = None, refresh=False, customer_pricing=None):

@@ -14,21 +14,13 @@ export const overtimeRoundingOptions = [
   { label: '满起计分钟后，不足一小时按一小时', value: 'ceil_after_threshold' },
   { label: '满起计分钟后，按实际分钟折算', value: 'actual_after_threshold' },
 ]
-export const billingTemplates = [
-  { label: '新加坡Aden陈工：30 USD/小时＋100 USD交通费', value: 'singapore' },
-  { label: '首尔HM：50 USD/小时', value: 'seoul' },
-  { label: '纽约昆仑：60 USD/小时，2小时起步', value: 'new_york' },
-  { label: '洛杉矶Anson：55 USD/小时，通勤按半小时', value: 'los_angeles' },
-  { label: '法兰克福小冯：20 USD/小时＋1小时通勤', value: 'germany' },
-  { label: '英国JOE：30 GBP/小时＋1小时通勤', value: 'uk' },
-  { label: '东京陈雷：4/8小时固定档位＋加班', value: 'japan' },
-]
 export function createMaintenanceRules() {
   return {
     mode: 'general',
     currency: 'CNY',
     pricing: 'hourly',
     hourly_rate: null,
+    additional_fees: [],
     tiers: [],
     hourly_tiers: [],
     minimum_minutes: 0,
@@ -59,78 +51,6 @@ export function createMaintenanceRules() {
     payment_methods: [],
     note: '',
   }
-}
-export function exampleBillingRules(name) {
-  const rules = createMaintenanceRules()
-  if (name === 'singapore')
-    Object.assign(rules, {
-      currency: 'USD',
-      hourly_rate: 30,
-      transport_mode: 'fixed',
-      transport_fee: 100,
-    })
-  if (name === 'seoul') Object.assign(rules, { currency: 'USD', hourly_rate: 50 })
-  if (name === 'us') Object.assign(rules, { currency: 'USD', hourly_rate: 60 })
-  if (name === 'new_york')
-    Object.assign(rules, { currency: 'USD', hourly_rate: 60, minimum_minutes: 120 })
-  if (name === 'los_angeles')
-    Object.assign(rules, {
-      currency: 'USD',
-      hourly_rate: 55,
-      billing_increment_minutes: 60,
-      transport_mode: 'hourly',
-      commute_mode: 'actual',
-      commute_increment_minutes: 30,
-    })
-  if (name === 'germany')
-    Object.assign(rules, {
-      currency: 'USD',
-      hourly_rate: 20,
-      transport_mode: 'hourly',
-      note: 'Catixs本公司报价：20 USD/小时，每次加1小时通勤。',
-    })
-  if (name === 'uk')
-    Object.assign(rules, { currency: 'GBP', hourly_rate: 30, transport_mode: 'hourly' })
-  if (name === 'japan')
-    Object.assign(rules, {
-      pricing: 'package',
-      tiers: [
-        { up_to_minutes: 240, total_fee: 1100 },
-        { up_to_minutes: 480, total_fee: 1650 },
-      ],
-      overtime_enabled: true,
-      overtime_hourly_rate: 300,
-      overtime_threshold_minutes: 30,
-      overtime_rounding: 'half_hour_round',
-      night_enabled: true,
-      night_multiplier: 1.25,
-      emergency_fee: 500,
-      emergency_response_minutes: 240,
-      emergency_regions: ['东京'],
-      emergency_confirmation_regions: ['大阪'],
-      transport_mode: 'reimburse',
-      transport_included_regions: ['东京', '东京都'],
-      project_services: ['设备上架', '综合布线'],
-      settlement_cycles: ['日结', '周结'],
-      payment_methods: [
-        {
-          name: '个人微信收款',
-          tax_mode: 'none',
-          tax_rate: null,
-          tax_base: 'subtotal',
-          note: '国内个人微信账号收款',
-        },
-        {
-          name: '公司转账',
-          tax_mode: 'confirm',
-          tax_rate: null,
-          tax_base: 'subtotal',
-          note: '日本可公对公，税费另行确认',
-        },
-      ],
-      note: '请配置已确认的当地夜班起止时段；加班取整方式可按约定调整。',
-    })
-  return rules
 }
 export function cloneBillingRules(source) {
   if (!source) return createMaintenanceRules()
@@ -194,6 +114,9 @@ export function cloneBillingRules(source) {
   ]) {
     if (rules[key] !== null) rules[key] = Number(rules[key])
   }
+  rules.additional_fees.forEach((fee) => {
+    if (fee.amount != null) fee.amount = Number(fee.amount)
+  })
   rules.tiers.forEach((tier) => {
     if (tier.total_fee !== null) tier.total_fee = Number(tier.total_fee)
   })
@@ -216,6 +139,27 @@ export function validateBillingRules(source) {
       Number(v) >= 0 &&
       Number(v) <= 9999999999.99 &&
       Math.abs(Number(v) * 100 - Math.round(Number(v) * 100)) < 0.0001)
+  if (rules.additional_fees.length > 30) return '附加费用最多30项'
+  if (new Set(rules.additional_fees.map((fee) => fee.id)).size !== rules.additional_fees.length)
+    return '附加费用标识不能重复'
+  for (const fee of rules.additional_fees) {
+    if (!fee.name?.trim()) return '请填写附加费用名称'
+    if (!amountValid(fee.amount)) return '附加费用金额须为非负数，最多两位小数'
+    if (
+      !['fixed', 'hourly'].includes(fee.mode) ||
+      !['fixed', 'actual', 'work'].includes(fee.minutes_source)
+    )
+      return '请选择附加费用计费方式'
+    if (
+      !Number.isInteger(fee.minutes) ||
+      fee.minutes < 0 ||
+      fee.minutes > 10080 ||
+      !Number.isInteger(fee.increment_minutes) ||
+      fee.increment_minutes < 1 ||
+      fee.increment_minutes > 1440
+    )
+      return '请填写有效的附加费用时长和步长'
+  }
   for (const key of [
     'hourly_rate',
     'overtime_hourly_rate',
@@ -300,6 +244,12 @@ export function billingSummary(source) {
           (tier) =>
             `${tier.up_to_minutes ?? '不限'}分钟上限 ${tier.hourly_rate} ${rules.currency}/小时`
         )
+  for (const fee of rules.additional_fees)
+    lines.push(
+      `${fee.name} ${fee.amount ?? '待确认'} ${rules.currency}${
+        fee.mode === 'hourly' ? '/小时' : '/次'
+      }`
+    )
   if (rules.transport_mode === 'fixed')
     lines.push(`每次交通费 ${rules.transport_fee ?? '待确认'} ${rules.currency}`)
   if (rules.minimum_minutes) lines.push(`最低${rules.minimum_minutes}分钟`)
@@ -345,4 +295,39 @@ export function billingTotalLabel(result) {
       .map(([currency, amount]) => `${amount} ${currency}`)
       .join(' + ')
   return `${result.total} ${result.currency}`
+}
+
+export function editableBillingRules(source) {
+  const rules = cloneBillingRules(source)
+  if (
+    ['fixed', 'hourly'].includes(rules.transport_mode) &&
+    !rules.additional_fees.some((fee) => fee.id === 'legacy-transport')
+  ) {
+    rules.additional_fees.push({
+      id: 'legacy-transport',
+      name: rules.transport_mode === 'fixed' ? '打车费' : '通勤费',
+      mode: rules.transport_mode === 'fixed' ? 'fixed' : 'hourly',
+      amount:
+        rules.transport_mode === 'fixed'
+          ? rules.transport_fee
+          : rules.commute_hourly_rate ?? rules.hourly_rate,
+      minutes_source: rules.commute_mode === 'actual' ? 'actual' : 'fixed',
+      minutes: rules.commute_minutes,
+      increment_minutes: rules.commute_mode === 'actual' ? rules.commute_increment_minutes : 1,
+      excluded_regions: [...rules.transport_included_regions],
+    })
+  }
+  Object.assign(rules, {
+    transport_mode: 'none',
+    transport_fee: null,
+    emergency_fee: null,
+    emergency_response_minutes: null,
+    emergency_regions: [],
+    emergency_confirmation_regions: [],
+    night_applies_to_emergency: false,
+    project_services: [],
+    settlement_cycles: [],
+    payment_methods: [],
+  })
+  return rules
 }

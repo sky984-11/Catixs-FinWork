@@ -199,7 +199,8 @@ class BillingApiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(response.json()["code"], 200, response.text)
         latest = await RemoteHands.filter(customer_id=customer.id).order_by("-id").first()
-        self.assertEqual(latest.billing_data["customer_pricing"]["kind"], "pending")
+        self.assertEqual(latest.billing_data["customer_pricing"]["kind"], "internal")
+        self.assertEqual(latest.billing_data["result"]["total"], "185.00")
 
     async def test_generic_rule_preview_auth_and_record_snapshots(self):
         await self.grant()

@@ -1,7 +1,7 @@
+import { exampleBillingRules } from './fixtures/maintenance-rules.mjs'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  exampleBillingRules,
   createMaintenanceRules,
   cloneBillingRules,
   validateBillingRules,
@@ -9,13 +9,38 @@ import {
   beijingTimestamp,
   billingSummary,
   billingTotalLabel,
+  editableBillingRules,
 } from '../src/views/ops/remote-assistance/billing.mjs'
 import { recordsCsv } from '../src/views/ops/remote-assistance/export.mjs'
 
+test('engineer editing converts transport once and removes retired sections', () => {
+  const original = exampleBillingRules('los_angeles')
+  const rules = editableBillingRules(original)
+  assert.equal(rules.transport_mode, 'none')
+  assert.equal(rules.additional_fees[0].amount, 55)
+  assert.equal(rules.additional_fees[0].minutes_source, 'actual')
+  assert.equal(editableBillingRules(rules).additional_fees.length, 1)
+  assert.equal(original.transport_mode, 'hourly')
+  const japan = editableBillingRules(exampleBillingRules('japan'))
+  assert.equal(japan.emergency_fee, null)
+  assert.deepEqual(japan.payment_methods, [])
+  assert.equal(validateBillingRules(rules), '')
+})
+
 test('mixed currencies display separately and are not mistaken for pending', () => {
-  assert.equal(billingTotalLabel({ status: 'calculated', total: null, totals: { USD: '200.00', CNY: '500.00' } }), '200.00 USD + 500.00 CNY')
+  assert.equal(
+    billingTotalLabel({
+      status: 'calculated',
+      total: null,
+      totals: { USD: '200.00', CNY: '500.00' },
+    }),
+    '200.00 USD + 500.00 CNY'
+  )
   assert.equal(billingTotalLabel({ status: 'pending', total: null }), '待确认')
-  assert.equal(billingTotalLabel({ status: 'calculated', total: '0.00', currency: 'USD' }), '0.00 USD')
+  assert.equal(
+    billingTotalLabel({ status: 'calculated', total: '0.00', currency: 'USD' }),
+    '0.00 USD'
+  )
 })
 
 test('new rules have no preset region, fee, local night window or payment method', () => {

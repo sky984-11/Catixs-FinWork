@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import api from '@/api'
 import CButton from '@/components/public/CButton.vue'
+import TheIcon from '@/components/icon/TheIcon.vue'
 import { billingCurrencies, cloneBillingRules, validateBillingRules } from './billing.mjs'
 
 const props = defineProps({
@@ -25,11 +26,10 @@ const context = computed(() => ({
   reimbursed_transport: null,
   actual_commute_minutes: null,
   expenses: [],
+  additional_fee_minutes: {},
+  excluded_fee_ids: [],
   ...props.modelValue,
 }))
-const payments = computed(() =>
-  (rules.value?.payment_methods || []).map((m) => ({ label: m.name, value: m.name }))
-)
 const result = ref(null)
 const loading = ref(false)
 const error = ref('')
@@ -113,24 +113,6 @@ onBeforeUnmount(() => {
           : '请确认本次施工报价。'
       }}
     </p>
-    <n-form-item v-if="!fixedPrice" label="服务类别">
-      <n-select
-        :value="context.service_type"
-        :disabled="disabled"
-        :options="[
-          { label: '按工时计费', value: 'standard' },
-          { label: '项目单独报价', value: 'project' },
-        ]"
-        @update:value="update('service_type', $event)"
-      />
-    </n-form-item>
-    <n-form-item v-if="!fixedPrice" label="紧急维护">
-      <n-switch
-        :value="context.emergency"
-        :disabled="disabled"
-        @update:value="update('emergency', $event)"
-      />
-    </n-form-item>
     <n-form-item v-if="rules?.transport_mode === 'reimburse'" label="报销交通">
       <n-input-number
         :value="context.reimbursed_transport == null ? null : Number(context.reimbursed_transport)"
@@ -155,12 +137,82 @@ onBeforeUnmount(() => {
         @update:value="update('actual_commute_minutes', $event)"
       />
     </n-form-item>
+    <section v-if="!fixedPrice && rules?.additional_fees?.length" class="full-row rule-fees">
+      <strong>规则附加费用</strong>
+      <div v-for="fee in rules.additional_fees" :key="fee.id" class="rule-fee-row">
+        <n-checkbox
+          :checked="!context.excluded_fee_ids.includes(fee.id)"
+          :disabled="disabled"
+          @update:checked="
+            update(
+              'excluded_fee_ids',
+              $event
+                ? context.excluded_fee_ids.filter((id) => id !== fee.id)
+                : [...context.excluded_fee_ids, fee.id]
+            )
+          "
+        >
+          {{ fee.name }}
+          <small
+            >{{ fee.amount ?? '待确认' }} {{ rules.currency }} /
+            {{ fee.mode === 'hourly' ? '小时' : '次' }}</small
+          >
+        </n-checkbox>
+        <n-input-number
+          v-if="fee.mode === 'hourly' && fee.minutes_source === 'actual'"
+          :value="
+            context.additional_fee_minutes[fee.id] ??
+            (fee.id === 'legacy-transport' ? context.actual_commute_minutes : null)
+          "
+          :min="0"
+          :max="10080"
+          :precision="0"
+          :disabled="disabled || context.excluded_fee_ids.includes(fee.id)"
+          placeholder="实际时长"
+          @update:value="
+            update('additional_fee_minutes', {
+              ...context.additional_fee_minutes,
+              [fee.id]: $event,
+            })
+          "
+          ><template #suffix>分钟</template></n-input-number
+        >
+      </div>
+    </section>
     <section v-if="recordExpenses" class="full-row expenses">
-      <strong>现场实报实销</strong>
-      <p>
-        携带大件打车等实际费用在此填写，可在附件区上传凭证。不要重复填写已计入的固定交通费或报销交通费。
-      </p>
+      <div class="expenses-heading">
+        <div>
+          <strong>现场费用</strong>
+          <p>按实际支出填写，附件区可上传凭证</p>
+        </div>
+        <CButton
+          class="expense-add"
+          show-save
+          save-text="添加费用"
+          size="small"
+          :disabled="disabled || context.expenses.length >= 50"
+          @save="addExpense"
+          ><template #save-icon><TheIcon icon="mdi:plus" :size="18" /></template
+        ></CButton>
+      </div>
+      <div v-if="!context.expenses.length" class="expense-empty">
+        <TheIcon icon="mdi:receipt-text-outline" :size="24" /><span>暂无现场费用</span>
+      </div>
       <div v-for="(expense, index) in context.expenses" :key="index" class="expense-row">
+        <div class="expense-row-heading">
+          <strong>费用 {{ index + 1 }}</strong
+          ><CButton
+            show-delete
+            size="small"
+            :disabled="disabled"
+            @delete="
+              update(
+                'expenses',
+                context.expenses.filter((_, i) => i !== index)
+              )
+            "
+          />
+        </div>
         <n-form-item label="费用名称">
           <n-input
             :value="expense.name"
@@ -197,35 +249,8 @@ onBeforeUnmount(() => {
             @update:value="updateExpense(index, 'note', $event)"
           />
         </n-form-item>
-        <CButton
-          show-delete
-          size="small"
-          :disabled="disabled"
-          @delete="
-            update(
-              'expenses',
-              context.expenses.filter((_, i) => i !== index)
-            )
-          "
-        />
       </div>
-      <CButton
-        show-save
-        save-text="添加现场费用"
-        size="small"
-        :disabled="disabled || context.expenses.length >= 50"
-        @save="addExpense"
-      />
     </section>
-    <n-form-item v-if="!fixedPrice && payments.length" label="收款方式">
-      <n-select
-        :value="context.payment_method"
-        :disabled="disabled"
-        clearable
-        :options="payments"
-        @update:value="update('payment_method', $event)"
-      />
-    </n-form-item>
     <n-spin :show="loading">
       <n-alert v-if="error" type="warning">{{ error }}</n-alert>
       <p v-else-if="!fixedPrice && (!arrivedAt || !leftAt)">
@@ -286,10 +311,67 @@ onBeforeUnmount(() => {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 12px;
   margin-bottom: 12px;
+  padding: 14px 16px 0;
+  border: 1px solid #e5edf6;
+  border-radius: 10px;
+  background: #f8fbff;
 }
 @media (max-width: 600px) {
   .expense-row {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+.expenses-heading,
+.expense-row-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.expense-row-heading {
+  grid-column: 1 / -1;
+}
+.expenses-heading p {
+  color: #94a3b8;
+  font-size: 12px;
+  margin: 4px 0 0;
+}
+.expense-empty {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  border: 1px dashed #d9e3ee;
+  border-radius: 8px;
+  padding: 20px;
+  color: #94a3b8;
+  font-size: 13px;
+}
+.expense-add :deep(.n-button) {
+  border-radius: 8px;
+}
+.rule-fees {
+  padding: 12px 0;
+}
+.rule-fee-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+}
+.rule-fee-row small {
+  color: #94a3b8;
+  margin-left: 8px;
+}
+.rule-fee-row :deep(.n-input-number) {
+  max-width: 180px;
+}
+@media (max-width: 600px) {
+  .rule-fee-row,
+  .expenses-heading {
+    flex-wrap: wrap;
   }
 }
 </style>

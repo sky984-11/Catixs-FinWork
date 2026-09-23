@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   buildCustomerOptions,
+  buildPlanCustomerOptions,
+  matchesPlanCustomer,
   selectedCustomerValue,
 } from '../src/views/ops/remote-assistance/customers.mjs'
 
@@ -57,4 +59,38 @@ test('Catixs is selectable without duplicating an existing customer', () => {
   const existing = buildCustomerOptions([{ value: 4, name: 'Catixs', label: 'Catixs' }])
   assert.equal(existing.length, 1)
   assert.equal(selectedCustomerValue(existing, 'Catixs', null), 'customer:4')
+})
+
+test('plan customer filtering distinguishes IDs and includes historical customers', () => {
+  const plans = [
+    { customer_id: 1, customer: '南凌' },
+    { customer_id: 2, customer: '南凌' },
+    { customer: '历史客户' },
+    { customer: 'Catixs' },
+    { customer_id: 99, customer: '已停用客户' },
+  ]
+  const options = buildPlanCustomerOptions(customers, plans)
+  const selected = options.find((option) => option.value === 'customer:2')
+  assert.deepEqual(
+    plans.filter((plan) => matchesPlanCustomer(plan, selected)),
+    [plans[1]]
+  )
+  assert.ok(
+    matchesPlanCustomer(
+      plans[2],
+      options.find((option) => option.value === 'legacy:历史客户')
+    )
+  )
+  assert.ok(
+    matchesPlanCustomer(
+      plans[3],
+      options.find((option) => option.value === 'builtin:catixs')
+    )
+  )
+  assert.ok(
+    matchesPlanCustomer(
+      plans[4],
+      options.find((option) => option.value === 'customer:99')
+    )
+  )
 })

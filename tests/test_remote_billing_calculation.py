@@ -10,6 +10,60 @@ def rule(**changes):
 
 
 class GeneralBillingCalculationTests(unittest.TestCase):
+    def test_additional_fees_fixed_actual_and_exclusions(self):
+        rules = rule(
+            currency="USD",
+            hourly_rate=50,
+            additional_fees=[
+                {"id": "taxi", "name": "Taxi", "mode": "fixed", "amount": 100},
+                {
+                    "id": "commute",
+                    "name": "Commute",
+                    "mode": "hourly",
+                    "amount": 20,
+                    "minutes_source": "actual",
+                    "increment_minutes": 30,
+                },
+            ],
+        )
+        args = (rules, "2026-09-23T10:00", "2026-09-23T12:00")
+        result = calculate_record_fee(*args, context={"additional_fee_minutes": {"commute": 61}})
+        self.assertEqual(result["total"], "230.00")
+        self.assertEqual(
+            calculate_record_fee(
+                *args, context={"additional_fee_minutes": {"commute": 61}, "excluded_fee_ids": ["taxi"]}
+            )["total"],
+            "130.00",
+        )
+        self.assertIsNone(calculate_record_fee(*args)["total"])
+        self.assertEqual(calculate_record_fee(*args, context={"excluded_fee_ids": ["commute"]})["total"], "200.00")
+        self.assertEqual(
+            calculate_record_fee(*args, customer_pricing={"kind": "fixed", "fixed_fee": 500, "currency": "USD"})[
+                "total"
+            ],
+            "500.00",
+        )
+
+    def test_additional_fee_fixed_duration_and_work_duration(self):
+        for source, expected in [("fixed", "62.50"), ("work", "77.50")]:
+            rules = rule(
+                currency="USD",
+                hourly_rate=30,
+                additional_fees=[
+                    {
+                        "id": "commute",
+                        "name": "Commute",
+                        "mode": "hourly",
+                        "amount": 30,
+                        "minutes_source": source,
+                        "minutes": 60,
+                        "increment_minutes": 30,
+                    }
+                ],
+            )
+            result = calculate_record_fee(rules, "2026-09-23T10:00", "2026-09-23T11:05")
+            self.assertEqual(result["total"], expected)
+
     def test_fixed_quote_needs_no_rules_or_times_and_controls_expenses(self):
         price = {"kind": "fixed", "fixed_fee": 500, "currency": "USD"}
         context = {

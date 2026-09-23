@@ -94,12 +94,27 @@ class PaymentRule(BaseModel):
     note: str = Field(default="", max_length=500)
 
 
+class AdditionalFeeRule(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    id: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_-]+$")
+    name: str = Field(min_length=1, max_length=100)
+    mode: Literal["fixed", "hourly"] = "fixed"
+    amount: Money | None = None
+    minutes_source: Literal["fixed", "actual", "work"] = "actual"
+    minutes: int = Field(default=60, ge=0, le=10080, strict=True)
+    increment_minutes: int = Field(default=30, ge=1, le=1440, strict=True)
+    excluded_regions: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(
+        default_factory=list, max_length=100
+    )
+
+
 class GeneralBillingRules(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     mode: Literal["general"]
     currency: Currency = "CNY"
     pricing: Literal["hourly", "package", "tiered_hourly"] = "hourly"
     hourly_rate: Money | None = None
+    additional_fees: list[AdditionalFeeRule] = Field(default_factory=list, max_length=30)
     tiers: list[PackageBillingTier] = Field(default_factory=list, max_length=20)
     hourly_tiers: list[BillingTier] = Field(default_factory=list, max_length=20)
     minimum_minutes: int = Field(default=0, ge=0, le=10080, strict=True)
@@ -144,6 +159,9 @@ class GeneralBillingRules(BaseModel):
 
     @model_validator(mode="after")
     def validate_rules(self):
+        ids = [fee.id for fee in self.additional_fees]
+        if len(set(ids)) != len(ids):
+            raise ValueError("附加费用标识不能重复")
         if self.pricing == "package":
             if not self.tiers:
                 raise ValueError("请配置固定档位")
@@ -180,6 +198,10 @@ class BillingContext(BaseModel):
     reimbursed_transport: Money | None = None
     actual_commute_minutes: int | None = Field(default=None, ge=0, le=10080, strict=True)
     expenses: list[ReimbursedExpense] = Field(default_factory=list, max_length=50)
+    additional_fee_minutes: dict[str, Annotated[int | None, Field(ge=0, le=10080, strict=True)]] = Field(
+        default_factory=dict, max_length=30
+    )
+    excluded_fee_ids: list[Annotated[str, Field(max_length=80)]] = Field(default_factory=list, max_length=30)
 
 
 def validate_billing_timezone(value: str) -> str:

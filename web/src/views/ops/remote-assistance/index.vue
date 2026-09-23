@@ -7,11 +7,17 @@
             <div class="table-toolbar">
               <div class="filter-row">
                 <n-select
-                  v-model:value="planFilters.assignee_id"
+                  v-model:value="planFilters.customer"
                   clearable
                   filterable
-                  placeholder="按负责人筛选"
-                  :options="planAssigneeOptions"
+                  placeholder="按客户筛选"
+                  :show-checkmark="false"
+                  :loading="remoteCustomersLoading"
+                  :options="planCustomerFilterOptions"
+                  :render-label="renderRemoteCustomerOption"
+                  :filter="filterRemoteCustomer"
+                  @focus="loadRemoteCustomers()"
+                  @update:value="planPagination.page = 1"
                 />
                 <n-cascader
                   v-model:value="planFilters.site_key"
@@ -276,14 +282,14 @@
                 size="small"
                 :save-text="
                   remoteEditor.form.refresh_billing_rules
-                    ? '已采用最新规则，保存后生效'
-                    : '采用工程师最新规则'
+                    ? '已更新规则'
+                    : '更新工程师规则'
                 "
                 :disabled="
                   remoteEditor.saving || remoteUploading || remoteEditor.form.refresh_billing_rules
                 "
                 @save="remoteEditor.form.refresh_billing_rules = true"
-              />
+              ><template #save-icon><TheIcon icon="mdi:refresh" :size="18" /></template></CButton>
             </div>
             <MaintenancePriceEditor v-model="remoteEditor.form.customer_pricing" :disabled="remoteEditor.saving || remoteUploading" />
             <BillingQuote
@@ -596,75 +602,103 @@
         v-model:show="engineerEditor.show"
         preset="card"
         :title="engineerEditor.form.id ? '编辑工程师' : '新增工程师'"
-        class="editor-modal engineer-editor-modal"
-        style="width: min(660px, calc(100vw - 40px))"
+        class="record-editor-modal engineer-profile-modal"
+        style="width: 760px; max-width: calc(100vw - 32px)"
         :bordered="false"
         :mask-closable="!engineerEditor.saving"
         :close-on-esc="!engineerEditor.saving"
         :closable="!engineerEditor.saving"
       >
-        <n-form class="engineer-form" label-placement="left" label-width="76" size="small" :model="engineerEditor.form" :disabled="engineerEditor.saving">
-          <div class="engineer-form-grid">
-            <n-form-item label="姓名" required>
-              <n-input v-model:value="engineerEditor.form.name" placeholder="工程师姓名" />
+        <div class="record-editor-intro">
+          <span class="record-editor-icon"
+            ><TheIcon icon="mdi:account-hard-hat-outline" :size="24"
+          /></span>
+          <div>
+            <strong>维护工程师档案</strong>
+            <p>管理联系信息、服务地区与本次适用的计费规则。</p>
+          </div>
+        </div>
+        <n-form
+          class="record-editor-form"
+          label-placement="top"
+          :model="engineerEditor.form"
+          :disabled="engineerEditor.saving"
+        >
+          <section class="record-form-section">
+            <div class="record-section-head">
+              <span>基本信息</span><small>联系方式与负责地区</small>
+            </div>
+            <div class="record-form-grid">
+              <n-form-item label="姓名" required>
+                <n-input v-model:value="engineerEditor.form.name" placeholder="工程师姓名" />
+              </n-form-item>
+              <n-form-item label="联系方式">
+                <n-input v-model:value="engineerEditor.form.contact" placeholder="电话或其他联系方式" />
+              </n-form-item>
+              <n-form-item label="微信号">
+                <n-input v-model:value="engineerEditor.form.wechat_id" placeholder="微信号" />
+              </n-form-item>
+              <n-form-item label="联系群">
+                <n-input
+                  v-model:value="engineerEditor.form.wechat_group"
+                  placeholder="微信群或工作群"
+                />
+              </n-form-item>
+              <n-form-item label="负责地区">
+                <n-cascader
+                  v-model:value="engineerEditor.form.regions"
+                  multiple
+                  filterable
+                  clearable
+                  :show-path="false"
+                  check-strategy="child"
+                  max-tag-count="responsive"
+                  :options="regionCascaderOptions"
+                  :filter="regionCascaderFilter"
+                  placeholder="选择一个或多个地区"
+                />
+              </n-form-item>
+              <n-form-item label="状态">
+                <n-switch
+                  v-model:value="engineerEditor.form.is_active"
+                  :checked-value="1"
+                  :unchecked-value="0"
+                >
+                  <template #checked>启用</template>
+                  <template #unchecked>停用</template>
+                </n-switch>
+              </n-form-item>
+            </div>
+          </section>
+          <section class="record-form-section">
+            <div class="record-section-head">
+              <span>计费规则</span><small>基础人工与附加费用</small>
+            </div>
+            <n-form-item label="启用计费">
+              <n-switch v-model:value="engineerEditor.form.billing_enabled" />
             </n-form-item>
-            <n-form-item label="联系方式">
-              <n-input v-model:value="engineerEditor.form.contact" placeholder="电话或其他联系方式" />
-            </n-form-item>
-            <n-form-item label="微信号">
-              <n-input v-model:value="engineerEditor.form.wechat_id" placeholder="微信号" />
-            </n-form-item>
-            <n-form-item label="联系群">
-              <n-input v-model:value="engineerEditor.form.wechat_group" placeholder="微信群或工作群" />
-            </n-form-item>
-            <n-form-item label="负责地区">
-              <n-cascader
-                v-model:value="engineerEditor.form.regions"
-                multiple
-                filterable
-                clearable
-                :show-path="false"
-                check-strategy="child"
-                max-tag-count="responsive"
-                :options="regionCascaderOptions"
-                :filter="regionCascaderFilter"
-                placeholder="选择一个或多个地区"
+            <EngineerBillingEditor
+              v-if="engineerEditor.form.billing_enabled"
+              v-model="engineerEditor.form.billing_rules"
+              :disabled="engineerEditor.saving"
+            />
+          </section>
+          <section class="record-form-section">
+            <n-form-item label="备注">
+              <n-input
+                v-model:value="engineerEditor.form.note"
+                type="textarea"
+                placeholder="技能、值班时间或其他说明"
+                :autosize="{ minRows: 3, maxRows: 6 }"
               />
             </n-form-item>
-            <n-form-item label="状态">
-              <n-switch
-                v-model:value="engineerEditor.form.is_active"
-                :checked-value="1"
-                :unchecked-value="0"
-              >
-                <template #checked>启用</template>
-                <template #unchecked>停用</template>
-              </n-switch>
-            </n-form-item>
-          </div>
-          <n-form-item label="阶梯计费">
-            <n-switch v-model:value="engineerEditor.form.billing_enabled" />
-          </n-form-item>
-          <EngineerBillingEditor
-            v-if="engineerEditor.form.billing_enabled"
-            v-model="engineerEditor.form.billing_rules"
-            :disabled="engineerEditor.saving"
-          />
-          <n-form-item label="备注">
-            <n-input
-              v-model:value="engineerEditor.form.note"
-              type="textarea"
-              placeholder="技能、值班时间或其他说明"
-              :autosize="{ minRows: 3, maxRows: 6 }"
-            />
-          </n-form-item>
+          </section>
         </n-form>
         <template #footer>
-          <div class="modal-actions engineer-modal-actions">
+          <div class="record-editor-footer">
             <CButton
               show-cancel
               show-save
-              size="small"
               :save-loading="engineerEditor.saving"
               :disabled="engineerEditor.saving"
               @cancel="engineerEditor.show = false"
@@ -683,8 +717,8 @@ import { NButton, NPopconfirm, NSpace, NSelect, NSwitch, NTag, NTooltip, useMess
 import api from '@/api'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import { recordsCsv } from './export.mjs'
-import { buildCustomerOptions, selectedCustomerValue } from './customers.mjs'
-import { billingTotalLabel, billingSummary, cloneBillingRules, validateBillingRules, timezoneOptions, beijingDateTime, beijingTimestamp } from './billing.mjs'
+import { buildCustomerOptions, buildPlanCustomerOptions, matchesPlanCustomer, selectedCustomerValue } from './customers.mjs'
+import { billingTotalLabel, billingSummary, editableBillingRules, validateBillingRules, timezoneOptions, beijingDateTime, beijingTimestamp } from './billing.mjs'
 import BillingQuote from './BillingQuote.vue'
 import MaintenancePriceEditor from './MaintenancePriceEditor.vue'
 import EngineerBillingEditor from './EngineerBillingEditor.vue'
@@ -729,7 +763,7 @@ const remoteCustomerValue = computed({
     remoteCustomerSelection.value = value
     remoteEditor.form.customer = option?.customerName || ''
     remoteEditor.form.customer_id = option?.customerId || null
-    remoteEditor.form.customer_pricing = { kind: option?.customerName?.toLowerCase() === 'catixs' ? 'internal' : 'pending' }
+    remoteEditor.form.customer_pricing = { kind: 'internal' }
   },
 })
 const planCustomerValue = computed({
@@ -745,14 +779,14 @@ const planCustomerValue = computed({
     planCustomerSelection.value = value
     planEditor.form.customer = option?.customerName || ''
     planEditor.form.customer_id = option?.customerId || null
-    planEditor.form.customer_pricing = { kind: option?.customerName?.toLowerCase() === 'catixs' ? 'internal' : 'pending' }
+    planEditor.form.customer_pricing = { kind: 'internal' }
   },
 })
 
 const engineerKeyword = ref('')
 
 const remoteFilters = reactive({ engineer_id: null, site: null, site_key: null, status: null })
-const planFilters = reactive({ assignee_id: null, site: null, site_key: null, status: null })
+const planFilters = reactive({ customer: null, site: null, site_key: null, status: null })
 const datePickerActions = ['clear', 'confirm']
 const minuteTimePickerProps = { format: 'HH:mm' }
 const regionAliasMap = new Map([
@@ -943,7 +977,7 @@ const remoteEngineerOptions = computed(() => uniqueOptions(
     .filter((item) => item.label && item.value)
 ))
 
-const planAssigneeOptions = computed(() => userOptions.value)
+const planCustomerFilterOptions = computed(() => buildPlanCustomerOptions(remoteCustomers.value, plans.value))
 
 const filteredRemoteHands = computed(() => {
   return remoteHands.value.filter((item) => {
@@ -962,9 +996,9 @@ const filteredPlans = computed(() => {
   return plans.value.filter((item) => {
     if (planFilters.status && item.status !== planFilters.status) return false
     if (planFilters.site && !valuesMatch(item.site, planFilters.site)) return false
-    if (planFilters.assignee_id) {
-      const ids = Array.isArray(item.assignee_ids) ? item.assignee_ids.map(String) : []
-      if (!ids.includes(String(planFilters.assignee_id))) return false
+    if (planFilters.customer) {
+      const option = planCustomerFilterOptions.value.find((customer) => customer.value === planFilters.customer)
+      if (!matchesPlanCustomer(item, option)) return false
     }
     return true
   })
@@ -1204,7 +1238,7 @@ function createRemoteForm(source = {}) {
     id: source.id || null,
     customer: source.customer || '',
     customer_id: source.customer_id || null,
-    customer_pricing: { ...(source.customer_pricing || source.customer_pricing_snapshot || { kind: source.customer?.toLowerCase() === 'catixs' ? 'internal' : 'pending' }) },
+    customer_pricing: { ...(source.customer_pricing || source.customer_pricing_snapshot || { kind: 'internal' }) },
     ticket: source.ticket || '',
     engineer_id: source.engineer_id || null,
     engineer_name: source.engineer_name || '',
@@ -1235,7 +1269,7 @@ function createPlanForm(source = {}) {
     id: source.id || null,
     customer: source.customer || '',
     customer_id: source.customer_id || null,
-    customer_pricing: { ...(source.customer_pricing || source.customer_pricing_snapshot || { kind: source.customer?.toLowerCase() === 'catixs' ? 'internal' : 'pending' }) },
+    customer_pricing: { ...(source.customer_pricing || source.customer_pricing_snapshot || { kind: 'internal' }) },
     ticket: source.ticket || '',
     engineer_id: source.engineer_id || null,
     engineer_name: source.engineer_name || '',
@@ -1276,7 +1310,7 @@ function createEngineerForm(source = {}) {
     regions: uniqueRegionValues(splitRegions(source.region)),
     is_active: Number(source.is_active ?? 1),
     billing_enabled: Boolean(source.billing_rules),
-    billing_rules: cloneBillingRules(source.billing_rules),
+    billing_rules: editableBillingRules(source.billing_rules),
     note: source.note || '',
   }
 }
