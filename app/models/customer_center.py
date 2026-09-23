@@ -20,6 +20,8 @@ class CrmSigningEntity(BaseModel, TimestampMixin):
 
 
 class CrmCustomer(BaseModel, TimestampMixin):
+    maintenance_hourly_rate = fields.DecimalField(max_digits=12, decimal_places=2, null=True, description="运维小时单价")
+    maintenance_currency = fields.CharField(max_length=12, default="USD", description="运维报价币种")
     customer_code = fields.CharField(max_length=60, null=True, description="客户编号", index=True, unique=True)
     name = fields.CharField(max_length=120, description="客户简称", index=True)
     legal_name = fields.CharField(max_length=240, null=True, description="客户全称", index=True)

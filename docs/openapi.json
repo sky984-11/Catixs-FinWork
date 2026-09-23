@@ -12912,6 +12912,55 @@
           }
         }
       }
+    },
+    "/api/v1/remote-assistance/billing/preview": {
+      "post": {
+        "summary": "根据北京时间和运维时区试算费用",
+        "operationId": "preview_billing_api_v1_remote_assistance_billing_preview_post",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "token验证",
+              "title": "Token"
+            },
+            "description": "token验证"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BillingPreviewPayload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -15685,13 +15734,19 @@
           "billing_rules": {
             "anyOf": [
               {
+                "$ref": "#/components/schemas/GeneralBillingRules"
+              },
+              {
                 "$ref": "#/components/schemas/EngineerBillingRules"
+              },
+              {
+                "$ref": "#/components/schemas/MaintenanceBillingRules"
               },
               {
                 "type": "null"
               }
             ],
-            "default": null
+            "title": "Billing Rules"
           }
         },
         "additionalProperties": true,
@@ -16841,6 +16896,28 @@
             "title": "Customer",
             "default": ""
           },
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Id"
+          },
+          "customer_pricing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CustomerMaintenancePrice"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "ticket": {
             "type": "string",
             "title": "Ticket",
@@ -16980,6 +17057,21 @@
             "type": "array",
             "maxItems": 50,
             "title": "Attachments"
+          },
+          "billing_context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BillingContext"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "refresh_billing_rules": {
+            "type": "boolean",
+            "title": "Refresh Billing Rules",
+            "default": false
           }
         },
         "additionalProperties": true,
@@ -18680,6 +18772,28 @@
             "title": "Customer",
             "default": ""
           },
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Id"
+          },
+          "customer_pricing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CustomerMaintenancePrice"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "ticket": {
             "type": "string",
             "title": "Ticket",
@@ -18872,22 +18986,21 @@
           "up_to_minutes": {
             "anyOf": [
               {
-                "exclusiveMinimum": 0,
-                "maximum": 525600,
-                "type": "integer"
+                "type": "integer",
+                "maximum": 525600.0,
+                "exclusiveMinimum": 0.0
               },
               {
                 "type": "null"
               }
             ],
-            "default": null,
             "title": "Up To Minutes"
           },
           "hourly_rate": {
             "anyOf": [
               {
-                "minimum": 0.0,
-                "type": "number"
+                "type": "number",
+                "minimum": 0.0
               },
               {
                 "type": "string"
@@ -18896,16 +19009,16 @@
             "title": "Hourly Rate"
           }
         },
+        "type": "object",
         "required": [
           "hourly_rate"
         ],
-        "title": "BillingTier",
-        "type": "object"
+        "title": "BillingTier"
       },
       "EngineerBillingRules": {
         "properties": {
           "currency": {
-            "default": "CNY",
+            "type": "string",
             "enum": [
               "CNY",
               "USD",
@@ -18916,23 +19029,1053 @@
               "JPY"
             ],
             "title": "Currency",
-            "type": "string"
+            "default": "CNY"
           },
           "tiers": {
             "items": {
               "$ref": "#/components/schemas/BillingTier"
             },
+            "type": "array",
             "maxItems": 20,
             "minItems": 1,
-            "title": "Tiers",
-            "type": "array"
+            "title": "Tiers"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "tiers"
         ],
-        "title": "EngineerBillingRules",
-        "type": "object"
+        "title": "EngineerBillingRules"
+      },
+      "MaintenanceBillingRules": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "const": "package",
+            "title": "Mode"
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "CNY",
+              "USD",
+              "HKD",
+              "EUR",
+              "GBP",
+              "SGD",
+              "JPY"
+            ],
+            "title": "Currency",
+            "default": "CNY"
+          },
+          "tiers": {
+            "items": {
+              "$ref": "#/components/schemas/PackageBillingTier"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Tiers"
+          },
+          "overtime_hourly_rate": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Overtime Hourly Rate"
+          },
+          "overtime_threshold_minutes": {
+            "type": "integer",
+            "maximum": 60.0,
+            "minimum": 1.0,
+            "title": "Overtime Threshold Minutes",
+            "default": 30
+          },
+          "overtime_rounding": {
+            "type": "string",
+            "enum": [
+              "half_hour_round",
+              "ceil_after_threshold",
+              "actual_after_threshold"
+            ],
+            "title": "Overtime Rounding",
+            "default": "half_hour_round"
+          },
+          "night_multiplier": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 10.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Night Multiplier",
+            "default": "1.25"
+          },
+          "night_applies_to_emergency": {
+            "type": "boolean",
+            "title": "Night Applies To Emergency",
+            "default": false
+          },
+          "emergency_fee": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Emergency Fee",
+            "default": "500.00"
+          },
+          "emergency_response_minutes": {
+            "type": "integer",
+            "maximum": 10080.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Emergency Response Minutes",
+            "default": 240
+          },
+          "emergency_region": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Emergency Region",
+            "default": "东京"
+          },
+          "emergency_confirmation_region": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Emergency Confirmation Region",
+            "default": "大阪"
+          },
+          "transport_included_region": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Transport Included Region",
+            "default": "东京都"
+          },
+          "project_services": {
+            "items": {
+              "type": "string",
+              "maxLength": 100,
+              "minLength": 1
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Project Services"
+          },
+          "settlement_cycles": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "daily",
+                "weekly"
+              ]
+            },
+            "type": "array",
+            "maxItems": 2,
+            "minItems": 1,
+            "title": "Settlement Cycles"
+          },
+          "domestic_payment": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Domestic Payment",
+            "default": "国内个人微信账号收款"
+          },
+          "japan_payment": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Japan Payment",
+            "default": "日本可公对公，需另加税，税率及税额另行确认"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "mode",
+          "tiers",
+          "overtime_hourly_rate"
+        ],
+        "title": "MaintenanceBillingRules",
+        "description": "Fixed total prices by duration, followed by hourly overtime; legacy hourly rules stay valid."
+      },
+      "PackageBillingTier": {
+        "properties": {
+          "up_to_minutes": {
+            "type": "integer",
+            "maximum": 525600.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Up To Minutes"
+          },
+          "total_fee": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Total Fee"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "up_to_minutes",
+          "total_fee"
+        ],
+        "title": "PackageBillingTier"
+      },
+      "BillingContext": {
+        "properties": {
+          "emergency": {
+            "type": "boolean",
+            "title": "Emergency",
+            "default": false
+          },
+          "service_type": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "project"
+            ],
+            "title": "Service Type",
+            "default": "standard"
+          },
+          "payment_method": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Method"
+          },
+          "reimbursed_transport": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reimbursed Transport"
+          },
+          "actual_commute_minutes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 10080.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual Commute Minutes"
+          },
+          "expenses": {
+            "items": {
+              "$ref": "#/components/schemas/ReimbursedExpense"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "Expenses"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "BillingContext"
+      },
+      "BillingPreviewPayload": {
+        "properties": {
+          "rules": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GeneralBillingRules"
+              },
+              {
+                "$ref": "#/components/schemas/EngineerBillingRules"
+              },
+              {
+                "$ref": "#/components/schemas/MaintenanceBillingRules"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rules"
+          },
+          "arrived_at": {
+            "type": "string",
+            "title": "Arrived At",
+            "default": ""
+          },
+          "left_at": {
+            "type": "string",
+            "title": "Left At",
+            "default": ""
+          },
+          "timezone": {
+            "type": "string",
+            "title": "Timezone",
+            "default": "Asia/Shanghai"
+          },
+          "region": {
+            "type": "string",
+            "maxLength": 180,
+            "title": "Region",
+            "default": ""
+          },
+          "context": {
+            "$ref": "#/components/schemas/BillingContext"
+          },
+          "customer_pricing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CustomerMaintenancePrice"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "title": "BillingPreviewPayload"
+      },
+      "GeneralBillingRules": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "const": "general",
+            "title": "Mode"
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "CNY",
+              "USD",
+              "HKD",
+              "EUR",
+              "GBP",
+              "SGD",
+              "JPY"
+            ],
+            "title": "Currency",
+            "default": "CNY"
+          },
+          "pricing": {
+            "type": "string",
+            "enum": [
+              "hourly",
+              "package",
+              "tiered_hourly"
+            ],
+            "title": "Pricing",
+            "default": "hourly"
+          },
+          "hourly_rate": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hourly Rate"
+          },
+          "tiers": {
+            "items": {
+              "$ref": "#/components/schemas/PackageBillingTier"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Tiers"
+          },
+          "hourly_tiers": {
+            "items": {
+              "$ref": "#/components/schemas/BillingTier"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Hourly Tiers"
+          },
+          "minimum_minutes": {
+            "type": "integer",
+            "maximum": 10080.0,
+            "minimum": 0.0,
+            "title": "Minimum Minutes",
+            "default": 0
+          },
+          "billing_increment_minutes": {
+            "type": "integer",
+            "maximum": 1440.0,
+            "minimum": 1.0,
+            "title": "Billing Increment Minutes",
+            "default": 1
+          },
+          "overtime_enabled": {
+            "type": "boolean",
+            "title": "Overtime Enabled",
+            "default": false
+          },
+          "overtime_hourly_rate": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overtime Hourly Rate"
+          },
+          "overtime_threshold_minutes": {
+            "type": "integer",
+            "maximum": 60.0,
+            "minimum": 1.0,
+            "title": "Overtime Threshold Minutes",
+            "default": 1
+          },
+          "overtime_rounding": {
+            "type": "string",
+            "enum": [
+              "half_hour_round",
+              "ceil_after_threshold",
+              "actual_after_threshold"
+            ],
+            "title": "Overtime Rounding",
+            "default": "actual_after_threshold"
+          },
+          "night_enabled": {
+            "type": "boolean",
+            "title": "Night Enabled",
+            "default": false
+          },
+          "night_start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Night Start"
+          },
+          "night_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Night End"
+          },
+          "night_multiplier": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 10.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Night Multiplier",
+            "default": "1"
+          },
+          "night_basis": {
+            "type": "string",
+            "enum": [
+              "proportional",
+              "any_overlap"
+            ],
+            "title": "Night Basis",
+            "default": "proportional"
+          },
+          "night_applies_to_emergency": {
+            "type": "boolean",
+            "title": "Night Applies To Emergency",
+            "default": false
+          },
+          "emergency_fee": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emergency Fee"
+          },
+          "emergency_response_minutes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 10080.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emergency Response Minutes"
+          },
+          "emergency_regions": {
+            "items": {
+              "type": "string",
+              "maxLength": 100,
+              "minLength": 1
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Emergency Regions"
+          },
+          "emergency_confirmation_regions": {
+            "items": {
+              "type": "string",
+              "maxLength": 100,
+              "minLength": 1
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Emergency Confirmation Regions"
+          },
+          "transport_mode": {
+            "type": "string",
+            "enum": [
+              "none",
+              "fixed",
+              "hourly",
+              "reimburse"
+            ],
+            "title": "Transport Mode",
+            "default": "none"
+          },
+          "transport_fee": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transport Fee"
+          },
+          "commute_minutes": {
+            "type": "integer",
+            "maximum": 10080.0,
+            "minimum": 1.0,
+            "title": "Commute Minutes",
+            "default": 60
+          },
+          "commute_mode": {
+            "type": "string",
+            "enum": [
+              "fixed",
+              "actual"
+            ],
+            "title": "Commute Mode",
+            "default": "fixed"
+          },
+          "commute_increment_minutes": {
+            "type": "integer",
+            "maximum": 1440.0,
+            "minimum": 1.0,
+            "title": "Commute Increment Minutes",
+            "default": 30
+          },
+          "commute_hourly_rate": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commute Hourly Rate"
+          },
+          "transport_included_regions": {
+            "items": {
+              "type": "string",
+              "maxLength": 100,
+              "minLength": 1
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Transport Included Regions"
+          },
+          "project_services": {
+            "items": {
+              "type": "string",
+              "maxLength": 100,
+              "minLength": 1
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Project Services"
+          },
+          "settlement_cycles": {
+            "items": {
+              "type": "string",
+              "maxLength": 50,
+              "minLength": 1
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Settlement Cycles"
+          },
+          "payment_methods": {
+            "items": {
+              "$ref": "#/components/schemas/PaymentRule"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Payment Methods"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "title": "GeneralBillingRules"
+      },
+      "PaymentRule": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "tax_mode": {
+            "type": "string",
+            "enum": [
+              "none",
+              "included",
+              "extra",
+              "confirm"
+            ],
+            "title": "Tax Mode",
+            "default": "none"
+          },
+          "tax_rate": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tax Rate"
+          },
+          "tax_base": {
+            "type": "string",
+            "enum": [
+              "labor",
+              "subtotal"
+            ],
+            "title": "Tax Base",
+            "default": "subtotal"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "PaymentRule"
+      },
+      "CustomerMaintenancePrice": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "internal",
+              "hourly",
+              "fixed",
+              "pending"
+            ],
+            "title": "Kind",
+            "default": "pending"
+          },
+          "hourly_rate": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hourly Rate"
+          },
+          "fixed_fee": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fixed Fee"
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "CNY",
+              "USD",
+              "HKD",
+              "EUR",
+              "GBP",
+              "SGD",
+              "JPY"
+            ],
+            "title": "Currency",
+            "default": "USD"
+          },
+          "expenses_included": {
+            "type": "boolean",
+            "title": "Expenses Included",
+            "default": false
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000,
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "CustomerMaintenancePrice"
+      },
+      "CustomerPayload": {
+        "properties": {
+          "maintenance_hourly_rate": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maintenance Hourly Rate"
+          },
+          "maintenance_currency": {
+            "type": "string",
+            "enum": [
+              "CNY",
+              "USD",
+              "HKD",
+              "EUR",
+              "GBP",
+              "SGD",
+              "JPY"
+            ],
+            "title": "Maintenance Currency",
+            "default": "USD"
+          },
+          "customer_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 60
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Code"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "title": "Name"
+          },
+          "legal_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 240
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legal Name"
+          },
+          "alias": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alias"
+          },
+          "entity_type": {
+            "type": "string",
+            "title": "Entity Type",
+            "default": "enterprise"
+          },
+          "signing_entity_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signing Entity Id"
+          },
+          "customer_level": {
+            "type": "string",
+            "title": "Customer Level",
+            "default": "C"
+          },
+          "lifecycle": {
+            "type": "string",
+            "title": "Lifecycle",
+            "default": "active"
+          },
+          "sales_owner": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sales Owner"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "address": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "invoice_info": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invoice Info"
+          },
+          "finance_info": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finance Info"
+          },
+          "basic_info": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basic Info"
+          },
+          "remark": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remark"
+          },
+          "status": {
+            "type": "boolean",
+            "title": "Status",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "CustomerPayload"
+      },
+      "ReimbursedExpense": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount"
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "CNY",
+              "USD",
+              "HKD",
+              "EUR",
+              "GBP",
+              "SGD",
+              "JPY"
+            ],
+            "title": "Currency"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "currency"
+        ],
+        "title": "ReimbursedExpense"
       }
     }
   }

@@ -11,15 +11,20 @@ from uuid import uuid4
 
 from fastapi import APIRouter, File, Request, UploadFile
 from tortoise.transactions import in_transaction
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.log import logger
 from app.core.dependency import DependAuth, has_admin_role
 from app.models.asset import AssetLocation
+from app.models.customer_center import CrmCustomer
 from app.models.admin import User
 from app.models.remote_assistance import RemoteEngineer, RemoteHands, RemoteHandsPlan
 from app.schemas.base import Fail, Success
-from app.schemas.remote_billing import EngineerBillingRules
+from app.schemas.remote_billing import (
+    BillingContext, BillingPreviewPayload, CustomerMaintenancePrice, EngineerBillingRules, GeneralBillingRules,
+    MaintenanceBillingRules, validate_billing_timezone,
+)
+from app.services.remote_billing import calculate_record_fee
 from app.services.remote_hands_plan_notifier import int_list, notify_remote_hands_plan
 
 router = APIRouter()
@@ -57,6 +62,8 @@ class RemoteHandsPayload(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     customer: str = ""
+    customer_id: int | None = Field(default=None, gt=0)
+    customer_pricing: CustomerMaintenancePrice | None = None
     ticket: str = ""
     engineer_id: int | None = None
     engineer_name: str = ""
@@ -76,6 +83,9 @@ class RemoteHandsPayload(BaseModel):
     customer_settlement_status: Literal["unbilled", "billed", "settled"] = "unbilled"
     note: str = ""
     attachments: list[PlanAttachment] = Field(default_factory=list, max_length=50)
+    billing_context: BillingContext | None = None
+    refresh_billing_rules: bool = False
+    _valid_timezone = field_validator("timezone")(validate_billing_timezone)
 
 
 class EngineerPayload(BaseModel):
@@ -88,13 +98,15 @@ class EngineerPayload(BaseModel):
     region: str = ""
     is_active: int = 1
     note: str = ""
-    billing_rules: EngineerBillingRules | None = None
+    billing_rules: GeneralBillingRules | EngineerBillingRules | MaintenanceBillingRules | None = None
 
 
 class RemoteHandsPlanPayload(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     customer: str = ""
+    customer_id: int | None = Field(default=None, gt=0)
+    customer_pricing: CustomerMaintenancePrice | None = None
     ticket: str = ""
     engineer_id: int | None = None
     engineer_name: str = ""
@@ -112,6 +124,7 @@ class RemoteHandsPlanPayload(BaseModel):
     note: str = ""
     notify: bool = False
     attachments: list[PlanAttachment] = Field(default_factory=list, max_length=50)
+    _valid_timezone = field_validator("timezone")(validate_billing_timezone)
 
 
 class RemoteHandsPlanCompletePayload(BaseModel):
@@ -174,7 +187,7 @@ def _parse_datetime(value: str | datetime | None) -> datetime | None:
 
 
 def _now_naive() -> datetime:
-    return datetime.now().replace(tzinfo=None)
+    return datetime.now(LOCAL_TIMEZONE).replace(tzinfo=None)
 
 
 def _format_datetime(value: datetime | None) -> str | None:
@@ -210,6 +223,7 @@ def _work_minutes_between(start: datetime | None, end: datetime | None) -> int:
 def _plan_snapshot(plan: RemoteHandsPlan) -> dict[str, Any]:
     return {
         "customer": plan.customer,
+        "customer_id": plan.customer_id,
         "ticket": plan.ticket,
         "engineer_name": plan.engineer_name,
         "engineer_contact": plan.engineer_contact,
@@ -294,16 +308,21 @@ def _is_settled_from_item(item: RemoteHands) -> bool:
     )
 
 
-async def _remote_payload_data(payload: RemoteHandsPayload) -> dict[str, Any]:
+async def _remote_payload_data(payload: RemoteHandsPayload, existing: RemoteHands | None = None) -> dict[str, Any]:
+    if existing and "customer_id" not in payload.model_fields_set and payload.customer == existing.customer:
+        payload.customer_id = existing.customer_id
     await _validate_attachments(payload.attachments)
     arrived_at = _naive_datetime(_parse_datetime(payload.arrived_at))
     left_at = _naive_datetime(_parse_datetime(payload.left_at))
+    if (payload.arrived_at and arrived_at is None) or (payload.left_at and left_at is None):
+        raise ValueError("到场或离场时间无效，请按北京时间填写")
     is_settled = bool(payload.is_settled) if payload.is_settled is not None else (
         payload.ops_settlement_status == "settled" and payload.customer_settlement_status == "settled"
     )
     settlement_status = "settled" if is_settled else "unbilled"
     data = {
-        "customer": _clean_text(payload.customer),
+        "customer": await _customer_name(payload.customer_id, payload.customer),
+        "customer_id": payload.customer_id,
         "ticket": _clean_text(payload.ticket) or None,
         "engineer_id": payload.engineer_id,
         "engineer_name": _clean_text(payload.engineer_name) or None,
@@ -325,7 +344,45 @@ async def _remote_payload_data(payload: RemoteHandsPayload) -> dict[str, Any]:
     }
     if "attachments" in payload.model_fields_set:
         data["attachments"] = [item.model_dump() for item in payload.attachments]
+    data["billing_data"] = await _billing_snapshot(data, payload.billing_context, existing, payload.refresh_billing_rules, payload.customer_pricing)
     return data
+
+
+async def _customer_name(customer_id, name):
+    if customer_id is None:
+        return _clean_text(name)
+    customer = await CrmCustomer.get_or_none(id=customer_id)
+    if not customer:
+        raise ValueError("客户不存在，请重新选择")
+    return customer.name
+
+
+def _default_customer_pricing(name):
+    return {"kind": "internal" if str(name or "").strip().lower() == "catixs" else "pending"}
+
+
+async def _billing_snapshot(data: dict, context: BillingContext | None = None, existing: RemoteHands | None = None, refresh=False, customer_pricing=None):
+    old = (existing.billing_data or {}) if existing else {}
+    rules = old.get("rules") if existing and existing.engineer_id == data.get("engineer_id") and not refresh else None
+    if rules is None:
+        engineer = await RemoteEngineer.get_or_none(id=data.get("engineer_id")) if data.get("engineer_id") else None
+        rules = engineer.billing_rules if engineer else None
+    same_customer = existing and existing.customer_id == data.get("customer_id") and existing.customer == data.get("customer")
+    pricing = customer_pricing.model_dump(mode="json") if customer_pricing is not None else (old.get("customer_pricing") if same_customer else None)
+    if pricing is None:
+        pricing = _default_customer_pricing(data.get("customer"))
+    ctx = context.model_dump(mode="json") if context is not None else old.get("context", {})
+    result = await asyncio.to_thread(calculate_record_fee, rules, data.get("arrived_at"), data.get("left_at"),
+                                    data.get("timezone") or "Asia/Shanghai", data.get("region") or "", ctx, pricing)
+    return {"rules": rules, "context": ctx, "customer_pricing": pricing, "result": result}
+
+
+@auth_router.post("/billing/preview", summary="根据北京时间和运维时区试算费用", dependencies=[DependAuth])
+async def preview_billing(payload: BillingPreviewPayload):
+    result = await asyncio.to_thread(calculate_record_fee, payload.rules.model_dump(mode="json") if payload.rules else None, payload.arrived_at,
+                                    payload.left_at, payload.timezone, payload.region, payload.context.model_dump(mode="json"),
+                                    payload.customer_pricing.model_dump(mode="json") if payload.customer_pricing else None)
+    return Success(data=result)
 
 
 def _engineer_payload_data(payload: EngineerPayload) -> dict[str, Any]:
@@ -352,13 +409,16 @@ async def _validate_attachments(attachments: list[PlanAttachment]) -> None:
 
 async def _plan_payload_data(payload: RemoteHandsPlanPayload) -> dict[str, Any]:
     await _validate_attachments(payload.attachments)
+    customer_name = await _customer_name(payload.customer_id, payload.customer)
     assignee_ids = int_list(payload.assignee_ids) or int_list(payload.assignee_id)
     users = await User.filter(id__in=assignee_ids, is_active=True) if assignee_ids else []
     user_map = {int(user.id): user for user in users}
     ordered_users = [user_map[user_id] for user_id in assignee_ids if user_id in user_map]
     assignee_names = [user.alias or user.username for user in ordered_users]
     return {
-        "customer": _clean_text(payload.customer),
+        "customer": customer_name,
+        "customer_id": payload.customer_id,
+        "customer_pricing": payload.customer_pricing.model_dump(mode="json") if payload.customer_pricing else _default_customer_pricing(customer_name),
         "ticket": _clean_text(payload.ticket) or None,
         "engineer_id": payload.engineer_id,
         "engineer_name": _clean_text(payload.engineer_name) or None,
@@ -386,7 +446,17 @@ def _normalize_plan_datetimes(plan: RemoteHandsPlan) -> None:
     plan.reminder_notified_at = _naive_datetime(plan.reminder_notified_at)
 
 
-async def _remote_to_dict(item: RemoteHands, plans: list[RemoteHandsPlan] | None = None) -> dict[str, Any]:
+async def _remote_to_dict(item: RemoteHands, plans: list[RemoteHandsPlan] | None = None, engineer_rules=None) -> dict[str, Any]:
+    billing = item.billing_data
+    if not billing:
+        if engineer_rules is None:
+            engineer = await RemoteEngineer.get_or_none(id=item.engineer_id) if item.engineer_id else None
+            rules = engineer.billing_rules if engineer else None
+        else:
+            rules = engineer_rules.get(item.engineer_id)
+        result = await asyncio.to_thread(calculate_record_fee, rules, item.arrived_at, item.left_at,
+                                        item.timezone or "Asia/Shanghai", item.region or "")
+        billing = {"rules": rules, "context": {}, "result": result | {"basis": "current_rules"}}
     attachments = {value["url"]: value for value in (item.attachments or [])}
     if plans is None:
         plans = await RemoteHandsPlan.filter(remote_hands_id=item.id)
@@ -396,7 +466,12 @@ async def _remote_to_dict(item: RemoteHands, plans: list[RemoteHandsPlan] | None
     return {
         "id": item.id,
         "attachments": list(attachments.values()),
+        "billing_context": billing.get("context", {}),
+        "billing_rules_snapshot": billing.get("rules"),
+        "customer_pricing_snapshot": billing.get("customer_pricing"),
+        "billing_result": billing.get("result"),
         "customer": item.customer,
+        "customer_id": item.customer_id,
         "ticket": item.ticket or "",
         "engineer_id": item.engineer_id,
         "engineer_name": item.engineer_name or "",
@@ -440,6 +515,8 @@ async def _plan_to_dict(item: RemoteHandsPlan) -> dict[str, Any]:
     return {
         "id": item.id,
         "customer": item.customer,
+        "customer_id": item.customer_id,
+        "customer_pricing": item.customer_pricing,
         "ticket": item.ticket or "",
         "engineer_id": item.engineer_id,
         "engineer_name": item.engineer_name or "",
@@ -515,13 +592,15 @@ async def overview():
         remote_hands = await RemoteHands.all().order_by("-arrived_at", "-created_at")
         plans = await RemoteHandsPlan.all().order_by("-planned_at", "-created_at")
         engineers = await RemoteEngineer.all().order_by("-is_active", "name")
+        engineer_rules = {engineer.id: engineer.billing_rules for engineer in engineers}
         linked_plans: dict[int, list[RemoteHandsPlan]] = {}
         for plan in plans:
             if plan.remote_hands_id:
                 linked_plans.setdefault(plan.remote_hands_id, []).append(plan)
         return Success(
             data={
-                "remote_hands": [await _remote_to_dict(item, linked_plans.get(item.id, [])) for item in remote_hands],
+                "remote_hands": [await _remote_to_dict(item, linked_plans.get(item.id, []), engineer_rules)
+                                 for item in remote_hands],
                 "plans": [await _plan_to_dict(item) for item in plans],
                 "engineers": [await _engineer_to_dict(item) for item in engineers],
                 "datacenters": await _datacenter_options(),
@@ -691,6 +770,10 @@ async def update_plan(plan_id: int, payload: RemoteHandsPlanPayload, current_use
         plan = await RemoteHandsPlan.get_or_none(id=plan_id)
         if not plan:
             return Fail(msg="运维计划不存在")
+        if "customer_pricing" not in payload.model_fields_set and payload.customer == plan.customer:
+            payload.customer_pricing = CustomerMaintenancePrice.model_validate(plan.customer_pricing) if plan.customer_pricing else None
+        if "customer_id" not in payload.model_fields_set and payload.customer == plan.customer:
+            payload.customer_id = plan.customer_id
         if plan.status != "pending":
             return Fail(msg="只有待执行的运维计划才能变更")
         before = _plan_snapshot(plan)
@@ -760,8 +843,14 @@ async def complete_plan(plan_id: int, payload: RemoteHandsPlanCompletePayload):
         arrived_at = _naive_datetime(_parse_datetime(payload.arrived_at) or plan.planned_at) or _now_naive()
         left_at = _naive_datetime(_parse_datetime(payload.left_at)) or _now_naive()
         note = _clean_text(payload.note) or plan.note
+        billing_data = await _billing_snapshot({"customer": plan.customer, "customer_id": plan.customer_id,
+                                               "engineer_id": plan.engineer_id, "arrived_at": arrived_at,
+                                               "left_at": left_at, "timezone": plan.timezone, "region": plan.region},
+                                               customer_pricing=CustomerMaintenancePrice.model_validate(plan.customer_pricing) if plan.customer_pricing else None)
         remote = await RemoteHands.create(
+            billing_data=billing_data,
             customer=plan.customer,
+            customer_id=plan.customer_id,
             ticket=plan.ticket,
             engineer_id=plan.engineer_id,
             engineer_name=plan.engineer_name,
@@ -834,7 +923,10 @@ async def delete_plan(plan_id: int):
 @router.put("/remote-hands/{item_id}", summary="更新运维记录")
 async def update_remote_hands(item_id: int, payload: RemoteHandsPayload):
     try:
-        data = await _remote_payload_data(payload)
+        existing = await RemoteHands.get_or_none(id=item_id)
+        if not existing:
+            return Fail(msg="运维记录不存在")
+        data = await _remote_payload_data(payload, existing)
         logger.info(
             "remote assistance update record parsed: item_id={}, customer={}, site={}, raw_arrived_at={}, parsed_arrived_at={}, raw_left_at={}, parsed_left_at={}",
             item_id,

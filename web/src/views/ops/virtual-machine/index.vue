@@ -151,6 +151,9 @@
                 </n-button>
               </div>
             </div>
+            <n-alert v-if="vmLiveError" type="warning" :show-icon="false">{{
+              vmLiveError
+            }}</n-alert>
             <div
               v-if="!isCompactVmList"
               ref="vmTableHost"
@@ -262,6 +265,7 @@
                       plain
                       type="primary"
                       icon="edit"
+                      :disabled="isVmPowering(vm) || isVmDeleting(vm)"
                       @click.stop="openEditVm(vm)"
                     >
                       编辑
@@ -272,7 +276,7 @@
                       type="danger"
                       icon="delete-o"
                       :loading="isVmDeleting(vm)"
-                      :disabled="isVmDeleting(vm)"
+                      :disabled="isVmDeleting(vm) || isVmPowering(vm)"
                       @click.stop="confirmDeleteVm(vm)"
                     >
                       删除
@@ -282,6 +286,7 @@
                       plain
                       type="warning"
                       icon="share-o"
+                      :disabled="isVmPowering(vm) || isVmDeleting(vm)"
                       @click.stop="openMigration(vm)"
                     >
                       迁移
@@ -1039,14 +1044,26 @@ import api from '@/api'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import CButton from '@/components/public/CButton.vue'
 import NoVncConsole from './NoVncConsole.vue'
+import { waitForVmPower, mergeVmRuntime } from './utils/power.mjs'
+import { stableVmOrder } from './utils/list.mjs'
 import ClusterLoadCard from './components/ClusterLoadCard.vue'
-import { bytes, vmStatus, vmOs, uptimeText, vmIps } from './utils/display.mjs'
+import { bytes, vmStatus as baseVmStatus, vmOs, uptimeText, vmIps } from './utils/display.mjs'
 import { translateCity, translateCountry, translateLocationPath } from '@/utils/location-i18n'
 
 const message = useMessage()
 const snapshotSync = ref({})
 let snapshotTimer
 let snapshotDisposed = false
+
+const vmLiveError = ref('')
+let vmLiveTimer
+let vmLivePending = false
+function scheduleVmLive(delay = 10000) {
+  clearTimeout(vmLiveTimer)
+  if (!snapshotDisposed && nodeLoadActive && !document.hidden) {
+    vmLiveTimer = setTimeout(() => fetchVms({ resetPage: false, silent: true }), delay)
+  }
+}
 
 let nodeLoadTimer
 let nodeLoadPending = false
@@ -1113,6 +1130,8 @@ async function refreshNodeLoad() {
 }
 
 function handleNodeLoadVisibility() {
+  clearTimeout(vmLiveTimer)
+  if (!document.hidden) scheduleVmLive(0)
   clearTimeout(nodeLoadTimer)
   if (!document.hidden) scheduleNodeLoad(0)
 }
@@ -1120,8 +1139,8 @@ function handleNodeLoadVisibility() {
 async function syncCloudResources() {
   if (snapshotSync.value.refreshing || loading.nodes) return
   try {
-    await api.virtualMachineApi.pveVms({ refresh: true })
     await refreshNodes()
+    await refreshNodeLoad()
   } catch (error) {
     message.error(error.message || '刷新失败，请重试')
   }
@@ -1900,7 +1919,7 @@ function actionButton(label, icon, type, row, className = '', handler = null) {
           type,
           'aria-label': label,
           loading: actionLoading,
-          disabled: actionLoading || isVmDeleting(row),
+          disabled: actionLoading || isVmDeleting(row) || isVmPowering(row),
           onClick: (event) => {
             event.stopPropagation()
             if (!actionLoading && handler) handler(row)
@@ -1973,7 +1992,7 @@ function setVmPowering(row, value) {
   const key = vmActionKey(row)
   if (!key) return
   if (value) {
-    poweringVmKeys[key] = true
+    poweringVmKeys[key] = row.status === 'running' ? 'stopping' : 'starting'
     return
   }
   delete poweringVmKeys[key]
@@ -1994,11 +2013,8 @@ function setVmDeleting(row, value) {
   delete deletingVmKeys[key]
 }
 
-function findVmStatus(row) {
-  const key = vmPowerKey(row)
-  if (!key) return ''
-  const current = vmList.value.find((item) => vmPowerKey(item) === key)
-  return current?.status || ''
+function vmStatus(row) {
+  return baseVmStatus({ ...row, status: poweringVmKeys[vmPowerKey(row)] || row.status })
 }
 
 function mobileVmIps(row) {
@@ -2062,16 +2078,6 @@ function handlePowerVm(row) {
   executePowerVm(row)
 }
 
-async function waitVmPowerStatus(row, targetStatus, { attempts = 45, interval = 2000 } = {}) {
-  for (let index = 0; index < attempts; index += 1) {
-    await fetchVms({ resetPage: false, silent: true })
-    if (findVmStatus(row) === targetStatus) return true
-    await new Promise((resolve) => setTimeout(resolve, interval))
-  }
-  await fetchVms({ resetPage: false, silent: true })
-  return findVmStatus(row) === targetStatus
-}
-
 async function executePowerVm(row) {
   const isRunning = row.status === 'running'
   const action = isRunning ? 'stop' : 'start'
@@ -2082,22 +2088,36 @@ async function executePowerVm(row) {
   setVmPowering(row, true)
   message.loading(`${text}请求已发送，正在等待虚拟机状态更新...`, { duration: 1800 })
   try {
-    await api.virtualMachineApi.powerVm({
+    const response = await api.virtualMachineApi.powerVm({
       remote: row.remote,
       vmid: row.vmid,
       type: row.type,
       node: row.node || undefined,
       action,
     })
-    const completed = await waitVmPowerStatus(row, nextStatus)
+    const completed = await waitForVmPower({
+      api: api.virtualMachineApi,
+      row,
+      upid: response.data?.upid,
+      target: nextStatus,
+      cancelled: () =>
+        snapshotDisposed || !nodeLoadActive || selectedNode.value?.remote !== row.remote,
+      update: (current) => {
+        const target = vmList.value.find((item) => vmPowerKey(item) === vmPowerKey(row))
+        if (target) Object.assign(target, mergeVmRuntime(target, current))
+        vmSummary.running = vmList.value.filter((item) => item.status === 'running').length
+        vmSummary.stopped = vmList.value.filter((item) => item.status === 'stopped').length
+        saveVmPageCache()
+      },
+    })
+    if (snapshotDisposed || !nodeLoadActive || selectedNode.value?.remote !== row.remote) return
     if (completed) {
       message.success(`${text}完成`)
       return
     }
     message.warning(`${text}任务已提交，但状态还未更新，请稍后刷新确认`)
   } catch (error) {
-    message.error(error.message || `${text}失败`)
-    await fetchVms({ resetPage: false, silent: true })
+    if (!snapshotDisposed && nodeLoadActive) message.error(error.message || `${text}失败`)
   } finally {
     setVmPowering(row, false)
   }
@@ -3209,6 +3229,11 @@ async function refreshNodes() {
 }
 
 async function fetchVms({ resetPage = true, silent = false } = {}) {
+  clearTimeout(vmLiveTimer)
+  if (silent && (vmLivePending || loading.vms || Object.keys(poweringVmKeys).length)) {
+    scheduleVmLive()
+    return
+  }
   const listRequestId = ++vmListRequestId
   const requestNode = selectedNode.value?.value
   if (!selectedNode.value?.value) {
@@ -3220,11 +3245,16 @@ async function fetchVms({ resetPage = true, silent = false } = {}) {
     return
   }
 
-  loading.vms = true
+  vmLivePending = true
+  if (!silent) loading.vms = true
   try {
-    const res = await api.virtualMachineApi.pveVms({
-      node: requestNode,
-    })
+    const res = await api.virtualMachineApi.pveVms(
+      {
+        node: requestNode,
+        live: true,
+      },
+      { skipErrorHandle: silent }
+    )
     if (
       listRequestId !== vmListRequestId ||
       selectedNode.value?.value !== requestNode ||
@@ -3239,10 +3269,16 @@ async function fetchVms({ resetPage = true, silent = false } = {}) {
         await fetchVms({ resetPage: false, silent: true })
       }, 3000)
     }
-    vmList.value = (res.data?.items || []).map((vm) => ({
-      ...vm,
-      ip_loading: false,
-    }))
+    vmLiveError.value = ''
+    const existing = new Map(vmList.value.map((vm) => [vmPowerKey(vm), vm]))
+    vmList.value = stableVmOrder(vmList.value, res.data?.items || []).map((vm) => {
+      const old = existing.get(vmPowerKey(vm))
+      return {
+        ...vm,
+        ...(old && vmIps(old).length ? { ips: vmIps(old), ip_addresses: vmIps(old) } : {}),
+        ip_loading: false,
+      }
+    })
     Object.assign(vmSummary, res.data?.summary || { total: 0, running: 0, stopped: 0 })
     syncSelectedNodeSummary(vmSummary)
     pagination.itemCount = vmList.value.length
@@ -3255,7 +3291,7 @@ async function fetchVms({ resetPage = true, silent = false } = {}) {
       )
     }
     await nextTick()
-    tableRenderKey.value += 1
+    if (!silent) tableRenderKey.value += 1
     saveVmPageCache()
   } catch (error) {
     if (
@@ -3264,17 +3300,17 @@ async function fetchVms({ resetPage = true, silent = false } = {}) {
       snapshotDisposed
     )
       return
-    vmIpRequestId += 1
-    vmList.value = []
-    Object.assign(vmSummary, { total: 0, running: 0, stopped: 0 })
-    syncSelectedNodeSummary(vmSummary)
-    pagination.itemCount = 0
+    vmLiveError.value = 'PVE 实时数据读取失败，当前保留上次数据，正在重试'
     if (!silent) {
       message.error(error.message || '读取 PDM 虚拟机失败')
     }
   } finally {
     if (listRequestId === vmListRequestId && selectedNode.value?.value === requestNode)
       loading.vms = false
+    if (listRequestId === vmListRequestId) {
+      vmLivePending = false
+      scheduleVmLive()
+    }
   }
 }
 
@@ -3324,6 +3360,8 @@ async function fetchVmIps(nodeValue) {
 }
 
 function selectNode(node) {
+  if (selectedNode.value?.remote !== node.remote) vmList.value = []
+  vmLiveError.value = ''
   selectedNode.value = node
   rememberSelectedNode(node)
   if (node.error) {
@@ -3436,15 +3474,18 @@ onMounted(async () => {
 
 onActivated(() => {
   nodeLoadActive = true
+  scheduleVmLive(0)
   scheduleNodeLoad(0)
 })
 onDeactivated(() => {
   nodeLoadActive = false
+  clearTimeout(vmLiveTimer)
   clearTimeout(nodeLoadTimer)
 })
 
 onBeforeUnmount(() => {
   snapshotDisposed = true
+  clearTimeout(vmLiveTimer)
   clearTimeout(nodeLoadTimer)
   document.removeEventListener('visibilitychange', handleNodeLoadVisibility)
   clearTimeout(snapshotTimer)

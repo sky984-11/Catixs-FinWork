@@ -282,7 +282,7 @@ export default {
   // virtual machine
   virtualMachineApi: {
     pveNodes: (params = {}, options = {}) => request.get('/pve/nodes', { ...options, params }),
-    pveVms: (params = {}) => request.get('/pve/vms', { params }),
+    pveVms: (params = {}, options = {}) => request.get('/pve/vms', { ...options, params }),
     pveVmIps: (params = {}) => request.get('/pve/vms/ips', { params }),
     addNode: (data = {}) => request.post('/pve/nodes/add', data),
     updateNode: (remote, data = {}) => request.put(`/pve/nodes/remote/${encodeURIComponent(remote)}`, data),
@@ -318,6 +318,7 @@ export default {
 
   // remote assistance and engineers
   remoteAssistanceApi: {
+    previewBilling: (data) => request.post('/remote-assistance/billing/preview', data),
     overview: () => request.get('/remote-assistance/overview'),
     createRemoteHands: (data = {}) => request.post('/remote-assistance/remote-hands', data),
     updateRemoteHands: (id, data = {}) => request.put(`/remote-assistance/remote-hands/${id}`, data),

@@ -79,3 +79,25 @@ npm run lint
 页面可见时每30秒更新当前选中节点，切换节点、恢复可见时立即更新；离开页面停止，失败保留上次数据，不触发全量虚拟机同步。
 
 沿用 `GET /api/v1/pve/nodes`，增加可选参数 `live_remote`（现有节点 remote 标识）。传入时仅读取该节点实时状态，返回 `data: [{remote, cpu_usage, cpu_total, mem, maxmem, mem_usage, disk, maxdisk, disk_usage, ...原节点字段}]`；未传入仍按原逻辑返回节点列表。请求总超时10秒，不修改资源缓存或虚拟机列表。沿用原登录及 `/pve/nodes` 权限；节点不存在404、状态不可用502，未登录401、无权限403。`refresh` 与 `live_remote` 同传时以实时负载读取为准。
+
+### 开关机状态更新
+
+参考 ProxMate 虚拟机详情的过渡状态与单台轮询方式。开关机期间仅当前行展示“启动中/关机中”，禁用冲突操作；每2秒检查任务及目标虚拟机实时状态，最多120秒。任务失败显示原因，超时提示核实，不将请求提交视作完成。详情页使用相同逻辑；离开页面或切换目标后忽略旧响应。
+
+`POST /api/v1/pve/vms/power` 保持参数、返回的 `upid` 和价格管理关机限制不变，后台仅跟踪目标任务并更新对应虚拟机缓存，不再触发全量同步。
+
+`GET /api/v1/pve/vms` 新增可选正整数 `vmid`，与 `node`（remote 标识）同时传入时直接读取该虚拟机状态并仅更新它的缓存，返回示例 `{"code":200,"data":{"items":[{"remote":"example","vmid":100,"status":"stopped","uptime":0}]}}`（实际保留原有虚拟机字段）。未传 `vmid` 时列表响应不变。沿用原登录与 `/pve/vms` 权限；缺少 node/无效 vmid 为422、虚拟机不存在404、实时状态不可用502。同步期间删除的虚拟机不会被恢复，其他虚拟机、IP、客户信息保持不变。
+
+PDM 状态路径依据[官方 QEMU API 源码](https://github.com/proxmox/proxmox-datacenter-manager/blob/master/server/src/api/pve/qemu.rs)，使用 `/pve/remotes/{remote}/{qemu|lxc}/{vmid}/status`。
+
+### 列表及详情的实时状态与资源
+
+云资源列表请求 `GET /api/v1/pve/vms?node=<remote>&live=true`，每10秒直接读取当前节点的 QEMU、LXC 列表，状态、CPU、内存、磁盘容量/用量和运行时间以 PVE 为准。本地客户规格不能覆盖 PVE 实测数据，缺失指标显示未知。客户关联、备注和已加载 IP 保留。详情使用 `node + vmid` 每10秒单台查询，包含实时 CPU 核心数（PVE `cpus` 映射为 `maxcpu`）。节点总负载仍每30秒读取。
+
+`live` 为新增可选布尔参数，默认 false，旧调用保持原响应；`vmid` 优先于 `live`。实时列表返回 `data.items`、`data.summary`、空 `data.sync`；例如 `{"code":200,"data":{"items":[],"summary":{"total":0,"running":0,"stopped":0},"sync":{}}}`。权限沿用 `/pve/vms`，未登录401、无权限403、缺少node或非法参数422、未知节点404、任一实时列表读取失败502。读取失败不清空缓存，前端提示当前数据已过期并重试，不将旧缓存宣称为实时数据。
+
+自动更新不会刷新整张表的加载状态、重置分页或列宽；隐藏或离开列表时暂停，恢复后立即读取。同一时刻仅一个自动列表请求，开关机期间优先单台状态跟踪。成功读取只更新该节点的虚拟机缓存，并保留并发删除标记，无全量扫描。
+
+### 刷新时保持行顺序
+
+首次加载按 VMID 数值升序排列。后续实时或手动刷新按 remote、类型、VMID 匹配已有行，保留其顺序并更新内容，不随 PVE 响应顺序、状态或资源使用量重新排列；新发现的虚拟机按 VMID 排序后追加到末尾，已删除的行正常移除。桌面表格与移动端列表共用此规则。

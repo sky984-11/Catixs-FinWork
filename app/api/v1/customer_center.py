@@ -18,6 +18,7 @@ from app.models.customer_center import (
     CrmSigningEntity,
 )
 from app.schemas.base import Fail, Success, SuccessExtra
+from app.schemas.remote_billing import Currency, Money
 
 router = APIRouter()
 
@@ -68,6 +69,8 @@ BILL_STATUSES = [
 
 
 class CustomerPayload(BaseModel):
+    maintenance_hourly_rate: Money | None = None
+    maintenance_currency: Currency = "USD"
     customer_code: str | None = Field(None, max_length=60)
     name: str = Field(..., max_length=120)
     legal_name: str | None = Field(None, max_length=240)
@@ -216,6 +219,7 @@ def label_of(options: list[dict[str, str]], value: str | None) -> str:
 
 async def customer_dict(customer: CrmCustomer, include_counts: bool = False) -> dict[str, Any]:
     data = await customer.to_dict()
+    data["maintenance_hourly_rate"] = str(customer.maintenance_hourly_rate) if customer.maintenance_hourly_rate is not None else None
     signing_entity = await customer.signing_entity if customer.signing_entity_id else None
     data["signing_entity_name"] = signing_entity.name if signing_entity else ""
     data["entity_type_label"] = label_of(ENTITY_TYPES, data.get("entity_type"))
@@ -266,7 +270,8 @@ async def options():
         await CrmCustomer.filter(status=True)
         .exclude(lifecycle="terminated")
         .order_by("name")
-        .values("id", "customer_code", "name", "legal_name", "signing_entity__name")
+        .values("id", "customer_code", "name", "legal_name", "signing_entity__name",
+                "maintenance_hourly_rate", "maintenance_currency")
     )
     return Success(
         data={
@@ -278,6 +283,8 @@ async def options():
                     "name": item["name"],
                     "customer_code": item.get("customer_code") or "",
                     "short_name": item["name"],
+                    "maintenance_hourly_rate": str(item["maintenance_hourly_rate"]) if item["maintenance_hourly_rate"] is not None else None,
+                    "maintenance_currency": item["maintenance_currency"],
                     "signing_entity_name": item.get("signing_entity__name") or "",
                 }
                 for item in customers

@@ -268,6 +268,7 @@
 </template>
 
 <script setup>
+import { waitForVmPower, mergeVmRuntime } from '../utils/power.mjs'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMessage, useThemeVars } from 'naive-ui'
@@ -346,12 +347,12 @@ const configuration = computed(() => [
   {
     label: 'vCPU',
     icon: 'mdi:cpu-64-bit',
-    value: `${config.value?.total_cores || vm.value?.maxcpu || '—'} 核`,
+    value: `${vm.value?.maxcpu || '—'} 核`,
   },
   {
     label: '内存',
     icon: 'mdi:memory',
-    value: config.value?.memory_gb ? `${config.value.memory_gb} GiB` : bytes(vm.value?.maxmem),
+    value: bytes(vm.value?.maxmem),
   },
   { label: '磁盘', icon: 'mdi:harddisk', value: bytes(vm.value?.maxdisk) },
   { label: '系统', icon: os.value.icon, value: os.value.label },
@@ -408,7 +409,7 @@ function schedule() {
         if (!document.hidden && !busy.value && !loading.value) await load(false)
         else schedule()
       },
-      transition.value ? 3000 : 15000
+      transition.value ? 3000 : 10000
     )
 }
 async function load(includeConfig = true) {
@@ -421,10 +422,10 @@ async function load(includeConfig = true) {
   loading.value = true
   try {
     const results = await Promise.allSettled([
-      api.virtualMachineApi.pveVms({ node: remote.value }),
+      api.virtualMachineApi.pveVms({ node: remote.value, vmid: vmid.value }),
       includeConfig ? api.virtualMachineApi.vmConfig(params()) : Promise.resolve(null),
     ])
-    if (disposed || token !== generation) return
+    if (disposed || token !== generation || busy.value) return
     if (results[0].status === 'rejected') throw results[0].reason
     const row = results[0].value.data?.items?.find(
       (item) => String(item.vmid) === String(vmid.value) && item.remote === remote.value
@@ -517,7 +518,30 @@ async function executeAction() {
       return
     }
     if (action === 'reboot') await api.virtualMachineApi.rebootVm(params())
-    else await api.virtualMachineApi.powerVm({ ...params(), action })
+    else {
+      const token = generation
+      const row = { ...vm.value }
+      const response = await api.virtualMachineApi.powerVm({ ...params(), action })
+      if (disposed || token !== generation) return
+      confirmation.show = false
+      transition.value = action === 'start' ? '启动中' : '关机中'
+      const completed = await waitForVmPower({
+        api: api.virtualMachineApi,
+        row,
+        upid: response.data?.upid,
+        target: action === 'start' ? 'running' : 'stopped',
+        cancelled: () => disposed || token !== generation,
+        update: (current) => {
+          vm.value = mergeVmRuntime(vm.value, current)
+        },
+      })
+      if (disposed || token !== generation) return
+      message[completed ? 'success' : 'warning'](
+        completed ? '操作完成' : '等待状态超时，请刷新确认'
+      )
+      transition.value = ''
+      return
+    }
     confirmation.show = false
     transition.value =
       action === 'reboot' ? '重启任务已提交' : action === 'start' ? '启动中' : '关机中'
@@ -526,7 +550,8 @@ async function executeAction() {
     schedule()
     message.success('操作已提交')
   } catch (err) {
-    message.error(err.message || '操作失败')
+    transition.value = ''
+    if (!disposed) message.error(err.message || '操作失败')
   } finally {
     busy.value = false
   }

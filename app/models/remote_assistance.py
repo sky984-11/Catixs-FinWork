@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from tortoise import fields
@@ -7,14 +7,14 @@ from tortoise.fields.data import parse_datetime
 from .base import BaseModel, TimestampMixin
 
 
-LOCAL_TIMEZONE = datetime.now().astimezone().tzinfo
+LOCAL_TIMEZONE = timezone(timedelta(hours=8))
 
 
 def _to_naive_datetime(value: Any) -> datetime | None:
     if value is None:
         return None
     if isinstance(value, int):
-        value = datetime.fromtimestamp(value)
+        value = datetime.fromtimestamp(value, tz=LOCAL_TIMEZONE)
     elif not isinstance(value, datetime):
         value = parse_datetime(value)
     if value is not None and value.tzinfo:
@@ -28,7 +28,7 @@ class NaiveDatetimeField(fields.DatetimeField):
             self.auto_now
             or (self.auto_now_add and getattr(instance, self.model_field_name) is None)
         ):
-            value = datetime.now().replace(tzinfo=None)
+            value = datetime.now(LOCAL_TIMEZONE).replace(tzinfo=None)
             setattr(instance, self.model_field_name, value)
             return value
         return _to_naive_datetime(value)
@@ -56,6 +56,8 @@ class RemoteEngineer(BaseModel, TimestampMixin):
 
 
 class RemoteHands(BaseModel, TimestampMixin):
+    customer_id = fields.BigIntField(null=True, index=True, description="客户中心客户ID")
+    billing_data = fields.JSONField(null=True, description="billing context, rules and result snapshot")
     attachments = fields.JSONField(default=list, description="record attachments")
     created_at = NaiveDatetimeField(auto_now_add=True, index=True)
     updated_at = NaiveDatetimeField(auto_now=True, index=True)
@@ -92,6 +94,8 @@ class RemoteHands(BaseModel, TimestampMixin):
 
 
 class RemoteHandsPlan(BaseModel, TimestampMixin):
+    customer_pricing = fields.JSONField(null=True, description="本次施工报价")
+    customer_id = fields.BigIntField(null=True, index=True, description="客户中心客户ID")
     created_at = NaiveDatetimeField(auto_now_add=True, index=True)
     updated_at = NaiveDatetimeField(auto_now=True, index=True)
 

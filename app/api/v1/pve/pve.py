@@ -2172,7 +2172,39 @@ async def update_node_binding(remote: str, payload: PveNodeBindingRequest):
 
 
 @router.get("/vms", summary="PDM virtual machine list")
-async def list_vms(node: str = Query(""), refresh: bool = Query(False)):
+async def list_vms(
+    node: str = Query(""), refresh: bool = Query(False), vmid: int | None = Query(None, gt=0),
+    live: bool = Query(False),
+):
+    if isinstance(vmid, int):
+        from app.services.cloud_vm_state import refresh_vm_state
+
+        if not node:
+            return Fail(code=422, msg="缺少节点标识")
+        try:
+            vm = await refresh_vm_state(node, vmid)
+            return Success(data={"items": [vm]})
+        except LookupError:
+            return Fail(code=404, msg="虚拟机不存在或已删除")
+        except Exception:
+            logger.warning("Live VM status unavailable for remote=%s vmid=%s", node, vmid)
+            return Fail(code=502, msg="实时状态暂时不可用，请稍后重试")
+    if live is True:
+        from app.services.cloud_vm_state import live_vm_list
+
+        if not node:
+            return Fail(code=422, msg="缺少节点标识")
+        try:
+            vms = await live_vm_list(node)
+        except LookupError:
+            return Fail(code=404, msg="节点不存在，请刷新节点列表")
+        except Exception:
+            logger.warning("Live VM inventory unavailable for remote=%s", node)
+            return Fail(code=502, msg="PVE 实时数据暂时不可用，请稍后重试")
+        return Success(data={"items": vms, "summary": {
+            "total": len(vms), "running": sum(vm.get("status") == "running" for vm in vms),
+            "stopped": sum(vm.get("status") == "stopped" for vm in vms),
+        }, "sync": {}})
     snapshot, sync = await read_snapshot(force=refresh)
     vms = [dict(vm) for vm in snapshot.get("items", []) if not node or vm.get("remote") == node]
     apply_cached_vm_remarks(vms)
@@ -2694,7 +2726,9 @@ async def submit_vm_power(payload: VMPowerRequest, *, allow_price_managed_stop: 
     except Exception as exc:
         return Fail(msg=f"虚拟机{'开机' if action == 'start' else '停止'}失败: {error_detail(exc)}")
 
-    await after_resource_change(payload.remote, task_id)
+    from app.services.cloud_vm_state import after_vm_power
+
+    await after_vm_power(payload.remote, payload.vmid, task_id)
     return Success(
         msg=f"{'开机' if action == 'start' else '停止'}请求已发送",
         data={"upid": task_id, "remote": payload.remote, "vmid": payload.vmid, "action": action},

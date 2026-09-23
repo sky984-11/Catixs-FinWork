@@ -396,16 +396,37 @@ curl 'http://localhost:9999/api/v1/finance/quote/list?page=1&page_size=20' \
 | `POST` | `/api/v1/asset/region/update` | 更新区域 | application/json: AssetRegionUpdate | application/json: - |
 | `GET` | `/api/v1/asset/tree` | 资产位置树 | - | application/json: - |
 
-### 运维记录导出与工程师阶梯计费
+### 运维记录费用与通用计费规则
 
-- 运维记录页“导出记录”导出当前筛选条件下的全部记录（包含其他分页），CSV 使用 UTF-8 BOM，包含客户、工单、工程师及联系方式、地区、机房、机柜、时区、到离场时间、工时分钟、状态、结算状态和备注。导出复用已鉴权的概览数据，不新增接口；无数据或加载期间禁用。文本按 CSV 规则转义并防止表格公式执行。
-- `POST /api/v1/remote-assistance/engineers`、`PUT /api/v1/remote-assistance/engineers/{engineer_id}` 新增可选 `billing_rules`。省略时保持已有规则，传 `null` 清除规则。`GET /api/v1/remote-assistance/overview` 的 `data.engineers[]` 返回 `billing_rules`（未配置为 `null`）。路由及其他字段保持兼容。
-- 请求示例：`{"name":"示例工程师","billing_rules":{"currency":"CNY","tiers":[{"up_to_minutes":60,"hourly_rate":"120.00"},{"up_to_minutes":180,"hourly_rate":"90.00"},{"up_to_minutes":null,"hourly_rate":"60.00"}]}}`。PUT 的其他工程师字段仍按既有完整表单方式提交。
-- 币种支持 CNY、USD、HKD、EUR、GBP、SGD、JPY；1–20 档，累计工时上限为严格递增的正整数分钟，最大525600，最后一档必须为 `null`（无上限），其他档不得为空。小时单价非负、最多两位小数、最大9999999999.99。前后端均校验。
-- 规则按单次运维工时分段累加，实际分钟折算小时，合计四舍五入保留两位小数。上述规则下240分钟费用为360.00 CNY。工程师编辑窗口提供费用试算；本次仅保存规则并提供试算，不自动生成账单、不修改运维记录结算状态或历史金额。
-- 创建成功：`{"code":200,"msg":"工程师已创建","data":null}`；修改成功：`{"code":200,"msg":"工程师已更新","data":null}`；概览片段：`{"code":200,"data":{"engineers":[{"id":1,"name":"示例工程师","billing_rules":{"currency":"CNY","tiers":[{"up_to_minutes":null,"hourly_rate":"120.00"}]}}]}}`（其他字段略）。
-- 权限：沿用请求头 `token` 登录与各方法/路由的角色 API 权限。缺少 token 返回422，无效 token 返回401，无权限返回403，规则不合法返回422；工程师不存在、数据库错误沿用 `Fail` 业务响应（`code:400`）。
-- 部署前执行 `aerich upgrade` 应用新增迁移 `175_20260922090000_engineer_billing_rules.py`，为 `remote_engineer` 增加可空 JSONB 字段，历史数据无需回填。回滚迁移会删除已配置规则。
+2026-09-23更新：[按次施工报价、现场费用及多币种结果](maintenance-billing.md)。客户管理已移除报价字段，改在计划/记录中选择小时报价、一口价或工程师规则；多币种结果使用`totals`，不能仅通过`total:null`判断待确认。
+
+- 工程师 `POST /api/v1/remote-assistance/engineers`、`PUT /api/v1/remote-assistance/engineers/{engineer_id}` 的 `billing_rules` 支持通用模式 `mode: general`。省略保持原规则，null清除；旧小时阶梯和旧固定档位请求仍兼容。新建规则默认不填单价，不设地区、交通费、夜班、收款方式；实例仅通过前端“用模板替换当前规则”显式载入，不绑定任何工程师。
+- 通用示例：`{"name":"示例工程师","billing_rules":{"mode":"general","currency":"GBP","pricing":"hourly","hourly_rate":"30.00","transport_mode":"hourly","commute_minutes":60}}`。2小时人工60 GBP，加一次通勤30 GBP，总计90 GBP。创建响应 `{"code":200,"msg":"工程师已创建","data":null}`；编辑响应 `{"code":200,"msg":"工程师已更新","data":null}`。概览 `GET /api/v1/remote-assistance/overview` 的 `data.engineers[].billing_rules` 返回完整规则。
+- `pricing`：hourly固定小时单价、package按时长所在档位收固定总价、tiered_hourly按区间小时单价累加。对应 `hourly_rate`、`tiers:[{up_to_minutes,total_fee}]`、`hourly_tiers:[{up_to_minutes,hourly_rate}]`。package档位上限严格递增且价格不降低；tiered_hourly最后一档上限为null。最多20档。`minimum_minutes`为最低计费分钟，`billing_increment_minutes`为向上取整步长（默认1）。0分钟不产生费用。金额非负、最多两位小数，不同币种不自动换汇。
+- package超出最后一档：`overtime_enabled`、`overtime_hourly_rate`、`overtime_threshold_minutes`（1–60）和`overtime_rounding`配置加班；未配置时超出档位显示待确认。取整支持half_hour_round（每小时余量达到阈值进一小时）、ceil_after_threshold（达到阈值后按小时向上取整）、actual_after_threshold（达到阈值后按实际分钟折算）。
+- **所有到场、离场、计划时间的无偏移字符串均按北京时间UTC+8解释和返回**。含Z或UTC偏移的输入先转换为北京时间。`timezone`为该次运维所在地IANA时区，如Asia/Shanghai、Asia/Singapore、Asia/Seoul、America/Los_Angeles、America/New_York、Europe/Berlin、Europe/London；不改变实际时长，只决定当地时间和夜班时段。前端“到场/离场”快捷操作也使用北京时间，不依赖浏览器或服务器所在时区。历史无偏移数据不自动批量转换，应按已确认的录入口径核对。
+- 夜班：`night_enabled`、`night_start`/`night_end`（当地HH:mm，可跨午夜）、`night_multiplier`（1–10）、`night_basis`（proportional按该收费区间实际夜班分钟占比分摊附加费；any_overlap该收费区间涉及夜班就对区间全额加价）。按UTC时间轴逐分钟换算当地时间，支持夏令时跳时、重复小时；不会使用固定偏移替代IANA时区。启用但时段未确认时保留规则、标记费用待确认。单次自动计费最多31天，超出需拆分记录。
+- 紧急维护：`emergency_fee`、`emergency_response_minutes`、`emergency_regions`、`emergency_confirmation_regions`，覆盖地区留空表示不限地区，待确认区优先；地区按记录的地区名称精确匹配。`night_applies_to_emergency`默认false，即夜班加价后再加紧急费。未勾选本次紧急维护时不收紧急费；勾选但费用或区域未确认时不生成最终合计。
+- 交通：`transport_mode`支持none、fixed（每次transport_fee）、hourly（每次commute_minutes工时费）、reimburse（本次实报实销）。通勤单价`commute_hourly_rate`留空时仅hourly模式沿用人工小时单价，其他模式须填写。`transport_included_regions`指定免交通费地区，留空表示每次收取。交通/通勤仅加一次，不增加运维工时、不参与夜班倍率。
+- 商务条款：`project_services`配置单独报价服务；`settlement_cycles`可填日结、周结、月结、按次及自定义文字；`payment_methods`可配置多个自定义名称，字段name、note、tax_mode（none不另加税、included已含税、extra按约定税率另加、confirm待确认）、tax_rate（百分数，0–100，可空）、tax_base（labor人工费或subtotal人工+交通）。未选择已配置的收款方式、税费未确认时，不生成最终合计。`note`存放规则说明。地区、结算及收款名称不绑定国家。
+- 可选Catixs模板：新加坡Aden陈工30 USD/小时+每次100 USD交通费；首尔HM 50 USD/小时；纽约昆仑60 USD/小时、2小时起步；洛杉矶Anson 55 USD/小时，现场整小时、实际往返通勤半小时分别向上取整；法兰克福小冯20 USD/小时+1小时通勤；英国JOE 30 GBP/小时+1小时通勤；东京陈雷4小时1100 CNY、8小时1650 CNY、超时300 CNY/小时。东京夜班时段待确认，人工费乘1.25后再加紧急费500 CNY。
+
+#### 费用试算接口
+
+- `POST /api/v1/remote-assistance/billing/preview`，登录token必需，仅计算请求中提供的规则，不读取其他工程师或记录，因此不要求独立API授权。
+- JSON示例：`{"rules":{"mode":"general","currency":"USD","pricing":"hourly","hourly_rate":"30.00","transport_mode":"fixed","transport_fee":"100.00"},"arrived_at":"2026-09-22T10:00","left_at":"2026-09-22T12:00","timezone":"Asia/Singapore","region":"新加坡","context":{"emergency":false,"service_type":"standard"}}`。
+- 成功响应示意：`{"code":200,"msg":"OK","data":{"status":"calculated","currency":"USD","total":"160.00","subtotal":"160.00","work_minutes":120,"billable_minutes":120,"night_minutes":0,"timezone":"Asia/Singapore","local_arrived_at":"2026-09-22T10:00:00+08:00","local_left_at":"2026-09-22T12:00:00+08:00","lines":[{"label":"人工费（计费120分钟）","amount":"60.00"},{"label":"每次固定交通费","amount":"100.00"}],"notices":[]}}`。未知费用返回status=pending、total=null、notices说明，subtotal仅为已确认部分，不表示最终应付。
+- context支持emergency、service_type（standard/project）、payment_method（规则中收款方式名称）、reimbursed_transport（已确认交通报销金额）。项目单独报价不套用工时规则。价格、时区、地区、起止时间与收款方式均由调用方明确提供。
+- 无token为422，无效token为401；规则结构、时区无效为422；时间无法解析、倒序、跨度超限及业务条件不完整返回200且status=pending/total=null。模型限制与字段见同步的OpenAPI文档。
+
+#### 运维记录与规则快照
+
+- 记录创建 `POST /api/v1/remote-assistance/remote-hands`、更新 `PUT /api/v1/remote-assistance/remote-hands/{item_id}` 新增可选 `billing_context`（结构同试算context）和 `refresh_billing_rules`（默认false）。context省略或null保留已有上下文，传对象替换。更新仍按既有完整表单提交客户、工程师、时间等字段。
+- 保存记录、完成计划生成记录时，后端根据本次`customer_pricing`、工程师规则、北京时间、时区、地区及context计算，保存`remote_hands.billing_data`，包含context、rules、customer_pricing、result。报价和现场费用经后端校验，客户端传入的最终合计不会被信任。工程师规则刷新不覆盖本次施工报价。计算在工作线程执行。
+- 同一工程师的既有记录默认沿用已保存规则，改时间或context后重新计算；修改工程师使用新工程师规则。前端“采用工程师最新规则”对应refresh_billing_rules=true，保存后使用当前规则重新计算。直接修改工程师单价不会静默重算历史记录。
+- 概览及完成计划响应的运维记录新增 `billing_context`、`billing_rules_snapshot`、`billing_result`，其他字段兼容。历史无快照记录按当前规则试算并标记 `billing_result.basis: current_rules`，只读查询不写回数据库。费用显示、明细提示、CSV导出均区分试算与已保存费用。未确认费用CSV金额为空，并附计费说明。导出覆盖当前筛选的所有分页。
+- 记录、工程师、计划接口继续沿用各方法/路由的角色权限；无权限403，模型校验422，既有业务失败响应code400。费用计算不会自动创建账单或改变结算状态。
+- 部署前运行 `aerich upgrade`，应用 `176_20260922120000_remote_billing_snapshot.py`（新增可空JSONB字段，无历史金额回填）；原工程师规则字段迁移175仍需已应用。回滚176会删除保存的规则及费用快照。迁移测试使用独立内存库，未改动运行数据库。
 
 ### 运维记录模块
 
@@ -3640,7 +3661,7 @@ curl 'http://localhost:9999/api/v1/finance/quote/list?page=1&page_size=20' \
 | `CustomerProjectUpdate` | object | name, id | name:string, code:string \| null, customer_id:integer \| null, status:string, priority:string, health:string, owner:string \| null, contract_no:string \| null, start_date:string \| null, due_date:string \| null, progress:integer, budget_amount:number \| null, budget_currency:string, description:string \| null, sort_order:integer, id:integer |
 | `DeptCreate` | object | name | name:string, desc:string, order:integer, parent_id:integer |
 | `DeptUpdate` | object | name, id | name:string, desc:string, order:integer, parent_id:integer, id:integer |
-| `EngineerPayload` | object | - | name:string, contact:string, wechat_id:string, wechat_group:string, region:string, is_active:integer, note:string |
+| `EngineerPayload` | object | - | name:string, contact:string, wechat_id:string, wechat_group:string, region:string, is_active:integer, note:string, billing_rules:GeneralBillingRules \| EngineerBillingRules \| MaintenanceBillingRules \| null |
 | `FinanceQuoteCreate` | object | - | quote_type:string, service_resource:string, region:string, service_name:string, cpu_model:string, cpu_cores:string, memory:string, disk:string, bandwidth:string, burst:string, traffic:string, site_a:string, protection:string, xc_cabling:string, contract_terms:string, delivery_time:string, ip_count:string, provider:string, currency:string, nrc:number, mrc:number, usd_per_mbps_nrc:string, usd_per_mbps_mrc:number, cost_price:number, target_price:number, sale_price:number, status:integer, sort:integer, note:string, remark:string |
 | `FinanceQuoteUpdate` | object | id | quote_type:string, service_resource:string, region:string, service_name:string, cpu_model:string, cpu_cores:string, memory:string, disk:string, bandwidth:string, burst:string, traffic:string, site_a:string, protection:string, xc_cabling:string, contract_terms:string, delivery_time:string, ip_count:string, provider:string, currency:string, nrc:number, mrc:number, usd_per_mbps_nrc:string, usd_per_mbps_mrc:number, cost_price:number, target_price:number, sale_price:number, status:integer, sort:integer, note:string, remark:string, id:integer |
 | `HTTPValidationError` | object | - | detail:array[ValidationError] |

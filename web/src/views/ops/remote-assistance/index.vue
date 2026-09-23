@@ -165,136 +165,236 @@
         :closable="!remoteUploading && !remoteEditor.saving"
         :mask-closable="!remoteUploading && !remoteEditor.saving"
         :close-on-esc="!remoteUploading && !remoteEditor.saving"
-        class="editor-modal remote-editor-modal"
-        style="width: min(640px, calc(100vw - 40px))"
+        class="record-editor-modal"
+        style="width: 760px; max-width: calc(100vw - 32px)"
         :bordered="false"
       >
-        <n-form class="remote-form" label-placement="left" label-width="76" size="small" :model="remoteEditor.form">
-          <div class="remote-form-grid">
-            <n-form-item label="客户" required>
-              <n-input v-model:value="remoteEditor.form.customer" placeholder="客户名称" />
-            </n-form-item>
-            <n-form-item label="工单号">
-              <n-input v-model:value="remoteEditor.form.ticket" placeholder="关联工单号" />
-            </n-form-item>
-            <n-form-item label="机房" required>
-              <n-cascader
-                v-model:value="remoteEditor.form.site_key"
-                filterable
-                clearable
-                show-path
-                :options="siteCascaderOptions"
-                :filter="siteCascaderFilter"
-                placeholder="选择地区 / 机房"
-                @update:value="handleRemoteSiteCascaderChange"
-              />
-            </n-form-item>
-            <n-form-item label="工程师" required>
-              <n-select
-                v-model:value="remoteEditor.form.engineer_id"
-                filterable
-                clearable
-                :options="assignableEngineerOptions"
-                :disabled="!remoteEditor.form.region"
-                :placeholder="remoteEditor.form.region ? '选择启用工程师' : '请先选择地区'"
-                @update:value="handleEngineerSelected"
-              />
-            </n-form-item>
-            <n-form-item label="任务状态">
-              <n-select v-model:value="remoteEditor.form.status" :options="statusOptions" />
-            </n-form-item>
-            <n-form-item label="是否结算">
-              <n-switch v-model:value="remoteEditor.form.is_settled">
-                <template #checked>已结算</template>
-                <template #unchecked>未结算</template>
-              </n-switch>
-            </n-form-item>
-            <n-form-item label="到场时间">
-              <n-date-picker
-                v-model:formatted-value="remoteEditor.form.arrived_at"
-                type="datetime"
-                format="yyyy-MM-dd HH:mm"
-                value-format="yyyy-MM-dd'T'HH:mm"
-                :actions="datePickerActions"
-                :time-picker-props="minuteTimePickerProps"
-                clearable
-                style="width: 100%"
-                @update:formatted-value="updateWorkMinutes"
-              />
-            </n-form-item>
-            <n-form-item label="离场时间">
-              <n-date-picker
-                v-model:formatted-value="remoteEditor.form.left_at"
-                type="datetime"
-                format="yyyy-MM-dd HH:mm"
-                value-format="yyyy-MM-dd'T'HH:mm"
-                :actions="datePickerActions"
-                :time-picker-props="minuteTimePickerProps"
-                clearable
-                style="width: 100%"
-                @update:formatted-value="updateWorkMinutes"
-              />
-            </n-form-item>
+        <div class="record-editor-intro">
+          <span class="record-editor-icon"
+            ><TheIcon icon="mdi:clipboard-text-clock-outline" :size="24"
+          /></span>
+          <div>
+            <strong>{{ remoteEditor.form.id ? '完善本次运维记录' : '记录一次现场运维' }}</strong>
+            <p>关联客户与工程师，核对作业时间、费用及现场交接资料。</p>
           </div>
-          <n-form-item label="备注">
-            <n-input
-              v-model:value="remoteEditor.form.note"
-              type="textarea"
-              placeholder="工作内容、交接信息或其他说明"
-              :autosize="{ minRows: 3, maxRows: 6 }"
-            />
-          </n-form-item>
-          <n-form-item label="附件">
-            <div class="plan-attachments">
-              <label
-                class="plan-upload-zone"
-                :class="{ 'is-dragging': remoteDragging, 'is-disabled': remoteUploading || remoteEditor.saving }"
-                @dragover.prevent="remoteDragging = !remoteUploading && !remoteEditor.saving"
-                @dragleave.prevent="remoteDragging = false"
-                @drop.prevent="handleRemoteAttachmentDrop"
-              >
-                <input
-                  class="plan-upload-input"
-                  type="file"
-                  multiple
-                  aria-label="上传运维记录附件，支持选择多个文件"
-                  :disabled="remoteUploading || remoteEditor.saving"
-                  @change="handleRemoteAttachmentSelect"
+        </div>
+        <n-form
+          class="record-editor-form"
+          label-placement="top"
+          :model="remoteEditor.form"
+          :disabled="remoteUploading || remoteEditor.saving"
+        >
+          <section class="record-form-section" aria-labelledby="record-basic-title">
+            <div class="record-section-head">
+              <span id="record-basic-title">基本信息</span><small>客户归属与执行人员</small>
+            </div>
+            <div class="record-form-grid">
+              <n-form-item label="客户" required>
+                <n-select
+                  v-model:value="remoteCustomerValue"
+                  filterable
+                  :show-checkmark="false"
+                  :loading="remoteCustomersLoading"
+                  :options="remoteCustomerOptions"
+                  :render-label="renderRemoteCustomerOption"
+                  :filter="filterRemoteCustomer"
+                  placeholder="请选择客户"
+                  @focus="loadRemoteCustomers()"
                 />
-                <n-spin :show="remoteUploading" size="small">
-                  <div class="plan-upload-content">
-                    <svg class="plan-upload-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                      <path
-                        d="M12 16V4m-4 4 4-4 4 4M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"
-                        stroke="currentColor"
-                        stroke-width="1.6"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      />
-                    </svg>
-                    <span class="plan-upload-title">{{ remoteUploading ? '附件上传中，请稍候…' : '点击或拖拽文件到此处上传' }}</span>
-                    <n-text depth="3" class="plan-upload-tip">支持多文件上传 · 单个最大20MB · 最多50个</n-text>
-                  </div>
-                </n-spin>
-              </label>
-              <div v-for="attachment in remoteEditor.form.attachments" :key="attachment.url" class="plan-attachment">
-                <a :href="attachment.url" :download="attachment.name">{{ attachment.name }}</a>
-                <CButton
-                  show-delete
-                  size="tiny"
-                  :disabled="remoteUploading || remoteEditor.saving"
-                  @delete="deleteAttachment(remoteEditor, attachment)"
+              </n-form-item>
+              <n-form-item label="工单号">
+                <n-input v-model:value="remoteEditor.form.ticket" placeholder="关联工单号" />
+              </n-form-item>
+              <n-form-item label="机房" required>
+                <n-cascader
+                  v-model:value="remoteEditor.form.site_key"
+                  filterable
+                  clearable
+                  show-path
+                  :options="siteCascaderOptions"
+                  :filter="siteCascaderFilter"
+                  placeholder="选择地区 / 机房"
+                  @update:value="handleRemoteSiteCascaderChange"
                 />
+              </n-form-item>
+              <n-form-item label="工程师" required>
+                <n-select
+                  v-model:value="remoteEditor.form.engineer_id"
+                  filterable
+                  clearable
+                  :options="assignableEngineerOptions"
+                  :disabled="!remoteEditor.form.region"
+                  :placeholder="remoteEditor.form.region ? '选择启用工程师' : '请先选择地区'"
+                  @update:value="handleEngineerSelected"
+                />
+              </n-form-item>
+              <n-form-item label="任务状态">
+                <n-select v-model:value="remoteEditor.form.status" :options="statusOptions" />
+              </n-form-item>
+              <n-form-item label="是否结算">
+                <n-switch v-model:value="remoteEditor.form.is_settled">
+                  <template #checked>已结算</template>
+                  <template #unchecked>未结算</template>
+                </n-switch>
+              </n-form-item>
+            </div>
+          </section>
+          <section class="record-form-section" aria-labelledby="record-time-title">
+            <div class="record-section-head">
+              <span id="record-time-title">作业时间</span><small>到场与离场均按北京时间填写</small>
+            </div>
+            <div class="record-form-grid">
+              <n-form-item label="到场(北京)">
+                <n-date-picker
+                  v-model:formatted-value="remoteEditor.form.arrived_at"
+                  type="datetime"
+                  format="yyyy-MM-dd HH:mm"
+                  value-format="yyyy-MM-dd'T'HH:mm"
+                  :actions="datePickerActions"
+                  :time-picker-props="minuteTimePickerProps"
+                  clearable
+                  style="width: 100%"
+                  @update:formatted-value="updateWorkMinutes"
+                />
+              </n-form-item>
+              <n-form-item label="离场(北京)">
+                <n-date-picker
+                  v-model:formatted-value="remoteEditor.form.left_at"
+                  type="datetime"
+                  format="yyyy-MM-dd HH:mm"
+                  value-format="yyyy-MM-dd'T'HH:mm"
+                  :actions="datePickerActions"
+                  :time-picker-props="minuteTimePickerProps"
+                  clearable
+                  style="width: 100%"
+                  @update:formatted-value="updateWorkMinutes"
+                />
+              </n-form-item>
+              <n-form-item label="运维时区">
+                <n-select
+                  v-model:value="remoteEditor.form.timezone"
+                  filterable
+                  tag
+                  :options="timezoneOptions"
+                />
+              </n-form-item>
+              <div class="record-duration">
+                <span>实际工时</span>
+                <strong>{{ formatDuration(remoteEditor.form.work_minutes) }}</strong>
+                <small>夜班按运维时区换算</small>
               </div>
             </div>
-          </n-form-item>
+          </section>
+          <section class="record-form-section" aria-labelledby="record-billing-title">
+            <div class="record-section-head">
+              <span id="record-billing-title">费用结算</span><small>按本次规则自动试算</small>
+            </div>
+            <div v-if="remoteEditor.form.id" class="record-billing-toolbar">
+              <CButton
+                show-save
+                size="small"
+                :save-text="
+                  remoteEditor.form.refresh_billing_rules
+                    ? '已采用最新规则，保存后生效'
+                    : '采用工程师最新规则'
+                "
+                :disabled="
+                  remoteEditor.saving || remoteUploading || remoteEditor.form.refresh_billing_rules
+                "
+                @save="remoteEditor.form.refresh_billing_rules = true"
+              />
+            </div>
+            <MaintenancePriceEditor v-model="remoteEditor.form.customer_pricing" :disabled="remoteEditor.saving || remoteUploading" />
+            <BillingQuote
+              v-model="remoteEditor.form.billing_context"
+              :customer-pricing="remoteEditor.form.customer_pricing"
+              record-expenses
+              :rules="remoteBillingRules"
+              :arrived-at="remoteEditor.form.arrived_at"
+              :left-at="remoteEditor.form.left_at"
+              :timezone="remoteEditor.form.timezone"
+              :region="remoteEditor.form.region"
+              :disabled="remoteEditor.saving || remoteUploading"
+            />
+          </section>
+          <section class="record-form-section" aria-labelledby="record-notes-title">
+            <div class="record-section-head">
+              <span id="record-notes-title">工作说明与附件</span
+              ><small>工作内容、交接信息与现场资料</small>
+            </div>
+            <n-form-item label="备注">
+              <n-input
+                v-model:value="remoteEditor.form.note"
+                type="textarea"
+                placeholder="工作内容、交接信息或其他说明"
+                :autosize="{ minRows: 3, maxRows: 6 }"
+              />
+            </n-form-item>
+            <n-form-item label="附件">
+              <div class="plan-attachments">
+                <label
+                  class="plan-upload-zone"
+                  :class="{
+                    'is-dragging': remoteDragging,
+                    'is-disabled': remoteUploading || remoteEditor.saving,
+                  }"
+                  @dragover.prevent="remoteDragging = !remoteUploading && !remoteEditor.saving"
+                  @dragleave.prevent="remoteDragging = false"
+                  @drop.prevent="handleRemoteAttachmentDrop"
+                >
+                  <input
+                    class="plan-upload-input"
+                    type="file"
+                    multiple
+                    aria-label="上传运维记录附件，支持选择多个文件"
+                    :disabled="remoteUploading || remoteEditor.saving"
+                    @change="handleRemoteAttachmentSelect"
+                  />
+                  <n-spin :show="remoteUploading" size="small">
+                    <div class="plan-upload-content">
+                      <svg class="plan-upload-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path
+                          d="M12 16V4m-4 4 4-4 4 4M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"
+                          stroke="currentColor"
+                          stroke-width="1.6"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                      </svg>
+                      <span class="plan-upload-title">{{
+                        remoteUploading ? '附件上传中，请稍候…' : '点击或拖拽文件到此处上传'
+                      }}</span>
+                      <n-text depth="3" class="plan-upload-tip"
+                        >支持多文件上传 · 单个最大20MB · 最多50个</n-text
+                      >
+                    </div>
+                  </n-spin>
+                </label>
+                <div
+                  v-for="attachment in remoteEditor.form.attachments"
+                  :key="attachment.url"
+                  class="plan-attachment"
+                >
+                  <a :href="attachment.url" :download="attachment.name">{{ attachment.name }}</a>
+                  <CButton
+                    show-delete
+                    size="tiny"
+                    :disabled="remoteUploading || remoteEditor.saving"
+                    @delete="deleteAttachment(remoteEditor, attachment)"
+                  />
+                </div>
+              </div>
+            </n-form-item>
+          </section>
         </n-form>
         <template #footer>
-          <div class="modal-actions compact-modal-actions">
+          <div class="record-editor-footer">
+            <span class="record-footer-hint">{{
+              remoteUploading ? '正在处理附件，请稍候…' : '确认工时与费用后保存'
+            }}</span>
             <CButton
               show-cancel
               show-save
-              size="small"
               :save-loading="remoteEditor.saving"
               :disabled="remoteUploading || remoteEditor.saving"
               @cancel="remoteEditor.show = false"
@@ -318,7 +418,17 @@
         <n-form class="remote-form" label-placement="left" label-width="90" size="small" :model="planEditor.form">
           <div class="remote-form-grid">
             <n-form-item label="客户" required>
-              <n-input v-model:value="planEditor.form.customer" placeholder="客户名称" />
+              <n-select
+                v-model:value="planCustomerValue"
+                filterable
+                :show-checkmark="false"
+                :loading="remoteCustomersLoading"
+                :options="planCustomerOptions"
+                :render-label="renderRemoteCustomerOption"
+                :filter="filterRemoteCustomer"
+                placeholder="请选择客户"
+                @focus="loadRemoteCustomers()"
+              />
             </n-form-item>
             <n-form-item label="工单号">
               <n-input v-model:value="planEditor.form.ticket" placeholder="关联工单号" />
@@ -370,6 +480,7 @@
               />
             </n-form-item>
           </div>
+          <MaintenancePriceEditor v-model="planEditor.form.customer_pricing" :disabled="planEditor.saving || planUploading" />
           <n-form-item label="计划说明">
             <n-input
               v-model:value="planEditor.form.note"
@@ -448,7 +559,7 @@
         :bordered="false"
       >
         <n-form class="remote-form" label-placement="left" label-width="82" size="small" :model="completeEditor.form">
-          <n-form-item label="到场时间" required>
+          <n-form-item label="到场(北京)" required>
             <n-date-picker
               v-model:formatted-value="completeEditor.form.arrived_at"
               type="datetime"
@@ -461,7 +572,7 @@
               style="width: 100%"
             />
           </n-form-item>
-          <n-form-item label="离场时间" required>
+          <n-form-item label="离场(北京)" required>
             <n-date-picker
               v-model:formatted-value="completeEditor.form.left_at"
               type="datetime"
@@ -472,6 +583,9 @@
               clearable
               style="width: 100%"
             />
+          </n-form-item>
+          <n-form-item label="运维时区">
+            <n-select v-model:value="planEditor.form.timezone" filterable tag :options="timezoneOptions" />
           </n-form-item>
           <n-form-item label="备注">
             <n-input
@@ -550,31 +664,11 @@
           <n-form-item label="阶梯计费">
             <n-switch v-model:value="engineerEditor.form.billing_enabled" />
           </n-form-item>
-          <div v-if="engineerEditor.form.billing_enabled" class="billing-rules">
-            <n-form-item label="币种">
-              <n-select v-model:value="engineerEditor.form.billing_rules.currency" :options="billingCurrencyOptions" />
-            </n-form-item>
-            <p class="muted-text">按单次工时分段累加，按实际分钟折算，合计四舍五入到两位小数。最后一档不限时长。</p>
-            <div v-for="(tier, index) in engineerEditor.form.billing_rules.tiers" :key="index" class="billing-tier">
-              <n-form-item :label="`第 ${index + 1} 档`">
-                <n-input-number
-                  v-if="index < engineerEditor.form.billing_rules.tiers.length - 1"
-                  v-model:value="tier.up_to_minutes" :min="1" :max="525600" :precision="0"
-                  placeholder="累计上限（分钟）" aria-label="累计工时上限（分钟）"
-                />
-                <span v-else>超过前档上限（首档则从 0 分钟起）</span>
-              </n-form-item>
-              <n-form-item label="小时单价">
-                <n-input-number v-model:value="tier.hourly_rate" :min="0" :max="9999999999.99" :precision="2" aria-label="小时单价" />
-              </n-form-item>
-              <CButton show-delete size="small" :disabled="engineerEditor.saving || engineerEditor.form.billing_rules.tiers.length === 1" @delete="removeBillingTier(index)" />
-            </div>
-            <CButton show-save save-text="添加阶梯" size="small" :disabled="engineerEditor.saving || engineerEditor.form.billing_rules.tiers.length >= 20" @save="addBillingTier" />
-            <n-form-item label="试算分钟" class="billing-preview">
-              <n-input-number v-model:value="billingPreviewMinutes" :min="0" :max="525600" :precision="0" />
-              <span>{{ billingPreviewAmount }} {{ engineerEditor.form.billing_rules.currency }}</span>
-            </n-form-item>
-          </div>
+          <EngineerBillingEditor
+            v-if="engineerEditor.form.billing_enabled"
+            v-model="engineerEditor.form.billing_rules"
+            :disabled="engineerEditor.saving"
+          />
           <n-form-item label="备注">
             <n-input
               v-model:value="engineerEditor.form.note"
@@ -608,7 +702,11 @@ import { NButton, NPopconfirm, NSpace, NSelect, NSwitch, NTag, NTooltip, useMess
 import api from '@/api'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import { recordsCsv } from './export.mjs'
-import { billingCurrencies, calculateTierFee, validateBillingRules } from './billing.mjs'
+import { buildCustomerOptions, selectedCustomerValue } from './customers.mjs'
+import { billingTotalLabel, billingSummary, cloneBillingRules, validateBillingRules, timezoneOptions, beijingDateTime, beijingTimestamp } from './billing.mjs'
+import BillingQuote from './BillingQuote.vue'
+import MaintenancePriceEditor from './MaintenancePriceEditor.vue'
+import EngineerBillingEditor from './EngineerBillingEditor.vue'
 import CButton from '@/components/public/CButton.vue'
 import { translateCity, translateCountry, translateLocationPath } from '@/utils/location-i18n'
 
@@ -626,14 +724,55 @@ const engineers = ref([])
 const users = ref([])
 const datacenters = ref([])
 const popRegions = ref([])
+const remoteCustomers = ref([])
+const remoteCustomersLoading = ref(false)
+const remoteCustomersLoaded = ref(false)
+const remoteCustomerSelection = ref(null)
+const planCustomerSelection = ref(null)
+const remoteCustomerOptions = computed(() =>
+  buildCustomerOptions(remoteCustomers.value, remoteEditor.form.customer)
+)
+const planCustomerOptions = computed(() =>
+  buildCustomerOptions(remoteCustomers.value, planEditor.form.customer)
+)
+const remoteCustomerValue = computed({
+  get: () =>
+    selectedCustomerValue(
+      remoteCustomerOptions.value,
+      remoteEditor.form.customer,
+      remoteCustomerSelection.value ||
+        (remoteEditor.form.customer_id ? `customer:${remoteEditor.form.customer_id}` : null)
+    ),
+  set: (value) => {
+    const option = remoteCustomerOptions.value.find((item) => item.value === value)
+    remoteCustomerSelection.value = value
+    remoteEditor.form.customer = option?.customerName || ''
+    remoteEditor.form.customer_id = option?.customerId || null
+    remoteEditor.form.customer_pricing = { kind: option?.customerName?.toLowerCase() === 'catixs' ? 'internal' : 'pending' }
+  },
+})
+const planCustomerValue = computed({
+  get: () =>
+    selectedCustomerValue(
+      planCustomerOptions.value,
+      planEditor.form.customer,
+      planCustomerSelection.value ||
+        (planEditor.form.customer_id ? `customer:${planEditor.form.customer_id}` : null)
+    ),
+  set: (value) => {
+    const option = planCustomerOptions.value.find((item) => item.value === value)
+    planCustomerSelection.value = value
+    planEditor.form.customer = option?.customerName || ''
+    planEditor.form.customer_id = option?.customerId || null
+    planEditor.form.customer_pricing = { kind: option?.customerName?.toLowerCase() === 'catixs' ? 'internal' : 'pending' }
+  },
+})
+
 const engineerKeyword = ref('')
-const billingCurrencyOptions = billingCurrencies.map((value) => ({ label: value, value }))
-const billingPreviewMinutes = ref(120)
-const billingPreviewAmount = computed(() => calculateTierFee(engineerEditor.form.billing_rules, billingPreviewMinutes.value) ?? '请完善规则')
 
 const remoteFilters = reactive({ engineer_id: null, site: null, site_key: null, status: null })
 const planFilters = reactive({ assignee_id: null, site: null, site_key: null, status: null })
-const datePickerActions = ['clear', 'now', 'confirm']
+const datePickerActions = ['clear', 'confirm']
 const minuteTimePickerProps = { format: 'HH:mm' }
 const regionAliasMap = new Map([
   ['hk', '香港'],
@@ -725,6 +864,11 @@ const planStatusOptions = [
 ]
 
 const remoteEditor = reactive({ show: false, saving: false, form: createRemoteForm() })
+const remoteBillingRules = computed(() => {
+  const form = remoteEditor.form
+  if (!form.refresh_billing_rules && form.engineer_id === form.billing_engineer_id && form.billing_rules_snapshot) return form.billing_rules_snapshot
+  return engineers.value.find((item) => item.id === form.engineer_id)?.billing_rules || null
+})
 const planEditor = reactive({ show: false, saving: false, form: createPlanForm() })
 const completeEditor = reactive({ show: false, saving: false, form: createCompleteForm() })
 const engineerEditor = reactive({ show: false, saving: false, form: createEngineerForm() })
@@ -883,9 +1027,18 @@ const remoteColumns = [
     ]),
   },
   { title: '日期', key: 'date', width: 135, render: (row) => formatRemoteDateRange(row) },
-  { title: '到场', key: 'arrived_at', width: 105, render: (row) => formatTime(row.arrived_at) },
-  { title: '离场', key: 'left_at', width: 125, render: (row) => formatRemoteEndTime(row) },
+  { title: '到场（北京）', key: 'arrived_at', width: 125, render: (row) => formatTime(row.arrived_at) },
+  { title: '离场（北京）', key: 'left_at', width: 145, render: (row) => formatRemoteEndTime(row) },
   { title: '工时', key: 'work_minutes', width: 95, render: (row) => formatDuration(row.work_minutes) },
+  { title: '运维时区', key: 'timezone', width: 170 },
+  { title: '规则费用', key: 'billing_result', width: 200, render: (row) => h(NTooltip, null, {
+    trigger: () => h('span', billingTotalLabel(row.billing_result)),
+    default: () => h('div', [
+      h('div', row.billing_result?.basis === 'current_rules' ? '按当前规则试算（历史记录未保存费用）' : '本次计费结果'),
+      ...(row.billing_result?.lines || []).map((line) => h('div', `${line.label}：${line.amount} ${line.currency || row.billing_result.currency}`)),
+      ...(row.billing_result?.notices || []).map((line) => h('div', line)),
+    ]),
+  }) },
   {
     title: '状态', key: 'status', width: 100,
     render: (row) => h(NTag, { type: statusTagType(row.status), bordered: false, size: 'small' },
@@ -1002,10 +1155,7 @@ const engineerColumns = [
   { title: '姓名', key: 'name', width: 150, render: (row) => h('strong', row.name || '-') },
   {
     title: '阶梯计费', key: 'billing_rules', width: 280,
-    render: (row) => row.billing_rules
-      ? h('div', { class: 'primary-cell' }, row.billing_rules.tiers.map((tier, index) => h('small',
-        `${index ? row.billing_rules.tiers[index - 1].up_to_minutes : 0}–${tier.up_to_minutes ?? '不限'} 分钟：${tier.hourly_rate} ${row.billing_rules.currency}/小时`)))
-      : '未配置',
+    render: (row) => h('div', { class: 'primary-cell' }, billingSummary(row.billing_rules).map((line) => h('small', line))),
   },
   { title: '联系方式', key: 'contact', width: 180, render: (row) => row.contact || '-' },
   {
@@ -1057,11 +1207,12 @@ function exportRemoteHands() {
   if (!rows.length) return message.warning('暂无可导出的运维记录')
   try {
     const content = recordsCsv([
-      ['客户', '工单', '工程师', '联系方式', '微信', '联系群', '地区', '机房', '机柜', '时区', '到场时间', '离场时间', '工时（分钟）', '状态', '是否结算', '备注'],
+      ['客户', '工单', '工程师', '联系方式', '微信', '联系群', '地区', '机房', '机柜', '时区', '到场时间（北京时间）', '离场时间（北京时间）', '工时（分钟）', '状态', '是否结算', '备注', '费用', '币种', '计费说明'],
       ...rows.map((row) => [row.customer, row.ticket, row.engineer_name, row.engineer_contact,
         row.engineer_wechat, row.engineer_group, displayRegion(row.region), row.site, row.rack,
         row.timezone, row.arrived_at, row.left_at, row.work_minutes, statusLabel(row.status),
-        readSettledFlag(row) ? '已结算' : '未结算', row.note]),
+        readSettledFlag(row) ? '已结算' : '未结算', row.note, billingTotalLabel(row.billing_result), row.billing_result?.currency ?? '',
+        [row.billing_result?.basis === 'current_rules' ? '按现行规则试算' : '本次计费结果', ...(row.billing_result?.notices || [])].join('；')]),
     ])
     const url = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8;' }))
     const link = document.createElement('a')
@@ -1081,6 +1232,8 @@ function createRemoteForm(source = {}) {
   return {
     id: source.id || null,
     customer: source.customer || '',
+    customer_id: source.customer_id || null,
+    customer_pricing: { ...(source.customer_pricing || source.customer_pricing_snapshot || { kind: source.customer?.toLowerCase() === 'catixs' ? 'internal' : 'pending' }) },
     ticket: source.ticket || '',
     engineer_id: source.engineer_id || null,
     engineer_name: source.engineer_name || '',
@@ -1098,6 +1251,10 @@ function createRemoteForm(source = {}) {
     status: source.status || 'scheduled',
     is_settled: readSettledFlag(source),
     attachments: (source.attachments || []).map((item) => ({ ...item })),
+    billing_engineer_id: source.engineer_id || null,
+    billing_rules_snapshot: source.billing_rules_snapshot || null,
+    billing_context: { ...(source.billing_context || {}) },
+    refresh_billing_rules: false,
     note: source.note || '',
   }
 }
@@ -1106,6 +1263,8 @@ function createPlanForm(source = {}) {
   return {
     id: source.id || null,
     customer: source.customer || '',
+    customer_id: source.customer_id || null,
+    customer_pricing: { ...(source.customer_pricing || source.customer_pricing_snapshot || { kind: source.customer?.toLowerCase() === 'catixs' ? 'internal' : 'pending' }) },
     ticket: source.ticket || '',
     engineer_id: source.engineer_id || null,
     engineer_name: source.engineer_name || '',
@@ -1146,10 +1305,7 @@ function createEngineerForm(source = {}) {
     regions: uniqueRegionValues(splitRegions(source.region)),
     is_active: Number(source.is_active ?? 1),
     billing_enabled: Boolean(source.billing_rules),
-    billing_rules: source.billing_rules ? {
-      currency: source.billing_rules.currency,
-      tiers: source.billing_rules.tiers.map((tier) => ({ ...tier, hourly_rate: Number(tier.hourly_rate) })),
-    } : { currency: 'CNY', tiers: [{ up_to_minutes: null, hourly_rate: 0 }] },
+    billing_rules: cloneBillingRules(source.billing_rules),
     note: source.note || '',
   }
 }
@@ -1542,13 +1698,73 @@ function splitRegions(value) {
 }
 
 function openRemoteEditor(row = null) {
+  remoteCustomerSelection.value = null
   remoteEditor.form = createRemoteForm(row || {})
   remoteEditor.show = true
+  loadRemoteCustomers(true)
+}
+
+async function loadRemoteCustomers(force = false) {
+  if ((!force && remoteCustomersLoaded.value) || remoteCustomersLoading.value) return
+  remoteCustomersLoading.value = true
+  try {
+    const res = await api.customerCenterApi.options()
+    remoteCustomers.value = res.data?.customers || []
+    remoteCustomersLoaded.value = true
+  } catch (error) {
+    message.error(error.message || '读取客户列表失败，请重新点击客户下拉框重试')
+  } finally {
+    remoteCustomersLoading.value = false
+  }
+}
+
+function filterRemoteCustomer(pattern, option) {
+  return `${option.label} ${option.searchText || ''} ${option.value}`
+    .toLowerCase()
+    .includes(pattern.trim().toLowerCase())
+}
+
+function renderRemoteCustomerOption(option) {
+  const entity = String(option.signing_entity_name || '')
+  const normalized = entity.toLowerCase()
+  const tag = entity.includes('科特思')
+    ? { text: '科', type: 'success' }
+    : normalized.includes('77')
+    ? { text: '7', type: 'warning' }
+    : normalized.includes('catixs')
+    ? { text: 'C', type: 'info' }
+    : null
+  return h(
+    'span',
+    {
+      style: {
+        display: 'grid',
+        gridTemplateColumns: 'minmax(0, 1fr) auto',
+        alignItems: 'center',
+        width: '100%',
+        minWidth: 0,
+        flex: '1 1 auto',
+        columnGap: '12px',
+      },
+    },
+    [
+      h(
+        'span',
+        { style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' },
+        option.label
+      ),
+      tag
+        ? h(NTag, { size: 'small', round: true, type: tag.type }, { default: () => tag.text })
+        : null,
+    ]
+  )
 }
 
 function openPlanEditor(row = null) {
+  planCustomerSelection.value = null
   planEditor.form = createPlanForm(row || {})
   planEditor.show = true
+  loadRemoteCustomers(true)
 }
 
 function openCompleteEditor(row) {
@@ -1640,21 +1856,21 @@ function handleCompleteArrivedAtChange(value) {
 
 function minutesBetween(start, end) {
   if (!start || !end) return 0
-  const value = Math.round((new Date(end).getTime() - new Date(start).getTime()) / 60000)
+  const value = Math.floor((beijingTimestamp(end) - beijingTimestamp(start)) / 60000)
   return Number.isFinite(value) ? Math.max(0, value) : 0
 }
 
 function isEndBeforeStart(start, end) {
   if (!start || !end) return false
-  const startTime = new Date(start).getTime()
-  const endTime = new Date(end).getTime()
+  const startTime = beijingTimestamp(start)
+  const endTime = beijingTimestamp(end)
   return Number.isFinite(startTime) && Number.isFinite(endTime) && endTime < startTime
 }
 
 async function saveRemoteHands() {
   if (remoteUploading.value || remoteEditor.saving) return
   const form = remoteEditor.form
-  if (!form.customer.trim()) return message.warning('请输入客户名称')
+  if (!form.customer.trim()) return message.warning('请选择客户')
   if (!fieldText(form.region)) return message.warning('请选择或输入地区')
   if (!form.site) return message.warning('请选择机房')
   if (!form.engineer_id) return message.warning('请选择工程师')
@@ -1749,7 +1965,7 @@ async function uploadAttachments(files, editor, busy) {
 async function savePlan() {
   if (planUploading.value || planEditor.saving) return
   const form = planEditor.form
-  if (!form.customer.trim()) return message.warning('请输入客户名称')
+  if (!form.customer.trim()) return message.warning('请选择客户')
   if (!fieldText(form.region)) return message.warning('请选择地区')
   if (!form.site) return message.warning('请选择机房')
   form.planned_at = normalizeDateTime(form.planned_at)
@@ -1769,21 +1985,6 @@ async function savePlan() {
   } finally {
     planEditor.saving = false
   }
-}
-
-function addBillingTier() {
-  const tiers = engineerEditor.form.billing_rules.tiers
-  if (tiers.length >= 20) return
-  const previous = tiers.length > 1 ? Number(tiers[tiers.length - 2].up_to_minutes) : 0
-  tiers[tiers.length - 1].up_to_minutes = previous + 60
-  tiers.push({ up_to_minutes: null, hourly_rate: tiers[tiers.length - 1].hourly_rate })
-}
-
-function removeBillingTier(index) {
-  const tiers = engineerEditor.form.billing_rules.tiers
-  if (tiers.length <= 1) return
-  tiers.splice(index, 1)
-  tiers[tiers.length - 1].up_to_minutes = null
 }
 
 async function saveEngineer() {
@@ -1950,6 +2151,10 @@ function normalizeDateTime(value) {
     const date = new Date(text.length === 10 ? numeric * 1000 : numeric)
     if (Number.isFinite(date.getTime())) return formatLocalDateTime(date)
   }
+  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(text)) {
+    const date = new Date(text)
+    return Number.isFinite(date.getTime()) ? beijingDateTime(date) : null
+  }
   const match = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[T\s](\d{1,2})(?::(\d{1,2}))?)?/)
   if (match) {
     const [, year, month, day, hour = '00', minute = '00'] = match
@@ -1964,8 +2169,7 @@ function padDatePart(value) {
 }
 
 function formatLocalDateTime(date) {
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
-  return local.toISOString().slice(0, 16)
+  return beijingDateTime(date)
 }
 
 function localDateTime() {
@@ -1975,10 +2179,8 @@ function localDateTime() {
 
 function addHoursToDateTime(value, hours = 1) {
   if (!value) return null
-  const date = new Date(value)
-  if (!Number.isFinite(date.getTime())) return null
-  date.setHours(date.getHours() + hours)
-  return formatLocalDateTime(date)
+  const timestamp = beijingTimestamp(value)
+  return Number.isFinite(timestamp) ? beijingDateTime(new Date(timestamp + hours * 3600000)) : null
 }
 
 function formatDate(value) {
@@ -2379,11 +2581,7 @@ onMounted(fetchOverview)
 .remote-form :deep(.n-base-selection),
 .remote-form :deep(.n-date-picker) { min-height: 30px; }
 .engineer-form-grid { display: grid; grid-template-columns: 1fr; }
-.billing-rules { margin-bottom: 16px; }
-.billing-tier { padding: 12px; margin-bottom: 8px; border: 1px solid var(--n-border-color); border-radius: 8px; }
-.billing-tier .n-input-number { width: 100%; }
-.billing-preview { margin-top: 16px; }
-.billing-preview span { margin-left: 12px; }
+.engineer-form { max-height: min(70vh, 720px); overflow-y: auto; padding-right: 8px; }
 .engineer-form :deep(.n-form-item) { margin-bottom: 12px; }
 .engineer-form :deep(.n-input),
 .engineer-form :deep(.n-base-selection) { min-height: 30px; }
@@ -2403,5 +2601,186 @@ onMounted(fetchOverview)
   .summary-grid { grid-template-columns: 1fr; }
   .filter-row { grid-template-columns: 1fr; }
   .workspace-panel { padding: 14px; }
+}
+.record-editor-modal :deep(.n-card__content) {
+  max-height: calc(100vh - 180px);
+  overflow-y: auto;
+}
+:global(.n-base-select-option.remote-customer-option .n-base-select-option__content) {
+  display: flex;
+  width: 100%;
+}
+:global(.n-base-select-option.remote-customer-option .n-base-select-option__content > span) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.record-editor-intro {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid #dceafe;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+.record-editor-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  border-radius: 8px;
+  color: #0f766e;
+  background: #dff7f1;
+}
+.record-editor-intro strong {
+  font-size: 16px;
+  color: #0f172a;
+}
+.record-editor-intro p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+.record-editor-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.record-form-section {
+  padding: 14px 16px 2px;
+  border: 1px solid #e8edf3;
+  border-radius: 8px;
+}
+.record-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #edf2f7;
+}
+.record-section-head > span {
+  font-size: 15px;
+  font-weight: 700;
+}
+.record-section-head > small {
+  font-size: 12px;
+  color: #94a3b8;
+}
+.record-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 16px;
+}
+.record-editor-form :deep(.n-form-item) {
+  min-width: 0;
+}
+.record-editor-form :deep(.n-date-picker),
+.record-editor-form :deep(.n-input-number) {
+  width: 100%;
+}
+.record-editor-form :deep(.n-form-item-blank) {
+  min-width: 0;
+}
+.record-duration {
+  display: flex;
+  align-self: start;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 2px 0 18px;
+  padding: 12px 14px;
+  background: #f8fbff;
+  border: 1px solid #e8edf3;
+  border-radius: 8px;
+}
+.record-duration > span {
+  color: #64748b;
+  font-size: 13px;
+}
+.record-duration > strong {
+  color: #0f766e;
+  font-size: 18px;
+}
+.record-duration > small {
+  flex-basis: 100%;
+  color: #94a3b8;
+}
+.record-billing-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 14px;
+}
+.record-editor-form :deep(.billing-quote) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 16px;
+  padding: 0;
+  background: transparent;
+}
+.record-editor-form :deep(.billing-quote > .n-spin-container) {
+  grid-column: 1 / -1;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  background: #f8fbff;
+  border: 1px solid #e8edf3;
+  border-radius: 8px;
+}
+.record-editor-form :deep(.billing-quote p) {
+  margin: 6px 0 10px;
+  font-size: 13px;
+}
+.record-editor-form :deep(.fee-line) {
+  padding: 8px 0;
+  border-bottom: 1px dashed #e8edf3;
+  font-size: 13px;
+}
+.record-editor-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.record-footer-hint {
+  font-size: 12px;
+  color: #94a3b8;
+}
+@media (max-width: 600px) {
+  .record-editor-modal {
+    width: calc(100vw - 16px) !important;
+    max-width: calc(100vw - 16px) !important;
+  }
+  .record-editor-modal :deep(.n-card-header) {
+    padding: 14px 16px 8px;
+  }
+  .record-editor-modal :deep(.n-card__content) {
+    max-height: calc(100vh - 152px);
+    padding: 10px 16px;
+  }
+  .record-editor-modal :deep(.n-card__footer) {
+    padding: 10px 16px 14px;
+  }
+  .record-form-grid,
+  .record-editor-form :deep(.billing-quote) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .record-form-section {
+    padding: 12px 12px 2px;
+  }
+  .record-editor-footer {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .record-footer-hint {
+    flex-basis: 100%;
+  }
+  .record-billing-toolbar {
+    justify-content: flex-start;
+  }
 }
 </style>

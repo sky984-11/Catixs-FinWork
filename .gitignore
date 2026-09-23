@@ -15,6 +15,9 @@ migrations/models/*
 !migrations/models/173_20260918020000_project_vendor.py
 !migrations/models/174_20260921120000_idc_workflow.py
 !migrations/models/175_20260922090000_engineer_billing_rules.py
+!migrations/models/176_20260922120000_remote_billing_snapshot.py
+!migrations/models/177_20260923120000_customer_maintenance_price.py
+!migrations/models/178_20260923150000_plan_maintenance_quote.py
 .env
 .pnpm-store/
 

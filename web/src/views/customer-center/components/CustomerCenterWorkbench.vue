@@ -823,6 +823,8 @@ async function saveCustomer() {
   customerModal.loading = true
   try {
     const payload = { ...customerModal.form }
+    delete payload.maintenance_hourly_rate
+    delete payload.maintenance_currency
     payload.alias = payload.name
     delete payload.invoice_profile
     delete payload.finance_profile
