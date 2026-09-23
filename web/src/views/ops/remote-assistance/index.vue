@@ -1,25 +1,6 @@
 <template>
   <AppPage :show-footer="false">
     <div class="collaboration-page">
-      <section class="summary-grid">
-        <article>
-          <span class="summary-icon orange"><TheIcon icon="mdi:clipboard-clock-outline" :size="21" /></span>
-          <div><small>未到场</small><strong>{{ statusCount.scheduled }}</strong></div>
-        </article>
-        <article>
-          <span class="summary-icon blue"><TheIcon icon="mdi:account-clock-outline" :size="21" /></span>
-          <div><small>现场处理中</small><strong>{{ statusCount.arrived }}</strong></div>
-        </article>
-        <article>
-          <span class="summary-icon green"><TheIcon icon="mdi:check-circle-outline" :size="21" /></span>
-          <div><small>已完成</small><strong>{{ statusCount.done }}</strong></div>
-        </article>
-        <article>
-          <span class="summary-icon gray"><TheIcon icon="mdi:account-hard-hat-outline" :size="21" /></span>
-          <div><small>待执行计划</small><strong>{{ pendingPlanCount }}</strong></div>
-        </article>
-      </section>
-
       <section class="workspace-panel">
         <n-tabs v-model:value="activeTab" type="line" animated>
           <n-tab-pane name="plans" tab="运维计划">
@@ -873,18 +854,8 @@ const planEditor = reactive({ show: false, saving: false, form: createPlanForm()
 const completeEditor = reactive({ show: false, saving: false, form: createCompleteForm() })
 const engineerEditor = reactive({ show: false, saving: false, form: createEngineerForm() })
 
-const statusCount = computed(() => ({
-  scheduled: remoteHands.value.filter((item) => item.status === 'scheduled').length,
-  arrived: remoteHands.value.filter((item) => item.status === 'arrived').length,
-  done: remoteHands.value.filter((item) => item.status === 'done').length,
-}))
-
 const activeEngineerCount = computed(
   () => engineers.value.filter((item) => Number(item.is_active) === 1).length
-)
-
-const pendingPlanCount = computed(
-  () => plans.value.filter((item) => item.status === 'pending').length
 )
 
 const userOptions = computed(() => users.value
@@ -1023,7 +994,7 @@ const remoteColumns = [
   {
     title: '地区 / 机房', key: 'site', width: 190,
     render: (row) => h('div', { class: 'primary-cell' }, [
-      h('strong', displayRegion(row.region) || '-'), h('small', row.site || '-'),
+      h('strong', canonicalRegion(row.region) || '-'), h('small', row.site || '-'),
     ]),
   },
   { title: '日期', key: 'date', width: 135, render: (row) => formatRemoteDateRange(row) },
@@ -1090,7 +1061,7 @@ const planColumns = [
   {
     title: '地区 / 机房', key: 'site', width: 190,
     render: (row) => h('div', { class: 'primary-cell' }, [
-      h('strong', displayRegion(row.region) || '-'), h('small', row.site || '-'),
+      h('strong', canonicalRegion(row.region) || '-'), h('small', row.site || '-'),
     ]),
   },
   {
@@ -2440,54 +2411,12 @@ onMounted(fetchOverview)
   overflow: hidden;
 }
 
-.summary-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.summary-grid article,
 .workspace-panel {
   border: 1px solid rgba(148, 163, 184, 0.22);
   border-radius: 8px;
   background: #fff;
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
 }
-
-.summary-grid article {
-  display: flex;
-  min-height: 94px;
-  align-items: center;
-  gap: 14px;
-  padding: 18px;
-}
-
-.summary-grid small {
-  display: block;
-  margin-bottom: 5px;
-  color: #7b8798;
-  font-size: 13px;
-}
-
-.summary-grid strong {
-  color: #172033;
-  font-size: 25px;
-  line-height: 1;
-}
-
-.summary-icon {
-  display: grid;
-  width: 42px;
-  height: 42px;
-  flex: 0 0 42px;
-  place-items: center;
-  border-radius: 8px;
-}
-
-.summary-icon.orange { background: #fff1eb; color: #f4511e; }
-.summary-icon.blue { background: #eaf3ff; color: #2775d7; }
-.summary-icon.green { background: #e8f7ef; color: #15945c; }
-.summary-icon.gray { background: #f0f2f5; color: #5c6878; }
 
 .workspace-panel {
   display: flex;
@@ -2590,7 +2519,6 @@ onMounted(fetchOverview)
 .engineer-modal-actions { gap: 8px; }
 
 @media (max-width: 900px) {
-  .summary-grid { grid-template-columns: 1fr 1fr; }
   .table-toolbar { align-items: stretch; flex-direction: column; }
   .filter-row { width: 100%; }
   .form-grid { grid-template-columns: 1fr; }
@@ -2598,7 +2526,6 @@ onMounted(fetchOverview)
 }
 
 @media (max-width: 560px) {
-  .summary-grid { grid-template-columns: 1fr; }
   .filter-row { grid-template-columns: 1fr; }
   .workspace-panel { padding: 14px; }
 }
