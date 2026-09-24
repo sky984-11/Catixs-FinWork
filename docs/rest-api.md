@@ -398,7 +398,7 @@ curl 'http://localhost:9999/api/v1/finance/quote/list?page=1&page_size=20' \
 
 ### 运维记录费用与通用计费规则
 
-2026-09-24更新：[按次施工报价、通用附加费用及多币种结果](maintenance-billing.md)。客户管理已移除报价字段，计划/记录界面仅选择一口价或工程师规则，默认工程师规则；历史小时报价继续兼容。附加费用使用 `billing_rules.additional_fees`，实际时长和本次免收项使用 `billing_context.additional_fee_minutes` / `excluded_fee_ids`。多币种结果使用`totals`，不能仅通过`total:null`判断待确认。下述紧急维护、交通及商务条款字段仅用于历史兼容，新工程师界面不再提供。
+2026-09-24更新：[按次施工报价、通用附加费用及多币种结果](maintenance-billing.md)。客户管理已移除报价字段，记录界面提供工程师规则或自定义，自定义支持一口价（fixed）和本次工程师单价微调（hourly）；计划仍可选择一口价或工程师规则。默认使用工程师规则，不修改工程师档案。附加费用使用 `billing_rules.additional_fees`，实际时长和本次免收项使用 `billing_context.additional_fee_minutes` / `excluded_fee_ids`。多币种结果使用`totals`，不能仅通过`total:null`判断待确认。下述紧急维护、交通及商务条款字段仅用于历史兼容，新工程师界面不再提供。
 
 - 工程师 `POST /api/v1/remote-assistance/engineers`、`PUT /api/v1/remote-assistance/engineers/{engineer_id}` 的 `billing_rules` 支持通用模式 `mode: general`。省略保持原规则，null清除；旧小时阶梯和旧固定档位请求仍兼容。新建规则默认不填单价，不设地区、附加费用及夜班时段；前端参考模板功能已移除。
 - 通用示例：`{"name":"示例工程师","billing_rules":{"mode":"general","currency":"GBP","pricing":"hourly","hourly_rate":"30.00","transport_mode":"hourly","commute_minutes":60}}`。2小时人工60 GBP，加一次通勤30 GBP，总计90 GBP。创建响应 `{"code":200,"msg":"工程师已创建","data":null}`；编辑响应 `{"code":200,"msg":"工程师已更新","data":null}`。概览 `GET /api/v1/remote-assistance/overview` 的 `data.engineers[].billing_rules` 返回完整规则。

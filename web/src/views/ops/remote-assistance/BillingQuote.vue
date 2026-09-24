@@ -107,7 +107,9 @@ onBeforeUnmount(() => {
         customerPricing.kind === 'internal'
           ? '本次使用工程师基础规则。'
           : customerPricing.kind === 'hourly'
-          ? `客户基础人工：${customerPricing.hourly_rate} ${customerPricing.currency}/小时，替换原小时单价或固定档位。`
+          ? `本次人工单价：${customerPricing.hourly_rate ?? '待确认'} ${
+              customerPricing.currency
+            }/小时，替换原小时单价或固定档位。`
           : customerPricing.kind === 'fixed'
           ? '本次采用施工一口价。'
           : '请确认本次施工报价。'

@@ -283,7 +283,7 @@
                 @save="remoteEditor.form.refresh_billing_rules = true"
               ><template #save-icon><TheIcon icon="mdi:refresh" :size="18" /></template></CButton>
             </div>
-            <MaintenancePriceEditor v-model="remoteEditor.form.customer_pricing" :disabled="remoteEditor.saving || remoteUploading" />
+            <MaintenancePriceEditor v-model="remoteEditor.form.customer_pricing" allow-custom :engineer-rules="remoteBillingRules" :disabled="remoteEditor.saving || remoteUploading" />
             <BillingQuote
               v-model="remoteEditor.form.billing_context"
               :customer-pricing="remoteEditor.form.customer_pricing"
