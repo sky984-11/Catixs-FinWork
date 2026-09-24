@@ -21,6 +21,7 @@ AKVORADO_REGIONS = {
     "LON": "http://10.1.10.208:8081",
     "JP": "http://10.5.10.17:8081",
     "NY2": "http://10.10.10.99:8081",
+    "KR": "http://10.11.10.104:8081",
 }
 
 HOP_BY_HOP_HEADERS = {
