@@ -25,6 +25,7 @@ from app.schemas.remote_billing import (
     MaintenanceBillingRules, validate_billing_timezone,
 )
 from app.services.remote_billing import calculate_record_fee
+from app.services.remote_timezone import region_timezone
 from app.services.remote_hands_plan_notifier import int_list, notify_remote_hands_plan
 
 router = APIRouter()
@@ -332,7 +333,7 @@ async def _remote_payload_data(payload: RemoteHandsPayload, existing: RemoteHand
         "region": _clean_text(payload.region) or None,
         "site": _clean_text(payload.site) or None,
         "rack": _clean_text(payload.rack) or None,
-        "timezone": _clean_text(payload.timezone) or "Asia/Shanghai",
+        "timezone": region_timezone(payload.region) or _clean_text(payload.timezone) or "Asia/Shanghai",
         "arrived_at": arrived_at,
         "left_at": left_at,
         "work_minutes": _work_minutes_between(arrived_at, left_at),
@@ -580,7 +581,7 @@ async def _datacenter_options() -> list[dict[str, Any]]:
                 "country": country,
                 "city": city,
                 "location": item.name,
-                "timezone": "Asia/Shanghai",
+                "timezone": region_timezone(" / ".join(filter(None, [country, region_name, city]))),
             }
         )
     return options

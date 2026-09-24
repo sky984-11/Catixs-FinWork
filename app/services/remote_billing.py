@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 
 import pytz
+from app.services.remote_timezone import region_timezone
 
 from app.schemas.remote_billing import (
     BillingContext,
@@ -112,6 +113,11 @@ def calculate_record_fee(
                 update={"pricing": "hourly", "hourly_rate": pricing.hourly_rate, "currency": pricing.currency}
             )
         result["currency"] = rules.currency
+        resolved_zone = region_timezone(region)
+        if resolved_zone:
+            zone = resolved_zone
+        elif region and rules.night_enabled and zone == "Asia/Shanghai":
+            return result | {"notices": ["无法识别所选地区的当地时区，夜班费用待确认"]}
         tz = pytz.timezone(validate_billing_timezone(zone))
         if not arrived_at or not left_at:
             return result | {"notices": ["到场、离场时间齐全后计算费用"]}
@@ -141,6 +147,7 @@ def calculate_record_fee(
     night_flags = []
     if rules.night_enabled and rules.night_start:
         for minute in range(minutes):
+            # Resolve the offset at each work instant; DST may change during this record.
             local_clock = (start + timedelta(minutes=minute)).astimezone(tz).strftime("%H:%M")
             night_flags.append(
                 rules.night_start <= local_clock < rules.night_end

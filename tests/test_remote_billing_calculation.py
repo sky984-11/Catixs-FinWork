@@ -10,6 +10,60 @@ def rule(**changes):
 
 
 class GeneralBillingCalculationTests(unittest.TestCase):
+    def test_region_determines_night_timezone(self):
+        rules = rule(
+            hourly_rate=60, night_enabled=True, night_start="22:00", night_end="06:00", night_multiplier="1.25"
+        )
+        args = (rules, "2026-09-22T21:00", "2026-09-22T23:00")
+        tokyo = calculate_record_fee(*args, region="日本 / 东京")
+        self.assertEqual(tokyo["timezone"], "Asia/Tokyo")
+        self.assertEqual(tokyo["night_minutes"], 120)
+        self.assertEqual(tokyo["total"], "150.00")
+        la = calculate_record_fee(*args, zone="Asia/Tokyo", region="美国 / 洛杉矶")
+        self.assertEqual(la["timezone"], "America/Los_Angeles")
+        self.assertEqual(la["night_minutes"], 0)
+        self.assertEqual(la["total"], "120.00")
+        self.assertEqual(calculate_record_fee(*args, region="未识别地区")["status"], "pending")
+
+    def test_region_timezone_dst(self):
+        rules = rule(
+            hourly_rate=60, night_enabled=True, night_start="01:00", night_end="04:00", night_multiplier="1.25"
+        )
+        result = calculate_record_fee(rules, "2026-03-08T14:30", "2026-03-08T16:00", region="纽约")
+        self.assertEqual(result["timezone"], "America/New_York")
+        self.assertEqual(result["night_minutes"], 90)
+
+    def test_region_dst_uses_work_date_and_local_calendar(self):
+        rules = rule(hourly_rate=60, night_enabled=True, night_start="00:00", night_end="06:00")
+        cases = [
+            ("纽约", "2026-01-15", "-05:00", 60),
+            ("纽约", "2026-07-15", "-04:00", 0),
+            ("洛杉矶", "2026-01-15", "-08:00", 60),
+            ("洛杉矶", "2026-07-15", "-07:00", 60),
+            ("伦敦", "2026-01-15", "+00:00", 0),
+            ("伦敦", "2026-07-15", "+01:00", 0),
+            ("法兰克福", "2026-01-15", "+01:00", 0),
+            ("法兰克福", "2026-07-15", "+02:00", 0),
+            ("悉尼", "2026-01-15", "+11:00", 0),
+            ("悉尼", "2026-07-15", "+10:00", 0),
+            ("东京", "2026-01-15", "+09:00", 0),
+            ("东京", "2026-07-15", "+09:00", 0),
+        ]
+        for region, day, offset, night_minutes in cases:
+            with self.subTest(region=region, day=day):
+                result = calculate_record_fee(rules, f"{day}T18:00", f"{day}T19:00", region=region)
+                self.assertEqual(result["status"], "calculated")
+                self.assertTrue(result["local_arrived_at"].endswith(offset))
+                self.assertEqual(result["night_minutes"], night_minutes)
+
+    def test_dst_switch_dates_differ_by_region(self):
+        rules = rule(hourly_rate=60)
+        # On this work date the US has switched, but Europe has not.
+        for region, offset in [("纽约", "-04:00"), ("伦敦", "+00:00"), ("法兰克福", "+01:00")]:
+            with self.subTest(region=region):
+                result = calculate_record_fee(rules, "2026-03-15T18:00", "2026-03-15T19:00", region=region)
+                self.assertTrue(result["local_arrived_at"].endswith(offset))
+
     def test_additional_fees_fixed_actual_and_exclusions(self):
         rules = rule(
             currency="USD",

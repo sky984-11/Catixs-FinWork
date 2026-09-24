@@ -257,18 +257,10 @@
                   @update:formatted-value="updateWorkMinutes"
                 />
               </n-form-item>
-              <n-form-item label="运维时区">
-                <n-select
-                  v-model:value="remoteEditor.form.timezone"
-                  filterable
-                  tag
-                  :options="timezoneOptions"
-                />
-              </n-form-item>
               <div class="record-duration">
                 <span>实际工时</span>
                 <strong>{{ formatDuration(remoteEditor.form.work_minutes) }}</strong>
-                <small>夜班按运维时区换算</small>
+                <small>夜班按所选地区的当地时间计算</small>
               </div>
             </div>
           </section>
@@ -1035,7 +1027,6 @@ const remoteColumns = [
   { title: '到场（北京）', key: 'arrived_at', width: 125, render: (row) => formatTime(row.arrived_at) },
   { title: '离场（北京）', key: 'left_at', width: 145, render: (row) => formatRemoteEndTime(row) },
   { title: '工时', key: 'work_minutes', width: 95, render: (row) => formatDuration(row.work_minutes) },
-  { title: '运维时区', key: 'timezone', width: 170 },
   { title: '规则费用', key: 'billing_result', width: 200, render: (row) => h(NTooltip, null, {
     trigger: () => h('span', billingTotalLabel(row.billing_result)),
     default: () => h('div', [
@@ -1797,7 +1788,7 @@ function handleRemoteSiteCascaderChange(value, option) {
   }
   remoteEditor.form.region = displayRegion(option.region)
   remoteEditor.form.site = option.site
-  if (option.timezone) remoteEditor.form.timezone = option.timezone
+  remoteEditor.form.timezone = option.timezone || 'Asia/Shanghai'
   const validEngineers = assignableEngineerOptions.value.map((item) => item.value)
   if (!validEngineers.includes(remoteEditor.form.engineer_id)) handleEngineerSelected(null)
 }
