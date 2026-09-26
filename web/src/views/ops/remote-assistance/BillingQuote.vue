@@ -30,6 +30,22 @@ const context = computed(() => ({
   excluded_fee_ids: [],
   ...props.modelValue,
 }))
+const duplicateFees = computed(() => {
+  if (fixedPrice.value) return []
+  const expenseNames = new Set(
+    context.value.expenses.map((expense) => expense.name.trim().toLowerCase())
+  )
+  return (rules.value?.additional_fees || []).filter(
+    (fee) =>
+      !context.value.excluded_fee_ids.includes(fee.id) &&
+      expenseNames.has(fee.name.trim().toLowerCase())
+  )
+})
+function useActualExpenses() {
+  update('excluded_fee_ids', [
+    ...new Set([...context.value.excluded_fee_ids, ...duplicateFees.value.map((fee) => fee.id)]),
+  ])
+}
 const result = ref(null)
 const loading = ref(false)
 const error = ref('')
@@ -182,6 +198,20 @@ onBeforeUnmount(() => {
       </div>
     </section>
     <section v-if="recordExpenses" class="full-row expenses">
+      <n-alert v-if="duplicateFees.length" type="warning" class="duplicate-expense">
+        {{
+          duplicateFees.map((fee) => fee.name).join('、')
+        }}同时出现在规则附加费用和现场费用中，当前两笔均会计费。
+        <CButton
+          show-save
+          save-text="仅保留现场费用"
+          size="small"
+          :disabled="disabled"
+          @save="useActualExpenses"
+        >
+          <template #save-icon><TheIcon icon="mdi:check" :size="16" /></template>
+        </CButton>
+      </n-alert>
       <div class="expenses-heading">
         <div>
           <strong>现场费用</strong>
@@ -204,6 +234,7 @@ onBeforeUnmount(() => {
         <div class="expense-row-heading">
           <strong>费用 {{ index + 1 }}</strong
           ><CButton
+            class="expense-remove"
             show-delete
             size="small"
             :disabled="disabled"
@@ -259,12 +290,30 @@ onBeforeUnmount(() => {
         填写北京时间的到场和离场时间后自动试算。
       </p>
       <div v-else-if="result" aria-live="polite">
+        <p>以下为本次试算，保存记录后更新列表费用。</p>
         <p v-if="!fixedPrice">
           当地时间：{{ result.local_arrived_at || '—' }} 至 {{ result.local_left_at || '—' }}
         </p>
         <p v-if="result.work_minutes != null">
           实际工时 {{ result.work_minutes }} 分钟；当地夜班
           {{ result.night_minutes ?? '待确认' }} 分钟
+        </p>
+        <p v-if="!fixedPrice && result.billable_minutes != null">
+          本次规则：最低 {{ rules.minimum_minutes }} 分钟，步长
+          {{ rules.billing_increment_minutes }} 分钟；计费 {{ result.billable_minutes }} 分钟。
+        </p>
+        <p
+          v-if="
+            !fixedPrice &&
+            (customerPricing?.kind === 'hourly' || rules?.pricing === 'hourly') &&
+            result.billable_minutes != null
+          "
+        >
+          人工费计算：{{
+            customerPricing?.kind === 'hourly' ? customerPricing.hourly_rate : rules.hourly_rate
+          }}
+          {{ customerPricing?.kind === 'hourly' ? customerPricing.currency : rules.currency }}/小时
+          × {{ result.billable_minutes }} ÷ 60。
         </p>
         <div v-for="(line, index) in result.lines" :key="index" class="fee-line">
           <span>{{ line.label }}</span
@@ -351,6 +400,24 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 .expense-add :deep(.n-button) {
+  border-radius: 8px;
+  min-height: 34px;
+  padding: 0 14px;
+  font-weight: 500;
+}
+.duplicate-expense {
+  margin-bottom: 14px;
+}
+.duplicate-expense :deep(.n-space) {
+  margin-top: 8px;
+}
+.expense-remove :deep(.n-button) {
+  border-radius: 8px;
+  padding: 0 10px;
+}
+.expenses :deep(.n-input),
+.expenses :deep(.n-base-selection),
+.rule-fees :deep(.n-input) {
   border-radius: 8px;
 }
 .rule-fees {

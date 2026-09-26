@@ -10,6 +10,18 @@ def rule(**changes):
 
 
 class GeneralBillingCalculationTests(unittest.TestCase):
+    def test_minimum_and_increment_apply_to_engineer_and_custom_rates(self):
+        rules = rule(hourly_rate=60, minimum_minutes=60, billing_increment_minutes=30)
+        start = datetime(2026, 9, 25, 10)
+        for pricing, multiplier in [(None, 1), ({"kind": "hourly", "hourly_rate": 120, "currency": "USD"}, 2)]:
+            for actual, billed in [(1, 60), (59, 60), (60, 60), (61, 90), (144, 150), (150, 150)]:
+                with self.subTest(pricing=pricing, actual=actual):
+                    result = calculate_record_fee(
+                        rules, start, start + timedelta(minutes=actual), customer_pricing=pricing
+                    )
+                    self.assertEqual(result["billable_minutes"], billed)
+                    self.assertEqual(result["total"], f"{billed * multiplier:.2f}")
+
     def test_region_determines_night_timezone(self):
         rules = rule(
             hourly_rate=60, night_enabled=True, night_start="22:00", night_end="06:00", night_multiplier="1.25"

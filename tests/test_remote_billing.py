@@ -78,6 +78,114 @@ class BillingValidationTests(unittest.TestCase):
 
 
 class BillingApiTests(unittest.IsolatedAsyncioTestCase):
+    async def test_missing_rule_snapshot_uses_same_engineer_for_custom_quote(self):
+        from datetime import datetime
+        from app.api.v1.remote_assistance.remote_assistance import _remote_to_dict
+
+        rules = GeneralBillingRules(
+            mode="general",
+            currency="USD",
+            hourly_rate=30,
+            billing_increment_minutes=30,
+            additional_fees=[{"id": "taxi", "name": "Taxi", "mode": "fixed", "amount": 100}],
+        ).model_dump(mode="json")
+        engineer = await RemoteEngineer.create(name="Aden", billing_rules=rules)
+        records = []
+        for pricing in [
+            {"kind": "internal"},
+            {"kind": "hourly", "hourly_rate": 250, "currency": "USD"},
+        ]:
+            records.append(
+                await RemoteHands.create(
+                    customer="CMI",
+                    engineer_id=engineer.id,
+                    region="Singapore",
+                    arrived_at=datetime(2026, 9, 16, 3, 27),
+                    left_at=datetime(2026, 9, 16, 5, 51),
+                    billing_data={
+                        "rules": None,
+                        "customer_pricing": pricing,
+                        "context": {},
+                        "result": {"status": "pending", "total": None, "notices": ["Missing rules"]},
+                    },
+                )
+            )
+        for record, expected in zip(records, ["175.00", "725.00"]):
+            # Overview supplies the shared engineer map; direct serialization uses a lookup.
+            for mapping in [None, {engineer.id: rules}]:
+                listed = await _remote_to_dict(record, [], mapping)
+                self.assertEqual(listed["billing_result"]["total"], expected)
+                self.assertEqual(listed["billing_rules_snapshot"], rules)
+                self.assertEqual(listed["billing_result"]["basis"], "current_rules")
+            await record.refresh_from_db()
+            self.assertIsNone(record.billing_data["rules"])
+        record = records[1]
+        # A saved rule snapshot takes priority over changes in the engineer's current rules.
+        record.billing_data["rules"] = {**rules, "billing_increment_minutes": 1}
+        self.assertEqual((await _remote_to_dict(record, []))["billing_result"]["total"], "700.00")
+        # Confirmed historical amounts must never be recalculated on a read.
+        record.billing_data["rules"] = None
+        record.billing_data["result"] = {"status": "calculated", "total": "123.00", "currency": "USD"}
+        self.assertEqual((await _remote_to_dict(record, []))["billing_result"]["total"], "123.00")
+        # A genuinely unconfigured engineer remains pending rather than inventing fees.
+        records[0].billing_data["result"]["status"] = "pending"
+        self.assertEqual((await _remote_to_dict(records[0], [], {}))["billing_result"]["status"], "pending")
+
+    async def test_custom_quote_pending_snapshot_matches_preview(self):
+        from datetime import datetime
+        from app.api.v1.remote_assistance.remote_assistance import _remote_to_dict
+
+        rules = GeneralBillingRules(
+            mode="general",
+            currency="USD",
+            hourly_rate=30,
+            billing_increment_minutes=1,
+            additional_fees=[{"id": "taxi", "name": "Taxi", "mode": "fixed", "amount": 100}],
+        ).model_dump(mode="json")
+        pricing = {"kind": "hourly", "hourly_rate": 250, "currency": "USD"}
+        context = {"expenses": [{"name": "Taxi", "amount": 100, "currency": "USD"}]}
+        record = await RemoteHands.create(
+            customer="Test",
+            arrived_at=datetime(2026, 9, 16, 3, 27),
+            left_at=datetime(2026, 9, 16, 5, 51),
+            region="Singapore",
+            billing_data={
+                "rules": rules,
+                "customer_pricing": pricing,
+                "context": context,
+                "result": {"status": "pending", "total": None, "notices": ["Old pending result"]},
+            },
+        )
+        preview = (
+            await self.client.post(
+                "/billing/preview",
+                json={
+                    "rules": rules,
+                    "customer_pricing": pricing,
+                    "context": context,
+                    "region": "Singapore",
+                    "arrived_at": "2026-09-16T03:27",
+                    "left_at": "2026-09-16T05:51",
+                },
+            )
+        ).json()["data"]
+        listed = await _remote_to_dict(record, [])
+        self.assertEqual(listed["billing_result"], preview)
+        self.assertEqual(preview["total"], "800.00")
+        self.assertEqual(preview["lines"][0]["amount"], "600.00")
+        # An explicit exclusion keeps the actual taxi expense without counting the rule twice.
+        record.billing_data["context"]["excluded_fee_ids"] = ["taxi"]
+        self.assertEqual((await _remote_to_dict(record, []))["billing_result"]["total"], "700.00")
+        record.billing_data["rules"]["billing_increment_minutes"] = 30
+        self.assertEqual((await _remote_to_dict(record, []))["billing_result"]["total"], "725.00")
+        record.billing_data["customer_pricing"]["hourly_rate"] = None
+        pending = (await _remote_to_dict(record, []))["billing_result"]
+        self.assertEqual(pending["status"], "pending")
+        self.assertTrue(pending["notices"])
+        # Reads do not mutate stored financial snapshots.
+        await record.refresh_from_db()
+        self.assertEqual(record.billing_data["result"]["status"], "pending")
+
     async def test_customer_price_api_validation_and_permissions(self):
         entity = await CrmSigningEntity.create(name="Catixs")
         url = "http://test/api/v1/customer-center/customers"
@@ -156,6 +264,10 @@ class BillingApiTests(unittest.IsolatedAsyncioTestCase):
         record = await RemoteHands.get(customer_id=customer.id)
         self.assertEqual(record.customer, "milk")
         self.assertEqual(record.billing_data["result"]["total"], "260.00")
+        overview = (await self.client.get("/overview")).json()["data"]
+        listed = next(row for row in overview["remote_hands"] if row["id"] == record.id)
+        self.assertEqual(listed["customer_pricing_snapshot"]["kind"], "hourly")
+        self.assertEqual(listed["billing_result"]["total"], "260.00")
         await CrmCustomer.filter(id=customer.id).update(maintenance_hourly_rate=100)
         response = await self.client.put(f"/remote-hands/{record.id}", json=payload | {"note": "Changed"})
         self.assertEqual(response.json()["code"], 200, response.text)
@@ -193,6 +305,11 @@ class BillingApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.json()["data"]["customer_id"], customer.id)
         self.assertEqual(float(response.json()["data"]["customer_pricing_snapshot"]["fixed_fee"]), 500)
         self.assertEqual(response.json()["data"]["billing_result"]["total"], "500.00")
+        fixed_id = response.json()["data"]["id"]
+        overview = (await self.client.get("/overview")).json()["data"]
+        listed = next(row for row in overview["remote_hands"] if row["id"] == fixed_id)
+        self.assertEqual(listed["customer_pricing_snapshot"]["kind"], "fixed")
+        self.assertEqual(listed["billing_result"]["total"], "500.00")
         # A new job never inherits the deprecated customer-level price.
         response = await self.client.post(
             "/remote-hands", json={key: value for key, value in payload.items() if key != "customer_pricing"}

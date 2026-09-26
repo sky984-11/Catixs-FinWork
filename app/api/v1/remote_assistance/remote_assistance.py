@@ -448,16 +448,28 @@ def _normalize_plan_datetimes(plan: RemoteHandsPlan) -> None:
 
 
 async def _remote_to_dict(item: RemoteHands, plans: list[RemoteHandsPlan] | None = None, engineer_rules=None) -> dict[str, Any]:
-    billing = item.billing_data
-    if not billing:
-        if engineer_rules is None:
-            engineer = await RemoteEngineer.get_or_none(id=item.engineer_id) if item.engineer_id else None
-            rules = engineer.billing_rules if engineer else None
-        else:
-            rules = engineer_rules.get(item.engineer_id)
-        result = await asyncio.to_thread(calculate_record_fee, rules, item.arrived_at, item.left_at,
-                                        item.timezone or "Asia/Shanghai", item.region or "")
-        billing = {"rules": rules, "context": {}, "result": result | {"basis": "current_rules"}}
+    billing = item.billing_data or {}
+    missing_rules = billing.get("rules") is None
+    incomplete = (billing.get("result") or {}).get("status") != "calculated"
+    custom_price = (billing.get("customer_pricing") or {}).get("kind") in {"fixed", "hourly"}
+    if incomplete and (missing_rules or custom_price):
+        rules = billing.get("rules")
+        if missing_rules:
+            # Match the editor/save path: absent snapshots use the assigned engineer's rules.
+            # Preserve any existing snapshot and never replace a confirmed historical total.
+            if engineer_rules is None:
+                engineer = await RemoteEngineer.get_or_none(id=item.engineer_id) if item.engineer_id else None
+                rules = engineer.billing_rules if engineer else None
+            else:
+                rules = engineer_rules.get(item.engineer_id)
+        result = await asyncio.to_thread(
+            calculate_record_fee, rules, item.arrived_at, item.left_at,
+            item.timezone or "Asia/Shanghai", item.region or "", billing.get("context", {}),
+            billing.get("customer_pricing"),
+        )
+        if missing_rules:
+            result = result | {"basis": "current_rules"}
+        billing = {**billing, "rules": rules, "result": result}
     attachments = {value["url"]: value for value in (item.attachments or [])}
     if plans is None:
         plans = await RemoteHandsPlan.filter(remote_hands_id=item.id)

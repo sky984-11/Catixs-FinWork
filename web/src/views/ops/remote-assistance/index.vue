@@ -1027,14 +1027,51 @@ const remoteColumns = [
   { title: '到场（北京）', key: 'arrived_at', width: 125, render: (row) => formatTime(row.arrived_at) },
   { title: '离场（北京）', key: 'left_at', width: 145, render: (row) => formatRemoteEndTime(row) },
   { title: '工时', key: 'work_minutes', width: 95, render: (row) => formatDuration(row.work_minutes) },
-  { title: '规则费用', key: 'billing_result', width: 200, render: (row) => h(NTooltip, null, {
-    trigger: () => h('span', billingTotalLabel(row.billing_result)),
-    default: () => h('div', [
-      h('div', row.billing_result?.basis === 'current_rules' ? '按当前规则试算（历史记录未保存费用）' : '本次计费结果'),
-      ...(row.billing_result?.lines || []).map((line) => h('div', `${line.label}：${line.amount} ${line.currency || row.billing_result.currency}`)),
-      ...(row.billing_result?.notices || []).map((line) => h('div', line)),
-    ]),
-  }) },
+  {
+    title: '费用',
+    key: 'billing_result',
+    width: 200,
+    render: (row) =>
+      h(NTooltip, null, {
+        trigger: () =>
+          h('div', { class: 'primary-cell' }, [
+            h('strong', billingTotalLabel(row.billing_result)),
+            h(
+              'small',
+              row.customer_pricing_snapshot?.kind === 'fixed'
+                ? '自定义 · 一口价'
+                : row.customer_pricing_snapshot?.kind === 'hourly'
+                ? `自定义 · ${row.customer_pricing_snapshot.hourly_rate ?? '待确认'} ${
+                    row.customer_pricing_snapshot.currency || 'USD'
+                  }/小时`
+                : '工程师规则'
+            ),
+            row.billing_result?.status !== 'calculated' && row.billing_result?.notices?.length
+              ? h(
+                  'small',
+                  { style: 'color: #d97706; white-space: normal' },
+                  row.billing_result.notices[0]
+                )
+              : null,
+          ]),
+        default: () =>
+          h('div', [
+            h(
+              'div',
+              row.billing_result?.basis === 'current_rules'
+                ? '按当前规则试算（历史记录未保存费用）'
+                : '本次计费结果'
+            ),
+            ...(row.billing_result?.lines || []).map((line) =>
+              h(
+                'div',
+                `${line.label}：${line.amount} ${line.currency || row.billing_result.currency}`
+              )
+            ),
+            ...(row.billing_result?.notices || []).map((line) => h('div', line)),
+          ]),
+      }),
+  },
   {
     title: '状态', key: 'status', width: 100,
     render: (row) => h(NTag, { type: statusTagType(row.status), bordered: false, size: 'small' },
@@ -1150,7 +1187,7 @@ const planColumns = [
 const engineerColumns = [
   { title: '姓名', key: 'name', width: 150, render: (row) => h('strong', row.name || '-') },
   {
-    title: '阶梯计费', key: 'billing_rules', width: 280,
+    title: '计费规则', key: 'billing_rules', width: 280,
     render: (row) => h('div', { class: 'primary-cell' }, billingSummary(row.billing_rules).map((line) => h('small', line))),
   },
   { title: '联系方式', key: 'contact', width: 180, render: (row) => row.contact || '-' },
@@ -2667,6 +2704,12 @@ onMounted(fetchOverview)
   display: flex;
   justify-content: flex-end;
   margin-bottom: 14px;
+}
+.record-billing-toolbar :deep(.n-button) {
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 8px;
+  font-weight: 500;
 }
 .record-editor-form :deep(.billing-quote) {
   display: grid;

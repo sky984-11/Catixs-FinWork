@@ -132,24 +132,30 @@ function removeTier(index) {
       ></CButton>
     </template>
     <div class="billing-grid">
-      <n-form-item label="最低分钟"
+      <n-form-item label="最低计费时长"
         ><n-input-number
           v-model:value="rules.minimum_minutes"
           :min="0"
           :max="10080"
           :precision="0"
           :disabled="disabled"
-      /></n-form-item>
-      <n-form-item label="计费步长"
+          ><template #suffix>分钟</template></n-input-number
+        ></n-form-item
+      >
+      <n-form-item label="计费间距（步长）"
         ><n-input-number
           v-model:value="rules.billing_increment_minutes"
           :min="1"
           :max="1440"
           :precision="0"
           :disabled="disabled"
-      /></n-form-item>
+          ><template #suffix>分钟</template></n-input-number
+        ></n-form-item
+      >
     </div>
-    <p>按实际工时补足最低分钟，再按步长向上取整；0分钟不产生费用。步长1表示按分钟折算。</p>
+    <p>
+      最低时长为起步计费时长，例如最低60分钟，工作1分钟也按60分钟计费。步长按分钟向上取整，例如144分钟、步长30分钟，按150分钟计费；步长1则按实际分钟计费。
+    </p>
     <template v-if="rules.pricing === 'package'">
       <n-form-item label="超时加班"
         ><n-switch v-model:value="rules.overtime_enabled" :disabled="disabled"
