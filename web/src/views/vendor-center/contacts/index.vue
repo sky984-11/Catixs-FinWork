@@ -154,7 +154,11 @@ const types = [
   { label: '组邮箱', value: 'group' },
 ]
 const vendorOptions = computed(() =>
-  vendors.value.map((vendor) => ({ label: vendor.name, value: vendor.id }))
+  vendors.value.map((vendor) => ({
+    label: vendor.name,
+    value: vendor.id,
+    signing_entity_name: vendor.signing_entity_name,
+  }))
 )
 const rows = computed(() =>
   contacts.value.filter(

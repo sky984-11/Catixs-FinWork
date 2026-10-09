@@ -28,8 +28,9 @@
               v-model:value="form[ownerField]"
               filterable
               multiple
-              :options="owners"
-              :render-label="renderOwnerLabel"
+              :options="ownerOptions"
+              :show-checkmark="false"
+              :render-label="renderOwnerLabel || renderDefaultOwnerLabel"
               :placeholder="`请选择${ownerLabel.replace('所属', '')}`"
             />
           </NFormItem>
@@ -98,7 +99,8 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, h } from 'vue'
+import { NTag } from 'naive-ui'
 import CButton from '@/components/public/CButton.vue'
 import TheIcon from '@/components/icon/TheIcon.vue'
 
@@ -116,6 +118,60 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:show', 'save'])
 const form = computed(() => props.form)
+const ownerOptions = computed(() =>
+  props.owners.map((owner) => ({
+    ...owner,
+    label: owner.short_name || owner.label,
+    class: 'contact-owner-select-option',
+  }))
+)
+function renderDefaultOwnerLabel(option) {
+  const entity = String(option.signing_entity_name || '')
+  const normalized = entity.toLowerCase()
+  const tag = entity.includes('科特思')
+    ? { text: '科', type: 'success' }
+    : normalized.includes('77')
+    ? { text: '7', type: 'warning' }
+    : normalized.includes('catixs')
+    ? { text: 'C', type: 'info' }
+    : null
+  return h(
+    'div',
+    {
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '12px',
+        minWidth: 0,
+        width: '100%',
+        maxWidth: '100%',
+      },
+    },
+    [
+      h(
+        'span',
+        {
+          style: {
+            flex: '1 1 auto',
+            minWidth: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          },
+        },
+        option.label
+      ),
+      tag
+        ? h(
+            NTag,
+            { size: 'small', round: true, type: tag.type, title: entity, style: { flexShrink: 0 } },
+            { default: () => tag.text }
+          )
+        : null,
+    ]
+  )
+}
 function close(show) {
   if (!props.loading) emit('update:show', show)
 }
@@ -143,6 +199,15 @@ function save() {
 </script>
 
 <style scoped>
+:global(.n-base-select-option.contact-owner-select-option .n-base-select-option__content) {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+}
+:global(.n-base-select-option.contact-owner-select-option .n-base-select-option__content > div) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
 .contact-editor :deep(.n-card-header) {
   padding: 20px 24px 12px;
 }
