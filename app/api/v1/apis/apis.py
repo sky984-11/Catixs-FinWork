@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from tortoise.expressions import Q
 
 from app.controllers.api import api_controller
+from app.core.api_docs import scalar_docs
 from app.models.admin import Api
 from app.models.enums import MethodType
 from app.schemas import Success, SuccessExtra
@@ -10,6 +11,7 @@ from app.schemas.apis import *
 
 router = APIRouter()
 docs_router = APIRouter()
+docs_router.add_api_route("/docs/ui", scalar_docs, methods=["GET"], include_in_schema=False)
 
 DOCS_PATH = "/api/v1/api/docs"
 OPENAPI_DOCS_PATH = "/api/v1/api/docs/openapi"

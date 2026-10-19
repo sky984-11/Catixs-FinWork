@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from tortoise import Tortoise
 
+from app.core.api_docs import scalar_docs
 from app.core.exceptions import SettingNotFound
 from app.core.init_app import (
     init_data,
@@ -60,11 +61,15 @@ def create_app() -> FastAPI:
         description=settings.APP_DESCRIPTION,
         version=settings.VERSION,
         openapi_url="/openapi.json",
+        docs_url=None,
+        redoc_url=None,
         middleware=make_middlewares(),
         lifespan=lifespan,
     )
     register_exceptions(app)
     register_routers(app, prefix="/api")
+    app.add_api_route("/docs", scalar_docs, methods=["GET"], include_in_schema=False)
+    app.add_api_route("/redoc", scalar_docs, methods=["GET"], include_in_schema=False)
 
     uploads_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
     os.makedirs(uploads_dir, exist_ok=True)
