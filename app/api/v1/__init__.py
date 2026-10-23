@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.core.dependency import DependAuth, DependPermission
 
 from .apis import api_docs_router, apis_router
+from .api_tokens import router as api_tokens_router
 from .akvorado import router as akvorado_router
 from .assets import assets_auth_router, assets_public_router, assets_router, assets_ws_router
 from .auditlog import auditlog_router
@@ -41,6 +42,7 @@ v1_router.include_router(users_router, prefix="/user", dependencies=[DependPermi
 v1_router.include_router(roles_router, prefix="/role", dependencies=[DependPermission])
 v1_router.include_router(menus_router, prefix="/menu", dependencies=[DependPermission])
 v1_router.include_router(api_docs_router, prefix="/api")
+v1_router.include_router(api_tokens_router, prefix="/api-tokens", dependencies=[DependPermission])
 v1_router.include_router(apis_router, prefix="/api", dependencies=[DependPermission])
 v1_router.include_router(depts_router, prefix="/dept", dependencies=[DependPermission])
 v1_router.include_router(auditlog_router, prefix="/auditlog", dependencies=[DependPermission])

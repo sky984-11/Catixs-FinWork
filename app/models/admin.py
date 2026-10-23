@@ -26,6 +26,22 @@ class User(BaseModel, TimestampMixin):
         table = "user"
 
 
+class ApiToken(BaseModel, TimestampMixin):
+    name = fields.CharField(max_length=100, description="令牌名称")
+    description = fields.CharField(max_length=500, default="", description="用途说明")
+    user = fields.ForeignKeyField("models.User", related_name="api_tokens", on_delete=fields.CASCADE)
+    created_by = fields.ForeignKeyField(
+        "models.User", related_name="created_api_tokens", null=True, on_delete=fields.SET_NULL
+    )
+    token_hash = fields.CharField(max_length=64, unique=True, description="SHA-256 摘要")
+    is_enabled = fields.BooleanField(default=True)
+    expires_at = fields.DatetimeField(null=True, description="为空表示永久有效")
+    last_used_at = fields.DatetimeField(null=True)
+
+    class Meta:
+        table = "api_token"
+
+
 class Role(BaseModel, TimestampMixin):
     name = fields.CharField(max_length=20, unique=True, description="角色名称", index=True)
     desc = fields.CharField(max_length=500, null=True, description="角色描述")

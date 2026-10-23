@@ -18,6 +18,7 @@ migrations/models/*
 !migrations/models/176_20260922120000_remote_billing_snapshot.py
 !migrations/models/177_20260923120000_customer_maintenance_price.py
 !migrations/models/178_20260923150000_plan_maintenance_quote.py
+!migrations/models/179_20261023120000_api_tokens.py
 .env
 .pnpm-store/
 

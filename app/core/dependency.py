@@ -18,8 +18,30 @@ async def has_admin_role(user: User) -> bool:
 
 class AuthControl:
     @classmethod
-    async def is_authed(cls, token: str = Header(..., description="token验证")) -> Optional["User"]:
+    async def is_authed(
+        cls,
+        token: str = Header(None, description="登录 JWT 或 API token"),
+        authorization: str = Header(None, description="Bearer <API token>，与 token 请求头二选一"),
+    ) -> Optional["User"]:
         try:
+            # Direct callers (audit logging and WebSockets) only supply token.
+            token = token if isinstance(token, str) else None
+            authorization = authorization if isinstance(authorization, str) else None
+            if authorization:
+                scheme, _, credential = authorization.partition(" ")
+                if scheme.lower() != "bearer" or not credential.strip():
+                    raise HTTPException(status_code=401, detail="无效的 Authorization 请求头")
+                if token and token != credential.strip():
+                    raise HTTPException(status_code=401, detail="认证请求头冲突")
+                token = credential.strip()
+            if not token:
+                raise HTTPException(status_code=401, detail="请提供认证 token")
+            if token.startswith("fw_api_"):
+                from app.services.api_tokens import authenticate_api_token
+
+                user = await authenticate_api_token(token)
+                CTX_USER_ID.set(int(user.id))
+                return user
             if token == "dev":
                 user = await User.filter().first()
                 if not user:
@@ -29,7 +51,7 @@ class AuthControl:
                 decode_data = jwt.decode(token, settings.SECRET_KEY, algorithms=settings.JWT_ALGORITHM)
                 user_id = decode_data.get("user_id")
             user = await User.filter(id=user_id).first()
-            if not user:
+            if not user or not user.is_active:
                 raise HTTPException(status_code=401, detail="Authentication failed")
             CTX_USER_ID.set(int(user_id))
             return user

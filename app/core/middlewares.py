@@ -64,6 +64,9 @@ class HttpAuditLogMiddleware(BaseHTTPMiddleware):
 
     async def get_request_args(self, request: Request) -> dict:
         args = {}
+        if request.url.path.startswith("/api/v1/api-tokens"):
+            # Record the route, actor and result, but not accidental credentials in request bodies either.
+            return args
         # File contents must not be copied into the audit log for JSON uploads either.
         if request.url.path in {
             "/api/v1/remote-assistance/attachments/upload",
@@ -107,6 +110,9 @@ class HttpAuditLogMiddleware(BaseHTTPMiddleware):
         return args
 
     async def get_response_body(self, request: Request, response: Response) -> Any:
+        # Token plaintext is returned once to the caller, never persisted in audit records.
+        if request.url.path.startswith("/api/v1/api-tokens"):
+            return None
         # 检查Content-Length
         content_length = response.headers.get("content-length")
         if content_length and int(content_length) > self.max_body_size:
@@ -180,9 +186,10 @@ class HttpAuditLogMiddleware(BaseHTTPMiddleware):
         # 获取用户信息
         try:
             token = request.headers.get("token")
+            authorization = request.headers.get("authorization")
             user_obj = None
-            if token:
-                user_obj: User = await AuthControl.is_authed(token)
+            if token or authorization:
+                user_obj: User = await AuthControl.is_authed(token, authorization)
             data["user_id"] = user_obj.id if user_obj else 0
             data["username"] = user_obj.username if user_obj else ""
         except Exception:

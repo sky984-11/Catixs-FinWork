@@ -284,6 +284,7 @@ async def init_menus():
     await ensure_product_center_menu()
     await remove_disabled_feature_menus()
     await ensure_task_menu()
+    await ensure_api_token_menu()
 
 
 async def ensure_menu_catalog(name: str, path: str, order: int, icon: str, redirect: str):
@@ -1284,6 +1285,24 @@ async def ensure_billing_price_adjustment_menu():
 
 async def ensure_billing_product_templates():
     return
+
+
+async def ensure_api_token_menu():
+    system_menu = await Menu.get(path="/system")
+    menu, _ = await Menu.get_or_create(
+        component="/system/api-tokens",
+        defaults={
+            "menu_type": MenuType.MENU,
+            "name": "API tokens",
+            "path": "api-tokens",
+            "order": 8,
+            "parent_id": system_menu.id,
+            "icon": "mdi:key-chain-variant",
+            "is_hidden": False,
+            "keepalive": False,
+        },
+    )
+    return menu
 
 
 async def ensure_task_menu():

@@ -6,6 +6,48 @@
 
 ## 快速接入
 
+### API tokens（永久令牌）
+
+系统管理 → **API tokens**，仅超级管理员及 `admin` / `管理员` 角色可管理，管理接口不接受历史 `dev` 调试凭据。Token 绑定一个启用用户，继承该用户当前的角色、接口权限和业务数据范围；普通用户即使被分配 token 管理接口权限也不能管理令牌。创建后不能更换所属用户。
+
+- 支持名称、用途说明、启用状态及到期时间；`expires_at: null` 表示永久有效，设置到期时间时须传含时区且晚于当前时间的 ISO 8601 字符串，例如 `2099-01-01T00:00:00+08:00`。
+- 明文仅在创建/重新生成成功时返回一次，数据库只保存 SHA-256 摘要。列表和编辑响应不包含明文或摘要，管理响应禁止缓存，管理请求/响应体不写入审计日志（保留操作者、路由、结果）。
+- 停用、到期、删除、重新生成后，旧 token 在后续认证时立即失效；用户停用/删除后同样不可使用。重新生成保留启用状态及到期时间。最近使用时间按认证成功计，约每分钟更新一次，不表示业务操作成功。
+- 既有 `token: <登录JWT>` 仍可用；API token 使用 `token: <API token>` 或 `Authorization: Bearer <API token>`。两种请求头值冲突返回 `401`；缺少凭据现在统一返回 `401`（此前必填请求头校验为 `422`）。停用用户的登录 JWT 也不再通过认证。
+
+```bash
+curl 'http://localhost:9999/api/v1/finance/quote/list?page=1&page_size=20' \
+  -H 'Authorization: Bearer <API token>'
+```
+
+管理接口基础路径：`/api/v1/api-tokens`，均要求管理员认证：
+
+| 方法 | 路由 | 参数/行为 |
+| --- | --- | --- |
+| GET | `/api/v1/api-tokens` | `page` 默认1；`page_size` 默认20、最大100；可选 `name`、`user_id`、`status`（`enabled/disabled/expired/user_disabled`） |
+| GET | `/api/v1/api-tokens/users` | 无参数，返回可绑定的启用用户 `id/username/alias` |
+| POST | `/api/v1/api-tokens` | JSON：`name` 必填、1–100字符；`user_id` 必填；`description` 最多500字符；`is_enabled` 默认true；`expires_at` 默认null |
+| PUT | `/api/v1/api-tokens/{token_id}` | 完整提交名称、说明、启用状态、到期时间；默认值同创建，不接受 `user_id` |
+| POST | `/api/v1/api-tokens/{token_id}/status` | JSON：`{"is_enabled":false}`；启用传true |
+| POST | `/api/v1/api-tokens/{token_id}/regenerate` | 无请求体，立即替换旧值，返回新明文一次 |
+| DELETE | `/api/v1/api-tokens/{token_id}` | 无请求体，删除并撤销令牌 |
+
+创建请求：`{"name":"监控集成","user_id":2,"description":"读取业务状态","is_enabled":true,"expires_at":null}`。
+
+创建/重新生成响应示例（`token` 为占位符）：
+
+```json
+{"code":200,"msg":"OK","data":{"id":1,"name":"监控集成","description":"读取业务状态","user_id":2,"username":"integration","user_active":true,"created_by_id":1,"created_by_name":"admin","is_enabled":true,"expires_at":null,"last_used_at":null,"created_at":"2026-10-23T10:00:00+08:00","updated_at":"2026-10-23T10:00:00+08:00","status":"enabled","token":"<仅此一次返回的API token>"}}
+```
+
+列表响应为 `{"code":200,"msg":"OK","data":[...],"total":1,"page":1,"page_size":20}`，每项结构同上但没有 `token`；编辑/启停响应为单项且没有 `token`。删除响应为 `{"code":200,"msg":"已删除","data":null}`。
+
+错误码：`400` 绑定用户无效；`401` 缺少/无效/停用/过期凭据或用户停用；`403` 非管理员或业务接口无权限；`404` 令牌不存在；`422` 字段、分页、时间格式或时间范围错误。业务调用继续遵循原接口权限。
+
+新增 Aerich 迁移 `179_20261023120000_api_tokens.py`，仅创建 `api_token` 表及索引，包含 SQLite/PostgreSQL 分支。部署前后端后按现有流程执行 `aerich upgrade` 并重启后端；启动时自动补齐系统管理菜单。回滚该迁移会删除所有 API tokens。
+
+设计参考：[Zabbix API tokens](https://www.zabbix.com/documentation/current/en/manual/web_interface/frontend_sections/users/api_tokens)。
+
 ### 仪表盘物理机概览
 
 - `GET /api/v1/asset/device/list?overview=true`：读取数据库中的物理服务器（`type=0`），排除已下架（`status=4`）和未关联有效客户的设备；沿用 `token` 登录及原设备列表接口权限。

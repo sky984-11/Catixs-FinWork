@@ -58,6 +58,14 @@ export default {
   deleteApi: (params = {}) => request.delete('/api/delete', { params }),
   refreshApi: (data = {}) => request.post('/api/refresh', data),
   getApiDocs: (params = {}) => request.get('/api/docs', { params, noNeedToken: true }),
+  // API tokens
+  getApiTokens: (params = {}) => request.get('/api-tokens', { params }),
+  getApiTokenUsers: () => request.get('/api-tokens/users'),
+  createApiToken: (data) => request.post('/api-tokens', data),
+  updateApiToken: (id, data) => request.put(`/api-tokens/${id}`, data),
+  setApiTokenStatus: (id, data) => request.post(`/api-tokens/${id}/status`, data),
+  regenerateApiToken: (id) => request.post(`/api-tokens/${id}/regenerate`),
+  deleteApiToken: (id) => request.delete(`/api-tokens/${id}`),
   // depts
   getDepts: (params = {}) => request.get('/dept/list', { params }),
   createDept: (data = {}) => request.post('/dept/create', data),
