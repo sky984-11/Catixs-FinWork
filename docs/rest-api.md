@@ -6,6 +6,140 @@
 
 ## 快速接入
 
+### FW 小助手（阿里百炼）
+
+`POST /api/v1/fw-assistant/chat`，沿用登录鉴权（`token` 或 `Authorization: Bearer`）；百炼密钥仅由后端使用。
+
+后端环境配置：`FW_ASSISTANT_API_KEY` 为百炼密钥；`FW_ASSISTANT_API_BASE` 为业务空间 OpenAI 兼容地址，例如 `https://<WorkspaceId>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`（不含 `/chat/completions`）；`FW_ASSISTANT_MODEL` 默认 `deepseek-v4.1-flash`，须已获得业务空间调用授权；`FW_ASSISTANT_TIMEOUT` 默认 45 秒。未指定地址时使用北京地域公共兼容地址。修改配置后重启后端。
+
+FW 小助手不再回退使用 `DEEPSEEK_*` 配置；其他模块不受影响。前端不再发送固定模型名或读取 `VITE_FW_ASSISTANT_MODEL`，模型统一由后端配置。保留请求中的可选 `model` 字段供既有调用方覆盖，调用方须传百炼支持的模型名。请求使用非流式、非思考模式（`stream: false`、`enable_thinking: false`）。
+
+请求 JSON：`message` 必填、1–8000 字符；`model` 可选；`messages` 默认空数组，每项含 `role`（system/user/assistant）和 `content`（1–8000 字符；客户端 system 消息不作为系统指令）；`context` 默认空对象，可传页面 `path`、`title`。用户身份由后端认证结果确定，不能通过 context 或工具参数覆盖。
+
+数据库访问已改为 MCP：助手发现工具后，通过百炼 Function Calling 请求查询，将 MCP 结果以 `role=tool` 回传模型生成回答。助手使用请求级进程内 JSON-RPC 传输，与下述 HTTP 端点共用工具实现及权限校验，不需要额外进程或向百炼提供数据库密码、登录 token。已移除模型生成并执行任意 SQL 的流程。
+
+响应保留 `content`、`model`、`db`；`db.enabled/reason/rows/row_count` 描述本轮查询，兼容字段 `db.sql` 为空字符串（不再执行模型 SQL）；新增 `db.queries` 记录各次查询的 `tool/is_error/result`。顶层 `rows` 为最近一次成功查询的数据，精确统计值读取 `queries[].result.count`。`FW_ASSISTANT_DB_QUERY_ENABLED=false` 时不向模型提供工具且拒绝直接工具查询。最多4轮工具交互、8次工具执行，累计结果达到60KB后停止后续执行并要求模型总结；每次查询10秒超时，整个模型/工具循环60秒超时，保持前端70秒等待上限。
+
+```json
+{"message":"你好","messages":[],"context":{"path":"/","title":"首页"}}
+```
+
+成功响应示例（本轮无需查询数据库）：
+
+```json
+{"code":200,"msg":"OK","data":{"content":"你好，请问需要什么帮助？","model":"deepseek-v4.1-flash","db":{"enabled":true,"reason":"本轮尚未查询数据库","sql":"","rows":[],"queries":[]}}}
+```
+
+错误：401 未登录或认证无效；422 请求参数校验失败；503 未配置助手密钥；502 上游连接失败、拒绝请求或未返回内容；400 查询校验失败；500 内部处理错误。业务错误结构为 `{"code":502,"msg":"错误说明","data":null}`；认证及参数校验错误使用 FastAPI `detail` 格式。
+
+官方协议参考：[阿里百炼 OpenAI 兼容 Chat API](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions)。
+
+### FW 数据库 MCP
+
+端点：`POST /api/v1/fw-assistant/mcp`，采用 MCP `2025-06-18` 的无状态 Streamable HTTP JSON 响应方式。支持 `initialize`、`notifications/initialized`、`ping`、`tools/list`、`tools/call`；无服务器主动通知、SSE、会话 ID 或批量请求。`GET` 经过认证后返回405。客户端初始化须传 `protocolVersion`、`capabilities`、`clientInfo`，服务端协商到 `2025-06-18`；不支持此版本的客户端应断开。
+
+每次请求均须携带 FinWork 登录 `token` 或 `Authorization: Bearer <API token>`（使用项目现有认证，不提供 MCP OAuth 发现）。请求头要求 `Content-Type: application/json`、`Accept: application/json, text/event-stream`；初始化后带 `MCP-Protocol-Version: 2025-06-18`。API token 绑定用户的数据范围与登录用户相同。若携带 Origin，必须匹配后端 `WEB_BASE_URL`、`WEB_DEV_BASE_URL`、`https://WEB_DOMAIN` 或明确列出的 `CORS_ORIGINS`，通配符不授权 MCP Origin。
+
+工具：
+
+| 名称 | 参数 | 行为 |
+| --- | --- | --- |
+| `finwork_schema` | `{}` | 返回当前用户有列表权限的数据集及字段含义 |
+| `finwork_query` | 必填 `dataset`；可选 `columns`、`filters`、`order_by`、`limit`、`offset`、`mode` | 执行受限 ORM 只读查询或计数 |
+| `finwork_ops_read` | 必填 `action`，其他参数按数据源提供，见下文 | 读取云资源快照、Syslog、Akvorado 流量分析 |
+
+开放数据集包括 `projects`、`project_tasks`、`tickets`、`customers`、`contracts`、`bills`、`cabinets`，以及下表中的运维数据集。已注册数据集的全部本表数据库字段向 FW 助手开放，包括扩展配置、附件元数据及图片URL；实际文件内容不读取。字段从 ORM 元数据发现，不再使用逐字段业务白名单。数据集权限和行范围保持不变，用户表、系统表不因此开放；凭据键及常见凭据文本仍脱敏。不支持 SQL、任意 JOIN 或写入。
+
+设备明细补充 `customer_name/cabinet_name/location_name/region_name`，与 `type/u_position/u_height` 一起可直接查询。`status=1` 表示使用中；`customer_id` 的 `isnull=false` 筛选不表示缺少明细权限。请求 `columns` 最多128项，省略时返回全部本表字段及可用名称别名。未知字段返回“字段不存在或不是本表字段”，并提示按schema修正，不能解释成权限不足；数量查询使用count，明细查询使用rows。单条结果过大时应减少columns，不取消数据权限。
+
+- 项目及任务：要求 `/api/v1/project/list` 的 GET 权限，且仅能查询本人负责或共享给本人的项目及其任务，沿用项目列表范围（管理员也应用此范围）。
+- 工单：沿用工单模块的管理员/NOC可见全部、普通用户只看本人创建工单的规则；已关闭工单也可显式查询或计数。
+- 客户、合同、账单：分别要求 `/api/v1/customer-center/customers`、`/contracts`、`/bills` 的 GET 权限，管理员权限沿用现有规则。
+- 机柜：要求 `/api/v1/asset/cabinet/list` 的 GET 权限，沿用机柜列表的数据范围（无额外用户行过滤）；只有设备列表权限不能查询机柜。无权限时 `finwork_schema` 不显示 `cabinets`，直接查询返回 `isError=true`。
+
+`cabinets` 支持全部本表字段及所属机房、区域、客户名称，完整字段由 `finwork_schema` 返回。`location_name`、`region_name`、`customer_name` 是服务端固定关联提供的名称字段，可用于筛选、投影及排序；未分配客户时 `customer_name=null`。照片字段仅返回URL，设备明细使用devices查询；不将租用U位范围当作实际空闲U位。默认包括启用和停用机柜，仅查询启用机柜须加 `status=true`。
+
+示例：查询指定机房的启用机柜及电力配置，使用同一 MCP 端点和认证头：
+
+```json
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"finwork_query","arguments":{"dataset":"cabinets","columns":["id","name","code","location_name","customer_name","capacity_u","rental_start_u","rental_end_u","power_allocation_kw"],"filters":[{"field":"location_name","operator":"contains","value":"目标机房"},{"field":"status","value":true}],"order_by":["code"],"limit":20}}}
+```
+
+数量统计使用相同筛选并指定 `mode=count`；空结果仍为 `isError=false`，参数、权限和数据库错误沿用下述 MCP 错误约定。
+
+`filters` 最多12项，按 AND 组合，每项 `{field, operator, value}`；operator 默认 `eq`，另支持 `in`（最多100项列表）、`contains`（文本）、`gte`、`lte`、`isnull`（布尔值）。字段须为本表数据库字段或已提供的名称别名，筛选不能扩大服务端用户范围。`order_by` 默认 `["-id"]`，最多5项；`columns` 可省略。`limit` 为1–100，实际不超过 `FW_ASSISTANT_DB_QUERY_LIMIT`（默认50，上限100）；`offset` 为0–10000。`mode` 默认为 `rows`，`count` 返回当前权限及筛选下的准确总数，忽略分页。
+
+查询请求示例（初始化之后）：
+
+```json
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"finwork_query","arguments":{"dataset":"tickets","mode":"count","filters":[{"field":"status","operator":"eq","value":2}]}}}
+```
+
+响应示例：
+
+```json
+{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"{\"dataset\":\"tickets\",\"count\":2,\"rows\":[]}"}],"isError":false}}
+```
+
+行查询结果包含 `rows/row_count/offset/has_more/next_offset/truncated`。单字段文本截断至1000字符；每次查询结果行约30KB上限，未返回完的记录用 `next_offset` 继续读取，不能把 `row_count` 当总数。
+
+HTTP 错误：401认证失败、403 Origin被拒绝、406 Accept不兼容、415 Content-Type错误、413请求超过64KiB、400 JSON解析失败或版本不支持。JSON-RPC 错误：`-32700`解析失败、`-32600`非法消息、`-32601`未知方法、`-32602`未知工具或非法协议参数。已知工具的参数错误、权限不足、查询关闭、超时及数据库错误返回 `result.isError=true`，不会伪装成空查询成功。通知返回202空响应。审计保留路径/操作者/状态，不记录助手或MCP请求/响应正文。
+
+协议依据：[MCP Streamable HTTP](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports)、[百炼 Function Calling](https://help.aliyun.com/zh/model-studio/qwen-function-calling)。
+
+#### 运维中心覆盖范围
+
+以 `app/core/init_app.py` 中当前启用的运维菜单为准，覆盖服务工单、网络节点、机柜资源、资产库存、日志中心、流量分析、云资源、DHCP池、运维日志。已移除的 IP 管理和旧设备维护计划菜单不启用。本次只读接入，不开放开关机、控制台、通知、创建、修改、删除或同步刷新操作。
+
+| 菜单/业务 | `finwork_query.dataset` | 对应 GET 权限 |
+| --- | --- | --- |
+| 服务工单及回复 | `tickets`、`ticket_replies` | 沿用工单身份及可见范围；回复按父工单权限过滤，不按回复作者扩大范围 |
+| 网络节点 | `regions`、`locations` | `/api/v1/asset/region/list`、`/api/v1/asset/location/list` |
+| 机柜、设备 | `cabinets`、`devices` | `/api/v1/asset/cabinet/list`、`/api/v1/asset/device/list` |
+| 设备品牌及型号 | `device_brands`、`device_models` | `/api/v1/asset/device-brand/list` |
+| 资产库存、分类、流水 | `inventory`、`inventory_categories`、`inventory_flows` | 分别 `/api/v1/asset/inventory/list`、`/inventory-category/list`、`/inventory-flow/list` |
+| 库存关联销售单及明细 | `inventory_sales`、`inventory_sale_items` | `/api/v1/asset/inventory-sale/list` |
+| DHCP池及分配记录 | `dhcp_pools`、`dhcp_leases` | `/api/v1/pve/dhcp-pools` |
+| 云资源关联和本地元数据 | `cloud_bindings`、`vm_metadata` | `/api/v1/pve/nodes`、`/api/v1/pve/vms` |
+| 运维日志、计划、工程师 | `remote_logs`、`remote_plans`、`remote_engineers` | `/api/v1/remote-assistance/overview` |
+
+所有数据集支持既有字段筛选、排序、分页及计数。`finwork_schema.datasets` 返回当前用户获准的数据集和字段；新增 `finwork_schema.operations` 返回可用的外部/快照读取 action。业务 ID（如 `cabinet_id`、`inventory_id`、`pool_id`、`ticket_id`）可用于关联查询；不允许模型自行传关联字段或 SQL。
+
+运维计费字段 `billing_data`、工程师 `billing_rules`、计划 `customer_pricing` 返回存储值，不重新计算费用。JSON 字段（包括attributes和附件元数据）按深度8层、每层最多100项、字符串1000字符截断，删除常见凭据键并脱敏常见凭据文本，修改过的结果标记 `truncated=true`；不读取附件实体内容，不返回登录凭据。实际空闲U位需结合设备的 `u_position/u_height/status` 分析，不能仅由租用范围判断。
+
+#### `finwork_ops_read` 参数与结果
+
+| action | 数据源和权限 | 参数/说明 |
+| --- | --- | --- |
+| `cloud_nodes` | 本地云资源快照，`GET /api/v1/pve/nodes` | 可选 `remote/status/keyword`，返回节点容量、状态、位置等白名单字段 |
+| `cloud_vms` | 本地云资源快照，`GET /api/v1/pve/vms` | 可选 `remote/status/vmid/customer_id/keyword`，返回虚拟机规格、状态、客户等白名单字段 |
+| `syslog_devices` | Syslog SSH读取，`GET /api/v1/syslog/devices` | 列出日志设备目录 |
+| `syslog_files` | Syslog SSH读取，`GET /api/v1/syslog/files` | 必填有效IP `device`，列日志文件 |
+| `syslog_logs` | Syslog SSH读取，`GET /api/v1/syslog/logs` | 必填 `device/file`；可选 `keyword/level/vendor/tail`；file须为纯文件名，tail默认1000、范围100–5000 |
+| `traffic_regions` | 配置的Akvorado区域，沿用代理的登录鉴权 | 返回区域代码，不返回服务地址 |
+| `traffic_widget` | Akvorado只读统计，沿用代理的登录鉴权 | 必填 `region`；`widget` 默认 `flow-rate`，支持 `flow-last/exporters/top/src-as/top/dst-as/top/protocol/top/src-country/top/dst-country/top/src-port/top/dst-port/top/exporter` |
+| `traffic_graph` | Akvorado只读流量图，沿用代理的登录鉴权 | 必填 `region/start/end`；时间必须带时区、跨度大于0且不超过24小时；可选 `dimensions/filter/units/limit` |
+
+云资源、Syslog和区域列表采用 `limit`（默认20，1–100且不超过系统查询行数限制）、`offset`（0–10000）、`mode`（rows/count）。结果含 `source/rows/row_count/total/has_more/next_offset`；云资源另外带 `synced_at/stale`，日志带 `observed_at/scope`。云资源只读取现有快照，不刷新、不写库；无已同步快照时报错，超过5分钟、dirty或存在同步错误时标记stale。必须向用户说明快照时间，不能称为实时数据。日志统计仅针对文件末尾tail行的匹配结果，不代表全文件或全站日志总数。
+
+流量统计不支持offset和count；图表limit按Top N最多20组，固定请求20个时间点，实际采样由上游决定。dimensions最多4个，可用 `ExporterName/SrcAS/DstAS/SrcCountry/DstCountry/Proto/SrcAddr/DstAddr/SrcPort/DstPort/InIfName/OutIfName`；units支持 `l3bps/l2bps/pps/fps`，默认l3bps；filter为Akvorado过滤表达式，最多1000字符。只允许预配置区域与固定统计API，不接受URL、凭据、命令或重定向。流量结果保留在 `data`，不拆分时序数组；过大结果报错，请缩小范围。响应附带region、查询时间和observed_at；widget单位由对应上游指标决定，顶层units为null。
+
+外部读取同样受10秒工具超时、单次约30KB输出及整轮调用预算限制；上游网络/API版本错误返回 `isError=true`，不伪装成空结果，错误不带内部连接信息。仅提供查询入口并不代表生产数据源已连通；需部署环境能访问现有Syslog SSH与Akvorado服务。
+
+云资源查询示例：
+
+```json
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"finwork_ops_read","arguments":{"action":"cloud_vms","status":"running","limit":20}}}
+```
+
+流量查询示例（时间使用带时区ISO格式）：
+
+```json
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"finwork_ops_read","arguments":{"action":"traffic_graph","region":"SZ","start":"2026-10-24T10:00:00+08:00","end":"2026-10-24T11:00:00+08:00","dimensions":["ExporterName"],"units":"l3bps","limit":10}}}
+```
+
+Akvorado接口依据：[官方路由定义](https://github.com/akvorado/akvorado/blob/main/console/root.go)、[图表参数](https://github.com/akvorado/akvorado/blob/main/console/graph.go)。
+
 ### API tokens（永久令牌）
 
 系统管理 → **API tokens**，仅超级管理员及 `admin` / `管理员` 角色可管理，管理接口不接受历史 `dev` 调试凭据。Token 绑定一个启用用户，继承该用户当前的角色、接口权限和业务数据范围；普通用户即使被分配 token 管理接口权限也不能管理令牌。创建后不能更换所属用户。

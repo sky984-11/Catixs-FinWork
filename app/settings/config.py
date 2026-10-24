@@ -71,8 +71,8 @@ class Settings(BaseSettings):
     CHATWOOT_WEBHOOK_SECRET: str = ""
     CHATWOOT_SIGNATURE_TOLERANCE_SECONDS: int = 300
     FW_ASSISTANT_API_KEY: str = ""
-    FW_ASSISTANT_API_BASE: str = "https://api.siliconflow.cn/v1"
-    FW_ASSISTANT_MODEL: str = "deepseek-ai/DeepSeek-V3"
+    FW_ASSISTANT_API_BASE: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    FW_ASSISTANT_MODEL: str = "deepseek-v4.1-flash"
     FW_ASSISTANT_TIMEOUT: float = 45.0
     FW_ASSISTANT_DB_QUERY_ENABLED: bool = True
     FW_ASSISTANT_DB_QUERY_LIMIT: int = 50

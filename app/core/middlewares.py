@@ -64,8 +64,8 @@ class HttpAuditLogMiddleware(BaseHTTPMiddleware):
 
     async def get_request_args(self, request: Request) -> dict:
         args = {}
-        if request.url.path.startswith("/api/v1/api-tokens"):
-            # Record the route, actor and result, but not accidental credentials in request bodies either.
+        if request.url.path.startswith(("/api/v1/api-tokens", "/api/v1/fw-assistant")):
+            # Record route/actor/status only; token, assistant and MCP bodies may contain private data.
             return args
         # File contents must not be copied into the audit log for JSON uploads either.
         if request.url.path in {
@@ -110,8 +110,8 @@ class HttpAuditLogMiddleware(BaseHTTPMiddleware):
         return args
 
     async def get_response_body(self, request: Request, response: Response) -> Any:
-        # Token plaintext is returned once to the caller, never persisted in audit records.
-        if request.url.path.startswith("/api/v1/api-tokens"):
+        # Never persist token plaintext or assistant/MCP query results in audit records.
+        if request.url.path.startswith(("/api/v1/api-tokens", "/api/v1/fw-assistant")):
             return None
         # 检查Content-Length
         content_length = response.headers.get("content-length")

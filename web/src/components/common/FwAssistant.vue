@@ -51,8 +51,25 @@
         </div>
 
         <form class="fw-assistant-input" @submit.prevent="sendMessage">
+          <span
+            class="fw-input-resize-handle"
+            role="separator"
+            tabindex="0"
+            aria-label="调整输入框高度"
+            aria-orientation="horizontal"
+            aria-controls="fw-assistant-draft"
+            :aria-valuenow="inputHeight"
+            :aria-valuemin="38"
+            :aria-valuemax="inputMaxHeight"
+            title="向上拖动扩大输入框，向下拖动缩小；也可使用上下方向键"
+            @pointerdown="startInputResize"
+            @keydown.up.prevent="inputHeight = Math.min(inputHeight + 16, inputMaxHeight)"
+            @keydown.down.prevent="inputHeight = Math.max(inputHeight - 16, 38)"
+          ></span>
           <textarea
+            id="fw-assistant-draft"
             v-model="draft"
+            :style="{ height: `${Math.min(inputHeight, inputMaxHeight)}px` }"
             rows="1"
             placeholder="输入问题，按 Enter 发送"
             :disabled="sending"
@@ -64,6 +81,7 @@
         </form>
         <span
           class="fw-resize-handle"
+          :class="{ 'is-top': !panelStyle.top }"
           title="调整窗口大小"
           @pointerdown="startResize"
         ></span>
@@ -93,14 +111,15 @@ import { getToken } from '@/utils'
 
 defineOptions({ name: 'FwAssistant' })
 
-const DEEPSEEK_MODEL = import.meta.env.VITE_FW_ASSISTANT_MODEL || 'deepseek-ai/DeepSeek-V3'
-
 const hiddenPathPrefixes = ['/login', '/asset/cabinet-photo-upload/', '/ops/virtual-machine/console']
 const route = useRoute()
 const panelOpen = ref(false)
 const sending = ref(false)
 const draft = ref('')
 const messagesEl = ref(null)
+const inputHeight = ref(38)
+const inputMaxHeight = computed(() => Math.max(38, Math.min(280, getPanelHeight() - 170)))
+const inputResize = { active: false, startY: 0, startHeight: 38, pointerId: null, target: null }
 const ASSISTANT_POSITION_KEY = 'fw-assistant-position'
 const ASSISTANT_PANEL_SIZE_KEY = 'fw-assistant-panel-size'
 const DEFAULT_ASSISTANT_SIZE = 66
@@ -153,7 +172,7 @@ const visible = computed(() => {
   return !hiddenPathPrefixes.some((prefix) => currentPath.startsWith(prefix))
 })
 
-const assistantStatusText = computed(() => DEEPSEEK_MODEL)
+const assistantStatusText = computed(() => '阿里百炼')
 
 const assistantStyle = computed(() => ({
   left: `${assistantPosition.left}px`,
@@ -191,6 +210,13 @@ watch(
   }
 )
 
+watch(panelOpen, (open) => {
+  if (!open) {
+    stopInputResize()
+    stopResize()
+  }
+})
+
 onMounted(() => {
   restoreAssistantPosition()
   restorePanelSize()
@@ -200,6 +226,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   stopDrag()
   stopResize()
+  stopInputResize()
   window.removeEventListener('resize', keepAssistantInViewport)
 })
 
@@ -280,6 +307,42 @@ function stopDrag() {
   window.removeEventListener('pointercancel', stopDrag)
   window.removeEventListener('blur', stopDrag)
   saveAssistantPosition()
+}
+
+function startInputResize(event) {
+  if (event.button !== 0) return
+  event.preventDefault()
+  event.stopPropagation()
+  inputResize.active = true
+  inputResize.startY = event.clientY
+  inputResize.startHeight = Math.min(inputHeight.value, inputMaxHeight.value)
+  inputResize.pointerId = event.pointerId
+  inputResize.target = event.currentTarget
+  event.currentTarget.setPointerCapture?.(event.pointerId)
+  window.addEventListener('pointermove', handleInputResize, { passive: false })
+  window.addEventListener('pointerup', stopInputResize)
+  window.addEventListener('pointercancel', stopInputResize)
+  window.addEventListener('blur', stopInputResize)
+}
+
+function handleInputResize(event) {
+  if (!inputResize.active || event.pointerId !== inputResize.pointerId) return
+  event.preventDefault()
+  inputHeight.value = clamp(inputResize.startHeight + inputResize.startY - event.clientY, 38, inputMaxHeight.value)
+}
+
+function stopInputResize() {
+  if (!inputResize.active) return
+  if (inputResize.target?.hasPointerCapture?.(inputResize.pointerId)) {
+    inputResize.target.releasePointerCapture(inputResize.pointerId)
+  }
+  inputResize.active = false
+  inputResize.target = null
+  inputResize.pointerId = null
+  window.removeEventListener('pointermove', handleInputResize)
+  window.removeEventListener('pointerup', stopInputResize)
+  window.removeEventListener('pointercancel', stopInputResize)
+  window.removeEventListener('blur', stopInputResize)
 }
 
 function startResize(event) {
@@ -536,7 +599,6 @@ async function sendMessage() {
 
 async function callAssistantApiWithClient(content) {
   const data = await api.fwAssistantChat({
-    model: DEEPSEEK_MODEL,
     message: content,
     messages: messages.value
       .filter((item) => !item.loading)
@@ -652,7 +714,7 @@ async function scrollToBottom() {
 
 .fw-assistant-messages {
   display: flex;
-  min-height: 180px;
+  min-height: 80px;
   height: var(--fw-panel-body-height, 320px);
   flex-direction: column;
   gap: 10px;
@@ -764,6 +826,7 @@ async function scrollToBottom() {
 }
 
 .fw-assistant-input {
+  position: relative;
   display: grid;
   flex: 0 0 auto;
   grid-template-columns: minmax(0, 1fr) 38px;
@@ -773,11 +836,38 @@ async function scrollToBottom() {
   background: #fff;
 }
 
+.fw-input-resize-handle {
+  position: absolute;
+  top: -5px;
+  left: 12px;
+  right: 12px;
+  height: 10px;
+  z-index: 1;
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.fw-input-resize-handle::after {
+  position: absolute;
+  top: 4px;
+  left: calc(50% - 20px);
+  width: 40px;
+  height: 3px;
+  content: '';
+  border-radius: 2px;
+  background: #94a3b8;
+}
+
+.fw-input-resize-handle:focus-visible {
+  outline: 2px solid #2563eb;
+}
+
 .fw-assistant-input textarea {
   width: 100%;
   min-height: 38px;
-  max-height: 96px;
-  resize: vertical;
+  box-sizing: border-box;
+  resize: none;
   border: 1px solid #dbe4ef;
   border-radius: 8px;
   outline: none;
@@ -819,6 +909,17 @@ async function scrollToBottom() {
   height: 18px;
   cursor: nwse-resize;
   pointer-events: auto;
+  touch-action: none;
+}
+
+.fw-resize-handle.is-top {
+  top: 4px;
+  bottom: auto;
+  cursor: nesw-resize;
+}
+
+.fw-resize-handle.is-top::before {
+  transform: scaleY(-1);
 }
 
 .fw-resize-handle::before {
@@ -965,7 +1066,7 @@ async function scrollToBottom() {
   }
 
   .fw-assistant-messages {
-    min-height: 220px;
+    min-height: 80px;
   }
 
   .fw-assistant-fab {

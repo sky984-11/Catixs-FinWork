@@ -16,6 +16,7 @@ from .customer_center import router as customer_center_router
 from .depts import depts_router
 from .finance_quotes import finance_quotes_router
 from .fw_assistant import router as fw_assistant_router
+from .fw_mcp import router as fw_mcp_router
 from .dashboard import router as dashboard_router
 from .menus import menus_router
 from .projects import projects_router
@@ -83,3 +84,4 @@ v1_router.include_router(resources_router, prefix="/resource", dependencies=[Dep
 v1_router.include_router(akvorado_router, prefix="/akvorado", tags=["Sflow"])
 v1_router.include_router(tg_assistant_router, prefix="/tg-assistant", tags=["TG助手"])
 v1_router.include_router(fw_assistant_router, prefix="/fw-assistant", tags=["FW Assistant"])
+v1_router.include_router(fw_mcp_router, prefix="/fw-assistant", tags=["FW Assistant MCP"])
