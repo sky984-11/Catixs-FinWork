@@ -734,6 +734,8 @@ async function scrollToBottom() {
 }
 
 .fw-message-bubble {
+  box-sizing: border-box;
+  min-width: 0;
   max-width: 86%;
   white-space: pre-wrap;
   word-break: break-word;
@@ -745,6 +747,8 @@ async function scrollToBottom() {
 }
 
 .fw-message.is-assistant .fw-message-bubble {
+  width: 100%;
+  max-width: 100%;
   border: 1px solid #e2e8f0;
   background: #fff;
 }
