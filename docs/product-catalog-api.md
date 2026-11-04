@@ -1,6 +1,6 @@
 # 产品管理与价格版本
 
-产品管理采用左侧分类树、右侧产品列表。SKU 继续使用现有字段 `code`，现有产品、资源规格和资源价格接口保持兼容。产品价格版本是产品目录报价，不会自动改写资源价格、客户订阅或账单。
+产品管理采用左侧分类树、右侧产品列表。SKU 继续使用现有字段 `code`，现有产品接口保持兼容。产品价格版本是产品目录报价，不会自动改写资源价格、客户订阅或账单。
 
 旧 IDC 初始化曾为每个叶子分类创建同名预置产品（例如 `IP.ASN / ASN`）。应用启动完成数据库迁移后，会清理符合旧目录编码、名称、分类及初始字段值，且没有规格、价格、历史价格、价格版本、DHCP、IDC 工单/服务、账单模板或订阅关联的预置产品。分类本身、用户自建产品及已修改/关联业务的产品保留；此清理不在列表查询中执行。
 
@@ -58,3 +58,17 @@
 - `/api/v1/customer-center/customers/{customer_id}` 的 DELETE 在客户有关联产品价格版本时返回 409；可停用客户，避免删除历史报价的客户关联。
 
 Aerich 迁移 `180_20261104094924_product_price_versions.py` 新增 `product_item.billing_unit`、`product_item.min_contract_months` 和 `product_price_version` 表。既有产品默认按 `month`、1 个月合同期补齐；旧资源价格不自动转换为版本。迁移由 Aerich 基于改动前后模型生成，使用 PostgreSQL 方言，未修改历史迁移。部署需执行 `aerich upgrade`（项目启动也会执行待运行迁移）；不要将此迁移的降级用于有需保留价格历史的数据库。
+
+## 已下线功能
+
+价格管理、客户历史价格和规格配置的菜单、页面及接口已移除。以下路由不再注册（返回 HTTP 404），原请求参数与响应不再适用，所有角色均无法使用：
+
+- `/api/v1/product-center/prices` 及其子路由（GET、POST、PUT、DELETE，含资源选项及通知设置）。
+- `/api/v1/product-center/price-history` 及 `/{history_id}`（GET、DELETE）。
+- `/api/v1/product-center/spec-configs` 及 `/{config_id}`（GET、POST、PUT、DELETE）。
+- `/api/v1/product-center/spec-config-groups/update`、`/delete`（POST）。
+- `/api/v1/product-center/products/{product_id}/sync-physical-servers`（POST）。
+
+启动时清理对应菜单、API 权限和角色授权；停止价格提醒及产品、设备变更触发的规格同步。产品选项不再返回 `spec_configs`。云主机关机不再受历史价格关联限制，其登录及操作权限保持不变。
+
+数据库表和历史记录保留，不执行数据清空或资源释放；历史引用仍参与产品和规格属性删除保护。产品管理、规格属性及产品价格版本接口继续可用。本次无需数据库迁移。

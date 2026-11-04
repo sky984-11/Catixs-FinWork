@@ -106,7 +106,7 @@
         </n-form>
         <template #footer>
           <div class="modal-footer">
-            <span>云主机创建和价格管理会按地区选择启用状态的 DHCP 池。</span>
+            <span>云主机创建会按地区选择启用状态的 DHCP 池。</span>
             <n-space :size="10">
               <CButton show-cancel @cancel="editor.show = false" />
               <CButton show-save :save-loading="editor.loading" @save="savePool" />

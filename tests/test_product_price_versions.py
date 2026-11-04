@@ -148,29 +148,25 @@ class ProductPriceVersionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_product_fields_and_category_descendants(self):
         child = await ProductCategory.create(name="Child", parent=self.category)
-        with (
-            patch("app.api.v1.product_center.sync_product_auto_specs", new_callable=AsyncMock),
-            patch("app.api.v1.product_center.refresh_product_spec_config_snapshots", new_callable=AsyncMock),
-        ):
-            response = await self.client.put(
-                f"/products/{self.product.id}",
-                json={
-                    "name": "Updated",
-                    "category_id": child.id,
-                    "billing_unit": "mbps",
-                    "min_contract_months": 12,
-                },
-            )
-            self.assertEqual(response.status_code, 200, response.text)
-            data = response.json()["data"]
-            self.assertEqual(data["billing_unit"], "mbps")
-            self.assertEqual(data["min_contract_months"], 12)
-            self.assertEqual(data["region"], "HK")
-            self.assertEqual(data["code"], "NET-1")
-            invalid = await self.client.post(
-                "/products", json={"name": "Invalid", "category_id": child.id, "min_contract_months": 0}
-            )
-            self.assertEqual(invalid.status_code, 422)
+        response = await self.client.put(
+            f"/products/{self.product.id}",
+            json={
+                "name": "Updated",
+                "category_id": child.id,
+                "billing_unit": "mbps",
+                "min_contract_months": 12,
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()["data"]
+        self.assertEqual(data["billing_unit"], "mbps")
+        self.assertEqual(data["min_contract_months"], 12)
+        self.assertEqual(data["region"], "HK")
+        self.assertEqual(data["code"], "NET-1")
+        invalid = await self.client.post(
+            "/products", json={"name": "Invalid", "category_id": child.id, "min_contract_months": 0}
+        )
+        self.assertEqual(invalid.status_code, 422)
         result = (await self.client.get("/products", params={"category_id": self.category.id})).json()
         self.assertEqual(result["total"], 1)
         await self.post()

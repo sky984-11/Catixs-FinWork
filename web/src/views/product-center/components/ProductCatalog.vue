@@ -1,5 +1,5 @@
 <template>
-  <AppPage :show-footer="false">
+  <AppPage :show-footer="false" class="product-catalog-page">
     <div class="product-layout">
       <n-card title="产品分类" class="category-panel">
         <template #header-extra
@@ -8,15 +8,17 @@
           ></template
         >
         <n-button text :disabled="busy" @click="selectCategory([])">全部产品</n-button>
-        <n-tree
-          block-line
-          default-expand-all
-          :data="categoryTree"
-          :selected-keys="selectedKeys"
-          :disabled="busy"
-          @update:selected-keys="selectCategory"
-        />
-        <n-empty v-if="!categoryTree.length && !optionsLoading" description="暂无分类" />
+        <div class="category-tree cus-scroll-y">
+          <n-tree
+            block-line
+            default-expand-all
+            :data="categoryTree"
+            :selected-keys="selectedKeys"
+            :disabled="busy"
+            @update:selected-keys="selectCategory"
+          />
+          <n-empty v-if="!categoryTree.length && !optionsLoading" description="暂无分类" />
+        </div>
         <n-space class="filters">
           <n-button
             size="small"
@@ -477,14 +479,41 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.product-catalog-page {
+  min-height: 0;
+  overflow: hidden;
+}
 .product-layout {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
   gap: 16px;
 }
 .product-panel,
 .category-panel {
   min-width: 0;
+  min-height: 0;
+}
+.product-panel {
+  overflow: auto;
+}
+.category-panel :deep(.n-card__content) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.category-panel :deep(.n-card-header),
+.category-panel :deep(.n-card__content > .n-button),
+.category-panel .filters {
+  flex-shrink: 0;
+}
+.category-tree {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
 }
 .filters {
   margin: 16px 0;
@@ -497,8 +526,19 @@ onMounted(async () => {
   width: min(560px, calc(100vw - 32px));
 }
 @media (max-width: 800px) {
+  .product-catalog-page {
+    overflow: auto;
+  }
   .product-layout {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    flex: none;
+  }
+  .category-panel {
+    height: min(420px, 50dvh);
+  }
+  .product-panel {
+    overflow: visible;
   }
 }
 </style>

@@ -475,27 +475,6 @@ async def ensure_product_center_menu():
             "icon": "mdi:tune-variant",
             "component": "/product-center/specs",
         },
-        {
-            "name": "规格配置",
-            "path": "configs",
-            "order": 3,
-            "icon": "mdi:playlist-edit",
-            "component": "/product-center/configs",
-        },
-        {
-            "name": "价格管理",
-            "path": "pricing",
-            "order": 4,
-            "icon": "mdi:cash-multiple",
-            "component": "/product-center/pricing",
-        },
-        {
-            "name": "客户历史价格",
-            "path": "price-history",
-            "order": 5,
-            "icon": "mdi:history",
-            "component": "/product-center/price-history",
-        },
         # {
         #     "name": "产品模板",
         #     "path": "templates",
@@ -528,7 +507,10 @@ async def ensure_product_center_menu():
                 await menu.save()
         else:
             await Menu.create(**values)
-    await Menu.filter(component__in=["/product-center/quote-lines", "/product-center/templates"]).delete()
+    await Menu.filter(component__in=[
+        "/product-center/quote-lines", "/product-center/templates",
+        "/product-center/configs", "/product-center/pricing", "/product-center/price-history",
+    ]).delete()
     try:
         from app.api.v1.product_center import seed_categories, seed_spec_attributes
 
@@ -1171,6 +1153,8 @@ async def remove_retired_feature_metadata():
         | Q(path__startswith="/idc/")
         | Q(component__startswith="/idc/")
         | Q(component="/project-board/requirements")
+        | Q(component__in=["/product-center/configs", "/product-center/pricing", "/product-center/price-history"])
+        | Q(path__in=["/product-center/configs", "/product-center/pricing", "/product-center/price-history"])
     )
     menu_ids = {menu.id for menu in menus}
     pending = set(menu_ids)
@@ -1178,7 +1162,13 @@ async def remove_retired_feature_metadata():
         children = set(await Menu.filter(parent_id__in=list(pending)).values_list("id", flat=True))
         pending = children - menu_ids
         menu_ids.update(pending)
-    apis = await Api.filter(Q(path__startswith="/api/v1/idc/") | Q(path__startswith="/api/v1/requirement/"))
+    apis = await Api.filter(
+        Q(path__startswith="/api/v1/idc/") | Q(path__startswith="/api/v1/requirement/")
+        | Q(path__startswith="/api/v1/product-center/prices")
+        | Q(path__startswith="/api/v1/product-center/price-history")
+        | Q(path__startswith="/api/v1/product-center/spec-config")
+        | Q(path="/api/v1/product-center/products/{product_id}/sync-physical-servers")
+    )
     retired_menus = await Menu.filter(id__in=list(menu_ids)) if menu_ids else []
     for role in await Role.all():
         if retired_menus:
