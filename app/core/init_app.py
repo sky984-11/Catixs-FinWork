@@ -475,6 +475,13 @@ async def ensure_product_center_menu():
             "icon": "mdi:tune-variant",
             "component": "/product-center/specs",
         },
+        {
+            "name": "订单管理",
+            "path": "orders",
+            "order": 3,
+            "icon": "mdi:clipboard-list-outline",
+            "component": "/product-center/orders",
+        },
         # {
         #     "name": "产品模板",
         #     "path": "templates",

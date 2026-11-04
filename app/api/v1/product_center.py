@@ -10,6 +10,8 @@ from tortoise.exceptions import IntegrityError
 from tortoise.transactions import in_transaction
 
 from .product_price_versions import router as price_versions_router
+from .product_orders import router as orders_router
+from app.models.product_order import ProductOrderItem
 
 from app.models.customer_center import CrmCustomer
 from app.models.admin import User
@@ -26,6 +28,7 @@ from app.schemas.base import Fail, Success, SuccessExtra
 
 router = APIRouter()
 router.include_router(price_versions_router)
+router.include_router(orders_router)
 
 PRODUCT_STATUSES = [{"label": "在售", "value": "active"}, {"label": "下架", "value": "offline"}]
 PRICE_TYPES = [{"label": "标准价格", "value": "standard"}, {"label": "客户价格", "value": "customer"}]
@@ -980,6 +983,9 @@ async def delete_product(product_id: int):
         if not product:
             return Fail(code=404, msg="产品不存在")
         refs = []
+        order_count = await ProductOrderItem.filter(product_id=product_id).using_db(conn).count()
+        if order_count:
+            refs.append(f"订单明细 {order_count} 条")
         version_count = await ProductPriceVersion.filter(product_id=product_id).count()
         if version_count:
             refs.append(f"价格方案历史版本 {version_count} 条")

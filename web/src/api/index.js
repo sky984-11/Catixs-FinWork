@@ -384,6 +384,11 @@ export default {
     updateCategory: (id, data = {}) => request.put(`/product-center/categories/${id}`, data),
     deleteCategory: (id) => request.delete(`/product-center/categories/${id}`),
     listProducts: (params = {}) => request.get('/product-center/products', { params }),
+    listOrders: (params = {}) => request.get('/product-center/orders', { params }),
+    getOrder: (id) => request.get(`/product-center/orders/${id}`),
+    createOrder: (data) => request.post('/product-center/orders', data),
+    updateOrder: (id, data) => request.put(`/product-center/orders/${id}`, data),
+    deleteOrder: (id) => request.delete(`/product-center/orders/${id}`),
     listPriceVersions: (id, params = {}) =>
       request.get(`/product-center/products/${id}/price-versions`, { params }),
     createPriceVersion: (id, data = {}) =>
