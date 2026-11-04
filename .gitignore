@@ -23,6 +23,7 @@ migrations/models/*
 !migrations/models/181_20261104120000_price_version_optional_dates.py
 !migrations/models/182_20261104140000_product_spec_values.py
 !migrations/models/183_20261104150000_product_orders.py
+!migrations/models/184_20261104170000_order_item_prices.py
 .env
 .pnpm-store/
 

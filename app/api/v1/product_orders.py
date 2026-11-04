@@ -1,3 +1,4 @@
+from decimal import Decimal
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query
@@ -8,7 +9,7 @@ from tortoise.expressions import Q
 from tortoise.transactions import in_transaction
 
 from app.models.customer_center import CrmCustomer
-from app.models.product_center import ProductItem
+from app.models.product_center import ProductItem, ProductPriceVersion
 from app.models.product_order import ProductOrder, ProductOrderItem
 from app.schemas.base import Success, SuccessExtra
 
@@ -18,6 +19,74 @@ router = APIRouter()
 class OrderItemPayload(BaseModel):
     product_id: int = Field(..., gt=0)
     quantity: int = Field(..., ge=1, le=1000000, strict=True)
+    price_version_id: int | None = Field(None, gt=0)
+    mrc: Decimal | None = Field(None, ge=0, max_digits=16, decimal_places=2, allow_inf_nan=False)
+    nrc: Decimal | None = Field(None, ge=0, max_digits=16, decimal_places=2, allow_inf_nan=False)
+
+
+PRICE_FIELDS = (
+    "price_version_id",
+    "price_version_number",
+    "currency",
+    "period_months",
+    "billing_unit",
+    "base_mrc",
+    "base_nrc",
+    "mrc",
+    "nrc",
+)
+
+
+def price_snapshot(version):
+    return {
+        "price_version_id": version.id,
+        "price_version_number": version.version,
+        "currency": version.currency,
+        "period_months": version.period_months,
+        "billing_unit": version.billing_unit,
+        "base_mrc": version.mrc,
+        "base_nrc": version.nrc,
+        "mrc": version.mrc,
+        "nrc": version.nrc,
+    }
+
+
+def serialize_price(values):
+    return {key: format(value, ".2f") if isinstance(value, Decimal) else value for key, value in values.items()}
+
+
+@router.get("/products/{product_id}/order-price", summary="订单使用的最新公共价格")
+async def get_order_price(product_id: int):
+    if not await ProductItem.filter(id=product_id).exists():
+        raise HTTPException(404, "产品不存在")
+    version = await ProductPriceVersion.filter(product_id=product_id, customer_id=None).order_by("-version").first()
+    return Success(data=serialize_price(price_snapshot(version)) if version else None)
+
+
+async def resolve_price(item, old, conn):
+    # Preserve saved prices for old clients and for deleted/replaced catalog versions.
+    if (
+        old
+        and old.price_version_id
+        and ("price_version_id" not in item.model_fields_set or item.price_version_id == old.price_version_id)
+    ):
+        values = {field: getattr(old, field) for field in PRICE_FIELDS}
+    else:
+        query = ProductPriceVersion.filter(product_id=item.product_id, customer_id=None).using_db(conn)
+        if item.price_version_id:
+            version = await query.filter(id=item.price_version_id).first()
+            if not version:
+                raise HTTPException(409, "公共价格版本已删除或不属于该产品，请重新继承公共价格")
+        else:
+            version = await query.order_by("-version").first()
+        values = price_snapshot(version) if version else dict.fromkeys(PRICE_FIELDS)
+    for field in ("mrc", "nrc"):
+        if field in item.model_fields_set:
+            override = getattr(item, field)
+            if override is not None and values["price_version_id"] is None:
+                raise HTTPException(400, "产品尚无公共价格，请先在产品管理中配置价格")
+            values[field] = override if override is not None else values[f"base_{field}"]
+    return values
 
 
 class OrderPayload(BaseModel):
@@ -49,6 +118,7 @@ async def order_dict(order):
             "category_id": item.product.category_id,
             "category_name": item.product.category.name if item.product.category else "未分类",
             "quantity": item.quantity,
+            **serialize_price({field: getattr(item, field) for field in PRICE_FIELDS}),
         }
         for item in sorted(order.items, key=lambda item: item.position)
     ]
@@ -93,13 +163,15 @@ async def save_order(payload, order_id=None):
         async with in_transaction() as conn:
             order = None
             old_product_ids = set()
+            old_items = {}
             if order_id is not None:
                 order = await ProductOrder.filter(id=order_id).using_db(conn).select_for_update().first()
                 if not order:
                     raise HTTPException(404, "订单不存在")
-                old_product_ids = set(
-                    await ProductOrderItem.filter(order_id=order_id).using_db(conn).values_list("product_id", flat=True)
-                )
+                old_items = {
+                    item.product_id: item for item in await ProductOrderItem.filter(order_id=order_id).using_db(conn)
+                }
+                old_product_ids = set(old_items)
             customer = await CrmCustomer.filter(id=payload.customer_id).using_db(conn).select_for_update().first()
             if not customer:
                 raise HTTPException(400, "客户不存在")
@@ -117,6 +189,7 @@ async def save_order(payload, order_id=None):
                 raise HTTPException(400, "部分产品不存在")
             if any(product.status != "active" and product.id not in old_product_ids for product in products):
                 raise HTTPException(400, "不能新增已下架产品")
+            prices = [await resolve_price(item, old_items.get(item.product_id), conn) for item in payload.items]
             values = payload.model_dump(exclude={"items"})
             if order:
                 order.update_from_dict(values)
@@ -126,7 +199,9 @@ async def save_order(payload, order_id=None):
                 order = await ProductOrder.create(using_db=conn, order_no=f"ORD-{uuid4().hex.upper()}", **values)
             await ProductOrderItem.bulk_create(
                 [
-                    ProductOrderItem(order_id=order.id, position=i, **item.model_dump())
+                    ProductOrderItem(
+                        order_id=order.id, position=i, product_id=item.product_id, quantity=item.quantity, **prices[i]
+                    )
                     for i, item in enumerate(payload.items)
                 ],
                 using_db=conn,

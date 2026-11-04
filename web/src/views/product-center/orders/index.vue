@@ -79,7 +79,7 @@
               filterable
               placeholder="选择产品分类"
               :options="categoryTree"
-              @update:value="item.product_id = null"
+              @update:value="clearProduct(item)"
             />
             <n-select
               v-model:value="item.product_id"
@@ -87,6 +87,7 @@
               placeholder="选择产品（名称 / SKU）"
               :disabled="busy || editor.readonly || item.category_id === null"
               :options="productOptions(item)"
+              @update:value="changeProduct(item)"
             />
             <n-input-number
               v-model:value="item.quantity"
@@ -101,6 +102,47 @@
               :disabled="busy"
               @delete="form.items.splice(index, 1)"
             />
+            <div class="item-prices">
+              <div class="price-context">
+                <span v-if="item.price_version_id">
+                  {{ item.currency }} · 每 {{ item.period_months }} 个月结算 · 单位：{{
+                    unitLabel(item.billing_unit)
+                  }}
+                  · 公共价格 V{{ item.price_version_number }}：MRC {{ item.base_mrc }} / NRC
+                  {{ item.base_nrc }}
+                </span>
+                <span v-else>{{
+                  item.price_loading ? '正在读取公共价格…' : '未定价：请先为产品配置公共价格'
+                }}</span>
+                <CButton
+                  v-if="!editor.readonly && item.product_id"
+                  show-save
+                  save-text="继承最新公共价格"
+                  :disabled="busy"
+                  :save-loading="item.price_loading"
+                  @save="inheritPrice(item)"
+                />
+              </div>
+              <n-alert v-if="item.price_error" type="error">{{ item.price_error }}</n-alert>
+              <div class="price-inputs">
+                <label
+                  >MRC（每单位月费）
+                  <n-input
+                    v-model:value="item.mrc"
+                    placeholder="继承公共 MRC"
+                    :disabled="busy || editor.readonly || !item.price_version_id"
+                  />
+                </label>
+                <label
+                  >NRC（每单位一次性费用）
+                  <n-input
+                    v-model:value="item.nrc"
+                    placeholder="继承公共 NRC"
+                    :disabled="busy || editor.readonly || !item.price_version_id"
+                  />
+                </label>
+              </div>
+            </div>
           </div>
           <CButton
             v-if="!editor.readonly"
@@ -163,6 +205,7 @@ const rows = ref([]),
   customers = ref([]),
   categories = ref([]),
   categoryNodes = ref([]),
+  units = ref([]),
   products = ref([])
 const loading = ref(false),
   optionsLoading = ref(false),
@@ -179,7 +222,13 @@ const editor = reactive({ show: false, readonly: false })
 const deletion = reactive({ show: false, row: null })
 const form = reactive({ items: [] })
 const original = ref(null)
-const busy = computed(() => saving.value || deleting.value || opening.value !== null)
+const busy = computed(
+  () =>
+    saving.value ||
+    deleting.value ||
+    opening.value !== null ||
+    form.items.some((item) => item.price_loading)
+)
 let itemKey = 0
 let requestId = 0
 
@@ -220,6 +269,7 @@ async function loadOptions() {
     customers.value = result.data.customers || []
     categories.value = result.data.categories || []
     categoryNodes.value = result.data.category_tree || []
+    units.value = result.data.billing_units || []
     products.value = (result.data.products || []).map((item) => ({
       ...item,
       label: `${item.label} · ${item.code || '-'}`,
@@ -298,7 +348,53 @@ function productOptions(line) {
     }))
 }
 function addItem() {
-  form.items.push({ key: ++itemKey, category_id: null, product_id: null, quantity: 1 })
+  form.items.push({
+    key: ++itemKey,
+    category_id: null,
+    product_id: null,
+    quantity: 1,
+    ...emptyPrice(),
+  })
+}
+function emptyPrice() {
+  return {
+    price_version_id: null,
+    price_version_number: null,
+    currency: null,
+    period_months: null,
+    billing_unit: null,
+    base_mrc: null,
+    base_nrc: null,
+    mrc: null,
+    nrc: null,
+    price_loading: false,
+    price_error: '',
+  }
+}
+function unitLabel(value) {
+  return units.value.find((item) => item.value === value)?.label || value
+}
+function clearProduct(item) {
+  item.product_id = null
+  Object.assign(item, emptyPrice())
+}
+async function changeProduct(item) {
+  Object.assign(item, emptyPrice())
+  if (item.product_id) await inheritPrice(item)
+}
+async function inheritPrice(item) {
+  if (item.price_loading || !item.product_id) return
+  item.price_loading = true
+  item.price_error = ''
+  try {
+    const result = await service.getOrderPrice(item.product_id)
+    if (result.data) Object.assign(item, result.data)
+    else if (item.price_version_id) window.$message?.warning('暂无公共价格，保留订单原价格')
+  } catch (error) {
+    item.price_error = error.message || '公共价格加载失败，请重新继承公共价格'
+  } finally {
+    item.price_loading = false
+  }
 }
 async function openEditor(row = null, readonly = false) {
   if (busy.value) return
@@ -313,12 +409,16 @@ async function openEditor(row = null, readonly = false) {
       customer_id: data?.customer_id || null,
       remark: data?.remark || '',
       items: (data?.items || []).map((item) => ({
+        ...emptyPrice(),
         ...item,
         category_id: item.category_id || 0,
         key: ++itemKey,
       })),
     })
     if (!data) addItem()
+    if (data && !readonly) {
+      await Promise.all(form.items.filter((item) => !item.price_version_id).map(inheritPrice))
+    }
     editor.readonly = readonly
     editor.show = true
   } catch {
@@ -329,6 +429,13 @@ async function openEditor(row = null, readonly = false) {
 }
 async function save() {
   if (busy.value) return
+  if (form.items.some((item) => item.price_error))
+    return window.$message?.warning('请先重试加载失败的公共价格')
+  const validMoney = (value) =>
+    value === null || value === '' || /^(?:0|[1-9]\d{0,13})(?:\.\d{1,2})?$/.test(value)
+  if (form.items.some((item) => !validMoney(item.mrc) || !validMoney(item.nrc))) {
+    return window.$message?.warning('MRC、NRC 必须是非负金额，最多两位小数')
+  }
   if (
     !form.name.trim() ||
     !form.customer_id ||
@@ -345,7 +452,13 @@ async function save() {
       name: form.name.trim(),
       customer_id: form.customer_id,
       remark: form.remark,
-      items: form.items.map(({ product_id, quantity }) => ({ product_id, quantity })),
+      items: form.items.map(({ product_id, quantity, price_version_id, mrc, nrc }) => ({
+        product_id,
+        quantity,
+        price_version_id,
+        mrc: mrc || null,
+        nrc: nrc || null,
+      })),
     }
     if (form.id) await service.updateOrder(form.id, payload)
     else await service.createOrder(payload)
@@ -497,6 +610,27 @@ onMounted(reload)
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) 100px auto;
   gap: 12px;
   margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--n-border-color);
+}
+.item-prices {
+  grid-column: 1 / -1;
+}
+.price-context {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.price-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.price-inputs label {
+  min-width: 0;
 }
 :deep(.customer-select-option .n-base-select-option__content) {
   width: 100%;

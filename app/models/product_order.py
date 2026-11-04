@@ -18,6 +18,15 @@ class ProductOrderItem(BaseModel):
     product = fields.ForeignKeyField("models.ProductItem", related_name="order_items", on_delete=fields.RESTRICT)
     quantity = fields.IntField()
     position = fields.IntField(default=0)
+    price_version_id = fields.BigIntField(null=True, description="来源价格版本ID快照")
+    price_version_number = fields.IntField(null=True)
+    currency = fields.CharField(max_length=12, null=True)
+    period_months = fields.IntField(null=True)
+    billing_unit = fields.CharField(max_length=40, null=True)
+    base_mrc = fields.DecimalField(max_digits=16, decimal_places=2, null=True)
+    base_nrc = fields.DecimalField(max_digits=16, decimal_places=2, null=True)
+    mrc = fields.DecimalField(max_digits=16, decimal_places=2, null=True)
+    nrc = fields.DecimalField(max_digits=16, decimal_places=2, null=True)
 
     class Meta:
         table = "product_order_item"

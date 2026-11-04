@@ -9,7 +9,7 @@ from app.api.v1 import v1_router
 from app.core.dependency import AuthControl
 from app.models.admin import User
 from app.models.customer_center import CrmCustomer
-from app.models.product_center import ProductCategory, ProductItem
+from app.models.product_center import ProductCategory, ProductItem, ProductPriceVersion
 from app.models.product_order import ProductOrder, ProductOrderItem
 from app.services.retired_product_catalog import remove_unused_retired_catalog_products
 
@@ -111,6 +111,7 @@ class ProductOrderTests(unittest.IsolatedAsyncioTestCase):
 
                 self.app.dependency_overrides[AuthControl.is_authed] = ordinary
             for method, url, kwargs in [
+                ("get", f"product-center/products/{self.product.id}/order-price", {}),
                 ("get", self.path, {}),
                 ("get", f"{self.path}/{order['id']}", {}),
                 ("post", self.path, {"json": self.payload}),
@@ -147,3 +148,85 @@ class ProductOrderTests(unittest.IsolatedAsyncioTestCase):
         item = response.json()["data"][0]["items"][0]
         self.assertEqual(item["category_id"], category.id)
         self.assertEqual(item["category_name"], "ASN")
+
+    async def price(self, product=None, version=1, **changes):
+        return await ProductPriceVersion.create(
+            product=product or self.product,
+            version=version,
+            **{
+                "currency": "USD",
+                "period_months": 3,
+                "billing_unit": "mbps",
+                "mrc": "10.25",
+                "nrc": "20.00",
+                **changes,
+            },
+        )
+
+    async def test_inherit_latest_public_and_override_individual_prices(self):
+        await self.price()
+        latest = await self.price(version=2, mrc="12.50")
+        await self.price(version=3, customer=self.customer, mrc="999")
+        await self.price(product=self.other, mrc="30.00")
+        response = await self.client.get(f"product-center/products/{self.product.id}/order-price")
+        self.assertEqual(response.json()["data"]["price_version_id"], latest.id)
+        self.payload["items"][0].update(mrc="11.25", nrc="0")
+        order = await self.create()
+        first, second = order["items"]
+        self.assertEqual((first["mrc"], first["nrc"], first["base_mrc"]), ("11.25", "0.00", "12.50"))
+        self.assertEqual(first["currency"], "USD")
+        self.assertEqual(first["period_months"], 3)
+        self.assertEqual(first["billing_unit"], "mbps")
+        self.assertEqual(second["mrc"], "30.00")
+        await latest.refresh_from_db()
+        self.assertEqual(str(latest.mrc), "12.5")
+
+    async def test_snapshot_survives_catalog_changes_and_deletion(self):
+        source = await self.price()
+        order = await self.create()
+        new = await self.price(version=2, mrc="50")
+        await source.delete()
+        response = await self.client.put(f"{self.path}/{order['id']}", json=self.payload)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["data"]["items"][0]["price_version_id"], source.id)
+        self.payload["items"][0].update(price_version_id=source.id, mrc="8.75")
+        response = await self.client.put(f"{self.path}/{order['id']}", json=self.payload)
+        self.assertEqual(response.json()["data"]["items"][0]["mrc"], "8.75")
+        self.payload["items"][0].update(price_version_id=new.id, mrc=None, nrc=None)
+        response = await self.client.put(f"{self.path}/{order['id']}", json=self.payload)
+        self.assertEqual(response.json()["data"]["items"][0]["mrc"], "50.00")
+        self.assertEqual(response.json()["data"]["items"][0]["price_version_id"], new.id)
+
+    async def test_invalid_prices_and_foreign_versions_are_rejected(self):
+        public = await self.price()
+        private = await self.price(version=2, customer=self.customer)
+        foreign = await self.price(product=self.other)
+        order = await self.create()
+        for changes, status in [
+            ({"mrc": "-1"}, 422),
+            ({"nrc": "NaN"}, 422),
+            ({"mrc": "1.001"}, 422),
+            ({"nrc": "100000000000000"}, 422),
+            ({"price_version_id": private.id}, 409),
+            ({"price_version_id": foreign.id}, 409),
+            ({"price_version_id": 99999}, 409),
+        ]:
+            with self.subTest(changes=changes):
+                payload = {**self.payload, "items": [{"product_id": self.product.id, "quantity": 1, **changes}]}
+                response = await self.client.put(f"{self.path}/{order['id']}", json=payload)
+                self.assertEqual(response.status_code, status, response.text)
+                self.assertEqual(await ProductOrderItem.all().count(), 2)
+        await public.delete()
+        response = await self.client.get(f"product-center/products/{self.product.id}/order-price")
+        self.assertIsNone(response.json()["data"])
+        self.payload["items"][0]["mrc"] = "1"
+        self.assertEqual((await self.client.post(self.path, json=self.payload)).status_code, 400)
+
+    async def test_unpriced_legacy_order_can_inherit_without_backfill(self):
+        order = await self.create()
+        self.assertIsNone(order["items"][0]["mrc"])
+        await self.price()
+        detail = await self.client.get(f"{self.path}/{order['id']}")
+        self.assertIsNone(detail.json()["data"]["items"][0]["mrc"])
+        response = await self.client.put(f"{self.path}/{order['id']}", json=self.payload)
+        self.assertEqual(response.json()["data"]["items"][0]["mrc"], "10.25")

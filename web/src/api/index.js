@@ -386,6 +386,7 @@ export default {
     listProducts: (params = {}) => request.get('/product-center/products', { params }),
     listOrders: (params = {}) => request.get('/product-center/orders', { params }),
     getOrder: (id) => request.get(`/product-center/orders/${id}`),
+    getOrderPrice: (productId) => request.get(`/product-center/products/${productId}/order-price`),
     createOrder: (data) => request.post('/product-center/orders', data),
     updateOrder: (id, data) => request.put(`/product-center/orders/${id}`, data),
     deleteOrder: (id) => request.delete(`/product-center/orders/${id}`),
