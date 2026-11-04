@@ -21,7 +21,6 @@ from .dashboard import router as dashboard_router
 from .menus import menus_router
 from .projects import projects_router
 from .product_center import router as product_center_router
-from .requirements import router as requirements_router
 from .pve import grafana_router as pve_grafana_router
 from .pve import pve_router
 from .pve.novnc import ws_router as pve_novnc_ws_router
@@ -33,7 +32,6 @@ from .tasks import tasks_router
 from .users import users_router
 from .vendors import vendors_router
 from .tickets import ticket_router
-from .idc import router as idc_router
 from .tg_assistant import router as tg_assistant_router
 
 v1_router = APIRouter()
@@ -51,7 +49,6 @@ v1_router.include_router(tasks_router, prefix="/task", dependencies=[DependPermi
 v1_router.include_router(vendors_router, prefix="/vendor", dependencies=[DependPermission])
 v1_router.include_router(dashboard_router, prefix="/ticket", tags=["仪表盘模块"])
 v1_router.include_router(ticket_router, prefix="/ticket", tags=["工单模块"])
-v1_router.include_router(idc_router, prefix="/idc", dependencies=[DependPermission], tags=["IDC服务交付与计费"])
 v1_router.include_router(assets_ws_router, prefix="/asset", tags=["资产管理 VNC模块"])
 v1_router.include_router(assets_public_router, prefix="/asset-public", tags=["资产管理公开模块"])
 v1_router.include_router(assets_auth_router, prefix="/asset", dependencies=[DependAuth], tags=["资产管理登录模块"])
@@ -79,7 +76,6 @@ v1_router.include_router(companies_router, prefix="/company", dependencies=[Depe
 v1_router.include_router(customer_center_router, prefix="/customer-center", dependencies=[DependPermission], tags=["客户中心"])
 v1_router.include_router(product_center_router, prefix="/product-center", dependencies=[DependPermission], tags=["产品中心"])
 v1_router.include_router(projects_router, prefix="/project", dependencies=[DependPermission])
-v1_router.include_router(requirements_router, prefix="/requirement", dependencies=[DependPermission], tags=["需求管理"])
 v1_router.include_router(resources_router, prefix="/resource", dependencies=[DependPermission])
 v1_router.include_router(akvorado_router, prefix="/akvorado", tags=["Sflow"])
 v1_router.include_router(tg_assistant_router, prefix="/tg-assistant", tags=["TG助手"])

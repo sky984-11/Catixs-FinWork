@@ -134,17 +134,6 @@ export default {
     deleteAttachment: (params = {}) => request.delete('/project/attachment/delete', { params }),
   },
 
-  // requirement management
-  requirementApi: {
-    list: (params = {}) => request.get('/requirement/list', { params }),
-    get: (params = {}) => request.get('/requirement/get', { params }),
-    create: (data = {}) => request.post('/requirement/create', data),
-    update: (data = {}) => request.post('/requirement/update', data),
-    updateStatus: (data = {}) => request.post('/requirement/status', data),
-    delete: (params = {}) => request.delete('/requirement/delete', { params }),
-    syncFeishu: (data = {}) => request.post('/requirement/feishu/sync', data, { timeout: 120000 }),
-  },
-
   // resource board
   resourceApi: {
     freeDevices: (params = {}) => request.get('/resource/free-devices', { params }),
@@ -393,6 +382,10 @@ export default {
     updateCategory: (id, data = {}) => request.put(`/product-center/categories/${id}`, data),
     deleteCategory: (id) => request.delete(`/product-center/categories/${id}`),
     listProducts: (params = {}) => request.get('/product-center/products', { params }),
+    listPriceVersions: (id, params = {}) =>
+      request.get(`/product-center/products/${id}/price-versions`, { params }),
+    createPriceVersion: (id, data = {}) =>
+      request.post(`/product-center/products/${id}/price-versions`, data),
     createProduct: (data = {}) => request.post('/product-center/products', data),
     updateProduct: (id, data = {}) => request.put(`/product-center/products/${id}`, data),
     deleteProduct: (id) => request.delete(`/product-center/products/${id}`),

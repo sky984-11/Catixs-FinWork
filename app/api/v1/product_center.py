@@ -11,6 +11,9 @@ from fastapi import APIRouter, Query
 from loguru import logger
 from pydantic import BaseModel, Field
 from tortoise.expressions import Q
+from tortoise.transactions import in_transaction
+
+from .product_price_versions import router as price_versions_router
 
 from app.models.customer_center import CrmCustomer
 from app.models.admin import User
@@ -20,6 +23,7 @@ from app.models.product_center import (
     ProductItem,
     ProductPrice,
     ProductPriceHistory,
+    ProductPriceVersion,
     ProductSpecAttribute,
     ProductSpecConfig,
     ProductTemplate,
@@ -54,6 +58,7 @@ from app.services.product_physical_server_sync import (
 )
 
 router = APIRouter()
+router.include_router(price_versions_router)
 
 PRODUCT_STATUSES = [{"label": "在售", "value": "active"}, {"label": "下架", "value": "offline"}]
 PRICE_TYPES = [{"label": "标准价格", "value": "standard"}, {"label": "客户价格", "value": "customer"}]
@@ -95,10 +100,12 @@ class CategoryPayload(BaseModel):
 
 
 class ProductPayload(BaseModel):
-    name: str = Field(..., max_length=160)
+    name: str = Field(..., min_length=1, max_length=160)
     code: str | None = Field(None, max_length=80)
     category_id: int | None = None
-    status: str = "active"
+    status: Literal["active", "offline"] = "active"
+    billing_unit: str = Field("month", min_length=1, max_length=40)
+    min_contract_months: int = Field(1, ge=1, le=1200)
     region: str | None = Field(None, max_length=100)
     billing_mode: str = "fixed"
     description: str | None = None
@@ -316,8 +323,10 @@ def prepare_attribute_payload(payload: AttributePayload) -> dict[str, Any]:
 def validate_product_payload(data: dict[str, Any]) -> str | None:
     if not data.get("category_id"):
         return "请选择产品分类"
-    if not str(data.get("region") or "").strip():
-        return "请选择地区"
+    if not str(data.get("name") or "").strip():
+        return "请填写产品名称"
+    if not str(data.get("billing_unit", "month")).strip():
+        return "请填写计费单位"
     return None
 
 
@@ -1242,7 +1251,13 @@ async def list_products(
     if keyword:
         q &= Q(name__contains=keyword) | Q(code__contains=keyword) | Q(region__contains=keyword)
     if category_id:
-        q &= Q(category_id=category_id)
+        category_ids = {category_id}
+        pending = {category_id}
+        while pending:
+            children = set(await ProductCategory.filter(parent_id__in=list(pending)).values_list("id", flat=True))
+            pending = children - category_ids
+            category_ids.update(pending)
+        q &= Q(category_id__in=list(category_ids))
     if status:
         q &= Q(status=status)
     if region:
@@ -1262,6 +1277,10 @@ async def create_product(payload: ProductPayload):
         return Fail(msg=error)
     if not data.get("code"):
         data["code"] = await next_code(ProductItem, "PROD")
+    if not await ProductCategory.filter(id=data["category_id"]).exists():
+        return Fail(msg="产品分类不存在")
+    if await ProductItem.filter(code=data["code"]).exists():
+        return Fail(code=409, msg="SKU 已存在")
     product = await ProductItem.create(**data)
     await sync_product_auto_specs(product_id=product.id)
     return Success(msg="产品已创建", data=await product_dict(product))
@@ -1272,6 +1291,12 @@ async def update_product(product_id: int, payload: ProductPayload):
     data = compact(payload.model_dump(exclude_unset=True))
     if error := validate_product_payload(data):
         return Fail(msg=error)
+    if not await ProductItem.filter(id=product_id).exists():
+        return Fail(code=404, msg="产品不存在")
+    if not await ProductCategory.filter(id=data["category_id"]).exists():
+        return Fail(msg="产品分类不存在")
+    if data.get("code") and await ProductItem.filter(code=data["code"]).exclude(id=product_id).exists():
+        return Fail(code=409, msg="SKU 已存在")
     await ProductItem.filter(id=product_id).update(**data)
     product = await ProductItem.get(id=product_id)
     await refresh_product_spec_config_snapshots(product.id)
@@ -1292,17 +1317,24 @@ async def sync_product_physical_servers(product_id: int):
 
 @router.delete("/products/{product_id}", summary="删除产品")
 async def delete_product(product_id: int):
-    refs = []
-    config_count = await ProductSpecConfig.filter(product_id=product_id, auto_sync=False).count()
-    price_count = await ProductPrice.filter(product_id=product_id).count()
-    if config_count:
-        refs.append(f"规格配置中的手动配置 {config_count} 条")
-    if price_count:
-        refs.append(f"价格管理中的价格记录 {price_count} 条")
-    if refs:
-        return Fail(msg=delete_block_msg("产品", refs))
-    await ProductItem.filter(id=product_id).delete()
-    return Success(msg="产品已删除")
+    async with in_transaction() as conn:
+        product = await ProductItem.filter(id=product_id).using_db(conn).select_for_update().first()
+        if not product:
+            return Fail(code=404, msg="产品不存在")
+        refs = []
+        version_count = await ProductPriceVersion.filter(product_id=product_id).count()
+        if version_count:
+            refs.append(f"价格方案历史版本 {version_count} 条")
+        config_count = await ProductSpecConfig.filter(product_id=product_id, auto_sync=False).count()
+        price_count = await ProductPrice.filter(product_id=product_id).count()
+        if config_count:
+            refs.append(f"规格配置中的手动配置 {config_count} 条")
+        if price_count:
+            refs.append(f"价格管理中的价格记录 {price_count} 条")
+        if refs:
+            return Fail(msg=delete_block_msg("产品", refs))
+        await ProductItem.filter(id=product_id).delete()
+        return Success(msg="产品已删除")
 
 
 @router.get("/attributes", summary="规格属性列表")

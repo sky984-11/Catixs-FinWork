@@ -18,7 +18,6 @@
       
       <n-card title=" " class="ticket-list-container" :segmented="true" rounded-10>
         <template #header-extra>
-          <n-button secondary type="info" style="margin-right: 12px; border-radius: 12px" @click="router.push('/idc/orders')">IDC产品工单</n-button>
           <n-button secondary type="primary" style="border-radius: 12px" @click="handleCreate">新增工单</n-button>
         </template>
 
@@ -323,7 +322,7 @@ function handleCreate() {
 
 function handleView(ticket) {
   if (ticket.idcOrderId) {
-    router.push({ path: '/idc/orders', query: { order_id: ticket.idcOrderId } })
+    window.$message?.warning('IDC业务已下线，历史工单仅保留归档记录')
     return
   }
   if (!isAdminOrNoc.value && String(ticket.customerId) !== String(userStore.userId || 1)) {
@@ -335,7 +334,7 @@ function handleView(ticket) {
 
 function handleEdit(ticket) {
   if (ticket.idcOrderId) {
-    router.push({ path: '/idc/orders', query: { order_id: ticket.idcOrderId } })
+    window.$message?.warning('IDC业务已下线，历史工单仅保留归档记录')
     return
   }
   if (!isAdminOrNoc.value && String(ticket.customerId) !== String(userStore.userId || 1)) {

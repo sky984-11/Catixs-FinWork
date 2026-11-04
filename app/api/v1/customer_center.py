@@ -18,6 +18,7 @@ from app.models.customer_center import (
     CrmSigningEntity,
 )
 from app.schemas.base import Fail, Success, SuccessExtra
+from app.models.product_center import ProductPriceVersion
 from app.schemas.remote_billing import Currency, Money
 
 router = APIRouter()
@@ -522,6 +523,8 @@ async def update_customer(customer_id: int, payload: CustomerPayload):
 
 @router.delete("/customers/{customer_id}", summary="删除客户")
 async def delete_customer(customer_id: int):
+    if await ProductPriceVersion.filter(customer_id=customer_id).exists():
+        return Fail(code=409, msg="客户存在产品价格版本历史，不能删除；可停用客户以保留历史关联")
     await CrmCustomer.filter(id=customer_id).delete()
     return Success(msg="客户已删除")
 

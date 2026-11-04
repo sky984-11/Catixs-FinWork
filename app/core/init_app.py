@@ -278,7 +278,7 @@ async def init_menus():
     await remove_inventory_sale_menu()
     await ensure_customer_project_menu()
     await ensure_vendor_center_menu()
-    await ensure_requirement_menu()
+    await remove_retired_feature_metadata()
     await ensure_resource_menu()
     await ensure_customer_center_menu()
     await ensure_product_center_menu()
@@ -1164,33 +1164,31 @@ async def ensure_customer_project_menu():
     await Menu.create(menu_type=MenuType.MENU, **values)
 
 
-async def ensure_requirement_menu():
-    menu = await Menu.filter(path="/requirements").first()
-    values = {
-        "name": "需求管理",
-        "path": "/requirements",
-        "order": 6,
-        "parent_id": 0,
-        "icon": "mdi:clipboard-list-outline",
-        "is_hidden": False,
-        "component": "/project-board/requirements",
-        "keepalive": False,
-        "redirect": "",
-    }
-    if menu:
-        changed = False
-        for field, value in values.items():
-            if getattr(menu, field) != value:
-                setattr(menu, field, value)
-                changed = True
-        if menu.menu_type != MenuType.MENU:
-            menu.menu_type = MenuType.MENU
-            changed = True
-        if changed:
-            await menu.save()
-        return
-
-    await Menu.create(menu_type=MenuType.MENU, **values)
+async def remove_retired_feature_metadata():
+    """Remove retired menus and grants without touching historical business records."""
+    menus = await Menu.filter(
+        Q(path__in=["/idc", "/requirements", "/project-board/requirements"])
+        | Q(path__startswith="/idc/")
+        | Q(component__startswith="/idc/")
+        | Q(component="/project-board/requirements")
+    )
+    menu_ids = {menu.id for menu in menus}
+    pending = set(menu_ids)
+    while pending:
+        children = set(await Menu.filter(parent_id__in=list(pending)).values_list("id", flat=True))
+        pending = children - menu_ids
+        menu_ids.update(pending)
+    apis = await Api.filter(Q(path__startswith="/api/v1/idc/") | Q(path__startswith="/api/v1/requirement/"))
+    retired_menus = await Menu.filter(id__in=list(menu_ids)) if menu_ids else []
+    for role in await Role.all():
+        if retired_menus:
+            await role.menus.remove(*retired_menus)
+        if apis:
+            await role.apis.remove(*apis)
+    if menu_ids:
+        await Menu.filter(id__in=list(menu_ids)).delete()
+    if apis:
+        await Api.filter(id__in=[api.id for api in apis]).delete()
 
 
 async def ensure_billing_subscription_menu():
@@ -1433,8 +1431,6 @@ async def ensure_business_api_permissions():
         | Q(method="GET", path="/api/v1/asset/inventory-flow/list")
         | Q(method="GET", path="/api/v1/project/list")
         | Q(method="GET", path="/api/v1/project/get")
-        | Q(method="GET", path="/api/v1/requirement/list")
-        | Q(method="GET", path="/api/v1/requirement/get")
         | Q(method="GET", path="/api/v1/customer-center/options")
         | Q(method="GET", path="/api/v1/customer-center/dashboard")
         | Q(method="GET", path="/api/v1/customer-center/customers")
@@ -1456,12 +1452,10 @@ async def ensure_business_api_permissions():
         | Q(path__startswith="/api/v1/bill/")
         | Q(path__startswith="/api/v1/asset/inventory-sale/")
         | Q(path__startswith="/api/v1/project/")
-        | Q(path__startswith="/api/v1/requirement/")
         | Q(path__startswith="/api/v1/customer-center/")
         | Q(path__startswith="/api/v1/product-center/")
     )
     project_menu = await Menu.filter(path="/project-board").first()
-    requirement_menu = await Menu.filter(path="/requirements").first()
     customer_center_menu = await Menu.filter(path="/customer-center").first()
     customer_center_child_menus = await Menu.filter(parent_id=customer_center_menu.id) if customer_center_menu else []
     product_center_menu = await Menu.filter(path="/product-center").first()
@@ -1483,8 +1477,6 @@ async def ensure_business_api_permissions():
                 await role.apis.add(*manage_apis)
             if project_menu:
                 await role.menus.add(project_menu)
-            if requirement_menu:
-                await role.menus.add(requirement_menu)
 
 
 async def ensure_task_permissions():
@@ -2554,7 +2546,8 @@ async def ensure_product_center_columns():
             Q(product_display_name__isnull=True) | Q(product_category_sort__isnull=True)
         ).distinct().values_list("product_id", flat=True)
         for product_id in product_ids:
-            product = await ProductItem.get_or_none(id=product_id)
+            # This compatibility backfill runs before pending product migrations.
+            product = await ProductItem.filter(id=product_id).only("id", "name", "category_id", "region").first()
             if not product:
                 continue
             category = await ProductCategory.get_or_none(id=product.category_id) if product.category_id else None
@@ -2992,6 +2985,9 @@ async def init_companies():
 
 async def init_data():
     await init_db()
+    from app.services.retired_product_catalog import remove_unused_retired_catalog_products
+
+    await remove_unused_retired_catalog_products()
     await init_superuser()
     await init_menus()
     await init_apis()
@@ -3006,7 +3002,3 @@ async def init_data():
     await init_companies()
     await ensure_company_branding()
     await ensure_required_signing_entities()
-
-    from app.services.idc_setup import setup_idc
-
-    await setup_idc()

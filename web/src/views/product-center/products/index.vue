@@ -1,9 +1,9 @@
 <template>
-  <ProductCenterWorkbench mode="products" />
+  <ProductCatalog />
 </template>
 
 <script setup>
-import ProductCenterWorkbench from '../components/ProductCenterWorkbench.vue'
+import ProductCatalog from '../components/ProductCatalog.vue'
 
 defineOptions({ name: '产品管理' })
 </script>

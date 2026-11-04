@@ -460,7 +460,7 @@ async def update_ticket(
     from app.models.idc import IdcOrder
 
     if await IdcOrder.filter(ticket_id=ticket_obj.id).exists():
-        raise HTTPException(409, "结构化IDC工单请在IDC业务中处理，状态由明细流转汇总")
+        raise HTTPException(409, "IDC业务已下线，历史工单不支持修改")
     old_status = ticket_obj.status
     status_changed = ticket_in.status is not None and ticket_in.status != old_status
     if status_changed:
@@ -510,7 +510,7 @@ async def delete_ticket(
     from app.models.idc import IdcOrder
 
     if await IdcOrder.filter(ticket_id=ticket_id).exists():
-        raise HTTPException(409, "IDC工单需保留业务追溯记录，请在IDC工单中取消明细")
+        raise HTTPException(409, "IDC业务已下线，历史工单保留追溯记录，不支持删除")
     await ticket_controller.remove(id=ticket_id)
     return Success(msg="工单删除成功")
 

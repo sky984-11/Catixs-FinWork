@@ -36,9 +36,31 @@ class ProductItem(BaseModel, TimestampMixin):
     region = fields.CharField(max_length=100, null=True, description="地区", index=True)
     billing_mode = fields.CharField(max_length=40, default="fixed", description="计费模式", index=True)
     description = fields.TextField(null=True, description="产品说明")
+    billing_unit = fields.CharField(max_length=40, default="month", description="计费单位")
+    min_contract_months = fields.IntField(default=1, description="最短合同期（月）")
 
     class Meta:
         table = "product_item"
+
+
+class ProductPriceVersion(BaseModel, TimestampMixin):
+    product = fields.ForeignKeyField("models.ProductItem", related_name="price_versions", on_delete=fields.RESTRICT)
+    customer = fields.ForeignKeyField(
+        "models.CrmCustomer", related_name="product_price_versions", null=True, on_delete=fields.RESTRICT
+    )
+    customer_name = fields.CharField(max_length=160, null=True, description="客户名称快照")
+    version = fields.IntField(description="产品内版本号")
+    currency = fields.CharField(max_length=12, description="币种")
+    mrc = fields.DecimalField(max_digits=16, decimal_places=2, description="每单位月费")
+    nrc = fields.DecimalField(max_digits=16, decimal_places=2, default=0, description="一次性开通费")
+    period_months = fields.IntField(default=1, description="计费周期（月）")
+    billing_unit = fields.CharField(max_length=40, description="计费单位快照")
+    effective_date = fields.DateField(description="生效日（含）")
+    expiry_date = fields.DateField(description="失效日（不含）")
+
+    class Meta:
+        table = "product_price_version"
+        unique_together = (("product", "version"),)
 
 
 class ProductSpecAttribute(BaseModel, TimestampMixin):
