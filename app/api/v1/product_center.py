@@ -902,8 +902,28 @@ async def list_attributes(
     if attr_type:
         q &= Q(attr_type=attr_type)
     if category_id:
+        # Legacy CAT and IDC catalogs can contain the same named category path.
+        # Match the full path, so similarly named leaves in other branches remain separate.
+        categories = {item.id: item for item in await ProductCategory.all()}
+
+        def category_path(item_id):
+            names = []
+            visited = set()
+            while item_id:
+                if item_id in visited or item_id not in categories:
+                    return None
+                visited.add(item_id)
+                item = categories[item_id]
+                names.append(item.name)
+                item_id = item.parent_id
+            return tuple(reversed(names))
+
+        selected_path = category_path(category_id)
+        matching_ids = {category_id}
+        if selected_path:
+            matching_ids.update(item_id for item_id in categories if category_path(item_id) == selected_path)
         all_rows = await ProductSpecAttribute.filter(q).order_by("category_id", "name")
-        matched = [item for item in all_rows if int(category_id) in attribute_category_ids(item)]
+        matched = [item for item in all_rows if matching_ids.intersection(attribute_category_ids(item))]
         total = len(matched)
         rows = matched[(page - 1) * page_size : page * page_size]
         return SuccessExtra(data=[await attribute_dict(item) for item in rows], total=total, page=page, page_size=page_size)

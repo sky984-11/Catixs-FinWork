@@ -1,5 +1,5 @@
 <template>
-  <AppPage :show-footer="false">
+  <AppPage :show-footer="false" class="product-workbench">
     <section class="product-panel">
       <div class="panel-head">
         <h2>{{ isSpecs ? '规格属性' : '产品模板' }}</h2>
@@ -7,19 +7,13 @@
           isSpecs ? '新增属性' : '新增模板'
         }}</n-button>
       </div>
-      <div class="filter-row">
+      <div class="filter-row" :class="{ 'category-only-filter': isSpecs }">
         <n-input
+          v-if="!isSpecs"
           v-model:value="query.keyword"
           clearable
           placeholder="搜索名称 / 编码"
           @keyup.enter="search"
-        />
-        <n-select
-          v-if="isSpecs"
-          v-model:value="query.attr_type"
-          clearable
-          :options="options.attributeTypes"
-          placeholder="属性类型"
         />
         <n-cascader
           v-model:value="query.category_id"
@@ -28,12 +22,17 @@
           :show-path="false"
           check-strategy="child"
           :options="options.categoryTree"
-          placeholder="适用分类"
+          placeholder="搜索并选择适用分类"
+          @update:value="isSpecs && search()"
         />
-        <n-button secondary @click="resetQuery">重置</n-button
-        ><n-button type="primary" @click="search">搜索</n-button>
+        <template v-if="!isSpecs">
+          <n-button secondary @click="resetQuery">重置</n-button>
+          <n-button type="primary" @click="search">搜索</n-button>
+        </template>
       </div>
       <n-data-table
+        class="attribute-table"
+        flex-height
         :loading="loading"
         :columns="columns"
         :data="rows"
@@ -159,7 +158,7 @@ import CButton from '@/components/public/CButton.vue'
 const props = defineProps({ mode: { type: String, default: 'specs' } })
 const isSpecs = computed(() => props.mode === 'specs')
 const options = reactive({ categoryTree: [], attributeTypes: [] })
-const query = reactive({ keyword: '', attr_type: null, category_id: null })
+const query = reactive({ keyword: '', category_id: null })
 const pagination = reactive({ page: 1, pageSize: 20, itemCount: 0 })
 const rows = ref([])
 const loading = ref(false)
@@ -267,23 +266,31 @@ const columns = computed(() => {
   ]
 })
 const scrollX = computed(() => columns.value.reduce((sum, column) => sum + column.width, 0))
+let pageRequestId = 0
 async function loadPage() {
+  const requestId = ++pageRequestId
   loading.value = true
   try {
     const fetch = isSpecs.value
       ? api.productCenterApi.listAttributes
       : api.productCenterApi.listTemplates
     const response = await fetch({
-      ...query,
+      ...(isSpecs.value ? { category_id: query.category_id } : query),
       page: pagination.page,
       page_size: pagination.pageSize,
     })
-    rows.value = response.data || []
-    pagination.itemCount = response.total || 0
+    if (requestId === pageRequestId) {
+      rows.value = response.data || []
+      pagination.itemCount = response.total || 0
+    }
   } catch {
-    window.$message?.error('列表加载失败，请重试')
+    if (requestId === pageRequestId) {
+      rows.value = []
+      pagination.itemCount = 0
+      window.$message?.error('列表加载失败，请重试')
+    }
   } finally {
-    loading.value = false
+    if (requestId === pageRequestId) loading.value = false
   }
 }
 function search() {
@@ -291,7 +298,7 @@ function search() {
   return loadPage()
 }
 function resetQuery() {
-  Object.assign(query, { keyword: '', attr_type: null, category_id: null })
+  Object.assign(query, { keyword: '', category_id: null })
   return search()
 }
 function openEditor(row) {
@@ -374,12 +381,30 @@ onMounted(async () => {
 })
 </script>
 <style scoped>
+.product-workbench.app-page-shell {
+  min-height: 0;
+  overflow: hidden;
+}
 .product-panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
   padding: 18px;
   background: #fff;
   border: 1px solid #e7edf4;
   border-radius: 8px;
   min-width: 0;
+}
+.attribute-table {
+  flex: 1;
+  min-height: 0;
+}
+.panel-head,
+.filter-row,
+.list-footer {
+  flex-shrink: 0;
 }
 .panel-head,
 .list-footer {
@@ -403,6 +428,9 @@ h2 {
 .filter-row > .n-cascader {
   flex: 1;
   min-width: 140px;
+}
+.category-only-filter {
+  max-width: 360px;
 }
 .list-footer {
   margin-top: 16px;
