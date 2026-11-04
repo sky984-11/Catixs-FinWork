@@ -2,39 +2,85 @@
   <AppPage :show-footer="false" class="product-catalog-page">
     <div class="product-layout">
       <n-card title="产品分类" class="category-panel">
-        <template #header-extra
-          ><n-button size="small" :disabled="busy" @click="editCategory()"
-            >新增分类</n-button
-          ></template
+        <template #header-extra>
+          <n-tooltip>
+            <template #trigger>
+              <n-button
+                size="small"
+                circle
+                quaternary
+                type="primary"
+                aria-label="新增分类"
+                :disabled="busy"
+                @click.stop="editCategory()"
+              >
+                <template #icon><TheIcon icon="mdi:plus" :size="17" /></template>
+              </n-button>
+            </template>
+            新增分类
+          </n-tooltip>
+        </template>
+        <n-button
+          class="all-products"
+          :class="{ 'is-selected': !query.category_id }"
+          quaternary
+          :disabled="busy"
+          @click="selectCategory([])"
         >
-        <n-button text :disabled="busy" @click="selectCategory([])">全部产品</n-button>
+          <template #icon><TheIcon icon="mdi:view-grid-outline" :size="17" /></template>
+          全部产品
+        </n-button>
         <div class="category-tree cus-scroll-y">
           <n-tree
             block-line
             default-expand-all
             :data="categoryTree"
             :selected-keys="selectedKeys"
+            :render-prefix="renderCategoryPrefix"
+            :render-label="renderCategoryLabel"
             :disabled="busy"
             @update:selected-keys="selectCategory"
           />
           <n-empty v-if="!categoryTree.length && !optionsLoading" description="暂无分类" />
         </div>
-        <n-space class="filters">
-          <n-button
-            size="small"
-            :disabled="!selectedCategory || busy"
-            @click="editCategory(selectedCategory)"
-            >编辑分类</n-button
-          >
-          <n-button
-            size="small"
-            type="error"
-            secondary
-            :disabled="!selectedCategory || busy"
-            @click="confirmDelete(selectedCategory, 'category')"
-            >删除分类</n-button
-          >
-        </n-space>
+        <div class="category-actions">
+          <span class="category-selection" :title="selectedCategory?.name">{{
+            selectedCategory?.name || '选择分类后操作'
+          }}</span>
+          <n-space :wrap="false" :size="4">
+            <n-tooltip>
+              <template #trigger>
+                <n-button
+                  size="small"
+                  circle
+                  quaternary
+                  aria-label="编辑分类"
+                  :disabled="!selectedCategory || busy"
+                  @click.stop="editCategory(selectedCategory)"
+                >
+                  <template #icon><TheIcon icon="mdi:pencil-outline" :size="17" /></template>
+                </n-button>
+              </template>
+              编辑分类
+            </n-tooltip>
+            <n-tooltip>
+              <template #trigger>
+                <n-button
+                  size="small"
+                  circle
+                  quaternary
+                  type="error"
+                  aria-label="删除分类"
+                  :disabled="!selectedCategory || busy"
+                  @click.stop="confirmDelete(selectedCategory, 'category')"
+                >
+                  <template #icon><TheIcon icon="mdi:trash-can-outline" :size="17" /></template>
+                </n-button>
+              </template>
+              删除分类
+            </n-tooltip>
+          </n-space>
+        </div>
       </n-card>
       <n-card title="产品管理" class="product-panel">
         <template #header-extra
@@ -239,6 +285,23 @@ const selectedKeys = computed(() => (query.category_id ? [query.category_id] : [
 const selectedCategory = computed(() =>
   categories.value.find((row) => row.id === query.category_id)
 )
+function renderCategoryPrefix({ option }) {
+  return h(TheIcon, {
+    icon: option.children?.length ? 'mdi:folder-outline' : 'mdi:cube-outline',
+    size: 15,
+    class: 'category-node-icon',
+  })
+}
+function renderCategoryLabel({ option }) {
+  return h(
+    NTooltip,
+    { placement: 'right', delay: 400 },
+    {
+      trigger: () => h('span', { class: 'category-node-label' }, option.label),
+      default: () => option.label,
+    }
+  )
+}
 function buildTree(parentId = null, excluded = null, visited = new Set()) {
   return categories.value
     .filter((row) => row.parent_id === parentId && row.id !== excluded && !visited.has(row.id))
@@ -505,10 +568,18 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  padding: 0 14px 12px;
+}
+.category-panel :deep(.n-card-header) {
+  padding: 18px 18px 14px;
+}
+.category-panel :deep(.n-card-header__main) {
+  font-size: 16px;
+  font-weight: 600;
 }
 .category-panel :deep(.n-card-header),
 .category-panel :deep(.n-card__content > .n-button),
-.category-panel .filters {
+.category-panel .category-actions {
   flex-shrink: 0;
 }
 .category-tree {
@@ -516,6 +587,55 @@ onMounted(async () => {
   min-height: 0;
   overflow: auto;
   scrollbar-gutter: stable;
+  padding: 4px 0;
+}
+.all-products {
+  justify-content: flex-start;
+  margin-bottom: 8px;
+  border-radius: 6px;
+}
+.all-products.is-selected {
+  color: var(--primary-color);
+  background: color-mix(in srgb, var(--primary-color) 10%, transparent);
+}
+.category-tree :deep(.n-tree-node) {
+  min-height: 34px;
+  align-items: center;
+  margin: 2px 0;
+  border-radius: 6px;
+}
+.category-tree :deep(.n-tree-node-content) {
+  min-width: 0;
+  overflow: hidden;
+}
+.category-tree :deep(.n-tree-node-content__text),
+.category-tree :deep(.category-node-label) {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.category-tree :deep(.n-tree-node--selected .n-tree-node-content) {
+  font-weight: 600;
+}
+.category-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 12px;
+  margin-top: 8px;
+  border-top: 1px solid var(--n-border-color);
+}
+.category-selection {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--n-text-color);
+  opacity: 0.65;
 }
 .filters {
   margin: 16px 0;
