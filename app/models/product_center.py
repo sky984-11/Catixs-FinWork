@@ -55,8 +55,8 @@ class ProductPriceVersion(BaseModel, TimestampMixin):
     nrc = fields.DecimalField(max_digits=16, decimal_places=2, default=0, description="一次性开通费")
     period_months = fields.IntField(default=1, description="计费周期（月）")
     billing_unit = fields.CharField(max_length=40, description="计费单位快照")
-    effective_date = fields.DateField(description="生效日（含）")
-    expiry_date = fields.DateField(description="失效日（不含）")
+    effective_date = fields.DateField(null=True, description="生效日（含）")
+    expiry_date = fields.DateField(null=True, description="失效日（不含）")
 
     class Meta:
         table = "product_price_version"

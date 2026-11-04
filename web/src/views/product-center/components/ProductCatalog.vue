@@ -197,7 +197,6 @@
     <ProductPriceVersions
       v-if="priceProduct"
       :product="priceProduct"
-      :customers="options.customers || []"
       :units="units"
       @close="priceProduct = null"
     />

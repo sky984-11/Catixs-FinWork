@@ -1,4 +1,5 @@
 import asyncio
+from datetime import date
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -33,13 +34,10 @@ class ProductPriceVersionTests(unittest.IsolatedAsyncioTestCase):
         self.client = AsyncClient(transport=ASGITransport(app=self.app), base_url="http://test/api/v1/product-center")
         self.path = f"/products/{self.product.id}/price-versions"
         self.payload = {
-            "customer_id": self.customer.id,
             "currency": "CNY",
             "mrc": "123.45",
             "nrc": "50.00",
             "period_months": 1,
-            "effective_date": "2026-01-01",
-            "expiry_date": "2026-07-01",
         }
 
     async def asyncTearDown(self):
@@ -49,37 +47,67 @@ class ProductPriceVersionTests(unittest.IsolatedAsyncioTestCase):
     async def post(self, **changes):
         return await self.client.post(self.path, json={**self.payload, **changes})
 
-    async def test_versions_preserve_history_and_half_open_intervals(self):
+    async def test_versions_preserve_history_without_validity_dates(self):
         first = await self.post()
         self.assertEqual(first.status_code, 200, first.text)
-        next_version = await self.post(mrc="150", effective_date="2026-07-01", expiry_date="2027-01-01")
+        next_version = await self.post(mrc="150")
         self.assertEqual(next_version.status_code, 200, next_version.text)
         self.assertEqual(next_version.json()["data"]["version"], 2)
         history = (await self.client.get(self.path)).json()["data"]
         self.assertEqual([row["version"] for row in history], [2, 1])
         self.assertEqual(history[1]["mrc"], "123.45")
-        self.assertEqual(history[1]["customer_name"], "Customer A")
+        self.assertNotIn("customer_name", history[1])
+        self.assertNotIn("customer_id", history[1])
         self.assertEqual((await self.client.put(self.path, json=self.payload)).status_code, 405)
         self.assertEqual((await self.client.delete(self.path)).status_code, 405)
 
-    async def test_overlap_is_scoped_to_customer_currency_and_period(self):
-        self.assertEqual((await self.post()).status_code, 200)
-        self.assertEqual((await self.post(effective_date="2026-06-30")).status_code, 409)
-        for changes in (
-            {"customer_id": self.other.id},
-            {"customer_id": None},
-            {"currency": "USD"},
-            {"period_months": 3},
-        ):
-            result = await self.post(**changes)
+    async def test_versions_allow_same_currency_and_period_without_dates(self):
+        for i in range(3):
+            result = await self.post(mrc=str(100 + i))
             self.assertEqual(result.status_code, 200, result.text)
-        filtered = (await self.client.get(self.path, params={"customer_id": self.other.id})).json()
-        self.assertEqual(filtered["total"], 1)
-        self.assertEqual(filtered["data"][0]["customer_id"], self.other.id)
-        common = (await self.client.get(self.path, params={"customer_id": 0})).json()
-        self.assertEqual(common["total"], 1)
-        self.assertIsNone(common["data"][0]["customer_id"])
-        self.assertEqual((await self.client.get(self.path, params={"page_size": 2})).json()["total"], 5)
+            self.assertEqual(result.json()["data"]["version"], i + 1)
+            for field in ("effective_date", "expiry_date", "status"):
+                self.assertNotIn(field, result.json()["data"])
+        self.assertEqual((await self.client.get(self.path)).json()["total"], 3)
+        self.assertEqual(await ProductPriceVersion.filter(effective_date=None, expiry_date=None).count(), 3)
+
+    async def test_legacy_date_fields_are_ignored(self):
+        result = await self.post(effective_date="invalid", expiry_date="2020-01-01", status="expired")
+        self.assertEqual(result.status_code, 200, result.text)
+        saved = await ProductPriceVersion.get(id=result.json()["data"]["id"])
+        self.assertIsNone(saved.effective_date)
+        self.assertIsNone(saved.expiry_date)
+        row = (await self.client.get(self.path)).json()["data"][0]
+        for field in ("effective_date", "expiry_date", "status"):
+            self.assertNotIn(field, row)
+
+    async def test_legacy_customer_fields_are_ignored_for_new_versions(self):
+        self.customer.lifecycle = "terminated"
+        await self.customer.save()
+        result = await self.post(customer_id=self.customer.id, customer_name="Legacy")
+        self.assertEqual(result.status_code, 200, result.text)
+        saved = await ProductPriceVersion.get(id=result.json()["data"]["id"])
+        self.assertIsNone(saved.customer_id)
+        self.assertIsNone(saved.customer_name)
+        self.assertNotIn("customer_id", result.json()["data"])
+        self.assertNotIn("customer_name", result.json()["data"])
+
+    async def test_historical_customer_prices_remain_visible_without_customer_fields(self):
+        legacy = await ProductPriceVersion.create(
+            product=self.product, customer=self.customer, customer_name="Historical customer",
+            version=1, billing_unit="month", effective_date=date(2026, 1, 1), expiry_date=date(2026, 7, 1), **self.payload,
+        )
+        response = await self.client.get(self.path)
+        row = response.json()["data"][0]
+        self.assertEqual(row["id"], legacy.id)
+        self.assertNotIn("customer_id", row)
+        self.assertNotIn("customer_name", row)
+        self.assertEqual((await self.post()).status_code, 200)
+        await legacy.refresh_from_db()
+        self.assertEqual(legacy.customer_id, self.customer.id)
+        self.assertEqual(legacy.effective_date, date(2026, 1, 1))
+        self.assertEqual(legacy.expiry_date, date(2026, 7, 1))
+        self.assertEqual((await self.client.delete(f"{self.path}/{legacy.id}")).status_code, 200)
 
     async def test_invalid_values_do_not_create_versions(self):
         for changes in (
@@ -90,15 +118,9 @@ class ProductPriceVersionTests(unittest.IsolatedAsyncioTestCase):
             {"mrc": "100000000000000"},
             {"period_months": 0},
             {"currency": "BAD"},
-            {"expiry_date": "2026-01-01"},
-            {"expiry_date": "2025-12-01"},
-            {"customer_id": 999999},
         ):
             with self.subTest(changes=changes):
                 self.assertEqual((await self.post(**changes)).status_code, 422)
-        self.customer.lifecycle = "terminated"
-        await self.customer.save()
-        self.assertEqual((await self.post()).status_code, 422)
         self.assertEqual(await ProductPriceVersion.all().count(), 0)
 
     async def test_auth_and_permission(self):
@@ -127,13 +149,12 @@ class ProductPriceVersionTests(unittest.IsolatedAsyncioTestCase):
         unused = await ProductItem.create(name="Unused")
         self.assertEqual((await self.client.delete(f"/products/{unused.id}")).status_code, 200)
         self.assertFalse(await ProductItem.filter(id=unused.id).exists())
-        response = await self.client.delete(f"http://test/api/v1/customer-center/customers/{self.customer.id}")
-        self.assertEqual(response.status_code, 409)
-        self.assertTrue(await CrmCustomer.filter(id=self.customer.id).exists())
+        # New product-level prices no longer hold a customer reference.
+        self.assertFalse(await ProductPriceVersion.filter(customer_id=self.customer.id).exists())
 
     async def test_delete_version_is_scoped_to_product_and_preserves_other_versions(self):
         first = (await self.post()).json()["data"]
-        second = (await self.post(effective_date="2026-07-01", expiry_date="2027-01-01")).json()["data"]
+        second = (await self.post(mrc="150")).json()["data"]
         other = await ProductItem.create(name="Other", code="OTHER", category=self.category)
         wrong = await self.client.delete(f"/products/{other.id}/price-versions/{first['id']}")
         self.assertEqual(wrong.status_code, 404)
@@ -145,13 +166,13 @@ class ProductPriceVersionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.client.get(self.path)).json()["total"], 1)
         self.assertEqual((await self.client.delete(f"{self.path}/{first['id']}")).status_code, 404)
         self.assertEqual((await self.client.delete(f"/products/999999/price-versions/{second['id']}")).status_code, 404)
-        # Deleting a price removes its overlap constraint, without renumbering surviving versions.
+        # Surviving versions are not renumbered after deletion.
         recreated = await self.post()
         self.assertEqual(recreated.status_code, 200, recreated.text)
         self.assertEqual(recreated.json()["data"]["version"], 3)
 
     async def test_delete_last_version_allows_product_deletion(self):
-        first = (await self.post(customer_id=None)).json()["data"]
+        first = (await self.post()).json()["data"]
         response = await self.client.delete(f"{self.path}/{first['id']}")
         self.assertEqual(response.status_code, 200)
         self.assertEqual((await self.client.get(self.path)).json()["total"], 0)
