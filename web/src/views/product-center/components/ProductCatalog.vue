@@ -137,50 +137,137 @@
       preset="card"
       :title="editor.form.id ? '编辑产品' : '新增产品'"
       class="product-editor"
-      style="width: min(560px, calc(100vw - 32px))"
+      style="width: min(680px, calc(100vw - 32px))"
       :mask-closable="!saving"
       :close-on-esc="!saving"
       :closable="!saving"
     >
-      <n-form label-placement="top" :disabled="saving">
-        <n-form-item label="SKU"
-          ><n-input
-            v-model:value="editor.form.code"
-            placeholder="留空按分类编码自动生成，如 NET.TRANSIT-001"
-            :disabled="Boolean(editor.form.id)"
-        /></n-form-item>
-        <n-form-item label="产品名称" required
-          ><n-input v-model:value="editor.form.name" :maxlength="160"
-        /></n-form-item>
-        <n-form-item label="分类" required
-          ><n-tree-select
-            v-model:value="editor.form.category_id"
-            :options="categoryTree"
-            filterable
-        /></n-form-item>
-        <n-form-item label="计费单位" required
-          ><n-select v-model:value="editor.form.billing_unit" :options="units" filterable tag
-        /></n-form-item>
-        <n-form-item label="最短合同期（月）" required
-          ><n-input-number
-            v-model:value="editor.form.min_contract_months"
-            :min="1"
-            :max="1200"
-            :precision="0"
-        /></n-form-item>
-        <n-form-item label="状态"
-          ><n-select v-model:value="editor.form.status" :options="statuses"
-        /></n-form-item>
-      </n-form>
-      <template #footer
-        ><CButton
-          :show-cancel="true"
-          :show-save="true"
-          :disabled="saving"
-          :save-loading="saving"
-          @cancel="editor.show = false"
-          @save="saveProduct"
-      /></template>
+      <template #header>
+        <div class="product-editor-heading">
+          <span class="product-editor-icon"><TheIcon icon="mdi:cube-outline" :size="23" /></span>
+          <div>
+            <h3>{{ editor.form.id ? '编辑产品' : '新增产品' }}</h3>
+            <p>完善产品信息与分类规格</p>
+          </div>
+        </div>
+      </template>
+      <div class="cus-scroll-y product-editor-body">
+        <n-form label-placement="top" :disabled="saving" class="product-edit-form">
+          <section class="product-form-section">
+            <div class="product-section-heading">
+              <TheIcon icon="mdi:information-outline" :size="17" /><span>基本信息</span>
+            </div>
+            <div class="product-field-grid">
+              <n-form-item label="SKU"
+                ><n-input
+                  v-model:value="editor.form.code"
+                  placeholder="留空按分类编码自动生成，如 NET.TRANSIT-001"
+                  :disabled="Boolean(editor.form.id)"
+              /></n-form-item>
+              <n-form-item label="产品名称" required
+                ><n-input v-model:value="editor.form.name" :maxlength="160"
+              /></n-form-item>
+              <n-form-item label="分类" required
+                ><n-tree-select
+                  v-model:value="editor.form.category_id"
+                  :options="categoryTree"
+                  filterable
+                  @update:value="loadSpecFields"
+              /></n-form-item>
+              <n-form-item label="计费单位" required
+                ><n-select v-model:value="editor.form.billing_unit" :options="units" filterable tag
+              /></n-form-item>
+              <n-form-item label="最短合同期（月）" required
+                ><n-input-number
+                  v-model:value="editor.form.min_contract_months"
+                  :min="1"
+                  :max="1200"
+                  :precision="0"
+              /></n-form-item>
+              <n-form-item label="状态"
+                ><n-select v-model:value="editor.form.status" :options="statuses"
+              /></n-form-item>
+            </div>
+          </section>
+          <section class="product-form-section">
+            <div class="product-section-heading">
+              <TheIcon icon="mdi:tune-variant" :size="17" /><span>规格参数</span
+              ><small>{{ specFields.length }} 项</small>
+            </div>
+            <div v-if="specLoading" class="product-spec-placeholder">
+              <n-spin size="small" /><span>正在加载规格属性</span>
+            </div>
+            <n-alert v-else-if="specError" type="error">
+              {{ specError }}
+              <CButton show-save save-text="重试" @save="loadSpecFields()" />
+            </n-alert>
+            <div v-else class="product-field-grid">
+              <n-form-item
+                v-for="field in specFields"
+                :key="field.id"
+                :label="field.unit ? `${field.name}（${field.unit}）` : field.name"
+                :required="field.required"
+              >
+                <n-input-number
+                  v-if="field.attr_type === 'number'"
+                  v-model:value="editor.form.spec_values[field.id]"
+                  style="width: 100%"
+                  clearable
+                />
+                <n-select
+                  v-else-if="['select', 'multi_select'].includes(field.attr_type)"
+                  v-model:value="editor.form.spec_values[field.id]"
+                  :multiple="field.attr_type === 'multi_select'"
+                  :options="field.select_options"
+                  filterable
+                  clearable
+                />
+                <n-switch
+                  v-else-if="field.attr_type === 'switch'"
+                  v-model:value="editor.form.spec_values[field.id]"
+                />
+                <n-date-picker
+                  v-else-if="field.attr_type === 'date'"
+                  v-model:formatted-value="editor.form.spec_values[field.id]"
+                  type="date"
+                  value-format="yyyy-MM-dd"
+                  clearable
+                  style="width: 100%"
+                />
+                <n-input
+                  v-else
+                  v-model:value="editor.form.spec_values[field.id]"
+                  :maxlength="2000"
+                  :placeholder="
+                    field.attr_type === 'resource_ref'
+                      ? '填写资源标识'
+                      : field.description || '请输入'
+                  "
+                  clearable
+                />
+              </n-form-item>
+              <n-empty
+                v-if="!specFields.length"
+                class="product-spec-empty"
+                :description="
+                  editor.form.category_id ? '该分类暂无启用的规格属性' : '请先选择产品分类'
+                "
+              />
+            </div>
+          </section>
+        </n-form>
+      </div>
+      <template #footer>
+        <div class="product-editor-footer">
+          <CButton
+            :show-cancel="true"
+            :show-save="true"
+            :disabled="saving || specLoading"
+            :save-loading="saving"
+            @cancel="editor.show = false"
+            @save="saveProduct"
+          /></div
+      ></template>
     </n-modal>
     <n-modal
       v-model:show="categoryEditor.show"
@@ -272,6 +359,37 @@ const error = ref(''),
   total = ref(0)
 const query = reactive({ keyword: '', category_id: null, status: null })
 const editor = reactive({ show: false, form: {} })
+const specFields = ref([])
+const specLoading = ref(false)
+const specError = ref('')
+let specRequestId = 0
+async function loadSpecFields() {
+  const requestId = ++specRequestId
+  const categoryId = editor.form.category_id
+  specFields.value = []
+  specError.value = ''
+  specLoading.value = Boolean(categoryId)
+  if (!categoryId) {
+    editor.form.spec_values = {}
+    return
+  }
+  try {
+    const response = await service.productSpecFields(categoryId)
+    if (requestId !== specRequestId || !editor.show) return
+    specFields.value = response.data || []
+    const previous = editor.form.spec_values || {}
+    editor.form.spec_values = Object.fromEntries(
+      specFields.value.map((field) => [
+        String(field.id),
+        previous[field.id] ?? (field.attr_type === 'switch' ? false : null),
+      ])
+    )
+  } catch (error) {
+    if (requestId === specRequestId) specError.value = error.message || '规格属性加载失败，请重试'
+  } finally {
+    if (requestId === specRequestId) specLoading.value = false
+  }
+}
 const categoryEditor = reactive({ show: false, form: {} })
 const deletion = reactive({ show: false, row: null, kind: 'product' })
 const priceProduct = ref(null)
@@ -359,14 +477,14 @@ async function loadOptions() {
     categories.value = categoryResult.data
     options.value = optionResult.data
   } catch (e) {
-    optionError.value = e.message || '分类与客户选项加载失败'
+    optionError.value = e.message || '分类选项加载失败'
   } finally {
     optionsLoading.value = false
   }
 }
 function editProduct(row) {
   editor.form = row
-    ? { ...row }
+    ? { ...row, spec_values: { ...(row.spec_values || {}) } }
     : {
         code: '',
         name: '',
@@ -374,11 +492,26 @@ function editProduct(row) {
         billing_unit: 'month',
         min_contract_months: 1,
         status: 'active',
+        spec_values: {},
       }
   editor.show = true
+  loadSpecFields()
 }
 async function saveProduct() {
-  if (busy.value) return
+  if (busy.value || specLoading.value) return
+  if (specError.value) return window.$message?.warning('请先重新加载规格属性')
+  for (const field of specFields.value) {
+    const value = editor.form.spec_values[field.id]
+    if (
+      field.required &&
+      (value === null ||
+        value === undefined ||
+        value === '' ||
+        (Array.isArray(value) && !value.length))
+    ) {
+      return window.$message?.warning(`请填写规格属性：${field.name}`)
+    }
+  }
   const form = { ...editor.form, name: editor.form.name?.trim() }
   if (!form.name || !form.category_id || !form.billing_unit || !form.min_contract_months)
     return window.$message?.warning('请完整填写产品必填项')
@@ -395,17 +528,9 @@ async function saveProduct() {
     saving.value = false
   }
 }
-async function changeCategory(row, categoryId) {
+function changeCategory(row, categoryId) {
   if (busy.value || categoryId === row.category_id) return
-  rowSaving.value = row.id
-  try {
-    await service.updateProduct(row.id, { ...row, category_id: categoryId })
-    await loadProducts()
-  } catch {
-    /* 失败时保留原分类 */
-  } finally {
-    rowSaving.value = null
-  }
+  editProduct({ ...row, category_id: categoryId })
 }
 function editCategory(row) {
   categoryEditor.form = row
@@ -643,6 +768,102 @@ onMounted(async () => {
 .pagination {
   margin-top: 20px;
   justify-content: flex-end;
+}
+/* Keep styles on the editor content so they also apply inside the teleported modal. */
+.product-editor-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.product-editor-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  color: var(--primary-color);
+  background: color-mix(in srgb, var(--primary-color) 10%, transparent);
+}
+.product-editor-heading h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+.product-editor-heading p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-weight: 400;
+  opacity: 0.55;
+}
+.product-editor-body {
+  max-height: min(66dvh, calc(100dvh - 210px));
+  overflow-y: auto;
+  padding-right: 6px;
+  scrollbar-gutter: stable;
+}
+.product-form-section {
+  padding: 16px 16px 0;
+  border: 1px solid color-mix(in srgb, currentColor 9%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, currentColor 2%, transparent);
+}
+.product-form-section + .product-form-section {
+  margin-top: 14px;
+}
+.product-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.product-section-heading > :first-child {
+  color: var(--primary-color);
+}
+.product-section-heading small {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 400;
+  opacity: 0.5;
+}
+.product-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 18px;
+}
+.product-field-grid :deep(.n-form-item) {
+  min-width: 0;
+}
+.product-field-grid :deep(.n-input-number) {
+  width: 100%;
+}
+.product-spec-placeholder,
+.product-spec-empty {
+  grid-column: 1 / -1;
+  padding: 12px 0 28px;
+}
+.product-spec-placeholder {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  opacity: 0.65;
+}
+.product-editor-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 14px;
+  border-top: 1px solid color-mix(in srgb, currentColor 9%, transparent);
+}
+@media (max-width: 600px) {
+  .product-field-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .product-form-section {
+    padding: 12px 12px 0;
+  }
 }
 @media (max-width: 800px) {
   .product-catalog-page {

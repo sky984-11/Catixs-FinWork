@@ -38,6 +38,7 @@ class ProductItem(BaseModel, TimestampMixin):
     description = fields.TextField(null=True, description="产品说明")
     billing_unit = fields.CharField(max_length=40, default="month", description="计费单位")
     min_contract_months = fields.IntField(default=1, description="最短合同期（月）")
+    spec_values = fields.JSONField(default=dict, null=True, description="产品规格属性值，按属性ID保存")
 
     class Meta:
         table = "product_item"

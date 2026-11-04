@@ -376,6 +376,8 @@ export default {
   },
 
   productCenterApi: {
+    productSpecFields: (categoryId) =>
+      request.get('/product-center/product-spec-fields', { params: { category_id: categoryId } }),
     options: () => request.get('/product-center/options'),
     listCategories: () => request.get('/product-center/categories'),
     createCategory: (data = {}) => request.post('/product-center/categories', data),

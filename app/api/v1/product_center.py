@@ -1,7 +1,10 @@
 import re
+import json
+import math
+from datetime import date
 from typing import Any, Literal
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from tortoise.expressions import Q
 from tortoise.exceptions import IntegrityError
@@ -71,6 +74,7 @@ class ProductPayload(BaseModel):
     status: Literal["active", "offline"] = "active"
     billing_unit: str = Field("month", min_length=1, max_length=40)
     min_contract_months: int = Field(1, ge=1, le=1200)
+    spec_values: dict[str, Any] | None = Field(None, max_length=200)
     region: str | None = Field(None, max_length=100)
     billing_mode: str = "fixed"
     description: str | None = None
@@ -175,6 +179,28 @@ async def product_category_names(product: ProductItem) -> list[str]:
     return names
 
 
+async def matching_category_ids(category_id: int) -> set[int]:
+    # Legacy CAT and IDC catalogs can contain the same named category path.
+    # Match the full path, so similarly named leaves in other branches remain separate.
+    categories = {item.id: item for item in await ProductCategory.all()}
+    def category_path(item_id):
+        names = []
+        visited = set()
+        while item_id:
+            if item_id in visited or item_id not in categories:
+                return None
+            visited.add(item_id)
+            item = categories[item_id]
+            names.append(item.name)
+            item_id = item.parent_id
+        return tuple(reversed(names))
+    selected_path = category_path(category_id)
+    matching_ids = {category_id}
+    if selected_path:
+        matching_ids.update(item_id for item_id in categories if category_path(item_id) == selected_path)
+    return matching_ids
+
+
 def prepare_attribute_payload(payload: AttributePayload) -> dict[str, Any]:
     data = compact(payload.model_dump())
     ids = normalize_category_ids(data.pop("category_ids", None), data.get("category_id"))
@@ -191,6 +217,80 @@ def validate_product_payload(data: dict[str, Any]) -> str | None:
     if not str(data.get("billing_unit", "month")).strip():
         return "请填写计费单位"
     return None
+
+
+def spec_select_options(attribute: ProductSpecAttribute) -> list[dict[str, str]]:
+    raw = (attribute.options or "").strip()
+    if not raw:
+        return []
+    try:
+        values = json.loads(raw)
+    except (ValueError, TypeError):
+        values = [line.strip() for line in raw.splitlines() if line.strip()]
+    if not isinstance(values, list):
+        return []
+    result = []
+    for item in values:
+        value = item.get("value") if isinstance(item, dict) else item
+        if value is None or isinstance(value, (dict, list, bool)):
+            continue
+        result.append({"label": str(item.get("label", value) if isinstance(item, dict) else value), "value": str(value)})
+    return result
+
+
+async def product_spec_fields(category_id: int) -> list[ProductSpecAttribute]:
+    ids = await matching_category_ids(category_id)
+    attributes = await ProductSpecAttribute.filter(status=True).order_by("id")
+    return [item for item in attributes if ids.intersection(attribute_category_ids(item))]
+
+
+async def validate_spec_values(category_id: int, values: dict[str, Any] | None) -> dict[str, Any]:
+    fields = await product_spec_fields(category_id)
+    values = values or {}
+    allowed = {str(field.id) for field in fields}
+    if set(values) - allowed:
+        raise HTTPException(422, "规格属性已停用或不适用于当前分类，请重新加载表单")
+    cleaned = {}
+    for field in fields:
+        key = str(field.id)
+        value = values.get(key)
+        if isinstance(value, str):
+            value = value.strip()
+        if value is None or value == "" or value == []:
+            if field.required:
+                raise HTTPException(422, f"请填写规格属性：{field.name}")
+            continue
+        kind = effective_attr_type(field.code, field.attr_type)
+        valid = True
+        if kind == "number":
+            valid = type(value) is int or (type(value) is float and math.isfinite(value))
+        elif kind == "switch":
+            valid = isinstance(value, bool)
+        elif kind in {"select", "multi_select"}:
+            options = {option["value"] for option in spec_select_options(field)}
+            if kind == "select":
+                valid = isinstance(value, str) and value in options
+            else:
+                valid = isinstance(value, list) and all(isinstance(v, str) and v in options for v in value)
+        elif kind == "date":
+            try:
+                valid = isinstance(value, str) and date.fromisoformat(value).isoformat() == value
+            except ValueError:
+                valid = False
+        else:
+            valid = isinstance(value, str) and len(value) <= 2000
+        if not valid:
+            raise HTTPException(422, f"规格属性格式或选项无效：{field.name}")
+        cleaned[key] = value
+    return cleaned
+
+
+@router.get("/product-spec-fields", summary="按产品分类获取动态规格字段")
+async def list_product_spec_fields(category_id: int = Query(..., gt=0)):
+    if not await ProductCategory.filter(id=category_id).exists():
+        raise HTTPException(404, "产品分类不存在")
+    fields = await product_spec_fields(category_id)
+    return Success(data=[{**await attribute_dict(field), "select_options": spec_select_options(field)} for field in fields])
 
 
 def delete_block_msg(target: str, refs: list[str]) -> str:
@@ -619,6 +719,7 @@ async def category_dict(category: ProductCategory) -> dict[str, Any]:
 
 async def product_dict(product: ProductItem) -> dict[str, Any]:
     data = await product.to_dict()
+    data["spec_values"] = product.spec_values or {}
     category = await product.category if product.category_id else None
     data["category_name"] = category.name if category else ""
     data["status_label"] = label_of(PRODUCT_STATUSES, data.get("status"))
@@ -839,6 +940,7 @@ async def create_product(payload: ProductPayload):
                     data["code"] = await next_product_sku(category, conn)
                 if await ProductItem.filter(code=data["code"]).using_db(conn).exists():
                     return Fail(code=409, msg="SKU 已存在")
+                data["spec_values"] = await validate_spec_values(category.id, data.get("spec_values"))
                 product = await ProductItem.create(using_db=conn, **data)
             return Success(msg="产品已创建", data=await product_dict(product))
         except IntegrityError:
@@ -854,12 +956,19 @@ async def update_product(product_id: int, payload: ProductPayload):
     data = compact(payload.model_dump(exclude_unset=True))
     if error := validate_product_payload(data):
         return Fail(msg=error)
-    if not await ProductItem.filter(id=product_id).exists():
+    existing = await ProductItem.get_or_none(id=product_id)
+    if not existing:
         return Fail(code=404, msg="产品不存在")
     if not await ProductCategory.filter(id=data["category_id"]).exists():
         return Fail(msg="产品分类不存在")
     if data.get("code") and await ProductItem.filter(code=data["code"]).exclude(id=product_id).exists():
         return Fail(code=409, msg="SKU 已存在")
+    if "spec_values" in data or data["category_id"] != existing.category_id:
+        values = data.get("spec_values")
+        if "spec_values" not in data:
+            allowed = {str(field.id) for field in await product_spec_fields(data["category_id"])}
+            values = {key: value for key, value in (existing.spec_values or {}).items() if key in allowed}
+        data["spec_values"] = await validate_spec_values(data["category_id"], values)
     await ProductItem.filter(id=product_id).update(**data)
     product = await ProductItem.get(id=product_id)
     return Success(msg="产品已更新", data=await product_dict(product))
@@ -902,26 +1011,7 @@ async def list_attributes(
     if attr_type:
         q &= Q(attr_type=attr_type)
     if category_id:
-        # Legacy CAT and IDC catalogs can contain the same named category path.
-        # Match the full path, so similarly named leaves in other branches remain separate.
-        categories = {item.id: item for item in await ProductCategory.all()}
-
-        def category_path(item_id):
-            names = []
-            visited = set()
-            while item_id:
-                if item_id in visited or item_id not in categories:
-                    return None
-                visited.add(item_id)
-                item = categories[item_id]
-                names.append(item.name)
-                item_id = item.parent_id
-            return tuple(reversed(names))
-
-        selected_path = category_path(category_id)
-        matching_ids = {category_id}
-        if selected_path:
-            matching_ids.update(item_id for item_id in categories if category_path(item_id) == selected_path)
+        matching_ids = await matching_category_ids(category_id)
         all_rows = await ProductSpecAttribute.filter(q).order_by("category_id", "name")
         matched = [item for item in all_rows if matching_ids.intersection(attribute_category_ids(item))]
         total = len(matched)
