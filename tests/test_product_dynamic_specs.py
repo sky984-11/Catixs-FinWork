@@ -45,7 +45,7 @@ class ProductDynamicSpecsTests(unittest.IsolatedAsyncioTestCase):
 
     async def create(self, values=None):
         return await self.client.post("/products", json={
-            "name": "Server", "category_id": self.category.id,
+            "name": "Server", "code": "SERVER-001", "category_id": self.category.id,
             "spec_values": self.values if values is None else values,
         })
 

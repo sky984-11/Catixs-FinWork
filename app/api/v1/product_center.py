@@ -1,11 +1,10 @@
-import re
 import json
 import math
 from datetime import date
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from tortoise.expressions import Q
 from tortoise.exceptions import IntegrityError
 from tortoise.transactions import in_transaction
@@ -78,6 +77,17 @@ class ProductPayload(BaseModel):
     region: str | None = Field(None, max_length=100)
     billing_mode: str = "fixed"
     description: str | None = None
+
+    @field_validator("code")
+    @classmethod
+    def validate_sku(cls, value):
+        if not value or not value.strip():
+            raise ValueError("请填写 SKU")
+        return value.strip()
+
+
+class ProductCreatePayload(ProductPayload):
+    code: str = Field(..., min_length=1, max_length=80)
 
 
 class AttributePayload(BaseModel):
@@ -307,16 +317,6 @@ async def next_code(model, prefix: str, field: str = "code") -> str:
     except ValueError:
         sequence = 1
     return f"{prefix}{sequence:03d}"
-
-
-async def next_product_sku(category: ProductCategory, conn) -> str:
-    # Reserve space for the separator and a growing numeric suffix within code's 80-character limit.
-    category_code = (category.code or "").strip()
-    prefix = category_code if category_code and len(category_code) <= 60 else f"CAT{category.id}"
-    prefix += "-"
-    codes = await ProductItem.filter(code__startswith=prefix).using_db(conn).values_list("code", flat=True)
-    sequences = [int(code[len(prefix):]) for code in codes if re.fullmatch(r"[0-9]+", code[len(prefix):])]
-    return f"{prefix}{max(sequences, default=0) + 1:03d}"
 
 
 async def seed_categories():
@@ -925,30 +925,24 @@ async def list_products(
 
 
 @router.post("/products", summary="新增产品")
-async def create_product(payload: ProductPayload):
+async def create_product(payload: ProductCreatePayload):
     data = compact(payload.model_dump())
     if error := validate_product_payload(data):
         return Fail(msg=error)
-    automatic = not str(data.get("code") or "").strip()
-    for attempt in range(3):
-        try:
-            async with in_transaction() as conn:
-                category = await ProductCategory.filter(id=data["category_id"]).using_db(conn).select_for_update().first()
-                if not category:
-                    return Fail(msg="产品分类不存在")
-                if automatic:
-                    data["code"] = await next_product_sku(category, conn)
-                if await ProductItem.filter(code=data["code"]).using_db(conn).exists():
-                    return Fail(code=409, msg="SKU 已存在")
-                data["spec_values"] = await validate_spec_values(category.id, data.get("spec_values"))
-                product = await ProductItem.create(using_db=conn, **data)
-            return Success(msg="产品已创建", data=await product_dict(product))
-        except IntegrityError:
-            # Also handle a manual SKU racing an automatic allocation from another category.
-            if not await ProductItem.filter(code=data["code"]).exists():
-                raise
-            if not automatic or attempt == 2:
-                return Fail(code=409, msg="SKU 已存在，请重试")
+    try:
+        async with in_transaction() as conn:
+            category = await ProductCategory.filter(id=data["category_id"]).using_db(conn).first()
+            if not category:
+                return Fail(msg="产品分类不存在")
+            if await ProductItem.filter(code=data["code"]).using_db(conn).exists():
+                return Fail(code=409, msg="SKU 已存在")
+            data["spec_values"] = await validate_spec_values(category.id, data.get("spec_values"))
+            product = await ProductItem.create(using_db=conn, **data)
+        return Success(msg="产品已创建", data=await product_dict(product))
+    except IntegrityError:
+        if not await ProductItem.filter(code=data["code"]).exists():
+            raise
+        return Fail(code=409, msg="SKU 已存在")
 
 
 @router.put("/products/{product_id}", summary="编辑产品")
@@ -969,7 +963,12 @@ async def update_product(product_id: int, payload: ProductPayload):
             allowed = {str(field.id) for field in await product_spec_fields(data["category_id"])}
             values = {key: value for key, value in (existing.spec_values or {}).items() if key in allowed}
         data["spec_values"] = await validate_spec_values(data["category_id"], values)
-    await ProductItem.filter(id=product_id).update(**data)
+    try:
+        await ProductItem.filter(id=product_id).update(**data)
+    except IntegrityError:
+        if data.get("code") and await ProductItem.filter(code=data["code"]).exclude(id=product_id).exists():
+            return Fail(code=409, msg="SKU 已存在")
+        raise
     product = await ProductItem.get(id=product_id)
     return Success(msg="产品已更新", data=await product_dict(product))
 

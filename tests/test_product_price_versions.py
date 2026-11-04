@@ -222,35 +222,36 @@ class ProductPriceVersionTests(unittest.IsolatedAsyncioTestCase):
         await self.post()
         self.assertEqual((await ProductPriceVersion.first()).billing_unit, "mbps")
 
-    async def test_automatic_skus_use_category_prefix_and_numeric_sequence(self):
-        self.category.code = "NET.TRANSIT"
-        await self.category.save()
-        for code in ("NET.TRANSIT-999", "NET.TRANSIT-1000", "NET.TRANSIT-CUSTOM"):
-            await ProductItem.create(name="Existing", code=code, category=self.category)
-        response = await self.client.post("/products", json={"name": "Auto", "category_id": self.category.id})
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json()["data"]["code"], "NET.TRANSIT-1001")
-        other = await ProductCategory.create(name="Cloud", code="COMPUTE.VM")
-        response = await self.client.post("/products", json={"name": "Cloud", "category_id": other.id, "code": " "})
-        self.assertEqual(response.json()["data"]["code"], "COMPUTE.VM-001")
+    async def test_sku_is_required_and_never_generated(self):
+        before = await ProductItem.all().count()
+        base = {"name": "Manual", "category_id": self.category.id}
+        for extra in ({}, {"code": None}, {"code": ""}, {"code": "   "}, {"code": "x" * 81}):
+            response = await self.client.post("/products", json={**base, **extra})
+            self.assertEqual(response.status_code, 422, response.text)
+        self.assertEqual(await ProductItem.all().count(), before)
+        for code in (None, "", "   "):
+            response = await self.client.put(f"/products/{self.product.id}", json={**base, "code": code})
+            self.assertEqual(response.status_code, 422, response.text)
+        await self.product.refresh_from_db()
+        self.assertEqual(self.product.code, "NET-1")
 
-    async def test_sku_fallback_manual_override_and_missing_category(self):
-        response = await self.client.post("/products", json={"name": "Auto", "category_id": self.category.id})
-        self.assertEqual(response.json()["data"]["code"], f"CAT{self.category.id}-001")
-        payload = {"name": "Manual", "category_id": self.category.id, "code": "MANUAL-123"}
+    async def test_manual_sku_trim_duplicates_and_missing_category(self):
+        payload = {"name": "Manual", "category_id": self.category.id, "code": "  MANUAL-123  "}
         response = await self.client.post("/products", json=payload)
+        self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["data"]["code"], "MANUAL-123")
         self.assertEqual((await self.client.post("/products", json=payload)).status_code, 409)
+        response = await self.client.put(f"/products/{self.product.id}", json=payload)
+        self.assertEqual(response.status_code, 409, response.text)
         before = await ProductItem.all().count()
-        response = await self.client.post("/products", json={"name": "Invalid", "category_id": 999999})
+        response = await self.client.post("/products", json={"name": "Invalid", "code": "INVALID", "category_id": 999999})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(await ProductItem.all().count(), before)
 
-    async def test_concurrent_automatic_skus_are_unique(self):
+    async def test_concurrent_duplicate_skus_are_rejected(self):
         responses = await asyncio.gather(*[
-            self.client.post("/products", json={"name": f"Product {i}", "category_id": self.category.id})
+            self.client.post("/products", json={"name": f"Product {i}", "code": "SAME-SKU", "category_id": self.category.id})
             for i in range(5)
         ])
-        for response in responses:
-            self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(len({response.json()["data"]["code"] for response in responses}), 5)
+        self.assertEqual(sorted(response.status_code for response in responses), [200, 409, 409, 409, 409])
+        self.assertEqual(await ProductItem.filter(code="SAME-SKU").count(), 1)

@@ -158,11 +158,8 @@
               <TheIcon icon="mdi:information-outline" :size="17" /><span>基本信息</span>
             </div>
             <div class="product-field-grid">
-              <n-form-item label="SKU"
-                ><n-input
-                  v-model:value="editor.form.code"
-                  placeholder="留空按分类编码自动生成，如 NET.TRANSIT-001"
-                  :disabled="Boolean(editor.form.id)"
+              <n-form-item label="SKU" required
+                ><n-input v-model:value="editor.form.code" placeholder="请输入 SKU" :maxlength="80"
               /></n-form-item>
               <n-form-item label="产品名称" required
                 ><n-input v-model:value="editor.form.name" :maxlength="160"
@@ -338,7 +335,7 @@
 
 <script setup>
 import { computed, h, onMounted, reactive, ref } from 'vue'
-import { NButton, NSelect, NSpace, NTag, NTooltip } from 'naive-ui'
+import { NButton, NSpace, NTag, NTooltip } from 'naive-ui'
 import api from '@/api'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import CButton from '@/components/public/CButton.vue'
@@ -512,7 +509,8 @@ async function saveProduct() {
       return window.$message?.warning(`请填写规格属性：${field.name}`)
     }
   }
-  const form = { ...editor.form, name: editor.form.name?.trim() }
+  const form = { ...editor.form, code: editor.form.code?.trim(), name: editor.form.name?.trim() }
+  if (!form.code) return window.$message?.warning('请填写 SKU')
   if (!form.name || !form.category_id || !form.billing_unit || !form.min_contract_months)
     return window.$message?.warning('请完整填写产品必填项')
   saving.value = true
@@ -527,10 +525,6 @@ async function saveProduct() {
   } finally {
     saving.value = false
   }
-}
-function changeCategory(row, categoryId) {
-  if (busy.value || categoryId === row.category_id) return
-  editProduct({ ...row, category_id: categoryId })
 }
 function editCategory(row) {
   categoryEditor.form = row
@@ -608,16 +602,16 @@ const columns = computed(() =>
       key: 'category_id',
       width: 220,
       render: (row) =>
-        h('div', { onClick: (e) => e.stopPropagation() }, [
-          h(NSelect, {
-            value: row.category_id,
-            options: categories.value.map((item) => ({ label: item.name, value: item.id })),
-            filterable: true,
-            disabled: busy.value || optionsLoading.value,
-            loading: rowSaving.value === row.id,
-            'onUpdate:value': (value) => changeCategory(row, value),
-          }),
-        ]),
+        h(
+          NTag,
+          { size: 'small', bordered: false },
+          {
+            default: () =>
+              row.category_name ||
+              categories.value.find((item) => item.id === row.category_id)?.name ||
+              '未分类',
+          }
+        ),
     },
     {
       title: '计费单位',
