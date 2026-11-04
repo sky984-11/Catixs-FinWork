@@ -19,7 +19,7 @@
 {"name":"IP Transit","code":"NET-001","category_id":1,"billing_unit":"mbps","min_contract_months":12,"status":"active"}
 ```
 
-`name` 和有效的 `category_id` 必填；新增时 `code` 留空自动生成，非空 SKU 不允许重复。`billing_unit` 为 1–40 字符，默认 `month`，支持现有单位或自定义单位；`min_contract_months` 为 1–1200 的整数，默认 1；`status` 为 `active` 或 `offline`。地区不再必填，原字段和数据保留。新增字段同样包含于列表及保存响应的 `data`。
+`name` 和有效的 `category_id` 必填；新增时 `code` 留空（或仅空白）按所选分类生成 `分类编码-三位流水号`，例如 `NET.TRANSIT-001`；超过 999 后继续生成 1000，不截断。分类编码为空或超过 60 字符时，使用 `CAT{分类ID}` 作为前缀。按前缀下现存纯数字后缀最大值加一，忽略非数字后缀；分类之间独立编号，手动占用的同前缀编号也会跳过。分类行锁与事务保护同分类并发创建，SKU 唯一约束冲突自动重试，仍冲突返回 409。手动填写的非空 SKU 保留且不允许重复。已有 SKU 不回填，修改分类不会重新生成 SKU。`billing_unit` 为 1–40 字符，默认 `month`，支持现有单位或自定义单位；`min_contract_months` 为 1–1200 的整数，默认 1；`status` 为 `active` 或 `offline`。地区不再必填，原字段和数据保留。新增字段同样包含于列表及保存响应的 `data`。
 
 ## 价格方案和版本历史
 

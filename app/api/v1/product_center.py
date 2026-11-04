@@ -1,8 +1,10 @@
+import re
 from typing import Any, Literal
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 from tortoise.expressions import Q
+from tortoise.exceptions import IntegrityError
 from tortoise.transactions import in_transaction
 
 from .product_price_versions import router as price_versions_router
@@ -205,6 +207,16 @@ async def next_code(model, prefix: str, field: str = "code") -> str:
     except ValueError:
         sequence = 1
     return f"{prefix}{sequence:03d}"
+
+
+async def next_product_sku(category: ProductCategory, conn) -> str:
+    # Reserve space for the separator and a growing numeric suffix within code's 80-character limit.
+    category_code = (category.code or "").strip()
+    prefix = category_code if category_code and len(category_code) <= 60 else f"CAT{category.id}"
+    prefix += "-"
+    codes = await ProductItem.filter(code__startswith=prefix).using_db(conn).values_list("code", flat=True)
+    sequences = [int(code[len(prefix):]) for code in codes if re.fullmatch(r"[0-9]+", code[len(prefix):])]
+    return f"{prefix}{max(sequences, default=0) + 1:03d}"
 
 
 async def seed_categories():
@@ -816,14 +828,25 @@ async def create_product(payload: ProductPayload):
     data = compact(payload.model_dump())
     if error := validate_product_payload(data):
         return Fail(msg=error)
-    if not data.get("code"):
-        data["code"] = await next_code(ProductItem, "PROD")
-    if not await ProductCategory.filter(id=data["category_id"]).exists():
-        return Fail(msg="产品分类不存在")
-    if await ProductItem.filter(code=data["code"]).exists():
-        return Fail(code=409, msg="SKU 已存在")
-    product = await ProductItem.create(**data)
-    return Success(msg="产品已创建", data=await product_dict(product))
+    automatic = not str(data.get("code") or "").strip()
+    for attempt in range(3):
+        try:
+            async with in_transaction() as conn:
+                category = await ProductCategory.filter(id=data["category_id"]).using_db(conn).select_for_update().first()
+                if not category:
+                    return Fail(msg="产品分类不存在")
+                if automatic:
+                    data["code"] = await next_product_sku(category, conn)
+                if await ProductItem.filter(code=data["code"]).using_db(conn).exists():
+                    return Fail(code=409, msg="SKU 已存在")
+                product = await ProductItem.create(using_db=conn, **data)
+            return Success(msg="产品已创建", data=await product_dict(product))
+        except IntegrityError:
+            # Also handle a manual SKU racing an automatic allocation from another category.
+            if not await ProductItem.filter(code=data["code"]).exists():
+                raise
+            if not automatic or attempt == 2:
+                return Fail(code=409, msg="SKU 已存在，请重试")
 
 
 @router.put("/products/{product_id}", summary="编辑产品")

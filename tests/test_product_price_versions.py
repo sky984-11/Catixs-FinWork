@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -171,3 +172,36 @@ class ProductPriceVersionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["total"], 1)
         await self.post()
         self.assertEqual((await ProductPriceVersion.first()).billing_unit, "mbps")
+
+    async def test_automatic_skus_use_category_prefix_and_numeric_sequence(self):
+        self.category.code = "NET.TRANSIT"
+        await self.category.save()
+        for code in ("NET.TRANSIT-999", "NET.TRANSIT-1000", "NET.TRANSIT-CUSTOM"):
+            await ProductItem.create(name="Existing", code=code, category=self.category)
+        response = await self.client.post("/products", json={"name": "Auto", "category_id": self.category.id})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["data"]["code"], "NET.TRANSIT-1001")
+        other = await ProductCategory.create(name="Cloud", code="COMPUTE.VM")
+        response = await self.client.post("/products", json={"name": "Cloud", "category_id": other.id, "code": " "})
+        self.assertEqual(response.json()["data"]["code"], "COMPUTE.VM-001")
+
+    async def test_sku_fallback_manual_override_and_missing_category(self):
+        response = await self.client.post("/products", json={"name": "Auto", "category_id": self.category.id})
+        self.assertEqual(response.json()["data"]["code"], f"CAT{self.category.id}-001")
+        payload = {"name": "Manual", "category_id": self.category.id, "code": "MANUAL-123"}
+        response = await self.client.post("/products", json=payload)
+        self.assertEqual(response.json()["data"]["code"], "MANUAL-123")
+        self.assertEqual((await self.client.post("/products", json=payload)).status_code, 409)
+        before = await ProductItem.all().count()
+        response = await self.client.post("/products", json={"name": "Invalid", "category_id": 999999})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(await ProductItem.all().count(), before)
+
+    async def test_concurrent_automatic_skus_are_unique(self):
+        responses = await asyncio.gather(*[
+            self.client.post("/products", json={"name": f"Product {i}", "category_id": self.category.id})
+            for i in range(5)
+        ])
+        for response in responses:
+            self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(len({response.json()["data"]["code"] for response in responses}), 5)

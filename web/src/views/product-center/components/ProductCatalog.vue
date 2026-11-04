@@ -99,7 +99,7 @@
         <n-form-item label="SKU"
           ><n-input
             v-model:value="editor.form.code"
-            placeholder="留空自动生成"
+            placeholder="留空按分类编码自动生成，如 NET.TRANSIT-001"
             :disabled="Boolean(editor.form.id)"
         /></n-form-item>
         <n-form-item label="产品名称" required
