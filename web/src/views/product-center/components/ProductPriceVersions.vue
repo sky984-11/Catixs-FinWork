@@ -4,17 +4,18 @@
     preset="card"
     :title="`${product.name} · 价格方案`"
     class="price-panel"
-    :mask-closable="!saving && !creating"
-    :close-on-esc="!saving && !creating"
-    :closable="!saving && !creating"
+    :mask-closable="!busy && !creating && !deletion.show"
+    :close-on-esc="!busy && !creating && !deletion.show"
+    :closable="!busy && !creating && !deletion.show"
     @update:show="close"
   >
     <n-space align="center" class="price-toolbar">
-      <CButton :show-save="true" save-text="新增价格版本" :disabled="saving" @save="openCreate" />
-      <span>版本创建后保留历史，不覆盖原价</span>
+      <CButton :show-save="true" save-text="新增价格版本" :disabled="busy" @save="openCreate" />
+      <span>新增版本不覆盖原价，删除版本后无法恢复</span>
     </n-space>
     <n-select
       v-model:value="customerFilter"
+      :disabled="busy || deletion.show"
       clearable
       filterable
       :show-checkmark="false"
@@ -27,19 +28,20 @@
     />
     <n-alert v-if="loadError" type="error" class="price-toolbar">
       {{ loadError }}
-      <CButton :show-save="true" save-text="重试" @save="load" />
+      <CButton :show-save="true" save-text="重试" :disabled="busy" @save="load" />
     </n-alert>
     <n-data-table
       :columns="columns"
       :data="rows"
       :loading="loading"
-      :scroll-x="1290"
+      :scroll-x="1370"
       :row-key="(row) => row.id"
     >
       <template #empty><n-empty description="暂无价格方案" /></template>
     </n-data-table>
     <n-pagination
       v-model:page="page"
+      :disabled="busy || deletion.show"
       :page-size="20"
       :item-count="total"
       class="pagination"
@@ -49,7 +51,7 @@
       ><CButton
         :show-cancel="true"
         cancel-text="关闭"
-        :disabled="saving || creating"
+        :disabled="busy || creating || deletion.show"
         @cancel="close(false)"
     /></template>
   </n-modal>
@@ -62,7 +64,7 @@
     :close-on-esc="!saving"
     :closable="!saving"
   >
-    <n-form label-placement="top" :disabled="saving">
+    <n-form label-placement="top" :disabled="busy">
       <n-form-item label="关联客户">
         <n-select
           v-model:value="form.customer_id"
@@ -116,17 +118,41 @@
         :show-cancel="true"
         :show-save="true"
         save-text="创建版本"
-        :disabled="saving"
+        :disabled="busy"
         :save-loading="saving"
         @cancel="creating = false"
         @save="save"
     /></template>
   </n-modal>
+  <n-modal
+    v-model:show="deletion.show"
+    preset="card"
+    title="删除价格方案"
+    style="width: min(460px, calc(100vw - 32px))"
+    :closable="!deleting"
+    :mask-closable="!deleting"
+    :close-on-esc="!deleting"
+  >
+    确认删除 V{{ deletion.row?.version }}（{{
+      deletion.row?.customer_name || '通用价格'
+    }}）？删除后无法恢复。
+    <template #footer>
+      <CButton
+        show-cancel
+        show-delete
+        :disabled="deleting"
+        :delete-loading="deleting"
+        @cancel="deletion.show = false"
+        @delete="deleteVersion"
+      />
+    </template>
+  </n-modal>
 </template>
 
 <script setup>
 import { computed, h, onMounted, reactive, ref } from 'vue'
-import { NTag } from 'naive-ui'
+import { NButton, NSpace, NTag, NTooltip } from 'naive-ui'
+import TheIcon from '@/components/icon/TheIcon.vue'
 import api from '@/api'
 import CButton from '@/components/public/CButton.vue'
 
@@ -145,6 +171,9 @@ const customerFilter = ref(null),
   total = ref(0),
   loadError = ref('')
 const form = reactive({})
+const deleting = ref(false)
+const deletion = reactive({ show: false, row: null })
+const busy = computed(() => saving.value || deleting.value)
 const currencies = ['CNY', 'USD', 'EUR', 'JPY', 'HKD'].map((value) => ({ label: value, value }))
 const periods = [1, 3, 6, 12, 24, 36].map((value) => ({ label: `${value} 个月`, value }))
 const filterOptions = computed(() => [{ label: '通用价格', value: 0 }, ...props.customers])
@@ -180,7 +209,7 @@ function renderCustomerOption(option) {
   )
 }
 function close(show) {
-  if (!show && !saving.value && !creating.value) emit('close')
+  if (!show && !busy.value && !creating.value && !deletion.show) emit('close')
 }
 function search() {
   page.value = 1
@@ -212,6 +241,7 @@ async function load() {
   }
 }
 function openCreate() {
+  if (busy.value || deletion.show) return
   Object.assign(form, {
     customer_id: customerFilter.value || null,
     currency: 'CNY',
@@ -224,7 +254,7 @@ function openCreate() {
   creating.value = true
 }
 async function save() {
-  if (saving.value) return
+  if (busy.value) return
   if (form.mrc === null || form.nrc === null || !form.effective_date || !form.expiry_date)
     return window.$message?.warning('请填写费用和有效期')
   if (form.expiry_date <= form.effective_date)
@@ -246,6 +276,54 @@ async function save() {
   } finally {
     saving.value = false
   }
+}
+async function deleteVersion() {
+  if (busy.value || !deletion.row) return
+  deleting.value = true
+  try {
+    await api.productCenterApi.deletePriceVersion(props.product.id, deletion.row.id)
+    deletion.show = false
+    deletion.row = null
+    if (rows.value.length === 1 && page.value > 1) page.value -= 1
+    window.$message?.success('价格版本已删除')
+    await load()
+  } catch {
+    // Keep the confirmation available for retry; the request wrapper displays the error.
+  } finally {
+    deleting.value = false
+  }
+}
+function deleteAction(row) {
+  return h(
+    NSpace,
+    { wrap: false },
+    {
+      default: () =>
+        h(NTooltip, null, {
+          trigger: () =>
+            h(
+              NButton,
+              {
+                size: 'small',
+                circle: true,
+                quaternary: true,
+                type: 'error',
+                'aria-label': '删除',
+                disabled: busy.value || creating.value || deletion.show || loading.value,
+                loading: deleting.value && deletion.row?.id === row.id,
+                onClick: (event) => {
+                  event.stopPropagation()
+                  if (busy.value || creating.value || deletion.show || loading.value) return
+                  deletion.row = row
+                  deletion.show = true
+                },
+              },
+              { icon: () => h(TheIcon, { icon: 'mdi:trash-can-outline', size: 17 }) }
+            ),
+          default: () => '删除',
+        }),
+    }
+  )
 }
 const columns = computed(() =>
   [
@@ -284,7 +362,8 @@ const columns = computed(() =>
           }
         ),
     },
-  ].map((column) => ({ ...column, resizable: true }))
+    { title: '操作', key: 'actions', width: 80, fixed: 'right', render: deleteAction },
+  ].map((column) => ({ ...column, resizable: column.key !== 'actions' }))
 )
 onMounted(load)
 </script>

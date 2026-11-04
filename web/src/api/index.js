@@ -386,6 +386,8 @@ export default {
       request.get(`/product-center/products/${id}/price-versions`, { params }),
     createPriceVersion: (id, data = {}) =>
       request.post(`/product-center/products/${id}/price-versions`, data),
+    deletePriceVersion: (id, versionId) =>
+      request.delete(`/product-center/products/${id}/price-versions/${versionId}`),
     createProduct: (data = {}) => request.post('/product-center/products', data),
     updateProduct: (id, data = {}) => request.put(`/product-center/products/${id}`, data),
     deleteProduct: (id) => request.delete(`/product-center/products/${id}`),

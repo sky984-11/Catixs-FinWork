@@ -105,6 +105,7 @@ class ProductPriceVersionTests(unittest.IsolatedAsyncioTestCase):
         self.app.dependency_overrides.clear()
         self.assertEqual((await self.post()).status_code, 401)
         self.assertEqual((await self.client.get(self.path)).status_code, 401)
+        self.assertEqual((await self.client.delete(f"{self.path}/1")).status_code, 401)
 
         async def ordinary_user():
             self.user.is_superuser = False
@@ -113,6 +114,7 @@ class ProductPriceVersionTests(unittest.IsolatedAsyncioTestCase):
         self.app.dependency_overrides[AuthControl.is_authed] = ordinary_user
         self.assertEqual((await self.post()).status_code, 403)
         self.assertEqual((await self.client.get(self.path)).status_code, 403)
+        self.assertEqual((await self.client.delete(f"{self.path}/1")).status_code, 403)
         self.assertEqual(await ProductPriceVersion.all().count(), 0)
 
     async def test_product_deletion_protects_history(self):
@@ -120,6 +122,7 @@ class ProductPriceVersionTests(unittest.IsolatedAsyncioTestCase):
         response = await self.client.delete(f"/products/{self.product.id}")
         self.assertEqual(response.status_code, 400)
         self.assertTrue(await ProductItem.filter(id=self.product.id).exists())
+
         self.assertEqual(await ProductPriceVersion.all().count(), 1)
         unused = await ProductItem.create(name="Unused")
         self.assertEqual((await self.client.delete(f"/products/{unused.id}")).status_code, 200)
@@ -128,6 +131,31 @@ class ProductPriceVersionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 409)
         self.assertTrue(await CrmCustomer.filter(id=self.customer.id).exists())
 
+    async def test_delete_version_is_scoped_to_product_and_preserves_other_versions(self):
+        first = (await self.post()).json()["data"]
+        second = (await self.post(effective_date="2026-07-01", expiry_date="2027-01-01")).json()["data"]
+        other = await ProductItem.create(name="Other", code="OTHER", category=self.category)
+        wrong = await self.client.delete(f"/products/{other.id}/price-versions/{first['id']}")
+        self.assertEqual(wrong.status_code, 404)
+        self.assertTrue(await ProductPriceVersion.filter(id=first['id']).exists())
+        response = await self.client.delete(f"{self.path}/{first['id']}")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertFalse(await ProductPriceVersion.filter(id=first['id']).exists())
+        self.assertTrue(await ProductPriceVersion.filter(id=second['id']).exists())
+        self.assertEqual((await self.client.get(self.path)).json()["total"], 1)
+        self.assertEqual((await self.client.delete(f"{self.path}/{first['id']}")).status_code, 404)
+        self.assertEqual((await self.client.delete(f"/products/999999/price-versions/{second['id']}")).status_code, 404)
+        # Deleting a price removes its overlap constraint, without renumbering surviving versions.
+        recreated = await self.post()
+        self.assertEqual(recreated.status_code, 200, recreated.text)
+        self.assertEqual(recreated.json()["data"]["version"], 3)
+
+    async def test_delete_last_version_allows_product_deletion(self):
+        first = (await self.post(customer_id=None)).json()["data"]
+        response = await self.client.delete(f"{self.path}/{first['id']}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual((await self.client.get(self.path)).json()["total"], 0)
+        self.assertEqual((await self.client.delete(f"/products/{self.product.id}")).status_code, 200)
     async def test_pre_migration_backfill_uses_only_existing_columns(self):
         from app.core import init_app
         from app.models.product_center import ProductSpecAttribute, ProductSpecConfig

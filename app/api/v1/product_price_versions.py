@@ -96,3 +96,17 @@ async def create_price_version(product_id: int, payload: PriceVersionPayload):
         )
     logger.info("Product price version created: product_id={}, version_id={}", product_id, version.id)
     return Success(msg="价格版本已创建，历史版本保留", data=await version_dict(version))
+
+
+@router.delete("/products/{product_id}/price-versions/{version_id}", summary="删除产品价格方案版本")
+async def delete_price_version(product_id: int, version_id: int):
+    async with in_transaction() as conn:
+        product = await ProductItem.filter(id=product_id).using_db(conn).select_for_update().first()
+        if not product:
+            raise HTTPException(404, "产品不存在")
+        version = await ProductPriceVersion.filter(id=version_id, product_id=product_id).using_db(conn).first()
+        if not version:
+            raise HTTPException(404, "价格版本不存在或不属于该产品")
+        await version.delete(using_db=conn)
+    logger.info("Product price version deleted: product_id={}, version_id={}", product_id, version_id)
+    return Success(msg="价格版本已删除", data={"id": version_id, "product_id": product_id})
