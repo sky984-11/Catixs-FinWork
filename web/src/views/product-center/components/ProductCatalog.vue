@@ -91,6 +91,7 @@
       preset="card"
       :title="editor.form.id ? '编辑产品' : '新增产品'"
       class="product-editor"
+      style="width: min(560px, calc(100vw - 32px))"
       :mask-closable="!saving"
       :close-on-esc="!saving"
       :closable="!saving"
@@ -140,6 +141,7 @@
       preset="card"
       :title="categoryEditor.form.id ? '编辑分类' : '新增分类'"
       class="product-editor"
+      style="width: min(560px, calc(100vw - 32px))"
       :mask-closable="!saving"
       :close-on-esc="!saving"
       :closable="!saving"
@@ -176,6 +178,7 @@
       preset="card"
       title="确认删除"
       class="product-editor"
+      style="width: min(560px, calc(100vw - 32px))"
       :mask-closable="!saving"
       :close-on-esc="!saving"
       :closable="!saving"
@@ -521,9 +524,6 @@ onMounted(async () => {
 .pagination {
   margin-top: 20px;
   justify-content: flex-end;
-}
-.product-editor {
-  width: min(560px, calc(100vw - 32px));
 }
 @media (max-width: 800px) {
   .product-catalog-page {
