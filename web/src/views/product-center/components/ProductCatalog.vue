@@ -147,7 +147,7 @@
           <span class="product-editor-icon"><TheIcon icon="mdi:cube-outline" :size="23" /></span>
           <div>
             <h3>{{ editor.form.id ? '编辑产品' : '新增产品' }}</h3>
-            <p>维护产品公共信息，参数与价格在规格组合中配置</p>
+            <p>维护产品公共信息，在规格组合中配置参数；无规格产品可直接配置价格</p>
           </div>
         </div>
       </template>

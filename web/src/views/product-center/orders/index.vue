@@ -203,10 +203,10 @@
             <n-select
               v-model:value="item.variant_id"
               filterable
-              placeholder="选择规格组合"
+              :placeholder="hasNoVariants(item) ? '无规格' : '选择规格组合'"
               :options="variantOptions(item)"
               :loading="item.variant_loading"
-              :disabled="busy || !item.product_id"
+              :disabled="busy || !item.product_id || hasNoVariants(item)"
               @update:value="changeVariant(item)"
             />
             <n-input-number
@@ -234,7 +234,11 @@
               <p
                 v-else-if="item.product_id && !item.variant_loading && !variantOptions(item).length"
               >
-                暂无可选组合，请先在产品管理配置规格组合。
+                {{
+                  hasNoVariants(item)
+                    ? '无规格产品，直接使用产品公共价格。'
+                    : '暂无可选组合，请先启用规格组合。'
+                }}
               </p>
               <p v-if="item.spec_snapshot?.length">
                 {{
@@ -545,7 +549,12 @@ async function changeProduct(item) {
   if (choices.length === 1) {
     item.variant_id = choices[0].value
     await changeVariant(item)
+  } else if (!item.variant_error && hasNoVariants(item)) {
+    await changeVariant(item)
   }
+}
+function hasNoVariants(item) {
+  return Array.isArray(variants.value[item.product_id]) && !variants.value[item.product_id].length
 }
 function specValue(value) {
   return Array.isArray(value)
@@ -589,10 +598,10 @@ async function changeVariant(item) {
   item.spec_snapshot = variant?.spec_snapshot || []
   item.variant_name = variant?.name
   item.variant_code = variant?.code
-  if (item.variant_id) await inheritPrice(item)
+  if (item.variant_id || hasNoVariants(item)) await inheritPrice(item)
 }
 async function inheritPrice(item, referenceOnly = false) {
-  if (item.price_loading || !item.product_id || !item.variant_id) return
+  if (item.price_loading || !item.product_id || (!item.variant_id && !hasNoVariants(item))) return
   item.price_loading = true
   item.price_error = ''
   try {
@@ -657,7 +666,7 @@ async function save() {
     form.items.some(
       (item) =>
         !item.product_id ||
-        !item.variant_id ||
+        (!item.variant_id && !hasNoVariants(item)) ||
         item.variant_error ||
         !Number.isInteger(item.quantity) ||
         item.quantity < 1

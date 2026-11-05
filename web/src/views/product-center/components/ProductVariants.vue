@@ -11,9 +11,18 @@
   >
     <div class="variant-heading">
       <h3>{{ product.name }}</h3>
-      <p>预先配置参数组合，每个组合单独维护公共价格。</p>
+      <p>有规格的产品按组合维护公共价格；无规格的产品可直接配置价格。</p>
     </div>
-    <CButton show-save save-text="新增组合" :disabled="busy || loading" @save="edit()" />
+    <n-space>
+      <CButton show-save save-text="新增组合" :disabled="blocked || loading" @save="edit()" />
+      <CButton
+        v-if="!loading && !error && !rows.length"
+        show-save
+        save-text="直接配置价格（无规格）"
+        :disabled="blocked"
+        @save="productPriceOpen = true"
+      />
+    </n-space>
     <n-alert v-if="error" type="error" class="variant-gap"
       >{{ error }}<CButton show-save save-text="重试" :disabled="busy" @save="load"
     /></n-alert>
@@ -26,7 +35,7 @@
       :max-height="420"
       :row-key="(row) => row.id"
     >
-      <template #empty><n-empty description="暂无规格组合，请先新增组合并配置价格" /></template>
+      <template #empty><n-empty description="暂无规格组合，无规格产品可直接配置价格" /></template>
     </n-data-table>
   </n-modal>
   <n-modal
@@ -165,11 +174,11 @@
     /></template>
   </n-modal>
   <ProductPriceVersions
-    v-if="priceVariant"
+    v-if="priceVariant || productPriceOpen"
     :product="product"
     :variant="priceVariant"
     :units="units"
-    @close="priceVariant = null"
+    @close="closePrices"
   />
 </template>
 
@@ -199,6 +208,11 @@ const editor = reactive({ show: false }),
   deletion = reactive({ show: false, row: null })
 const form = reactive({ spec_values: {} })
 const selectedFieldIds = ref([])
+const productPriceOpen = ref(false)
+function closePrices() {
+  priceVariant.value = null
+  productPriceOpen.value = false
+}
 const attributeOptions = computed(() =>
   fields.value.map((field) => ({
     value: field.id,
@@ -230,7 +244,9 @@ function selectFields(ids) {
   }
 }
 const busy = computed(() => saving.value || fieldsLoading.value)
-const blocked = computed(() => busy.value || editor.show || deletion.show || !!priceVariant.value)
+const blocked = computed(
+  () => busy.value || editor.show || deletion.show || !!priceVariant.value || productPriceOpen.value
+)
 const statuses = [
   { label: '在售', value: 'active' },
   { label: '下架', value: 'offline' },

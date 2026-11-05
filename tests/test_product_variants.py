@@ -73,6 +73,33 @@ class ProductVariantTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["data"]["spec_values"], {})
 
+    async def test_product_without_variants_can_be_priced_and_ordered(self):
+        response = await self.client.post(
+            f"products/{self.product.id}/price-versions",
+            json={"currency": "USD", "mrc": "100", "nrc": "20", "period_months": 1},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        price = response.json()["data"]
+        self.assertIsNone(price["variant_id"])
+        selected = await self.client.get(f"products/{self.product.id}/order-price")
+        self.assertEqual(selected.status_code, 200, selected.text)
+        self.assertEqual(selected.json()["data"]["price_version_id"], price["id"])
+        response = await self.client.post(
+            "orders",
+            json={
+                "name": "No specifications",
+                "customer_id": self.customer.id,
+                "items": [{"product_id": self.product.id, "variant_id": None, "quantity": 2}],
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        item = response.json()["data"]["items"][0]
+        self.assertIsNone(item["variant_id"])
+        self.assertEqual(item["price_version_id"], price["id"])
+        self.assertEqual(float(item["mrc"]), 100)
+        self.assertEqual(float(item["nrc"]), 20)
+        self.assertFalse(await ProductVariant.filter(product_id=self.product.id).exists())
+
     async def test_variant_without_sku_generates_internal_code_and_preserves_legacy_code(self):
         payload = self.payload()
         payload.pop("code")
