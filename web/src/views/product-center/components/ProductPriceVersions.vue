@@ -2,18 +2,35 @@
   <n-modal
     :show="true"
     preset="card"
-    :title="`${product.name} · 价格方案`"
+    title="价格方案"
     class="price-panel"
-    style="width: min(790px, calc(100vw - 32px))"
+    :style="panelStyle"
     :mask-closable="!busy && !creating && !deletion.show"
     :close-on-esc="!busy && !creating && !deletion.show"
     :closable="!busy && !creating && !deletion.show"
     @update:show="close"
   >
-    <n-space align="center" class="price-toolbar">
-      <CButton :show-save="true" save-text="新增价格版本" :disabled="busy" @save="openCreate" />
-      <span>新增版本不覆盖原价，删除版本后无法恢复</span>
-    </n-space>
+    <section class="price-product">
+      <div class="price-product-icon"><TheIcon icon="mdi:cube-outline" :size="24" /></div>
+      <div class="price-product-info">
+        <h3>{{ product.name }}</h3>
+        <span v-if="product.code" class="price-sku">SKU · {{ product.code }}</span>
+      </div>
+    </section>
+    <div class="price-toolbar">
+      <div class="price-section-title">
+        价格版本 <span>共 {{ total }} 个版本</span>
+      </div>
+      <CButton
+        :show-save="true"
+        save-text="新增价格版本"
+        :disabled="busy || creating || deletion.show"
+        @save="openCreate"
+      />
+    </div>
+    <p class="price-hint">
+      <TheIcon icon="mdi:information-outline" :size="16" />新增版本保留历史价格；删除后无法恢复。
+    </p>
     <n-alert v-if="loadError" type="error" class="price-toolbar">
       {{ loadError }}
       <CButton :show-save="true" save-text="重试" :disabled="busy" @save="load" />
@@ -22,26 +39,22 @@
       :columns="columns"
       :data="rows"
       :loading="loading"
-      :scroll-x="790"
+      :scroll-x="710"
+      :max-height="400"
       :row-key="(row) => row.id"
     >
       <template #empty><n-empty description="暂无价格方案" /></template>
     </n-data-table>
-    <n-pagination
-      v-model:page="page"
-      :disabled="busy || deletion.show"
-      :page-size="20"
-      :item-count="total"
-      class="pagination"
-      @update:page="load"
-    />
-    <template #footer
-      ><CButton
-        :show-cancel="true"
-        cancel-text="关闭"
-        :disabled="busy || creating || deletion.show"
-        @cancel="close(false)"
-    /></template>
+    <div class="price-pagination">
+      <span>金额按每计费单位展示</span>
+      <n-pagination
+        v-model:page="page"
+        :disabled="busy || creating || deletion.show || loading"
+        :page-size="20"
+        :item-count="total"
+        @update:page="load"
+      />
+    </div>
   </n-modal>
   <n-modal
     v-model:show="creating"
@@ -111,7 +124,7 @@
 
 <script setup>
 import { computed, h, onMounted, reactive, ref } from 'vue'
-import { NButton, NSpace, NTooltip } from 'naive-ui'
+import { NButton, NSpace, NTag, NTooltip, useThemeVars } from 'naive-ui'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import api from '@/api'
 import CButton from '@/components/public/CButton.vue'
@@ -121,6 +134,13 @@ const props = defineProps({
   units: { type: Array, default: () => [] },
 })
 const emit = defineEmits(['close'])
+const themeVars = useThemeVars()
+const panelStyle = computed(() => ({
+  width: 'min(900px, calc(100vw - 32px))',
+  '--price-muted': themeVars.value.textColor3,
+  '--price-surface': themeVars.value.actionColor,
+  '--price-accent': themeVars.value.primaryColor,
+}))
 const rows = ref([]),
   loading = ref(false),
   saving = ref(false),
@@ -241,10 +261,32 @@ function deleteAction(row) {
 }
 const columns = computed(() =>
   [
-    { title: '版本', key: 'version', width: 80, render: (row) => `V${row.version}` },
+    {
+      title: '版本',
+      key: 'version',
+      width: 80,
+      render: (row) =>
+        h(
+          NTag,
+          { size: 'small', bordered: false, type: 'info' },
+          { default: () => `V${row.version}` }
+        ),
+    },
     { title: '币种', key: 'currency', width: 80 },
-    { title: '月费 MRC', key: 'mrc', width: 130 },
-    { title: '开通费 NRC', key: 'nrc', width: 130 },
+    {
+      title: '月费 MRC',
+      key: 'mrc',
+      width: 130,
+      align: 'right',
+      render: (row) => h('span', { class: 'price-amount' }, row.mrc),
+    },
+    {
+      title: '开通费 NRC',
+      key: 'nrc',
+      width: 130,
+      align: 'right',
+      render: (row) => h('span', { class: 'price-amount' }, row.nrc),
+    },
     {
       title: '计费单位',
       key: 'billing_unit',
@@ -260,12 +302,90 @@ onMounted(load)
 </script>
 
 <style scoped>
-.price-toolbar {
-  margin-bottom: 16px;
+.price-product {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 10px;
+  background: var(--price-surface);
+  margin-bottom: 22px;
 }
-.pagination {
+.price-product-icon {
+  display: flex;
+  color: var(--price-accent);
+  padding-top: 3px;
+}
+.price-product-info {
+  min-width: 0;
+}
+.price-product-info h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.price-sku {
+  display: block;
+  margin-top: 6px;
+  color: var(--price-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.price-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.price-section-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.price-section-title span {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--price-muted);
+}
+.price-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 14px;
+  color: var(--price-muted);
+  font-size: 12px;
+}
+.price-hint :deep(svg) {
+  flex-shrink: 0;
+}
+:deep(.price-amount) {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.price-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
   margin-top: 16px;
-  justify-content: flex-end;
+}
+.price-pagination > span {
+  color: var(--price-muted);
+  font-size: 12px;
+}
+@media (max-width: 600px) {
+  .price-product {
+    padding: 14px;
+    gap: 10px;
+  }
+  .price-product-info h3 {
+    font-size: 14px;
+  }
 }
 .price-editor :deep(.n-input-number),
 .price-editor :deep(.n-date-picker) {
