@@ -56,7 +56,110 @@
     :mask-closable="!busy"
     :close-on-esc="!busy"
   >
-    <n-form label-placement="top" :disabled="busy || editor.readonly">
+    <div v-if="editor.readonly" class="order-detail" :style="detailTheme">
+      <section class="detail-summary">
+        <div class="detail-eyebrow">订单概览</div>
+        <h2 class="detail-title">{{ form.name || '未命名订单' }}</h2>
+        <div class="detail-order-no">{{ form.order_no }}</div>
+        <dl class="detail-meta">
+          <div>
+            <dt>关联客户</dt>
+            <dd>{{ original?.customer_name || '—' }}</dd>
+          </div>
+          <div>
+            <dt>签约主体</dt>
+            <dd>{{ original?.signing_entity_name || '—' }}</dd>
+          </div>
+          <div>
+            <dt>创建时间</dt>
+            <dd>{{ original?.created_at || '—' }}</dd>
+          </div>
+          <div>
+            <dt>更新时间</dt>
+            <dd>{{ original?.updated_at || '—' }}</dd>
+          </div>
+        </dl>
+      </section>
+      <section class="detail-products">
+        <div class="detail-section-heading">
+          <h3>产品明细</h3>
+          <span>{{ form.items.length }} 项产品</span>
+        </div>
+        <article v-for="(item, index) in form.items" :key="item.key" class="detail-product">
+          <div class="detail-product-heading">
+            <span class="detail-product-index">{{ String(index + 1).padStart(2, '0') }}</span>
+            <div class="detail-product-info">
+              <h4>{{ item.product_name || '未命名产品' }}</h4>
+              <div class="detail-product-meta">
+                <n-tag size="small" :bordered="false">{{ item.category_name || '未分类' }}</n-tag>
+                <span>SKU · {{ item.product_code || '—' }}</span>
+              </div>
+            </div>
+            <div class="detail-quantity">
+              <span>数量</span><strong>× {{ item.quantity }}</strong>
+            </div>
+          </div>
+          <div v-if="item.price_version_id" class="detail-price-status">
+            <n-tag
+              :type="item.price_reference ? 'warning' : 'success'"
+              size="small"
+              :bordered="false"
+            >
+              {{ item.price_reference ? '公共参考价 · 尚未保存' : '订单已保存价格' }}
+            </n-tag>
+            <span
+              >{{ item.currency }} · 每 {{ item.period_months }} 个月结算 ·
+              {{ unitLabel(item.billing_unit) }}</span
+            >
+          </div>
+          <div class="detail-prices">
+            <div class="detail-price">
+              <div class="detail-price-label">MRC <span>每单位月费</span></div>
+              <div class="detail-price-amount">
+                <small v-if="item.mrc != null">{{ item.currency }}</small
+                ><strong>{{ displayMoney(item.mrc) }}</strong>
+              </div>
+              <div v-if="item.base_mrc != null" class="detail-price-base">
+                公共价格 {{ item.currency }} {{ displayMoney(item.base_mrc) }}
+              </div>
+            </div>
+            <div class="detail-price">
+              <div class="detail-price-label">NRC <span>每单位一次性费用</span></div>
+              <div class="detail-price-amount">
+                <small v-if="item.nrc != null">{{ item.currency }}</small
+                ><strong>{{ displayMoney(item.nrc) }}</strong>
+              </div>
+              <div v-if="item.base_nrc != null" class="detail-price-base">
+                公共价格 {{ item.currency }} {{ displayMoney(item.base_nrc) }}
+              </div>
+            </div>
+          </div>
+          <div v-if="item.price_error" class="detail-price-error">
+            <n-alert type="error">{{ item.price_error }}</n-alert>
+            <CButton
+              show-save
+              save-text="重试加载价格"
+              :disabled="busy"
+              :save-loading="item.price_loading"
+              @save="inheritPrice(item, true)"
+            />
+          </div>
+          <p v-else-if="!item.price_version_id" class="detail-price-note">
+            {{ item.price_loading ? '正在读取公共价格…' : '暂无公共价格，订单尚未定价' }}
+          </p>
+          <p v-else class="detail-price-note">
+            来源：公共价格 V{{ item.price_version_number
+            }}<span v-if="item.price_reference"> · 仅供参考，编辑保存后形成订单价格</span>
+          </p>
+        </article>
+        <n-empty v-if="!form.items.length" description="暂无产品明细" />
+      </section>
+      <section class="detail-remark">
+        <div class="detail-section-heading"><h3>备注</h3></div>
+        <p :class="{ 'detail-muted': !form.remark }">{{ form.remark || '暂无备注' }}</p>
+      </section>
+    </div>
+    <n-form v-else label-placement="top" :disabled="busy || editor.readonly">
       <n-form-item v-if="form.order_no" label="订单号"
         ><n-input :value="form.order_no" disabled
       /></n-form-item>
@@ -104,6 +207,9 @@
             />
             <div class="item-prices">
               <div class="price-context">
+                <span v-if="editor.readonly && item.price_reference" class="price-reference">
+                  当前公共参考价（订单尚未保存价格）
+                </span>
                 <span v-if="item.price_version_id">
                   {{ item.currency }} · 每 {{ item.period_months }} 个月结算 · 单位：{{
                     unitLabel(item.billing_unit)
@@ -111,16 +217,16 @@
                   · 公共价格 V{{ item.price_version_number }}：MRC {{ item.base_mrc }} / NRC
                   {{ item.base_nrc }}
                 </span>
-                <span v-else>{{
-                  item.price_loading ? '正在读取公共价格…' : '未定价：请先为产品配置公共价格'
+                <span v-else-if="!item.price_error">{{
+                  item.price_loading ? '正在读取公共价格…' : '暂无公共价格，订单尚未定价'
                 }}</span>
                 <CButton
-                  v-if="!editor.readonly && item.product_id"
+                  v-if="item.product_id && (!editor.readonly || item.price_error)"
                   show-save
-                  save-text="继承最新公共价格"
+                  :save-text="editor.readonly ? '重试加载价格' : '继承最新公共价格'"
                   :disabled="busy"
                   :save-loading="item.price_loading"
-                  @save="inheritPrice(item)"
+                  @save="inheritPrice(item, editor.readonly)"
                 />
               </div>
               <n-alert v-if="item.price_error" type="error">{{ item.price_error }}</n-alert>
@@ -129,16 +235,18 @@
                   >MRC（每单位月费）
                   <n-input
                     v-model:value="item.mrc"
-                    placeholder="继承公共 MRC"
-                    :disabled="busy || editor.readonly || !item.price_version_id"
+                    :placeholder="editor.readonly ? '暂无价格' : '继承公共 MRC'"
+                    :readonly="editor.readonly"
+                    :disabled="editor.readonly ? false : busy || !item.price_version_id"
                   />
                 </label>
                 <label
                   >NRC（每单位一次性费用）
                   <n-input
                     v-model:value="item.nrc"
-                    placeholder="继承公共 NRC"
-                    :disabled="busy || editor.readonly || !item.price_version_id"
+                    :placeholder="editor.readonly ? '暂无价格' : '继承公共 NRC'"
+                    :readonly="editor.readonly"
+                    :disabled="editor.readonly ? false : busy || !item.price_version_id"
                   />
                 </label>
               </div>
@@ -194,12 +302,24 @@
 
 <script setup>
 import { computed, h, onMounted, reactive, ref } from 'vue'
-import { NButton, NSpace, NTag, NTooltip } from 'naive-ui'
+import { NButton, NSpace, NTag, NTooltip, useThemeVars } from 'naive-ui'
 import api from '@/api'
 import CButton from '@/components/public/CButton.vue'
 import TheIcon from '@/components/icon/TheIcon.vue'
 
 defineOptions({ name: '订单管理' })
+const themeVars = useThemeVars()
+const detailTheme = computed(() => ({
+  '--detail-muted': themeVars.value.textColor3,
+  '--detail-border': themeVars.value.borderColor,
+  '--detail-surface': themeVars.value.actionColor,
+  '--detail-accent': themeVars.value.primaryColor,
+}))
+function displayMoney(value) {
+  if (value === null || value === undefined || value === '') return '—'
+  const [integer, fraction = ''] = String(value).split('.')
+  return `${integer.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${fraction.padEnd(2, '0')}`
+}
 const service = api.productCenterApi
 const rows = ref([]),
   customers = ref([]),
@@ -369,6 +489,7 @@ function emptyPrice() {
     nrc: null,
     price_loading: false,
     price_error: '',
+    price_reference: false,
   }
 }
 function unitLabel(value) {
@@ -382,16 +503,16 @@ async function changeProduct(item) {
   Object.assign(item, emptyPrice())
   if (item.product_id) await inheritPrice(item)
 }
-async function inheritPrice(item) {
+async function inheritPrice(item, referenceOnly = false) {
   if (item.price_loading || !item.product_id) return
   item.price_loading = true
   item.price_error = ''
   try {
     const result = await service.getOrderPrice(item.product_id)
-    if (result.data) Object.assign(item, result.data)
+    if (result.data) Object.assign(item, result.data, { price_reference: referenceOnly })
     else if (item.price_version_id) window.$message?.warning('暂无公共价格，保留订单原价格')
   } catch (error) {
-    item.price_error = error.message || '公共价格加载失败，请重新继承公共价格'
+    item.price_error = error.message || '公共价格加载失败，请重试'
   } finally {
     item.price_loading = false
   }
@@ -416,8 +537,12 @@ async function openEditor(row = null, readonly = false) {
       })),
     })
     if (!data) addItem()
-    if (data && !readonly) {
-      await Promise.all(form.items.filter((item) => !item.price_version_id).map(inheritPrice))
+    if (data) {
+      await Promise.all(
+        form.items
+          .filter((item) => !item.price_version_id)
+          .map((item) => inheritPrice(item, readonly))
+      )
     }
     editor.readonly = readonly
     editor.show = true
@@ -592,6 +717,188 @@ onMounted(reload)
 </script>
 
 <style scoped>
+.order-detail {
+  max-height: 68vh;
+  overflow-y: auto;
+  padding-right: 8px;
+  overflow-wrap: anywhere;
+}
+.detail-summary {
+  padding: 20px;
+  border-radius: 12px;
+  background: var(--detail-surface);
+}
+.detail-eyebrow {
+  color: var(--detail-muted);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.detail-title {
+  margin: 0 0 10px;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.detail-order-no {
+  color: var(--detail-muted);
+  font-size: 12px;
+  font-family: monospace;
+}
+.detail-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px 24px;
+  margin: 20px 0 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--detail-border);
+}
+.detail-meta dt {
+  color: var(--detail-muted);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.detail-meta dd {
+  margin: 0;
+}
+.detail-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 24px 0 12px;
+}
+.detail-section-heading h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.detail-section-heading > span {
+  font-size: 12px;
+  color: var(--detail-muted);
+}
+.detail-product {
+  border: 1px solid var(--detail-border);
+  border-radius: 12px;
+  padding: 18px;
+  margin-bottom: 14px;
+}
+.detail-product-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.detail-product-index {
+  background: var(--detail-surface);
+  color: var(--detail-accent);
+  border-radius: 8px;
+  padding: 7px 9px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.detail-product-info {
+  flex: 1;
+  min-width: 0;
+}
+.detail-product-info h4 {
+  font-size: 15px;
+  line-height: 1.6;
+  margin: 0 0 8px;
+  font-weight: 600;
+}
+.detail-product-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--detail-muted);
+  font-size: 12px;
+}
+.detail-quantity {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.detail-quantity span {
+  color: var(--detail-muted);
+  font-size: 12px;
+}
+.detail-quantity strong {
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.detail-price-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 18px;
+}
+.detail-price-status > span {
+  font-size: 12px;
+  color: var(--detail-muted);
+}
+.detail-prices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 12px;
+}
+.detail-price {
+  padding: 16px;
+  border-radius: 8px;
+  background: var(--detail-surface);
+  min-width: 0;
+}
+.detail-price-label {
+  font-weight: 600;
+}
+.detail-price-label span {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--detail-muted);
+}
+.detail-price-amount {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  margin: 10px 0 6px;
+  font-variant-numeric: tabular-nums;
+}
+.detail-price-amount strong {
+  font-size: 25px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.detail-price-amount small {
+  font-size: 12px;
+  color: var(--detail-muted);
+}
+.detail-price-base,
+.detail-price-note,
+.detail-muted {
+  color: var(--detail-muted);
+  font-size: 12px;
+}
+.detail-price-note {
+  margin: 12px 0 0;
+}
+.detail-price-error {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+.detail-remark p {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: var(--detail-surface);
+  white-space: pre-wrap;
+  line-height: 1.7;
+}
 .toolbar {
   margin-bottom: 16px;
 }
@@ -636,6 +943,26 @@ onMounted(reload)
   width: 100%;
 }
 @media (max-width: 600px) {
+  .order-detail {
+    padding-right: 0;
+  }
+  .detail-summary,
+  .detail-product {
+    padding: 14px;
+  }
+  .detail-meta,
+  .detail-prices {
+    grid-template-columns: 1fr;
+  }
+  .detail-product-heading {
+    flex-wrap: wrap;
+  }
+  .detail-product-index {
+    display: none;
+  }
+  .detail-price-amount strong {
+    font-size: 22px;
+  }
   .item-row {
     grid-template-columns: minmax(0, 1fr) 100px;
   }
