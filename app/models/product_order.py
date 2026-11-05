@@ -16,6 +16,13 @@ class ProductOrder(BaseModel, TimestampMixin):
 class ProductOrderItem(BaseModel):
     order = fields.ForeignKeyField("models.ProductOrder", related_name="items", on_delete=fields.CASCADE)
     product = fields.ForeignKeyField("models.ProductItem", related_name="order_items", on_delete=fields.RESTRICT)
+    variant = fields.ForeignKeyField(
+        "models.ProductVariant", related_name="order_items", null=True, on_delete=fields.RESTRICT
+    )
+    product_name_snapshot = fields.CharField(max_length=160, null=True)
+    variant_name = fields.CharField(max_length=160, null=True)
+    variant_code = fields.CharField(max_length=80, null=True)
+    spec_snapshot = fields.JSONField(default=list)
     quantity = fields.IntField()
     position = fields.IntField(default=0)
     price_version_id = fields.BigIntField(null=True, description="来源价格版本ID快照")
@@ -30,4 +37,4 @@ class ProductOrderItem(BaseModel):
 
     class Meta:
         table = "product_order_item"
-        unique_together = (("order", "product"),)
+        unique_together = (("order", "product", "variant"),)

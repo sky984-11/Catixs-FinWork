@@ -44,8 +44,24 @@ class ProductItem(BaseModel, TimestampMixin):
         table = "product_item"
 
 
+class ProductVariant(BaseModel, TimestampMixin):
+    product = fields.ForeignKeyField("models.ProductItem", related_name="variants", on_delete=fields.RESTRICT)
+    name = fields.CharField(max_length=160)
+    code = fields.CharField(max_length=80, unique=True)
+    status = fields.CharField(max_length=30, default="active")
+    spec_values = fields.JSONField(default=dict)
+    spec_snapshot = fields.JSONField(default=list, description="参数名称、单位和值")
+
+    class Meta:
+        table = "product_variant"
+        unique_together = (("product", "name"),)
+
+
 class ProductPriceVersion(BaseModel, TimestampMixin):
     product = fields.ForeignKeyField("models.ProductItem", related_name="price_versions", on_delete=fields.RESTRICT)
+    variant = fields.ForeignKeyField(
+        "models.ProductVariant", related_name="price_versions", null=True, on_delete=fields.RESTRICT
+    )
     customer = fields.ForeignKeyField(
         "models.CrmCustomer", related_name="product_price_versions", null=True, on_delete=fields.RESTRICT
     )

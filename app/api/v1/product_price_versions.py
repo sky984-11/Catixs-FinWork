@@ -8,11 +8,13 @@ from tortoise.transactions import in_transaction
 
 from app.models.product_center import ProductItem, ProductPriceVersion
 from app.schemas.base import Success, SuccessExtra
+from app.services.product_variants import resolve_variant
 
 router = APIRouter()
 
 
 class PriceVersionPayload(BaseModel):
+    variant_id: int | None = Field(None, gt=0)
     currency: Literal["CNY", "USD", "EUR", "JPY", "HKD"] = "CNY"
     mrc: Decimal = Field(..., ge=0, max_digits=16, decimal_places=2, allow_inf_nan=False)
     nrc: Decimal = Field(Decimal("0"), ge=0, max_digits=16, decimal_places=2, allow_inf_nan=False)
@@ -31,10 +33,14 @@ async def list_price_versions(
     product_id: int,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    variant_id: int | None = Query(None, gt=0),
 ):
     if not await ProductItem.filter(id=product_id).exists():
         raise HTTPException(404, "产品不存在")
     query = ProductPriceVersion.filter(product_id=product_id)
+    if variant_id is not None:
+        variant = await resolve_variant(product_id, variant_id)
+        query = query.filter(variant_id=variant.id)
     total = await query.count()
     rows = await query.order_by("-version").offset((page - 1) * page_size).limit(page_size)
     return SuccessExtra(data=[await version_dict(row) for row in rows], total=total, page=page, page_size=page_size)
@@ -47,13 +53,15 @@ async def create_price_version(product_id: int, payload: PriceVersionPayload):
         product = await ProductItem.filter(id=product_id).using_db(conn).select_for_update().first()
         if not product:
             raise HTTPException(404, "产品不存在")
+        variant = await resolve_variant(product_id, payload.variant_id, conn)
         latest = await ProductPriceVersion.filter(product_id=product_id).using_db(conn).order_by("-version").first()
         version = await ProductPriceVersion.create(
             using_db=conn,
             product_id=product_id,
             version=latest.version + 1 if latest else 1,
             billing_unit=product.billing_unit,
-            **payload.model_dump(),
+            variant_id=variant.id if variant else None,
+            **payload.model_dump(exclude={"variant_id"}),
         )
     logger.info("Product price version created: product_id={}, version_id={}", product_id, version.id)
     return Success(msg="价格版本已创建，历史版本保留", data=await version_dict(version))

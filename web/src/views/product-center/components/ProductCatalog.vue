@@ -92,7 +92,7 @@
           <n-input
             v-model:value="query.keyword"
             clearable
-            placeholder="搜索 SKU / 产品名称"
+            placeholder="搜索产品编号 / 产品名称"
             @keyup.enter="search"
           />
           <n-select
@@ -147,7 +147,7 @@
           <span class="product-editor-icon"><TheIcon icon="mdi:cube-outline" :size="23" /></span>
           <div>
             <h3>{{ editor.form.id ? '编辑产品' : '新增产品' }}</h3>
-            <p>完善产品信息与分类规格</p>
+            <p>维护产品公共信息，参数与价格在规格组合中配置</p>
           </div>
         </div>
       </template>
@@ -158,8 +158,11 @@
               <TheIcon icon="mdi:information-outline" :size="17" /><span>基本信息</span>
             </div>
             <div class="product-field-grid">
-              <n-form-item label="SKU" required
-                ><n-input v-model:value="editor.form.code" placeholder="请输入 SKU" :maxlength="80"
+              <n-form-item label="产品编号" required
+                ><n-input
+                  v-model:value="editor.form.code"
+                  placeholder="请输入产品编号"
+                  :maxlength="80"
               /></n-form-item>
               <n-form-item label="产品名称" required
                 ><n-input v-model:value="editor.form.name" :maxlength="160"
@@ -169,7 +172,6 @@
                   v-model:value="editor.form.category_id"
                   :options="categoryTree"
                   filterable
-                  @update:value="loadSpecFields"
               /></n-form-item>
               <n-form-item label="计费单位" required
                 ><n-select v-model:value="editor.form.billing_unit" :options="units" filterable tag
@@ -186,72 +188,6 @@
               /></n-form-item>
             </div>
           </section>
-          <section class="product-form-section">
-            <div class="product-section-heading">
-              <TheIcon icon="mdi:tune-variant" :size="17" /><span>规格参数</span
-              ><small>{{ specFields.length }} 项</small>
-            </div>
-            <div v-if="specLoading" class="product-spec-placeholder">
-              <n-spin size="small" /><span>正在加载规格属性</span>
-            </div>
-            <n-alert v-else-if="specError" type="error">
-              {{ specError }}
-              <CButton show-save save-text="重试" @save="loadSpecFields()" />
-            </n-alert>
-            <div v-else class="product-field-grid">
-              <n-form-item
-                v-for="field in specFields"
-                :key="field.id"
-                :label="field.unit ? `${field.name}（${field.unit}）` : field.name"
-                :required="field.required"
-              >
-                <n-input-number
-                  v-if="field.attr_type === 'number'"
-                  v-model:value="editor.form.spec_values[field.id]"
-                  style="width: 100%"
-                  clearable
-                />
-                <n-select
-                  v-else-if="['select', 'multi_select'].includes(field.attr_type)"
-                  v-model:value="editor.form.spec_values[field.id]"
-                  :multiple="field.attr_type === 'multi_select'"
-                  :options="field.select_options"
-                  filterable
-                  clearable
-                />
-                <n-switch
-                  v-else-if="field.attr_type === 'switch'"
-                  v-model:value="editor.form.spec_values[field.id]"
-                />
-                <n-date-picker
-                  v-else-if="field.attr_type === 'date'"
-                  v-model:formatted-value="editor.form.spec_values[field.id]"
-                  type="date"
-                  value-format="yyyy-MM-dd"
-                  clearable
-                  style="width: 100%"
-                />
-                <n-input
-                  v-else
-                  v-model:value="editor.form.spec_values[field.id]"
-                  :maxlength="2000"
-                  :placeholder="
-                    field.attr_type === 'resource_ref'
-                      ? '填写资源标识'
-                      : field.description || '请输入'
-                  "
-                  clearable
-                />
-              </n-form-item>
-              <n-empty
-                v-if="!specFields.length"
-                class="product-spec-empty"
-                :description="
-                  editor.form.category_id ? '该分类暂无启用的规格属性' : '请先选择产品分类'
-                "
-              />
-            </div>
-          </section>
         </n-form>
       </div>
       <template #footer>
@@ -259,7 +195,7 @@
           <CButton
             :show-cancel="true"
             :show-save="true"
-            :disabled="saving || specLoading"
+            :disabled="saving"
             :save-loading="saving"
             @cancel="editor.show = false"
             @save="saveProduct"
@@ -324,11 +260,11 @@
           @delete="remove"
       /></template>
     </n-modal>
-    <ProductPriceVersions
-      v-if="priceProduct"
-      :product="priceProduct"
+    <ProductVariants
+      v-if="variantProduct"
+      :product="variantProduct"
       :units="units"
-      @close="priceProduct = null"
+      @close="variantProduct = null"
     />
   </AppPage>
 </template>
@@ -339,7 +275,7 @@ import { NButton, NSpace, NTag, NTooltip } from 'naive-ui'
 import api from '@/api'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import CButton from '@/components/public/CButton.vue'
-import ProductPriceVersions from './ProductPriceVersions.vue'
+import ProductVariants from './ProductVariants.vue'
 
 const service = api.productCenterApi
 const rows = ref([]),
@@ -356,40 +292,9 @@ const error = ref(''),
   total = ref(0)
 const query = reactive({ keyword: '', category_id: null, status: null })
 const editor = reactive({ show: false, form: {} })
-const specFields = ref([])
-const specLoading = ref(false)
-const specError = ref('')
-let specRequestId = 0
-async function loadSpecFields() {
-  const requestId = ++specRequestId
-  const categoryId = editor.form.category_id
-  specFields.value = []
-  specError.value = ''
-  specLoading.value = Boolean(categoryId)
-  if (!categoryId) {
-    editor.form.spec_values = {}
-    return
-  }
-  try {
-    const response = await service.productSpecFields(categoryId)
-    if (requestId !== specRequestId || !editor.show) return
-    specFields.value = response.data || []
-    const previous = editor.form.spec_values || {}
-    editor.form.spec_values = Object.fromEntries(
-      specFields.value.map((field) => [
-        String(field.id),
-        previous[field.id] ?? (field.attr_type === 'switch' ? false : null),
-      ])
-    )
-  } catch (error) {
-    if (requestId === specRequestId) specError.value = error.message || '规格属性加载失败，请重试'
-  } finally {
-    if (requestId === specRequestId) specLoading.value = false
-  }
-}
 const categoryEditor = reactive({ show: false, form: {} })
 const deletion = reactive({ show: false, row: null, kind: 'product' })
-const priceProduct = ref(null)
+const variantProduct = ref(null)
 const busy = computed(() => saving.value || rowSaving.value !== null)
 const statuses = [
   { label: '在售', value: 'active' },
@@ -492,25 +397,13 @@ function editProduct(row) {
         spec_values: {},
       }
   editor.show = true
-  loadSpecFields()
 }
 async function saveProduct() {
-  if (busy.value || specLoading.value) return
-  if (specError.value) return window.$message?.warning('请先重新加载规格属性')
-  for (const field of specFields.value) {
-    const value = editor.form.spec_values[field.id]
-    if (
-      field.required &&
-      (value === null ||
-        value === undefined ||
-        value === '' ||
-        (Array.isArray(value) && !value.length))
-    ) {
-      return window.$message?.warning(`请填写规格属性：${field.name}`)
-    }
-  }
+  if (busy.value) return
   const form = { ...editor.form, code: editor.form.code?.trim(), name: editor.form.name?.trim() }
-  if (!form.code) return window.$message?.warning('请填写 SKU')
+  form.parameterized = true
+  delete form.spec_values
+  if (!form.code) return window.$message?.warning('请填写产品编号')
   if (!form.name || !form.category_id || !form.billing_unit || !form.min_contract_months)
     return window.$message?.warning('请完整填写产品必填项')
   saving.value = true
@@ -595,7 +488,7 @@ function actionButton(row, label, icon, type, handler) {
 }
 const columns = computed(() =>
   [
-    { title: 'SKU', key: 'code', width: 150 },
+    { title: '产品编号', key: 'code', width: 150 },
     { title: '产品名称', key: 'name', width: 220, ellipsis: { tooltip: true } },
     {
       title: '分类',
@@ -647,8 +540,8 @@ const columns = computed(() =>
               actionButton(row, '删除', 'mdi:delete-outline', 'error', () =>
                 confirmDelete(row, 'product')
               ),
-              actionButton(row, '价格方案', 'mdi:currency-usd', 'primary', () => {
-                priceProduct.value = row
+              actionButton(row, '规格组合', 'mdi:tune-variant', 'primary', () => {
+                variantProduct.value = row
               }),
             ],
           }

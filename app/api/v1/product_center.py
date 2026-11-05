@@ -11,6 +11,8 @@ from tortoise.transactions import in_transaction
 
 from .product_price_versions import router as price_versions_router
 from .product_orders import router as orders_router
+from .product_variants import router as variants_router
+from app.models.product_center import ProductVariant
 from app.models.product_order import ProductOrderItem
 
 from app.models.customer_center import CrmCustomer
@@ -29,6 +31,7 @@ from app.schemas.base import Fail, Success, SuccessExtra
 router = APIRouter()
 router.include_router(price_versions_router)
 router.include_router(orders_router)
+router.include_router(variants_router)
 
 PRODUCT_STATUSES = [{"label": "在售", "value": "active"}, {"label": "下架", "value": "offline"}]
 PRICE_TYPES = [{"label": "标准价格", "value": "standard"}, {"label": "客户价格", "value": "customer"}]
@@ -70,6 +73,7 @@ class CategoryPayload(BaseModel):
 
 
 class ProductPayload(BaseModel):
+    parameterized: bool = Field(False, exclude=True)
     name: str = Field(..., min_length=1, max_length=160)
     code: str | None = Field(None, max_length=80)
     category_id: int | None = None
@@ -939,7 +943,9 @@ async def create_product(payload: ProductCreatePayload):
                 return Fail(msg="产品分类不存在")
             if await ProductItem.filter(code=data["code"]).using_db(conn).exists():
                 return Fail(code=409, msg="SKU 已存在")
-            data["spec_values"] = await validate_spec_values(category.id, data.get("spec_values"))
+            data["spec_values"] = (
+                {} if payload.parameterized else await validate_spec_values(category.id, data.get("spec_values"))
+            )
             product = await ProductItem.create(using_db=conn, **data)
         return Success(msg="产品已创建", data=await product_dict(product))
     except IntegrityError:
@@ -953,27 +959,32 @@ async def update_product(product_id: int, payload: ProductPayload):
     data = compact(payload.model_dump(exclude_unset=True))
     if error := validate_product_payload(data):
         return Fail(msg=error)
-    existing = await ProductItem.get_or_none(id=product_id)
-    if not existing:
-        return Fail(code=404, msg="产品不存在")
-    if not await ProductCategory.filter(id=data["category_id"]).exists():
-        return Fail(msg="产品分类不存在")
-    if data.get("code") and await ProductItem.filter(code=data["code"]).exclude(id=product_id).exists():
-        return Fail(code=409, msg="SKU 已存在")
-    if "spec_values" in data or data["category_id"] != existing.category_id:
-        values = data.get("spec_values")
-        if "spec_values" not in data:
-            allowed = {str(field.id) for field in await product_spec_fields(data["category_id"])}
-            values = {key: value for key, value in (existing.spec_values or {}).items() if key in allowed}
-        data["spec_values"] = await validate_spec_values(data["category_id"], values)
-    try:
-        await ProductItem.filter(id=product_id).update(**data)
-    except IntegrityError:
+    async with in_transaction() as conn:
+        existing = await ProductItem.filter(id=product_id).using_db(conn).select_for_update().first()
+        if not existing:
+            return Fail(code=404, msg="产品不存在")
+        if data["category_id"] != existing.category_id and await ProductVariant.filter(product_id=product_id).exists():
+            return Fail(code=409, msg="产品已有规格组合，不能直接更换分类；请先处理组合")
+        if not await ProductCategory.filter(id=data["category_id"]).exists():
+            return Fail(msg="产品分类不存在")
         if data.get("code") and await ProductItem.filter(code=data["code"]).exclude(id=product_id).exists():
             return Fail(code=409, msg="SKU 已存在")
-        raise
-    product = await ProductItem.get(id=product_id)
-    return Success(msg="产品已更新", data=await product_dict(product))
+        if payload.parameterized:
+            data.pop("spec_values", None)
+        if not payload.parameterized and ("spec_values" in data or data["category_id"] != existing.category_id):
+            values = data.get("spec_values")
+            if "spec_values" not in data:
+                allowed = {str(field.id) for field in await product_spec_fields(data["category_id"])}
+                values = {key: value for key, value in (existing.spec_values or {}).items() if key in allowed}
+            data["spec_values"] = await validate_spec_values(data["category_id"], values)
+        try:
+            await ProductItem.filter(id=product_id).update(**data)
+        except IntegrityError:
+            if data.get("code") and await ProductItem.filter(code=data["code"]).exclude(id=product_id).exists():
+                return Fail(code=409, msg="SKU 已存在")
+            raise
+        product = await ProductItem.get(id=product_id)
+        return Success(msg="产品已更新", data=await product_dict(product))
 
 
 @router.delete("/products/{product_id}", summary="删除产品")
@@ -983,6 +994,8 @@ async def delete_product(product_id: int):
         if not product:
             return Fail(code=404, msg="产品不存在")
         refs = []
+        if await ProductVariant.filter(product_id=product_id).using_db(conn).exists():
+            refs.append("规格组合")
         order_count = await ProductOrderItem.filter(product_id=product_id).using_db(conn).count()
         if order_count:
             refs.append(f"订单明细 {order_count} 条")

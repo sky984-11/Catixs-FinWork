@@ -4,6 +4,7 @@ from loguru import logger
 from tortoise.transactions import in_transaction
 
 from app.models.asset import CloudDhcpLease
+from app.models.product_center import ProductVariant
 from app.models.product_order import ProductOrderItem
 from app.models.company import BillingProductTemplate, BillingSubscription
 from app.models.idc import CustomerService, IdcOrderLine
@@ -60,6 +61,7 @@ async def remove_unused_retired_catalog_products() -> int:
                 ProductPriceHistory,
                 ProductPriceVersion,
                 ProductOrderItem,
+                ProductVariant,
                 CloudDhcpLease,
                 IdcOrderLine,
                 CustomerService,

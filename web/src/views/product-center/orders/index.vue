@@ -91,13 +91,21 @@
             <div class="detail-product-info">
               <h4>{{ item.product_name || '未命名产品' }}</h4>
               <div class="detail-product-meta">
+                <n-tag v-if="item.variant_name" size="small" :bordered="false" type="info">{{
+                  item.variant_name
+                }}</n-tag>
                 <n-tag size="small" :bordered="false">{{ item.category_name || '未分类' }}</n-tag>
-                <span>SKU · {{ item.product_code || '—' }}</span>
+                <span>产品编号 · {{ item.product_code || '—' }}</span>
               </div>
             </div>
             <div class="detail-quantity">
               <span>数量</span><strong>× {{ item.quantity }}</strong>
             </div>
+          </div>
+          <div v-if="item.spec_snapshot?.length" class="detail-specs">
+            <span v-for="field in item.spec_snapshot" :key="field.id"
+              >{{ field.name }}：{{ specValue(field.value) }}{{ field.unit || '' }}</span
+            >
           </div>
           <div v-if="item.price_version_id" class="detail-price-status">
             <n-tag
@@ -187,10 +195,19 @@
             <n-select
               v-model:value="item.product_id"
               filterable
-              placeholder="选择产品（名称 / SKU）"
+              placeholder="选择产品（名称 / 编号）"
               :disabled="busy || editor.readonly || item.category_id === null"
               :options="productOptions(item)"
               @update:value="changeProduct(item)"
+            />
+            <n-select
+              v-model:value="item.variant_id"
+              filterable
+              placeholder="选择规格组合"
+              :options="variantOptions(item)"
+              :loading="item.variant_loading"
+              :disabled="busy || !item.product_id"
+              @update:value="changeVariant(item)"
             />
             <n-input-number
               v-model:value="item.quantity"
@@ -206,6 +223,26 @@
               @delete="form.items.splice(index, 1)"
             />
             <div class="item-prices">
+              <n-alert v-if="item.variant_error" type="error"
+                >{{ item.variant_error
+                }}<CButton
+                  show-save
+                  save-text="重试加载组合"
+                  :disabled="busy"
+                  @save="loadVariants(item)"
+              /></n-alert>
+              <p
+                v-else-if="item.product_id && !item.variant_loading && !variantOptions(item).length"
+              >
+                暂无可选组合，请先在产品管理配置规格组合。
+              </p>
+              <p v-if="item.spec_snapshot?.length">
+                {{
+                  item.spec_snapshot
+                    .map((field) => `${field.name}：${specValue(field.value)}${field.unit || ''}`)
+                    .join('；')
+                }}
+              </p>
               <div class="price-context">
                 <span v-if="editor.readonly && item.price_reference" class="price-reference">
                   当前公共参考价（订单尚未保存价格）
@@ -342,12 +379,13 @@ const editor = reactive({ show: false, readonly: false })
 const deletion = reactive({ show: false, row: null })
 const form = reactive({ items: [] })
 const original = ref(null)
+const variants = ref({})
 const busy = computed(
   () =>
     saving.value ||
     deleting.value ||
     opening.value !== null ||
-    form.items.some((item) => item.price_loading)
+    form.items.some((item) => item.price_loading || item.variant_loading)
 )
 let itemKey = 0
 let requestId = 0
@@ -458,20 +496,16 @@ function productOptions(line) {
       if (ids.has(category.parent_id)) ids.add(category.value)
     }
   } while (ids.size !== previousSize)
-  return availableProducts.value
-    .filter((item) => ids.has(item.category_id || 0))
-    .map((item) => ({
-      ...item,
-      disabled:
-        item.value !== line.product_id &&
-        form.items.some((other) => other.product_id === item.value),
-    }))
+  return availableProducts.value.filter((item) => ids.has(item.category_id || 0))
 }
 function addItem() {
   form.items.push({
     key: ++itemKey,
     category_id: null,
     product_id: null,
+    variant_id: null,
+    variant_loading: false,
+    variant_error: '',
     quantity: 1,
     ...emptyPrice(),
   })
@@ -497,18 +531,72 @@ function unitLabel(value) {
 }
 function clearProduct(item) {
   item.product_id = null
+  item.variant_id = null
+  item.spec_snapshot = []
+  item.variant_error = ''
   Object.assign(item, emptyPrice())
 }
 async function changeProduct(item) {
   Object.assign(item, emptyPrice())
-  if (item.product_id) await inheritPrice(item)
+  item.variant_id = null
+  item.spec_snapshot = []
+  await loadVariants(item)
+  const choices = variantOptions(item).filter((option) => !option.disabled)
+  if (choices.length === 1) {
+    item.variant_id = choices[0].value
+    await changeVariant(item)
+  }
+}
+function specValue(value) {
+  return Array.isArray(value)
+    ? value.join(' / ')
+    : typeof value === 'boolean'
+    ? value
+      ? '是'
+      : '否'
+    : value
+}
+function variantOptions(item) {
+  return (variants.value[item.product_id] || [])
+    .filter(
+      (variant) =>
+        variant.status === 'active' ||
+        original.value?.items.some(
+          (old) => old.product_id === item.product_id && old.variant_id === variant.id
+        )
+    )
+    .map((variant) => ({
+      label: `${variant.name}${variant.status === 'offline' ? '（已下架）' : ''}`,
+      value: variant.id,
+      disabled: form.items.some((other) => other !== item && other.variant_id === variant.id),
+    }))
+}
+async function loadVariants(item) {
+  if (!item.product_id) return
+  item.variant_loading = true
+  item.variant_error = ''
+  try {
+    variants.value[item.product_id] = (await service.listVariants(item.product_id)).data || []
+  } catch (e) {
+    item.variant_error = e.message || '规格组合加载失败'
+  } finally {
+    item.variant_loading = false
+  }
+}
+async function changeVariant(item) {
+  Object.assign(item, emptyPrice())
+  const variant = (variants.value[item.product_id] || []).find((row) => row.id === item.variant_id)
+  item.spec_snapshot = variant?.spec_snapshot || []
+  item.variant_name = variant?.name
+  item.variant_code = variant?.code
+  if (item.variant_id) await inheritPrice(item)
 }
 async function inheritPrice(item, referenceOnly = false) {
-  if (item.price_loading || !item.product_id) return
+  if (item.price_loading || !item.product_id || !item.variant_id) return
   item.price_loading = true
   item.price_error = ''
   try {
-    const result = await service.getOrderPrice(item.product_id)
+    const result = await service.getOrderPrice(item.product_id, item.variant_id)
     if (result.data) Object.assign(item, result.data, { price_reference: referenceOnly })
     else if (item.price_version_id) window.$message?.warning('暂无公共价格，保留订单原价格')
   } catch (error) {
@@ -538,6 +626,7 @@ async function openEditor(row = null, readonly = false) {
     })
     if (!data) addItem()
     if (data) {
+      if (!readonly) await Promise.all(form.items.map(loadVariants))
       await Promise.all(
         form.items
           .filter((item) => !item.price_version_id)
@@ -566,7 +655,12 @@ async function save() {
     !form.customer_id ||
     !form.items.length ||
     form.items.some(
-      (item) => !item.product_id || !Number.isInteger(item.quantity) || item.quantity < 1
+      (item) =>
+        !item.product_id ||
+        !item.variant_id ||
+        item.variant_error ||
+        !Number.isInteger(item.quantity) ||
+        item.quantity < 1
     )
   ) {
     return window.$message?.warning('请填写订单名称、客户和至少一条有效产品明细')
@@ -577,8 +671,9 @@ async function save() {
       name: form.name.trim(),
       customer_id: form.customer_id,
       remark: form.remark,
-      items: form.items.map(({ product_id, quantity, price_version_id, mrc, nrc }) => ({
+      items: form.items.map(({ product_id, variant_id, quantity, price_version_id, mrc, nrc }) => ({
         product_id,
+        variant_id,
         quantity,
         price_version_id,
         mrc: mrc || null,
@@ -682,7 +777,15 @@ const columns = [
     width: 260,
     resizable: true,
     ellipsis: { tooltip: true },
-    render: (row) => row.items.map((item) => `${item.product_name} × ${item.quantity}`).join('；'),
+    render: (row) =>
+      row.items
+        .map(
+          (item) =>
+            `${item.product_name}${item.variant_name ? ` · ${item.variant_name}` : ''} × ${
+              item.quantity
+            }`
+        )
+        .join('；'),
   },
   { title: '创建时间', key: 'created_at', width: 180, resizable: true },
   {
@@ -717,6 +820,14 @@ onMounted(reload)
 </script>
 
 <style scoped>
+.detail-specs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--detail-muted);
+}
 .order-detail {
   max-height: 68vh;
   overflow-y: auto;
@@ -923,6 +1034,18 @@ onMounted(reload)
 .item-prices {
   grid-column: 1 / -1;
 }
+.item-row > :nth-child(3) {
+  grid-column: 1 / 3;
+  grid-row: 2;
+}
+.item-row > :nth-child(4) {
+  grid-column: 3;
+  grid-row: 2;
+}
+.item-row > :nth-child(5) {
+  grid-column: 4;
+  grid-row: 2;
+}
 .price-context {
   display: flex;
   align-items: center;
@@ -943,6 +1066,18 @@ onMounted(reload)
   width: 100%;
 }
 @media (max-width: 600px) {
+  .item-row > :nth-child(3) {
+    grid-column: 1 / -1;
+    grid-row: auto;
+  }
+  .item-row > :nth-child(4) {
+    grid-column: 1;
+    grid-row: auto;
+  }
+  .item-row > :nth-child(5) {
+    grid-column: 2;
+    grid-row: auto;
+  }
   .order-detail {
     padding-right: 0;
   }

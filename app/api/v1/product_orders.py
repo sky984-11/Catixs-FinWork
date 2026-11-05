@@ -12,12 +12,14 @@ from app.models.customer_center import CrmCustomer
 from app.models.product_center import ProductItem, ProductPriceVersion
 from app.models.product_order import ProductOrder, ProductOrderItem
 from app.schemas.base import Success, SuccessExtra
+from app.services.product_variants import resolve_variant
 
 router = APIRouter()
 
 
 class OrderItemPayload(BaseModel):
     product_id: int = Field(..., gt=0)
+    variant_id: int | None = Field(None, gt=0)
     quantity: int = Field(..., ge=1, le=1000000, strict=True)
     price_version_id: int | None = Field(None, gt=0)
     mrc: Decimal | None = Field(None, ge=0, max_digits=16, decimal_places=2, allow_inf_nan=False)
@@ -56,10 +58,17 @@ def serialize_price(values):
 
 
 @router.get("/products/{product_id}/order-price", summary="订单使用的最新公共价格")
-async def get_order_price(product_id: int):
+async def get_order_price(product_id: int, variant_id: int | None = Query(None, gt=0)):
     if not await ProductItem.filter(id=product_id).exists():
         raise HTTPException(404, "产品不存在")
-    version = await ProductPriceVersion.filter(product_id=product_id, customer_id=None).order_by("-version").first()
+    variant = await resolve_variant(product_id, variant_id)
+    version = (
+        await ProductPriceVersion.filter(
+            product_id=product_id, variant_id=variant.id if variant else None, customer_id=None
+        )
+        .order_by("-version")
+        .first()
+    )
     return Success(data=serialize_price(price_snapshot(version)) if version else None)
 
 
@@ -72,7 +81,9 @@ async def resolve_price(item, old, conn):
     ):
         values = {field: getattr(old, field) for field in PRICE_FIELDS}
     else:
-        query = ProductPriceVersion.filter(product_id=item.product_id, customer_id=None).using_db(conn)
+        query = ProductPriceVersion.filter(
+            product_id=item.product_id, variant_id=item.variant_id, customer_id=None
+        ).using_db(conn)
         if item.price_version_id:
             version = await query.filter(id=item.price_version_id).first()
             if not version:
@@ -100,8 +111,8 @@ class OrderPayload(BaseModel):
     @field_validator("items")
     @classmethod
     def unique_products(cls, items):
-        if len({item.product_id for item in items}) != len(items):
-            raise ValueError("同一产品请合并数量，不可重复添加")
+        if len({(item.product_id, item.variant_id) for item in items}) != len(items):
+            raise ValueError("同一产品的同一组合请合并数量，不可重复添加")
         return items
 
 
@@ -112,7 +123,11 @@ async def order_dict(order):
     data["items"] = [
         {
             "product_id": item.product_id,
-            "product_name": item.product.name,
+            "product_name": item.product_name_snapshot or item.product.name,
+            "variant_id": item.variant_id,
+            "variant_name": item.variant_name,
+            "variant_code": item.variant_code,
+            "spec_snapshot": item.spec_snapshot,
             "product_code": item.product.code,
             "product_status": item.product.status,
             "category_id": item.product.category_id,
@@ -169,9 +184,10 @@ async def save_order(payload, order_id=None):
                 if not order:
                     raise HTTPException(404, "订单不存在")
                 old_items = {
-                    item.product_id: item for item in await ProductOrderItem.filter(order_id=order_id).using_db(conn)
+                    (item.product_id, item.variant_id): item
+                    for item in await ProductOrderItem.filter(order_id=order_id).using_db(conn)
                 }
-                old_product_ids = set(old_items)
+                old_product_ids = {key[0] for key in old_items}
             customer = await CrmCustomer.filter(id=payload.customer_id).using_db(conn).select_for_update().first()
             if not customer:
                 raise HTTPException(400, "客户不存在")
@@ -185,11 +201,42 @@ async def save_order(payload, order_id=None):
                 .order_by("id")
                 .select_for_update()
             )
-            if len(products) != len(payload.items):
+            if len(products) != len({item.product_id for item in payload.items}):
                 raise HTTPException(400, "部分产品不存在")
             if any(product.status != "active" and product.id not in old_product_ids for product in products):
                 raise HTTPException(400, "不能新增已下架产品")
-            prices = [await resolve_price(item, old_items.get(item.product_id), conn) for item in payload.items]
+            products_by_id = {product.id: product for product in products}
+            snapshots = []
+            seen = set()
+            for item in payload.items:
+                hint = item.variant_id
+                if "variant_id" not in item.model_fields_set:
+                    candidates = [old for key, old in old_items.items() if key[0] == item.product_id]
+                    if len(candidates) == 1:
+                        hint = candidates[0].variant_id
+                variant = await resolve_variant(item.product_id, hint, conn)
+                item.variant_id = variant.id if variant else None
+                key = (item.product_id, item.variant_id)
+                if key in seen:
+                    raise HTTPException(422, "同一规格组合不可重复添加，请合并数量")
+                seen.add(key)
+                old = old_items.get(key)
+                if variant and variant.status != "active" and not old:
+                    raise HTTPException(400, "不能新增已下架的规格组合")
+                snapshots.append(
+                    {
+                        "variant_id": item.variant_id,
+                        "product_name_snapshot": (
+                            old.product_name_snapshot
+                            if old and old.product_name_snapshot
+                            else products_by_id[item.product_id].name
+                        ),
+                        "variant_name": old.variant_name if old else variant.name if variant else None,
+                        "variant_code": old.variant_code if old else variant.code if variant else None,
+                        "spec_snapshot": old.spec_snapshot if old else variant.spec_snapshot if variant else [],
+                        **await resolve_price(item, old, conn),
+                    }
+                )
             values = payload.model_dump(exclude={"items"})
             if order:
                 order.update_from_dict(values)
@@ -200,7 +247,11 @@ async def save_order(payload, order_id=None):
             await ProductOrderItem.bulk_create(
                 [
                     ProductOrderItem(
-                        order_id=order.id, position=i, product_id=item.product_id, quantity=item.quantity, **prices[i]
+                        order_id=order.id,
+                        position=i,
+                        product_id=item.product_id,
+                        quantity=item.quantity,
+                        **snapshots[i],
                     )
                     for i, item in enumerate(payload.items)
                 ],

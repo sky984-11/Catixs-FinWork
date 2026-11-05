@@ -13,8 +13,10 @@
     <section class="price-product">
       <div class="price-product-icon"><TheIcon icon="mdi:cube-outline" :size="24" /></div>
       <div class="price-product-info">
-        <h3>{{ product.name }}</h3>
-        <span v-if="product.code" class="price-sku">SKU · {{ product.code }}</span>
+        <h3>
+          {{ product.name }}<template v-if="variant"> · {{ variant.name }}</template>
+        </h3>
+        <span v-if="product.code" class="price-sku">产品编号 · {{ product.code }}</span>
       </div>
     </section>
     <div class="price-toolbar">
@@ -130,6 +132,7 @@ import api from '@/api'
 import CButton from '@/components/public/CButton.vue'
 
 const props = defineProps({
+  variant: { type: Object, default: null },
   product: { type: Object, required: true },
   units: { type: Array, default: () => [] },
 })
@@ -166,6 +169,7 @@ async function load() {
     const result = await api.productCenterApi.listPriceVersions(props.product.id, {
       page: page.value,
       page_size: 20,
+      variant_id: props.variant?.id,
     })
     if (current === requestId) {
       rows.value = result.data
@@ -198,6 +202,7 @@ async function save() {
   try {
     await api.productCenterApi.createPriceVersion(props.product.id, {
       ...form,
+      variant_id: props.variant?.id,
       mrc: String(form.mrc),
       nrc: String(form.nrc),
     })

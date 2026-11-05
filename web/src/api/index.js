@@ -386,7 +386,17 @@ export default {
     listProducts: (params = {}) => request.get('/product-center/products', { params }),
     listOrders: (params = {}) => request.get('/product-center/orders', { params }),
     getOrder: (id) => request.get(`/product-center/orders/${id}`),
-    getOrderPrice: (productId) => request.get(`/product-center/products/${productId}/order-price`),
+    getOrderPrice: (productId, variantId) =>
+      request.get(`/product-center/products/${productId}/order-price`, {
+        params: { variant_id: variantId || undefined },
+      }),
+    listVariants: (productId) => request.get(`/product-center/products/${productId}/variants`),
+    createVariant: (productId, data) =>
+      request.post(`/product-center/products/${productId}/variants`, data),
+    updateVariant: (productId, id, data) =>
+      request.put(`/product-center/products/${productId}/variants/${id}`, data),
+    deleteVariant: (productId, id) =>
+      request.delete(`/product-center/products/${productId}/variants/${id}`),
     createOrder: (data) => request.post('/product-center/orders', data),
     updateOrder: (id, data) => request.put(`/product-center/orders/${id}`, data),
     deleteOrder: (id) => request.delete(`/product-center/orders/${id}`),
