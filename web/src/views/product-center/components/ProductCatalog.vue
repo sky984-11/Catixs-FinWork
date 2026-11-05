@@ -117,7 +117,7 @@
           :data="rows"
           :loading="loading"
           :row-key="(row) => row.id"
-          :scroll-x="1130"
+          :scroll-x="1160"
           :pagination="false"
         />
         <n-pagination
@@ -260,6 +260,41 @@
           @delete="remove"
       /></template>
     </n-modal>
+    <n-modal
+      v-model:show="cloning.show"
+      preset="card"
+      title="克隆产品"
+      style="width: min(560px, calc(100vw - 32px))"
+      :closable="!saving"
+      :mask-closable="!saving"
+      :close-on-esc="!saving"
+    >
+      <p class="clone-source">源产品：{{ cloning.source?.name }}</p>
+      <n-form label-placement="top" :disabled="saving">
+        <n-form-item label="新产品名称" required
+          ><n-input v-model:value="cloning.form.name" :maxlength="160"
+        /></n-form-item>
+        <n-form-item label="新产品编号" required
+          ><n-input v-model:value="cloning.form.code" :maxlength="80"
+        /></n-form-item>
+        <n-form-item label="同时复制公共价格版本"
+          ><n-switch v-model:value="cloning.form.copy_prices"
+        /></n-form-item>
+      </n-form>
+      <n-alert type="info" :show-icon="false"
+        >复制产品信息及全部规格组合，不复制订单等业务关联。若需要修改组合参数，可关闭价格复制，调整后再定价。</n-alert
+      >
+      <template #footer
+        ><CButton
+          show-cancel
+          show-save
+          save-text="确认克隆"
+          :disabled="saving"
+          :save-loading="saving"
+          @cancel="cloning.show = false"
+          @save="cloneProduct"
+      /></template>
+    </n-modal>
     <ProductVariants
       v-if="variantProduct"
       :product="variantProduct"
@@ -294,6 +329,11 @@ const query = reactive({ keyword: '', category_id: null, status: null })
 const editor = reactive({ show: false, form: {} })
 const categoryEditor = reactive({ show: false, form: {} })
 const deletion = reactive({ show: false, row: null, kind: 'product' })
+const cloning = reactive({
+  show: false,
+  source: null,
+  form: { name: '', code: '', copy_prices: true },
+})
 const variantProduct = ref(null)
 const busy = computed(() => saving.value || rowSaving.value !== null)
 const statuses = [
@@ -397,6 +437,34 @@ function editProduct(row) {
         spec_values: {},
       }
   editor.show = true
+}
+function openClone(row) {
+  if (busy.value) return
+  cloning.source = row
+  cloning.form = {
+    name: `${row.name.slice(0, 155)} - 副本`,
+    code: `${(row.code || '').slice(0, 75)}-COPY`,
+    copy_prices: true,
+  }
+  cloning.show = true
+}
+async function cloneProduct() {
+  if (busy.value) return
+  const data = { ...cloning.form, name: cloning.form.name.trim(), code: cloning.form.code.trim() }
+  if (!data.name || !data.code) return window.$message?.warning('请填写新产品名称和编号')
+  saving.value = true
+  rowSaving.value = cloning.source.id
+  try {
+    await service.cloneProduct(cloning.source.id, data)
+    cloning.show = false
+    window.$message?.success('产品已克隆')
+    await loadProducts()
+  } catch {
+    /* 保留表单以便修改编号或重试 */
+  } finally {
+    saving.value = false
+    rowSaving.value = null
+  }
 }
 async function saveProduct() {
   if (busy.value) return
@@ -528,7 +596,7 @@ const columns = computed(() =>
     {
       title: '操作',
       key: 'actions',
-      width: 150,
+      width: 180,
       fixed: 'right',
       render: (row) =>
         h(
@@ -537,6 +605,7 @@ const columns = computed(() =>
           {
             default: () => [
               actionButton(row, '编辑', 'mdi:pencil-outline', 'info', () => editProduct(row)),
+              actionButton(row, '克隆', 'mdi:content-copy', 'default', () => openClone(row)),
               actionButton(row, '删除', 'mdi:delete-outline', 'error', () =>
                 confirmDelete(row, 'product')
               ),
@@ -556,6 +625,10 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.clone-source {
+  overflow-wrap: anywhere;
+  margin: 0 0 18px;
+}
 .product-catalog-page {
   min-height: 0;
   overflow: hidden;

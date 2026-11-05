@@ -407,6 +407,7 @@ export default {
     deletePriceVersion: (id, versionId) =>
       request.delete(`/product-center/products/${id}/price-versions/${versionId}`),
     createProduct: (data = {}) => request.post('/product-center/products', data),
+    cloneProduct: (id, data) => request.post(`/product-center/products/${id}/clone`, data),
     updateProduct: (id, data = {}) => request.put(`/product-center/products/${id}`, data),
     deleteProduct: (id) => request.delete(`/product-center/products/${id}`),
     listAttributes: (params = {}) => request.get('/product-center/attributes', { params }),
