@@ -14,6 +14,8 @@
 
 ## 产品
 
+`GET /api/v1/product-center/products` 的每条产品记录新增布尔字段 `direct_pricing`，例如 `{"id": 1, "name": "专线", "direct_pricing": true}`（其余字段保持不变）。仅当产品没有任何规格组合且存在产品级公共价格版本时为 `true`，列表操作显示“价格”并直接打开价格弹窗；否则显示“规格组合”。关闭价格或组合弹窗后刷新列表状态。此变更不新增请求参数、权限或错误码，沿用现有列表接口鉴权。
+
 ### 克隆产品
 
 `POST /api/v1/product-center/products/{product_id}/clone`，沿用登录 token 和 `DependPermission`，需要该 POST 路由权限；应用启动后按产品中心既有规则刷新授权。

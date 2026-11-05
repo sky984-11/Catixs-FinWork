@@ -930,7 +930,21 @@ async def list_products(
     all_rows.sort(key=lambda item: sort_keys.get(item.id, ("", "", "")))
     total = len(all_rows)
     rows = all_rows[(page - 1) * page_size : page * page_size]
-    return SuccessExtra(data=[await product_dict(item) for item in rows], total=total, page=page, page_size=page_size)
+    product_ids = [item.id for item in rows]
+    variant_products = set(
+        await ProductVariant.filter(product_id__in=product_ids).values_list("product_id", flat=True)
+    )
+    priced_products = set(
+        await ProductPriceVersion.filter(
+            product_id__in=product_ids, variant_id=None, customer_id=None
+        ).values_list("product_id", flat=True)
+    )
+    data = []
+    for item in rows:
+        entry = await product_dict(item)
+        entry["direct_pricing"] = item.id in priced_products and item.id not in variant_products
+        data.append(entry)
+    return SuccessExtra(data=data, total=total, page=page, page_size=page_size)
 
 
 @router.post("/products", summary="新增产品")

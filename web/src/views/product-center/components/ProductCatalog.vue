@@ -299,7 +299,13 @@
       v-if="variantProduct"
       :product="variantProduct"
       :units="units"
-      @close="variantProduct = null"
+      @close="closePricing"
+    />
+    <ProductPriceVersions
+      v-if="priceProduct"
+      :product="priceProduct"
+      :units="units"
+      @close="closePricing"
     />
   </AppPage>
 </template>
@@ -311,6 +317,7 @@ import api from '@/api'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import CButton from '@/components/public/CButton.vue'
 import ProductVariants from './ProductVariants.vue'
+import ProductPriceVersions from './ProductPriceVersions.vue'
 
 const service = api.productCenterApi
 const rows = ref([]),
@@ -335,6 +342,12 @@ const cloning = reactive({
   form: { name: '', code: '', copy_prices: true },
 })
 const variantProduct = ref(null)
+const priceProduct = ref(null)
+function closePricing() {
+  variantProduct.value = null
+  priceProduct.value = null
+  loadProducts()
+}
 const busy = computed(() => saving.value || rowSaving.value !== null)
 const statuses = [
   { label: '在售', value: 'active' },
@@ -609,9 +622,13 @@ const columns = computed(() =>
               actionButton(row, '删除', 'mdi:delete-outline', 'error', () =>
                 confirmDelete(row, 'product')
               ),
-              actionButton(row, '规格组合', 'mdi:tune-variant', 'primary', () => {
-                variantProduct.value = row
-              }),
+              row.direct_pricing
+                ? actionButton(row, '价格', 'mdi:currency-usd', 'primary', () => {
+                    priceProduct.value = row
+                  })
+                : actionButton(row, '规格组合', 'mdi:tune-variant', 'primary', () => {
+                    variantProduct.value = row
+                  }),
             ],
           }
         ),
