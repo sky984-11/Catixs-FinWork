@@ -824,16 +824,23 @@ const columns = [
     key: 'items',
     width: 260,
     resizable: true,
-    ellipsis: { tooltip: true },
     render: (row) =>
-      row.items
-        .map(
-          (item) =>
-            `${item.product_name}${item.variant_name ? ` · ${item.variant_name}` : ''} × ${
-              item.quantity
-            }`
-        )
-        .join('；'),
+      row.items?.length
+        ? h(
+            'ul',
+            { class: 'order-product-list' },
+            row.items.map((item, index) =>
+              h('li', { key: index }, [
+                h(
+                  'span',
+                  { class: 'order-product-name' },
+                  `${item.product_name}${item.variant_name ? ` · ${item.variant_name}` : ''}`
+                ),
+                h('span', { class: 'order-product-quantity' }, `× ${item.quantity}`),
+              ])
+            )
+          )
+        : '—',
   },
   { title: '创建时间', key: 'created_at', width: 180, resizable: true },
   {
@@ -868,6 +875,29 @@ onMounted(reload)
 </script>
 
 <style scoped>
+:deep(.order-product-list) {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+:deep(.order-product-list li) {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+  line-height: 1.6;
+}
+:deep(.order-product-name) {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+:deep(.order-product-quantity) {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 .mrc-subtotal {
   margin-top: 8px;
   font-size: 13px;
