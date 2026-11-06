@@ -181,6 +181,43 @@ class ProductOrderTests(unittest.IsolatedAsyncioTestCase):
         await latest.refresh_from_db()
         self.assertEqual(str(latest.mrc), "12.5")
 
+    async def test_mixed_currency_create_rejected(self):
+        await self.price(currency="USD")
+        await self.price(product=self.other, currency="CNY")
+        response = await self.client.post(self.path, json=self.payload)
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertIn("相同币种", response.json()["detail"])
+        self.assertEqual(await ProductOrder.all().count(), 0)
+        self.assertEqual(await ProductOrderItem.all().count(), 0)
+
+    async def test_currency_change_rejected_without_losing_saved_items(self):
+        await self.price()
+        await self.price(product=self.other)
+        order = await self.create()
+        latest = await self.price(product=self.other, version=2, currency="CNY")
+        # Existing snapshots remain USD despite a new CNY catalog price.
+        response = await self.client.put(f"{self.path}/{order['id']}", json=self.payload)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.payload["items"][1]["price_version_id"] = latest.id
+        response = await self.client.put(f"{self.path}/{order['id']}", json=self.payload)
+        self.assertEqual(response.status_code, 422, response.text)
+        items = await ProductOrderItem.filter(order_id=order["id"])
+        self.assertEqual(len(items), 2)
+        self.assertEqual({item.currency for item in items}, {"USD"})
+
+    async def test_historical_mixed_order_readable_but_must_be_fixed_to_save(self):
+        await self.price()
+        await self.price(product=self.other)
+        order = await self.create()
+        await ProductOrderItem.filter(order_id=order["id"], product_id=self.other.id).update(currency="CNY")
+        response = await self.client.get(f"{self.path}/{order['id']}")
+        self.assertEqual(response.status_code, 200)
+        response = await self.client.put(f"{self.path}/{order['id']}", json=self.payload)
+        self.assertEqual(response.status_code, 422, response.text)
+        self.payload["items"] = self.payload["items"][:1]
+        response = await self.client.put(f"{self.path}/{order['id']}", json=self.payload)
+        self.assertEqual(response.status_code, 200, response.text)
+
     async def test_snapshot_survives_catalog_changes_and_deletion(self):
         source = await self.price()
         order = await self.create()

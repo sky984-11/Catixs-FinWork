@@ -188,6 +188,12 @@
       </n-form-item>
       <n-form-item label="产品明细" required>
         <div class="items" :style="detailTheme">
+          <n-alert :type="mixedCurrencies ? 'error' : 'info'" :show-icon="true">
+            同一订单的产品必须使用相同币种，不同币种请分别创建订单。
+            <template v-if="mixedCurrencies">
+              当前包含 {{ orderCurrencies.join(' / ') }}，请移除不同币种的产品后再保存。
+            </template>
+          </n-alert>
           <section
             v-for="(item, index) in form.items"
             :key="item.key"
@@ -421,6 +427,10 @@ const page = ref(1),
 const editor = reactive({ show: false, readonly: false })
 const deletion = reactive({ show: false, row: null })
 const form = reactive({ items: [] })
+const orderCurrencies = computed(() => [
+  ...new Set(form.items.map((item) => item.currency).filter(Boolean)),
+])
+const mixedCurrencies = computed(() => orderCurrencies.value.length > 1)
 const original = ref(null)
 const variants = ref({})
 const busy = computed(
@@ -691,6 +701,8 @@ async function openEditor(row = null, readonly = false) {
 }
 async function save() {
   if (busy.value) return
+  if (mixedCurrencies.value)
+    return window.$message?.warning('同一订单的产品必须使用相同币种，请按币种拆分订单')
   if (form.items.some((item) => item.price_error))
     return window.$message?.warning('请先重试加载失败的公共价格')
   const validMoney = (value) =>

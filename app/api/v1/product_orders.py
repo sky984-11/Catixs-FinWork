@@ -242,6 +242,9 @@ async def save_order(payload, order_id=None):
                         **await resolve_price(item, old, conn),
                     }
                 )
+            currencies = {snapshot["currency"] for snapshot in snapshots if snapshot.get("currency")}
+            if len(currencies) > 1:
+                raise HTTPException(422, "同一订单的产品必须使用相同币种，请按币种拆分订单")
             values = payload.model_dump(exclude={"items"})
             if order:
                 order.update_from_dict(values)
