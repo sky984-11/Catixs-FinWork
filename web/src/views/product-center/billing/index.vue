@@ -113,6 +113,17 @@
           </p>
         </div>
       </div>
+      <n-alert v-if="!editor.id" type="info" class="gap">
+        选择订单后自动带入名称、币种和统一结算周期。账期自动对齐，出账日期按预付 /
+        后付联动，到期日默认顺延 30 天；手动修改名称、周期、账单日期或本位币后将保留你的设置。
+        <div v-if="selectedDefaults.currencies.length > 1">
+          所选订单包含 {{ selectedDefaults.currencies.join(' / ') }}，本次仅收取
+          {{ form.currency }}，其他币种需另行出账。
+        </div>
+        <div v-if="selectedDefaults.mixedPeriods">
+          当前币种的订单结算周期不一致，请确认本次计费周期。
+        </div>
+      </n-alert>
       <n-form label-placement="top" :disabled="busy" class="billing-editor-form">
         <section class="editor-section" aria-label="基本信息">
           <div class="section-heading">
@@ -126,7 +137,10 @@
             <n-form-item label="账单名称" required
               ><template #label
                 ><BillingFieldLabel label="账单名称" :help="fieldHelp.title" /></template
-              ><n-input v-model:value="form.title" :maxlength="160"
+              ><n-input
+                v-model:value="form.title"
+                :maxlength="160"
+                @update:value="(value) => updateField('title', value)"
             /></n-form-item>
             <n-form-item v-if="!editor.id" label="客户（正式名称）" required
               ><template #label
@@ -149,11 +163,15 @@
                 :options="orderOptions"
                 :loading="ordersLoading"
                 placeholder="选择同一客户的订单"
+                @update:value="syncOrders"
             /></n-form-item>
             <n-form-item v-if="!editor.id" label="出账币种" required
               ><template #label
                 ><BillingFieldLabel label="出账币种" :help="fieldHelp.currency" /></template
-              ><n-select v-model:value="form.currency" :options="currencies"
+              ><n-select
+                v-model:value="form.currency"
+                :options="billingCurrencies"
+                @update:value="(value) => updateField('currency', value)"
             /></n-form-item>
           </div>
         </section>
@@ -175,23 +193,25 @@
                   { label: '自然月（按月内实际天数折算）', value: 'calendar' },
                   { label: '周年日（按服务起始日对齐）', value: 'anniversary' },
                 ]"
+                @update:value="(value) => updateField('calendar_mode', value)"
             /></n-form-item>
             <n-form-item v-if="!editor.id" label="计费周期"
               ><template #label
                 ><BillingFieldLabel label="计费周期" :help="fieldHelp.months" /></template
               ><n-select
                 v-model:value="form.months"
-                :options="
-                  [1, 3, 6, 12, 24, 36].map((value) => ({ value, label: `${value} 个月` }))
-                "
+                :options="[1, 3, 6, 12, 24, 36].map((value) => ({ value, label: `${value} 个月` }))"
+                @update:value="(value) => updateField('months', value)"
             /></n-form-item>
             <n-form-item v-if="!editor.id" label="账期开始日" required
               ><template #label
                 ><BillingFieldLabel label="账期开始日" :help="fieldHelp.period_start" /></template
               ><n-date-picker
                 v-model:formatted-value="form.period_start"
+                :disabled="busy || form.calendar_mode === 'anniversary'"
                 value-format="yyyy-MM-dd"
                 type="date"
+                @update:formatted-value="(value) => updateField('period_start', value)"
             /></n-form-item>
             <n-form-item v-if="!editor.id" label="服务计费开始日" required
               ><template #label
@@ -202,6 +222,7 @@
                 v-model:formatted-value="form.service_start"
                 value-format="yyyy-MM-dd"
                 type="date"
+                @update:formatted-value="(value) => updateField('service_start', value)"
             /></n-form-item>
             <n-form-item v-if="!editor.id" label="服务结束日（可选，含当天）"
               ><template #label
@@ -241,6 +262,7 @@
                   { value: 'prepaid', label: '预付' },
                   { value: 'postpaid', label: '后付' },
                 ]"
+                @update:value="(value) => updateField('payment_timing', value)"
             /></n-form-item>
             <n-form-item label="账单日期" required
               ><template #label
@@ -249,6 +271,7 @@
                 v-model:formatted-value="form.bill_date"
                 value-format="yyyy-MM-dd"
                 type="date"
+                @update:formatted-value="(value) => updateField('bill_date', value)"
             /></n-form-item>
             <n-form-item label="付款到期日" required
               ><template #label
@@ -257,6 +280,7 @@
                 v-model:formatted-value="form.due_date"
                 value-format="yyyy-MM-dd"
                 type="date"
+                @update:formatted-value="(value) => updateField('due_date', value)"
             /></n-form-item>
           </div>
         </section>
@@ -307,7 +331,10 @@
             <n-form-item label="本位币"
               ><template #label
                 ><BillingFieldLabel label="本位币" :help="fieldHelp.local_currency" /></template
-              ><n-select v-model:value="form.local_currency" :options="currencies"
+              ><n-select
+                v-model:value="form.local_currency"
+                :options="currencies"
+                @update:value="(value) => updateField('local_currency', value)"
             /></n-form-item>
             <n-form-item label="汇率（1 账单币 = 本位币金额）"
               ><template #label
@@ -328,6 +355,7 @@
                 v-model:formatted-value="form.fx_date"
                 value-format="yyyy-MM-dd"
                 type="date"
+                @update:formatted-value="(value) => updateField('fx_date', value)"
             /></n-form-item>
             <n-form-item label="备注" class="wide"
               ><template #label
@@ -624,6 +652,7 @@ import { usePermissionStore, useUserStore } from '@/store'
 import CButton from '@/components/public/CButton.vue'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import BillingFieldLabel from './components/BillingFieldLabel.vue'
+import { addDays, daysBetween, alignPeriod, nextPeriod, orderDefaults } from './autofill.mjs'
 
 const themeVars = useThemeVars()
 const editorTheme = computed(() => ({
@@ -646,7 +675,7 @@ const fieldHelp = {
   calendar_mode:
     '自然月：按每月实际收费天数 ÷ 当月总天数折算。\n周年日：以服务开始日为锚点，例如 11 月 12 日至 12 月 11 日为一个完整月；月底按当月最后一天对齐。',
   period_start:
-    '本次账期从哪天开始。自然月必须填每月 1 日；周年日须与服务开始日对齐。\n例如 11 月 12 日起租且按自然月收费：这里填 11 月 1 日，服务计费开始日填 11 月 12 日。',
+    '本次账期从哪天开始。自然月自动对齐每月 1 日；周年日由服务计费开始日自动带入，不可手动选择。\n例如 11 月 12 日起租且按自然月收费：这里填 11 月 1 日，服务计费开始日填 11 月 12 日。',
   months:
     '一张账单覆盖的月数，例如 1 个月为月付、3 个月为季付、12 个月为年付。MRC 按数量和实际覆盖的月份计算；自动计划按此周期继续出账。',
   service_start:
@@ -768,6 +797,66 @@ function money(value) {
 function dateString(date = new Date()) {
   return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(date)
 }
+const manualFields = new Set()
+let paymentDays = 30
+let exchangePair = ''
+const selectedOrders = computed(() =>
+  orders.value.filter((row) => form.order_ids?.includes(row.id))
+)
+const selectedDefaults = computed(() => orderDefaults(selectedOrders.value, form.currency))
+const billingCurrencies = computed(() =>
+  selectedDefaults.value.currencies.map((value) => ({ value, label: value }))
+)
+function autoSet(name, value) {
+  if (!manualFields.has(name)) form[name] = value
+}
+function syncRates() {
+  if (form.currency) autoSet('local_currency', form.currency)
+  const pair = `${form.currency}/${form.local_currency}`
+  if (form.currency && form.local_currency === form.currency) {
+    form.fx_rate = '1'
+    form.fx_source = '同币种'
+  } else if (pair !== exchangePair || form.fx_source === '同币种') {
+    form.fx_rate = ''
+    form.fx_source = ''
+  }
+  exchangePair = pair
+  autoSet('fx_date', form.bill_date)
+}
+function syncDates() {
+  if (editor.id) return
+  form.period_start = alignPeriod(form)
+  const next = nextPeriod(form)
+  const previous = form.bill_date
+  autoSet('bill_date', form.payment_timing === 'postpaid' ? next : form.period_start)
+  if (form.bill_date !== previous) form.due_date = addDays(form.bill_date, paymentDays)
+  syncRates()
+}
+function syncOrders() {
+  const defaults = selectedDefaults.value
+  autoSet('title', defaults.title)
+  form.currency = defaults.currency
+  autoSet('months', defaults.months)
+  syncDates()
+}
+function updateField(name, value) {
+  form[name] = value
+  manualFields.add(name)
+  if (name === 'due_date') {
+    const days = daysBetween(form.bill_date, value)
+    if (Number.isFinite(days) && days >= 0) paymentDays = days
+  }
+  if (name === 'bill_date') form.due_date = addDays(value, paymentDays)
+  if (editor.id) return
+  if (name === 'currency') autoSet('months', selectedDefaults.value.months)
+  if (form.calendar_mode === 'anniversary' && ['calendar_mode', 'service_start'].includes(name)) {
+    manualFields.delete('period_start')
+    form.period_start = form.service_start
+  } else if (name === 'service_start' && !manualFields.has('period_start')) {
+    form.period_start = value
+  }
+  syncDates()
+}
 function key() {
   return `BILL-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
@@ -830,6 +919,9 @@ function search() {
   loadBills()
 }
 function openGenerate() {
+  manualFields.clear()
+  paymentDays = 30
+  exchangePair = ''
   editor.id = null
   preview.value = null
   previewPayload.value = null
@@ -840,7 +932,7 @@ function openGenerate() {
     title: '',
     customer_id: null,
     order_ids: [],
-    currency: 'USD',
+    currency: null,
     calendar_mode: 'calendar',
     period_start: `${day.slice(0, 7)}-01`,
     months: 1,
@@ -848,8 +940,8 @@ function openGenerate() {
     service_end: null,
     payment_timing: 'prepaid',
     include_nrc: true,
-    bill_date: day,
-    due_date: dateString(new Date(Date.now() + 30 * 86400000)),
+    bill_date: `${day.slice(0, 7)}-01`,
+    due_date: addDays(`${day.slice(0, 7)}-01`, 30),
     discount: '0.00',
     adjustment: '0.00',
     tax_rate: '0',
@@ -858,7 +950,7 @@ function openGenerate() {
     local_currency: 'USD',
     fx_rate: '1',
     fx_source: '同币种',
-    fx_date: day,
+    fx_date: `${day.slice(0, 7)}-01`,
     request_key: key(),
   })
   editor.show = true
@@ -868,13 +960,18 @@ async function changeCustomer() {
   orders.value = []
   ordersLoading.value = true
   const selected = form.customer_id
+  syncOrders()
   try {
     const result = await allPages(api.productCenterApi.listOrders, { customer_id: selected })
-    if (form.customer_id === selected) orders.value = result
+    if (form.customer_id === selected) {
+      orders.value = result
+      if (result.length === 1) form.order_ids = [result[0].id]
+      syncOrders()
+    }
   } catch {
     /* 请求封装展示错误，可重新选择客户重试 */
   } finally {
-    ordersLoading.value = false
+    if (form.customer_id === selected) ordersLoading.value = false
   }
 }
 watch(
@@ -899,6 +996,8 @@ async function execute(callback) {
 async function previewBill() {
   if (!form.customer_id || !form.order_ids.length || !form.title.trim())
     return window.$message?.warning('请填写账单名称、客户和订单')
+  if (!form.currency || !form.months)
+    return window.$message?.warning('请选择有效的出账币种和计费周期；周期不一致时需手动确认')
   await execute(async () => {
     const payload = JSON.parse(JSON.stringify(form))
     const result = await service.preview(payload)
@@ -946,6 +1045,8 @@ const termFields = [
   'fx_date',
 ]
 function editDraft(row) {
+  manualFields.clear()
+  paymentDays = Math.max(0, daysBetween(row.settings.bill_date, row.settings.due_date)) || 0
   Object.keys(form).forEach((name) => delete form[name])
   for (const name of termFields) form[name] = row.settings[name]
   editor.id = row.id
