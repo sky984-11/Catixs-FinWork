@@ -99,9 +99,15 @@
       <n-form label-placement="top" :disabled="busy">
         <div class="form-grid">
           <n-form-item label="账单名称" required
+            ><template #label
+              ><BillingFieldLabel label="账单名称" :help="fieldHelp.title" /></template
             ><n-input v-model:value="form.title" :maxlength="160"
           /></n-form-item>
           <n-form-item v-if="!editor.id" label="客户（正式名称）" required
+            ><template #label
+              ><BillingFieldLabel
+                label="客户（正式名称）"
+                :help="fieldHelp.customer_id" /></template
             ><n-select
               v-model:value="form.customer_id"
               :options="activeCustomerOptions"
@@ -109,6 +115,8 @@
               @update:value="changeCustomer"
           /></n-form-item>
           <n-form-item v-if="!editor.id" label="关联订单" required class="wide"
+            ><template #label
+              ><BillingFieldLabel label="关联订单" :help="fieldHelp.order_ids" /></template
             ><n-select
               v-model:value="form.order_ids"
               filterable
@@ -118,9 +126,13 @@
               placeholder="选择同一客户的订单"
           /></n-form-item>
           <n-form-item v-if="!editor.id" label="出账币种" required
+            ><template #label
+              ><BillingFieldLabel label="出账币种" :help="fieldHelp.currency" /></template
             ><n-select v-model:value="form.currency" :options="currencies"
           /></n-form-item>
           <n-form-item v-if="!editor.id" label="计费方式"
+            ><template #label
+              ><BillingFieldLabel label="计费方式" :help="fieldHelp.calendar_mode" /></template
             ><n-select
               v-model:value="form.calendar_mode"
               :options="[
@@ -129,23 +141,35 @@
               ]"
           /></n-form-item>
           <n-form-item v-if="!editor.id" label="账期开始日" required
+            ><template #label
+              ><BillingFieldLabel label="账期开始日" :help="fieldHelp.period_start" /></template
             ><n-date-picker
               v-model:formatted-value="form.period_start"
               value-format="yyyy-MM-dd"
               type="date"
           /></n-form-item>
           <n-form-item v-if="!editor.id" label="计费周期"
+            ><template #label
+              ><BillingFieldLabel label="计费周期" :help="fieldHelp.months" /></template
             ><n-select
               v-model:value="form.months"
               :options="[1, 3, 6, 12, 24, 36].map((value) => ({ value, label: `${value} 个月` }))"
           /></n-form-item>
           <n-form-item v-if="!editor.id" label="服务计费开始日" required
+            ><template #label
+              ><BillingFieldLabel
+                label="服务计费开始日"
+                :help="fieldHelp.service_start" /></template
             ><n-date-picker
               v-model:formatted-value="form.service_start"
               value-format="yyyy-MM-dd"
               type="date"
           /></n-form-item>
           <n-form-item v-if="!editor.id" label="服务结束日（可选，含当天）"
+            ><template #label
+              ><BillingFieldLabel
+                label="服务结束日（可选，含当天）"
+                :help="fieldHelp.service_end" /></template
             ><n-date-picker
               v-model:formatted-value="form.service_end"
               clearable
@@ -153,6 +177,8 @@
               type="date"
           /></n-form-item>
           <n-form-item v-if="!editor.id" label="付款安排"
+            ><template #label
+              ><BillingFieldLabel label="付款安排" :help="fieldHelp.payment_timing" /></template
             ><n-select
               v-model:value="form.payment_timing"
               :options="[
@@ -161,50 +187,79 @@
               ]"
           /></n-form-item>
           <n-form-item v-if="!editor.id" label="首次收取 NRC"
+            ><template #label
+              ><BillingFieldLabel label="首次收取 NRC" :help="fieldHelp.include_nrc" /></template
             ><n-switch v-model:value="form.include_nrc" /><span class="hint inline"
               >已计收的订单不重复收取</span
             ></n-form-item
           >
           <n-form-item label="账单日期" required
+            ><template #label
+              ><BillingFieldLabel label="账单日期" :help="fieldHelp.bill_date" /></template
             ><n-date-picker
               v-model:formatted-value="form.bill_date"
               value-format="yyyy-MM-dd"
               type="date"
           /></n-form-item>
           <n-form-item label="付款到期日" required
+            ><template #label
+              ><BillingFieldLabel label="付款到期日" :help="fieldHelp.due_date" /></template
             ><n-date-picker
               v-model:formatted-value="form.due_date"
               value-format="yyyy-MM-dd"
               type="date"
           /></n-form-item>
           <n-form-item label="折扣金额"
+            ><template #label
+              ><BillingFieldLabel label="折扣金额" :help="fieldHelp.discount" /></template
             ><n-input v-model:value="form.discount" placeholder="0.00"
           /></n-form-item>
           <n-form-item label="变更差额（可为负）"
+            ><template #label
+              ><BillingFieldLabel
+                label="变更差额（可为负）"
+                :help="fieldHelp.adjustment" /></template
             ><n-input v-model:value="form.adjustment" placeholder="0.00"
           /></n-form-item>
           <n-form-item label="税率（%）"
+            ><template #label
+              ><BillingFieldLabel label="税率（%）" :help="fieldHelp.tax_rate" /></template
             ><n-input v-model:value="form.tax_rate" placeholder="0"
           /></n-form-item>
           <n-form-item label="折扣 / 差额原因"
+            ><template #label
+              ><BillingFieldLabel
+                label="折扣 / 差额原因"
+                :help="fieldHelp.adjustment_reason" /></template
             ><n-input v-model:value="form.adjustment_reason" :maxlength="500"
           /></n-form-item>
           <n-form-item label="本位币"
+            ><template #label
+              ><BillingFieldLabel label="本位币" :help="fieldHelp.local_currency" /></template
             ><n-select v-model:value="form.local_currency" :options="currencies"
           /></n-form-item>
           <n-form-item label="汇率（1 账单币 = 本位币金额）"
+            ><template #label
+              ><BillingFieldLabel
+                label="汇率（1 账单币 = 本位币金额）"
+                :help="fieldHelp.fx_rate" /></template
             ><n-input v-model:value="form.fx_rate"
           /></n-form-item>
           <n-form-item label="汇率来源" required
+            ><template #label
+              ><BillingFieldLabel label="汇率来源" :help="fieldHelp.fx_source" /></template
             ><n-input v-model:value="form.fx_source" :maxlength="160"
           /></n-form-item>
           <n-form-item label="汇率日期" required
+            ><template #label
+              ><BillingFieldLabel label="汇率日期" :help="fieldHelp.fx_date" /></template
             ><n-date-picker
               v-model:formatted-value="form.fx_date"
               value-format="yyyy-MM-dd"
               type="date"
           /></n-form-item>
           <n-form-item label="备注" class="wide"
+            ><template #label><BillingFieldLabel label="备注" :help="fieldHelp.remark" /></template
             ><n-input v-model:value="form.remark" type="textarea" :maxlength="2000"
           /></n-form-item>
         </div>
@@ -387,21 +442,32 @@
       <n-form label-placement="top" :disabled="busy"
         ><div class="form-grid">
           <n-form-item label="收款流水号" required
+            ><template #label
+              ><BillingFieldLabel label="收款流水号" :help="fieldHelp.reference" /></template
             ><n-input v-model:value="paymentForm.reference" :maxlength="100"
           /></n-form-item>
           <n-form-item :label="`收款金额（${paymentForm.currency}）`" required
+            ><template #label
+              ><BillingFieldLabel
+                :label="`收款金额（${paymentForm.currency}）`"
+                :help="fieldHelp.amount" /></template
             ><n-input v-model:value="paymentForm.amount"
           /></n-form-item>
           <n-form-item label="收款日期" required
+            ><template #label
+              ><BillingFieldLabel label="收款日期" :help="fieldHelp.payment_date" /></template
             ><n-date-picker
               v-model:formatted-value="paymentForm.payment_date"
               type="date"
               value-format="yyyy-MM-dd"
           /></n-form-item>
           <n-form-item label="收款方式" required
+            ><template #label
+              ><BillingFieldLabel label="收款方式" :help="fieldHelp.method" /></template
             ><n-input v-model:value="paymentForm.method" :maxlength="80"
           /></n-form-item>
           <n-form-item label="备注" class="wide"
+            ><template #label><BillingFieldLabel label="备注" :help="fieldHelp.remark" /></template
             ><n-input v-model:value="paymentForm.remark" type="textarea" :maxlength="500"
           /></n-form-item></div
       ></n-form>
@@ -471,6 +537,59 @@ import service from '@/api/crm-billing'
 import { usePermissionStore, useUserStore } from '@/store'
 import CButton from '@/components/public/CButton.vue'
 import TheIcon from '@/components/icon/TheIcon.vue'
+import BillingFieldLabel from './components/BillingFieldLabel.vue'
+
+const fieldHelp = {
+  title:
+    '用于识别账单或自动计划，例如“2026 年 11 月机柜服务费”。自动计划后续生成的账单沿用此名称，不参与金额计算。',
+  customer_id:
+    '选择承担本次费用的客户。正式账单使用客户全称，并保存签约主体及客户资料快照。选择客户后，只能关联该客户的订单。',
+  order_ids:
+    '选择本次收费的订单，可选多个。金额使用订单中已确认的产品、规格、数量及 MRC/NRC 单价。服务起止日不同的订单请分别出账。',
+  currency:
+    '本张账单的收费币种，只计算所选订单中该币种的产品。多币种订单需要分别出账，不自动将不同币种合并。',
+  calendar_mode:
+    '自然月：按每月实际收费天数 ÷ 当月总天数折算。\n周年日：以服务开始日为锚点，例如 11 月 12 日至 12 月 11 日为一个完整月；月底按当月最后一天对齐。',
+  period_start:
+    '本次账期从哪天开始。自然月必须填每月 1 日；周年日须与服务开始日对齐。\n例如 11 月 12 日起租且按自然月收费：这里填 11 月 1 日，服务计费开始日填 11 月 12 日。',
+  months:
+    '一张账单覆盖的月数，例如 1 个月为月付、3 个月为季付、12 个月为年付。MRC 按数量和实际覆盖的月份计算；自动计划按此周期继续出账。',
+  service_start:
+    '服务实际从哪天开始收费，用于首期按天折算，并作为周年日计费的锚点。实际收费从账期开始日和此日期中较晚的一天开始。',
+  service_end:
+    '最后一个收费日，包含当天，用于末期折算。长期服务可留空。自动计划完成覆盖此日期的最后一期后停止继续出账。',
+  payment_timing:
+    '控制自动计划的出账时点：预付在账期开始日出账，后付在账期结束的次日出账。手动出账仍使用下面填写的账单日期，此选项不改变 MRC 金额。',
+  include_nrc:
+    'NRC 是安装、开通等一次性费用。开启时，对尚未计收的订单产品/规格收取 NRC 单价 × 数量；系统自动避免重复收取。\n关闭后本次不收；建立自动计划时，后续也不收。NRC 为 0 时不影响金额。',
+  bill_date:
+    '账单单据上的出账日期，不决定服务收费天数。自动计划后续按预付/后付规则填写出账日期，并沿用此日期与付款到期日之间的天数间隔。',
+  due_date:
+    '客户最晚应付款的日期，不得早于账单日期。已锁定账单到期后仍有未收金额，会计算逾期天数。\n例如账单日期为 11 月 6 日、到期日为 12 月 6 日，自动计划沿用 30 天付款期限。',
+  discount:
+    '从费用小计中扣除的金额，使用账单币种，不是折扣百分比。无优惠填 0；非零时须填写原因。自动计划每期沿用此金额。',
+  adjustment:
+    '对本期费用的增减金额，使用账单币种。正数补收，负数减免；非零时须填写原因，调整后金额不能为负。自动计划每期沿用此差额。',
+  tax_rate:
+    '输入百分比数值，例如 6 表示 6%，不收税填 0。税额按“费用小计 − 折扣 + 变更差额”计算后加到应收金额中。',
+  adjustment_reason:
+    '说明折扣或变更差额的依据，例如合同优惠、服务变更补差。只要折扣或差额不为 0 就必须填写，保存到记录中方便追溯。',
+  local_currency:
+    '财务汇总使用的本位币。账单本身仍按出账币种收费；本位币金额等于账单应收金额乘以汇率。与出账币种相同时，汇率填 1。',
+  fx_rate:
+    '表示 1 单位账单币可换算成多少本位币。例如账单为 USD、本位币为 CNY，填 7 表示 1 USD = 7 CNY。同币种必须填 1，不自动获取实时汇率。',
+  fx_source:
+    '填写汇率依据，例如“合同约定汇率”或“某银行当日牌价”；同币种填“同币种”。用于追溯，不会自动查询该来源。',
+  fx_date:
+    '记录所用汇率对应的日期，不参与服务费用或逾期天数计算。自动计划沿用此汇率及日期快照，财务需按约定复核。',
+  remark: '补充账单或收款说明，便于后续查询，不参与费用计算。',
+  reference:
+    '银行或其他渠道的收款流水号。同一账单内不能重复使用；完全相同的请求重试不会重复核销，已冲销的流水号也不能重新使用。',
+  amount:
+    '本次实际收到的金额，必须大于 0 且不超过账单未收余额。仅接受账单币种，支持分多次登记部分收款。',
+  payment_date: '实际收到款项的日期，不能晚于今天。用于保存收款流水，不改变账单原定付款到期日。',
+  method: '填写实际收款渠道，例如银行转账或现金，用于对账和查询，不会发起扣款。',
+}
 
 const userStore = useUserStore()
 const permissionStore = usePermissionStore()
