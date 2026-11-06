@@ -187,120 +187,138 @@
         />
       </n-form-item>
       <n-form-item label="产品明细" required>
-        <div class="items">
-          <div v-for="(item, index) in form.items" :key="item.key" class="item-row">
-            <n-tree-select
-              v-model:value="item.category_id"
-              filterable
-              placeholder="选择产品分类"
-              :options="categoryTree"
-              @update:value="clearProduct(item)"
-            />
-            <n-select
-              v-model:value="item.product_id"
-              filterable
-              placeholder="选择产品（名称 / 编号）"
-              :disabled="busy || editor.readonly || item.category_id === null"
-              :options="productOptions(item)"
-              @update:value="changeProduct(item)"
-            />
-            <n-select
-              v-model:value="item.variant_id"
-              filterable
-              :placeholder="hasNoVariants(item) ? '无规格' : '选择规格组合'"
-              :options="variantOptions(item)"
-              :loading="item.variant_loading"
-              :disabled="busy || !item.product_id || hasNoVariants(item)"
-              @update:value="changeVariant(item)"
-            />
-            <n-input-number
-              v-model:value="item.quantity"
-              :min="1"
-              :max="1000000"
-              :precision="0"
-              placeholder="数量"
-            />
-            <CButton
-              v-if="!editor.readonly"
-              show-delete
-              :disabled="busy"
-              @delete="form.items.splice(index, 1)"
-            />
-            <div class="item-prices">
-              <n-alert v-if="item.variant_error" type="error"
-                >{{ item.variant_error
-                }}<CButton
-                  show-save
-                  save-text="重试加载组合"
-                  :disabled="busy"
-                  @save="loadVariants(item)"
-              /></n-alert>
-              <p
-                v-else-if="item.product_id && !item.variant_loading && !variantOptions(item).length"
-              >
-                {{
-                  hasNoVariants(item)
-                    ? '无规格产品，直接使用产品公共价格。'
-                    : '暂无可选组合，请先启用规格组合。'
-                }}
-              </p>
-              <p v-if="item.spec_snapshot?.length">
-                {{
-                  item.spec_snapshot
-                    .map((field) => `${field.name}：${specValue(field.value)}${field.unit || ''}`)
-                    .join('；')
-                }}
-              </p>
-              <div class="price-context">
-                <span v-if="editor.readonly && item.price_reference" class="price-reference">
-                  当前公共参考价（订单尚未保存价格）
-                </span>
-                <span v-if="item.price_version_id">
-                  {{ item.currency }} · 每 {{ item.period_months }} 个月结算 · 单位：{{
-                    unitLabel(item.billing_unit)
-                  }}
-                  · 公共价格 V{{ item.price_version_number }}：MRC {{ item.base_mrc }} / NRC
-                  {{ item.base_nrc }}
-                </span>
-                <span v-else-if="!item.price_error">{{
-                  item.price_loading ? '正在读取公共价格…' : '暂无公共价格，订单尚未定价'
-                }}</span>
-                <CButton
-                  v-if="item.product_id && (!editor.readonly || item.price_error)"
-                  show-save
-                  :save-text="editor.readonly ? '重试加载价格' : '继承最新公共价格'"
-                  :disabled="busy"
-                  :save-loading="item.price_loading"
-                  @save="inheritPrice(item, editor.readonly)"
-                />
+        <div class="items" :style="detailTheme">
+          <section
+            v-for="(item, index) in form.items"
+            :key="item.key"
+            class="item-card"
+            :aria-label="`产品明细 ${index + 1}`"
+          >
+            <div class="item-card-heading">
+              <div class="item-card-title">
+                <span class="item-card-index">{{ index + 1 }}</span
+                >产品明细
               </div>
-              <n-alert v-if="item.price_error" type="error">{{ item.price_error }}</n-alert>
-              <div class="price-inputs">
-                <label
-                  >MRC（每单位月费）
-                  <n-input
-                    v-model:value="item.mrc"
-                    :placeholder="editor.readonly ? '暂无价格' : '继承公共 MRC'"
-                    :readonly="editor.readonly"
-                    :disabled="editor.readonly ? false : busy || !item.price_version_id"
+              <CButton
+                v-if="!editor.readonly"
+                show-delete
+                :disabled="busy"
+                @delete="form.items.splice(index, 1)"
+              />
+            </div>
+            <div class="item-row">
+              <n-tree-select
+                v-model:value="item.category_id"
+                filterable
+                placeholder="选择产品分类"
+                :options="categoryTree"
+                @update:value="clearProduct(item)"
+              />
+              <n-select
+                v-model:value="item.product_id"
+                class="item-product"
+                filterable
+                placeholder="选择产品（名称 / 编号）"
+                :disabled="busy || editor.readonly || item.category_id === null"
+                :options="productOptions(item)"
+                @update:value="changeProduct(item)"
+              />
+              <n-select
+                v-model:value="item.variant_id"
+                class="item-variant"
+                filterable
+                :placeholder="hasNoVariants(item) ? '无规格' : '选择规格组合'"
+                :options="variantOptions(item)"
+                :loading="item.variant_loading"
+                :disabled="busy || !item.product_id || hasNoVariants(item)"
+                @update:value="changeVariant(item)"
+              />
+              <n-input-number
+                v-model:value="item.quantity"
+                class="item-quantity"
+                :min="1"
+                :max="1000000"
+                :precision="0"
+                placeholder="数量"
+              />
+              <div class="item-prices">
+                <n-alert v-if="item.variant_error" type="error"
+                  >{{ item.variant_error
+                  }}<CButton
+                    show-save
+                    save-text="重试加载组合"
+                    :disabled="busy"
+                    @save="loadVariants(item)"
+                /></n-alert>
+                <p
+                  v-else-if="
+                    item.product_id && !item.variant_loading && !variantOptions(item).length
+                  "
+                >
+                  {{
+                    hasNoVariants(item)
+                      ? '无规格产品，直接使用产品公共价格。'
+                      : '暂无可选组合，请先启用规格组合。'
+                  }}
+                </p>
+                <p v-if="item.spec_snapshot?.length">
+                  {{
+                    item.spec_snapshot
+                      .map((field) => `${field.name}：${specValue(field.value)}${field.unit || ''}`)
+                      .join('；')
+                  }}
+                </p>
+                <div class="price-context">
+                  <span v-if="editor.readonly && item.price_reference" class="price-reference">
+                    当前公共参考价（订单尚未保存价格）
+                  </span>
+                  <span v-if="item.price_version_id">
+                    {{ item.currency }} · 每 {{ item.period_months }} 个月结算 · 单位：{{
+                      unitLabel(item.billing_unit)
+                    }}
+                    · 公共价格 V{{ item.price_version_number }}：MRC {{ item.base_mrc }} / NRC
+                    {{ item.base_nrc }}
+                  </span>
+                  <span v-else-if="!item.price_error">{{
+                    item.price_loading ? '正在读取公共价格…' : '暂无公共价格，订单尚未定价'
+                  }}</span>
+                  <CButton
+                    v-if="item.product_id && (!editor.readonly || item.price_error)"
+                    show-save
+                    :save-text="editor.readonly ? '重试加载价格' : '继承最新公共价格'"
+                    :disabled="busy"
+                    :save-loading="item.price_loading"
+                    @save="inheritPrice(item, editor.readonly)"
                   />
-                  <div class="mrc-subtotal" aria-live="polite">
-                    月费小计：{{ item.currency }} {{ displayMoney(mrcSubtotal(item)) }}
-                    <span>（单价 × {{ item.quantity }}）</span>
-                  </div>
-                </label>
-                <label
-                  >NRC（每单位一次性费用）
-                  <n-input
-                    v-model:value="item.nrc"
-                    :placeholder="editor.readonly ? '暂无价格' : '继承公共 NRC'"
-                    :readonly="editor.readonly"
-                    :disabled="editor.readonly ? false : busy || !item.price_version_id"
-                  />
-                </label>
+                </div>
+                <n-alert v-if="item.price_error" type="error">{{ item.price_error }}</n-alert>
+                <div class="price-inputs">
+                  <label
+                    >MRC（每单位月费）
+                    <n-input
+                      v-model:value="item.mrc"
+                      :placeholder="editor.readonly ? '暂无价格' : '继承公共 MRC'"
+                      :readonly="editor.readonly"
+                      :disabled="editor.readonly ? false : busy || !item.price_version_id"
+                    />
+                    <div class="mrc-subtotal" aria-live="polite">
+                      月费小计：{{ item.currency }} {{ displayMoney(mrcSubtotal(item)) }}
+                      <span>（单价 × {{ item.quantity }}）</span>
+                    </div>
+                  </label>
+                  <label
+                    >NRC（每单位一次性费用）
+                    <n-input
+                      v-model:value="item.nrc"
+                      :placeholder="editor.readonly ? '暂无价格' : '继承公共 NRC'"
+                      :readonly="editor.readonly"
+                      :disabled="editor.readonly ? false : busy || !item.price_version_id"
+                    />
+                  </label>
+                </div>
               </div>
             </div>
-          </div>
+          </section>
           <CButton
             v-if="!editor.readonly"
             show-save
@@ -1063,28 +1081,52 @@ onMounted(reload)
 .items {
   width: 100%;
 }
+.item-card {
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px solid var(--detail-border);
+  border-radius: 12px;
+}
+.item-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -16px -16px 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--detail-border);
+  border-radius: 12px 12px 0 0;
+  background: var(--detail-surface);
+}
+.item-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.item-card-index {
+  color: var(--detail-accent);
+  font-variant-numeric: tabular-nums;
+}
 .item-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) 100px auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) 100px;
   gap: 12px;
-  margin-bottom: 12px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--n-border-color);
 }
 .item-prices {
   grid-column: 1 / -1;
+  padding-top: 12px;
+  border-top: 1px solid var(--detail-border);
+  overflow-wrap: anywhere;
 }
-.item-row > :nth-child(3) {
+.item-product {
+  grid-column: 2 / -1;
+}
+.item-variant {
   grid-column: 1 / 3;
-  grid-row: 2;
 }
-.item-row > :nth-child(4) {
+.item-quantity {
   grid-column: 3;
-  grid-row: 2;
-}
-.item-row > :nth-child(5) {
-  grid-column: 4;
-  grid-row: 2;
 }
 .price-context {
   display: flex;
@@ -1106,18 +1148,6 @@ onMounted(reload)
   width: 100%;
 }
 @media (max-width: 600px) {
-  .item-row > :nth-child(3) {
-    grid-column: 1 / -1;
-    grid-row: auto;
-  }
-  .item-row > :nth-child(4) {
-    grid-column: 1;
-    grid-row: auto;
-  }
-  .item-row > :nth-child(5) {
-    grid-column: 2;
-    grid-row: auto;
-  }
   .order-detail {
     padding-right: 0;
   }
@@ -1138,11 +1168,11 @@ onMounted(reload)
   .detail-price-amount strong {
     font-size: 22px;
   }
-  .item-row {
-    grid-template-columns: minmax(0, 1fr) 100px;
+  .item-row,
+  .price-inputs {
+    grid-template-columns: minmax(0, 1fr);
   }
-  .item-row > :first-child,
-  .item-row > :nth-child(2) {
+  .item-row > * {
     grid-column: 1 / -1;
   }
   .customer-filter {
