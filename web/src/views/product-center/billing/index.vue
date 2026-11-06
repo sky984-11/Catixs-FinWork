@@ -89,6 +89,8 @@
 
     <n-modal
       v-model:show="editor.show"
+      class="billing-editor"
+      :style="editorTheme"
       preset="card"
       :title="editor.id ? '调整账单草稿' : '订单出账'"
       style="width: min(1080px, calc(100vw - 24px))"
@@ -96,182 +98,256 @@
       :mask-closable="!busy"
       :close-on-esc="!busy"
     >
-      <n-form label-placement="top" :disabled="busy">
-        <div class="form-grid">
-          <n-form-item label="账单名称" required
-            ><template #label
-              ><BillingFieldLabel label="账单名称" :help="fieldHelp.title" /></template
-            ><n-input v-model:value="form.title" :maxlength="160"
-          /></n-form-item>
-          <n-form-item v-if="!editor.id" label="客户（正式名称）" required
-            ><template #label
-              ><BillingFieldLabel
-                label="客户（正式名称）"
-                :help="fieldHelp.customer_id" /></template
-            ><n-select
-              v-model:value="form.customer_id"
-              :options="activeCustomerOptions"
-              filterable
-              @update:value="changeCustomer"
-          /></n-form-item>
-          <n-form-item v-if="!editor.id" label="关联订单" required class="wide"
-            ><template #label
-              ><BillingFieldLabel label="关联订单" :help="fieldHelp.order_ids" /></template
-            ><n-select
-              v-model:value="form.order_ids"
-              filterable
-              multiple
-              :options="orderOptions"
-              :loading="ordersLoading"
-              placeholder="选择同一客户的订单"
-          /></n-form-item>
-          <n-form-item v-if="!editor.id" label="出账币种" required
-            ><template #label
-              ><BillingFieldLabel label="出账币种" :help="fieldHelp.currency" /></template
-            ><n-select v-model:value="form.currency" :options="currencies"
-          /></n-form-item>
-          <n-form-item v-if="!editor.id" label="计费方式"
-            ><template #label
-              ><BillingFieldLabel label="计费方式" :help="fieldHelp.calendar_mode" /></template
-            ><n-select
-              v-model:value="form.calendar_mode"
-              :options="[
-                { label: '自然月（按月内实际天数折算）', value: 'calendar' },
-                { label: '周年日（按服务起始日对齐）', value: 'anniversary' },
-              ]"
-          /></n-form-item>
-          <n-form-item v-if="!editor.id" label="账期开始日" required
-            ><template #label
-              ><BillingFieldLabel label="账期开始日" :help="fieldHelp.period_start" /></template
-            ><n-date-picker
-              v-model:formatted-value="form.period_start"
-              value-format="yyyy-MM-dd"
-              type="date"
-          /></n-form-item>
-          <n-form-item v-if="!editor.id" label="计费周期"
-            ><template #label
-              ><BillingFieldLabel label="计费周期" :help="fieldHelp.months" /></template
-            ><n-select
-              v-model:value="form.months"
-              :options="[1, 3, 6, 12, 24, 36].map((value) => ({ value, label: `${value} 个月` }))"
-          /></n-form-item>
-          <n-form-item v-if="!editor.id" label="服务计费开始日" required
-            ><template #label
-              ><BillingFieldLabel
-                label="服务计费开始日"
-                :help="fieldHelp.service_start" /></template
-            ><n-date-picker
-              v-model:formatted-value="form.service_start"
-              value-format="yyyy-MM-dd"
-              type="date"
-          /></n-form-item>
-          <n-form-item v-if="!editor.id" label="服务结束日（可选，含当天）"
-            ><template #label
-              ><BillingFieldLabel
-                label="服务结束日（可选，含当天）"
-                :help="fieldHelp.service_end" /></template
-            ><n-date-picker
-              v-model:formatted-value="form.service_end"
-              clearable
-              value-format="yyyy-MM-dd"
-              type="date"
-          /></n-form-item>
-          <n-form-item v-if="!editor.id" label="付款安排"
-            ><template #label
-              ><BillingFieldLabel label="付款安排" :help="fieldHelp.payment_timing" /></template
-            ><n-select
-              v-model:value="form.payment_timing"
-              :options="[
-                { value: 'prepaid', label: '预付' },
-                { value: 'postpaid', label: '后付' },
-              ]"
-          /></n-form-item>
-          <n-form-item v-if="!editor.id" label="首次收取 NRC"
-            ><template #label
-              ><BillingFieldLabel label="首次收取 NRC" :help="fieldHelp.include_nrc" /></template
-            ><n-switch v-model:value="form.include_nrc" /><span class="hint inline"
-              >已计收的订单不重复收取</span
-            ></n-form-item
-          >
-          <n-form-item label="账单日期" required
-            ><template #label
-              ><BillingFieldLabel label="账单日期" :help="fieldHelp.bill_date" /></template
-            ><n-date-picker
-              v-model:formatted-value="form.bill_date"
-              value-format="yyyy-MM-dd"
-              type="date"
-          /></n-form-item>
-          <n-form-item label="付款到期日" required
-            ><template #label
-              ><BillingFieldLabel label="付款到期日" :help="fieldHelp.due_date" /></template
-            ><n-date-picker
-              v-model:formatted-value="form.due_date"
-              value-format="yyyy-MM-dd"
-              type="date"
-          /></n-form-item>
-          <n-form-item label="折扣金额"
-            ><template #label
-              ><BillingFieldLabel label="折扣金额" :help="fieldHelp.discount" /></template
-            ><n-input v-model:value="form.discount" placeholder="0.00"
-          /></n-form-item>
-          <n-form-item label="变更差额（可为负）"
-            ><template #label
-              ><BillingFieldLabel
-                label="变更差额（可为负）"
-                :help="fieldHelp.adjustment" /></template
-            ><n-input v-model:value="form.adjustment" placeholder="0.00"
-          /></n-form-item>
-          <n-form-item label="税率（%）"
-            ><template #label
-              ><BillingFieldLabel label="税率（%）" :help="fieldHelp.tax_rate" /></template
-            ><n-input v-model:value="form.tax_rate" placeholder="0"
-          /></n-form-item>
-          <n-form-item label="折扣 / 差额原因"
-            ><template #label
-              ><BillingFieldLabel
-                label="折扣 / 差额原因"
-                :help="fieldHelp.adjustment_reason" /></template
-            ><n-input v-model:value="form.adjustment_reason" :maxlength="500"
-          /></n-form-item>
-          <n-form-item label="本位币"
-            ><template #label
-              ><BillingFieldLabel label="本位币" :help="fieldHelp.local_currency" /></template
-            ><n-select v-model:value="form.local_currency" :options="currencies"
-          /></n-form-item>
-          <n-form-item label="汇率（1 账单币 = 本位币金额）"
-            ><template #label
-              ><BillingFieldLabel
-                label="汇率（1 账单币 = 本位币金额）"
-                :help="fieldHelp.fx_rate" /></template
-            ><n-input v-model:value="form.fx_rate"
-          /></n-form-item>
-          <n-form-item label="汇率来源" required
-            ><template #label
-              ><BillingFieldLabel label="汇率来源" :help="fieldHelp.fx_source" /></template
-            ><n-input v-model:value="form.fx_source" :maxlength="160"
-          /></n-form-item>
-          <n-form-item label="汇率日期" required
-            ><template #label
-              ><BillingFieldLabel label="汇率日期" :help="fieldHelp.fx_date" /></template
-            ><n-date-picker
-              v-model:formatted-value="form.fx_date"
-              value-format="yyyy-MM-dd"
-              type="date"
-          /></n-form-item>
-          <n-form-item label="备注" class="wide"
-            ><template #label><BillingFieldLabel label="备注" :help="fieldHelp.remark" /></template
-            ><n-input v-model:value="form.remark" type="textarea" :maxlength="2000"
-          /></n-form-item>
+      <div class="editor-intro">
+        <span class="editor-intro-mark"
+          ><TheIcon icon="mdi:file-document-outline" :size="22"
+        /></span>
+        <div>
+          <strong>{{ editor.id ? '核对并调整账单信息' : '将订单费用整理为账单' }}</strong>
+          <p>
+            {{
+              editor.id
+                ? '保存后仍为草稿，审核锁定后进入应收。'
+                : '填写出账信息 → 预览金额 → 生成草稿或建立自动计划'
+            }}
+          </p>
         </div>
+      </div>
+      <n-form label-placement="top" :disabled="busy" class="billing-editor-form">
+        <section class="editor-section" aria-label="基本信息">
+          <div class="section-heading">
+            <span class="section-marker"></span>
+            <div>
+              <h3>基本信息</h3>
+              <p>选择客户与订单，确认本次出账范围。</p>
+            </div>
+          </div>
+          <div class="form-grid">
+            <n-form-item label="账单名称" required
+              ><template #label
+                ><BillingFieldLabel label="账单名称" :help="fieldHelp.title" /></template
+              ><n-input v-model:value="form.title" :maxlength="160"
+            /></n-form-item>
+            <n-form-item v-if="!editor.id" label="客户（正式名称）" required
+              ><template #label
+                ><BillingFieldLabel
+                  label="客户（正式名称）"
+                  :help="fieldHelp.customer_id" /></template
+              ><n-select
+                v-model:value="form.customer_id"
+                :options="activeCustomerOptions"
+                filterable
+                @update:value="changeCustomer"
+            /></n-form-item>
+            <n-form-item v-if="!editor.id" label="关联订单" required
+              ><template #label
+                ><BillingFieldLabel label="关联订单" :help="fieldHelp.order_ids" /></template
+              ><n-select
+                v-model:value="form.order_ids"
+                filterable
+                multiple
+                :options="orderOptions"
+                :loading="ordersLoading"
+                placeholder="选择同一客户的订单"
+            /></n-form-item>
+            <n-form-item v-if="!editor.id" label="出账币种" required
+              ><template #label
+                ><BillingFieldLabel label="出账币种" :help="fieldHelp.currency" /></template
+              ><n-select v-model:value="form.currency" :options="currencies"
+            /></n-form-item>
+          </div>
+        </section>
+        <section v-if="!editor.id" class="editor-section" aria-label="计费规则">
+          <div class="section-heading">
+            <span class="section-marker"></span>
+            <div>
+              <h3>计费规则</h3>
+              <p>设置账期与服务时间，计算实际应收费用。</p>
+            </div>
+          </div>
+          <div class="form-grid">
+            <n-form-item v-if="!editor.id" label="计费方式"
+              ><template #label
+                ><BillingFieldLabel label="计费方式" :help="fieldHelp.calendar_mode" /></template
+              ><n-select
+                v-model:value="form.calendar_mode"
+                :options="[
+                  { label: '自然月（按月内实际天数折算）', value: 'calendar' },
+                  { label: '周年日（按服务起始日对齐）', value: 'anniversary' },
+                ]"
+            /></n-form-item>
+            <n-form-item v-if="!editor.id" label="计费周期"
+              ><template #label
+                ><BillingFieldLabel label="计费周期" :help="fieldHelp.months" /></template
+              ><n-select
+                v-model:value="form.months"
+                :options="
+                  [1, 3, 6, 12, 24, 36].map((value) => ({ value, label: `${value} 个月` }))
+                "
+            /></n-form-item>
+            <n-form-item v-if="!editor.id" label="账期开始日" required
+              ><template #label
+                ><BillingFieldLabel label="账期开始日" :help="fieldHelp.period_start" /></template
+              ><n-date-picker
+                v-model:formatted-value="form.period_start"
+                value-format="yyyy-MM-dd"
+                type="date"
+            /></n-form-item>
+            <n-form-item v-if="!editor.id" label="服务计费开始日" required
+              ><template #label
+                ><BillingFieldLabel
+                  label="服务计费开始日"
+                  :help="fieldHelp.service_start" /></template
+              ><n-date-picker
+                v-model:formatted-value="form.service_start"
+                value-format="yyyy-MM-dd"
+                type="date"
+            /></n-form-item>
+            <n-form-item v-if="!editor.id" label="服务结束日（可选，含当天）"
+              ><template #label
+                ><BillingFieldLabel
+                  label="服务结束日（可选，含当天）"
+                  :help="fieldHelp.service_end" /></template
+              ><n-date-picker
+                v-model:formatted-value="form.service_end"
+                clearable
+                value-format="yyyy-MM-dd"
+                type="date"
+            /></n-form-item>
+            <n-form-item v-if="!editor.id" label="首次收取 NRC"
+              ><template #label
+                ><BillingFieldLabel label="首次收取 NRC" :help="fieldHelp.include_nrc" /></template
+              ><n-switch v-model:value="form.include_nrc" /><span class="hint inline"
+                >已计收的订单不重复收取</span
+              ></n-form-item
+            >
+          </div>
+        </section>
+        <section class="editor-section" aria-label="付款安排">
+          <div class="section-heading">
+            <span class="section-marker"></span>
+            <div>
+              <h3>付款安排</h3>
+              <p>明确出账时点与客户付款期限。</p>
+            </div>
+          </div>
+          <div class="form-grid" :class="{ 'payment-grid': !editor.id }">
+            <n-form-item v-if="!editor.id" label="付款安排"
+              ><template #label
+                ><BillingFieldLabel label="付款安排" :help="fieldHelp.payment_timing" /></template
+              ><n-select
+                v-model:value="form.payment_timing"
+                :options="[
+                  { value: 'prepaid', label: '预付' },
+                  { value: 'postpaid', label: '后付' },
+                ]"
+            /></n-form-item>
+            <n-form-item label="账单日期" required
+              ><template #label
+                ><BillingFieldLabel label="账单日期" :help="fieldHelp.bill_date" /></template
+              ><n-date-picker
+                v-model:formatted-value="form.bill_date"
+                value-format="yyyy-MM-dd"
+                type="date"
+            /></n-form-item>
+            <n-form-item label="付款到期日" required
+              ><template #label
+                ><BillingFieldLabel label="付款到期日" :help="fieldHelp.due_date" /></template
+              ><n-date-picker
+                v-model:formatted-value="form.due_date"
+                value-format="yyyy-MM-dd"
+                type="date"
+            /></n-form-item>
+          </div>
+        </section>
+        <section class="editor-section" aria-label="金额调整">
+          <div class="section-heading">
+            <span class="section-marker"></span>
+            <div>
+              <h3>金额调整</h3>
+              <p>填写优惠、补差与税率，无调整时保持默认值。</p>
+            </div>
+          </div>
+          <div class="form-grid">
+            <n-form-item label="折扣金额"
+              ><template #label
+                ><BillingFieldLabel label="折扣金额" :help="fieldHelp.discount" /></template
+              ><n-input v-model:value="form.discount" placeholder="0.00"
+            /></n-form-item>
+            <n-form-item label="变更差额（可为负）"
+              ><template #label
+                ><BillingFieldLabel
+                  label="变更差额（可为负）"
+                  :help="fieldHelp.adjustment" /></template
+              ><n-input v-model:value="form.adjustment" placeholder="0.00"
+            /></n-form-item>
+            <n-form-item label="税率（%）"
+              ><template #label
+                ><BillingFieldLabel label="税率（%）" :help="fieldHelp.tax_rate" /></template
+              ><n-input v-model:value="form.tax_rate" placeholder="0"
+            /></n-form-item>
+            <n-form-item label="折扣 / 差额原因"
+              ><template #label
+                ><BillingFieldLabel
+                  label="折扣 / 差额原因"
+                  :help="fieldHelp.adjustment_reason" /></template
+              ><n-input v-model:value="form.adjustment_reason" :maxlength="500"
+            /></n-form-item>
+          </div>
+        </section>
+        <section class="editor-section" aria-label="汇率与备注">
+          <div class="section-heading">
+            <span class="section-marker"></span>
+            <div>
+              <h3>汇率与备注</h3>
+              <p>记录本位币换算依据及补充说明。</p>
+            </div>
+          </div>
+          <div class="form-grid">
+            <n-form-item label="本位币"
+              ><template #label
+                ><BillingFieldLabel label="本位币" :help="fieldHelp.local_currency" /></template
+              ><n-select v-model:value="form.local_currency" :options="currencies"
+            /></n-form-item>
+            <n-form-item label="汇率（1 账单币 = 本位币金额）"
+              ><template #label
+                ><BillingFieldLabel
+                  label="汇率（1 账单币 = 本位币金额）"
+                  :help="fieldHelp.fx_rate" /></template
+              ><n-input v-model:value="form.fx_rate"
+            /></n-form-item>
+            <n-form-item label="汇率来源" required
+              ><template #label
+                ><BillingFieldLabel label="汇率来源" :help="fieldHelp.fx_source" /></template
+              ><n-input v-model:value="form.fx_source" :maxlength="160"
+            /></n-form-item>
+            <n-form-item label="汇率日期" required
+              ><template #label
+                ><BillingFieldLabel label="汇率日期" :help="fieldHelp.fx_date" /></template
+              ><n-date-picker
+                v-model:formatted-value="form.fx_date"
+                value-format="yyyy-MM-dd"
+                type="date"
+            /></n-form-item>
+            <n-form-item label="备注" class="wide"
+              ><template #label
+                ><BillingFieldLabel label="备注" :help="fieldHelp.remark" /></template
+              ><n-input v-model:value="form.remark" type="textarea" :maxlength="2000"
+            /></n-form-item>
+          </div>
+        </section>
       </n-form>
-      <n-alert v-if="!editor.id" type="info" class="gap"
-        >服务日期适用于本次所选订单，起止日期不同请分别出账。MRC = 单价 × 数量 × 月数折算系数，NRC =
-        单价 × 数量。多币种请分别预览出账。</n-alert
-      >
-      <n-alert v-if="!editor.id" type="warning" class="gap"
-        >自动计划固定当前订单价格、折扣、税率及汇率，沿用账单日期与到期日的间隔。以后变价请停用旧计划并建立新计划；跨币种汇率请由财务定期复核。</n-alert
-      >
-      <div v-if="preview" class="gap preview">
+      <div v-if="!editor.id" class="editor-notes">
+        <p>
+          <strong>计费说明</strong>服务日期适用于所选订单，起止日期不同请分别出账。MRC = 单价 × 数量
+          × 月数折算系数；NRC = 单价 × 数量。多币种需分别出账。
+        </p>
+        <p>
+          <strong>自动计划</strong
+          >固定当前价格、折扣、税率及汇率，并沿用付款期限。变价时请停用旧计划后新建；跨币种汇率需定期复核。
+        </p>
+      </div>
+      <div v-if="preview" class="editor-section preview">
         <h3>
           出账预览 · {{ preview.currency }} · {{ preview.period_start }} 至 {{ preview.period_end }}
         </h3>
@@ -282,39 +358,49 @@
           {{ money(preview.local_amount) }}
         </p>
       </div>
-      <template #footer
-        ><n-space justify="end">
-          <CButton show-cancel :disabled="busy" @cancel="editor.show = false" />
-          <CButton
-            v-if="editor.id"
-            show-save
-            save-text="保存草稿"
-            :disabled="busy"
-            :save-loading="saving"
-            @save="saveDraft"
-          />
-          <template v-else>
+      <template #footer>
+        <div class="editor-footer">
+          <span class="editor-footer-hint">{{
+            editor.id
+              ? '草稿可调整，锁定后计入应收'
+              : preview
+              ? '请核对预览金额后再提交'
+              : '先预览金额，再生成账单或建立计划'
+          }}</span>
+          <n-space justify="end">
+            <CButton show-cancel :disabled="busy" @cancel="editor.show = false" />
             <CButton
+              v-if="editor.id"
               show-save
-              save-text="预览金额"
-              :disabled="busy || ordersLoading"
+              save-text="保存草稿"
+              :disabled="busy"
               :save-loading="saving"
-              @save="previewBill"
+              @save="saveDraft"
             />
-            <CButton
-              show-save
-              save-text="生成账单草稿"
-              :disabled="busy || !preview || !can('post', '/generate')"
-              @save="commit(false)"
-            />
-            <CButton
-              show-save
-              save-text="建立自动出账计划"
-              :disabled="busy || !preview || !can('post', '/plans')"
-              @save="commit(true)"
-            />
-          </template> </n-space
-      ></template>
+            <template v-else>
+              <CButton
+                show-save
+                save-text="预览金额"
+                :disabled="busy || ordersLoading"
+                :save-loading="saving"
+                @save="previewBill"
+              />
+              <CButton
+                show-save
+                save-text="生成账单草稿"
+                :disabled="busy || !preview || !can('post', '/generate')"
+                @save="commit(false)"
+              />
+              <CButton
+                show-save
+                save-text="建立自动出账计划"
+                :disabled="busy || !preview || !can('post', '/plans')"
+                @save="commit(true)"
+              />
+            </template>
+          </n-space>
+        </div>
+      </template>
     </n-modal>
 
     <n-modal
@@ -531,13 +617,22 @@
 
 <script setup>
 import { computed, h, onMounted, reactive, ref, watch } from 'vue'
-import { NButton, NSpace, NTag, NTooltip } from 'naive-ui'
+import { NButton, NSpace, NTag, NTooltip, useThemeVars } from 'naive-ui'
 import api from '@/api'
 import service from '@/api/crm-billing'
 import { usePermissionStore, useUserStore } from '@/store'
 import CButton from '@/components/public/CButton.vue'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import BillingFieldLabel from './components/BillingFieldLabel.vue'
+
+const themeVars = useThemeVars()
+const editorTheme = computed(() => ({
+  '--editor-surface': themeVars.value.cardColor,
+  '--editor-background': themeVars.value.bodyColor,
+  '--editor-border': themeVars.value.dividerColor,
+  '--editor-muted': themeVars.value.textColor3,
+  '--editor-accent': themeVars.value.primaryColor,
+}))
 
 const fieldHelp = {
   title:
@@ -1130,6 +1225,146 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.billing-editor {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 40px);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.billing-editor :deep(.n-card-header) {
+  flex-shrink: 0;
+  padding: 20px 26px;
+  border-bottom: 1px solid var(--editor-border);
+}
+.billing-editor :deep(.n-card__content) {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 22px 26px;
+  background: var(--editor-background);
+}
+.billing-editor :deep(.n-card__footer) {
+  flex-shrink: 0;
+  padding: 16px 26px;
+  border-top: 1px solid var(--editor-border);
+}
+.editor-intro {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.editor-intro-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  background: var(--editor-surface);
+  color: var(--editor-accent);
+  border: 1px solid var(--editor-border);
+}
+.editor-intro strong {
+  font-size: 15px;
+}
+.editor-intro p,
+.section-heading p {
+  margin: 4px 0 0;
+  color: var(--editor-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.billing-editor-form {
+  display: grid;
+  gap: 16px;
+}
+.editor-section {
+  padding: 20px;
+  border: 1px solid var(--editor-border);
+  border-radius: 12px;
+  background: var(--editor-surface);
+  min-width: 0;
+}
+.section-heading {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 20px;
+}
+.section-heading h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
+}
+.section-marker {
+  width: 3px;
+  height: 16px;
+  margin-top: 3px;
+  border-radius: 3px;
+  background: var(--editor-accent);
+}
+.billing-editor-form .form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 24px;
+}
+.billing-editor-form .payment-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.billing-editor-form :deep(.n-form-item) {
+  min-width: 0;
+}
+.billing-editor-form :deep(.n-form-item-label) {
+  font-size: 13px;
+}
+.editor-notes {
+  margin: 16px 2px;
+  color: var(--editor-muted);
+  font-size: 12px;
+  line-height: 1.8;
+}
+.editor-notes p {
+  margin: 6px 0;
+}
+.editor-notes strong {
+  margin-right: 8px;
+  font-weight: 600;
+}
+.editor-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.editor-footer-hint {
+  color: var(--editor-muted);
+  font-size: 12px;
+}
+@media (max-width: 640px) {
+  .billing-editor {
+    max-height: calc(100dvh - 24px);
+  }
+  .billing-editor :deep(.n-card-header),
+  .billing-editor :deep(.n-card__content),
+  .billing-editor :deep(.n-card__footer) {
+    padding: 16px;
+  }
+  .editor-section {
+    padding: 16px 12px 8px;
+  }
+  .billing-editor-form .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .editor-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
 .billing-page {
   padding: 20px;
 }
