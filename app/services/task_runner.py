@@ -112,6 +112,10 @@ async def scheduler_loop() -> None:
     while True:
         try:
             now = datetime.now()
+            # This service owns its cross-process locks and retries; no external notifications are sent.
+            from app.services.crm_billing import run_due_plans
+
+            await run_due_plans()
             if not _remote_hands_plan_notification_running:
                 _remote_hands_plan_notification_running = True
                 asyncio.create_task(run_remote_hands_plan_notifications(now))

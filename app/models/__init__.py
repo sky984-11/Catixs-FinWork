@@ -12,5 +12,6 @@ from .tg_assistant import *
 from .customer_center import *
 from .product_center import *
 from .product_order import *
+from .crm_billing import *
 from .vendor_contact import *
 from .idc import *

@@ -1,0 +1,138 @@
+# 订单账单管理
+
+对应《IDC 行业 CRM 产品需求规格说明书 V1.0》M06-01、M06-02、M06-03，并按本次确认加入自动定时出账。入口：**产品中心 → 账单管理**（`/product-center/billing`）。
+
+## 使用流程
+
+1. 在订单管理配置客户、产品/规格、数量及 MRC/NRC 单价。
+2. 点击“从订单出账 / 建立计划”，选择同一客户的订单、出账币种、账期和服务有效期，填写税率、折扣/变更差额及汇率，预览金额。
+3. “生成账单草稿”用于手动出账；“建立自动出账计划”保存价格及计费规则快照，按账期持续生成草稿。二者择一，避免同一账期重复出账。
+4. 草稿可调整名称、到期日、折扣/差额、税率及汇率。财务审核锁定后金额不可直接修改。
+5. 登记同币种收款，可部分核销；误登记通过冲销处理，不删除原流水。未收款或全部收款已冲销的账单可作废，作废保留历史并释放账期。
+6. 查看分币种应收/已收/逾期、逾期天数及催收次数。催收操作仅记录跟进，不发送邮件或消息。详情支持导出 CSV 明细。
+
+## 计费口径
+
+- 金额均用 Decimal 按 `ROUND_HALF_UP` 保留两位小数，每条费用先舍入再汇总。接口金额为十进制字符串，避免前端浮点误差。
+- MRC = 订单中已确认的每单位月费 × 数量 × 折算月数；公共价格变化不会覆盖订单快照。
+- 自然月按各自然月的有效天数 / 当月总天数分段相加。首末日均包含；例如 11 月 16–30 日系数为 15/30。
+- 周年日按服务开始日对齐月周期，月底自动夹到当月最后一天，并始终使用原始锚点；1 月 31 日的季度截至 4 月 29 日，下一期从 4 月 30 日开始。
+- 月数支持 1、3、6、12、24、36。有效计费区间为账期与服务有效期交集。当前订单尚无开通/验收日期，必须由操作人员填写已确认的服务计费起止日；起止日不同的订单分别出账。
+- NRC = 订单中每单位一次性费用 × 数量。同一订单、产品、规格、币种在非作废账单中最多计收一次；草稿也预占 NRC，避免并发重复出账。取消“首次收取 NRC”则本次不收。新增产品组合可独立计收 NRC。
+- 每次只生成一个客户、一种币种的账单。混合币种订单分别选择币种出账，不合并不同币种金额。
+- 应收 =（费用小计 − 折扣 + 变更差额）+ 税额；税额按折扣/差额后的金额计算。折扣或差额不为零时必须写明原因，结果不得为负。
+- 本位币金额 = 应收 × 汇率。固定保存币种、汇率、来源、日期及结果，同币种汇率必须为 1；不联网取价、不覆盖历史汇率。
+- 收款仅接受账单币种；跨币种回款需先在财务侧完成换汇。本模块不处理支付通道、税务发票、ERP 总账或 95th/流量采集，亦不将占位数据当成真实用量。
+
+例如 USD MRC 1,350 × 3 个、NRC 100 × 3 个：完整自然月小计 4,350；若从 11 月 16 日计费，MRC 为 2,025，NRC 为 300，小计 2,325。折扣 25、差额 +10、税率 10% 后应收 2,541；按 7 换算 CNY 为 17,787。
+
+## 自动计划
+
+- 接入现有 `app/services/task_runner.py` 调度循环，每 60 秒扫描最多 50 个到期计划，使用 `Asia/Shanghai` 日期。后台进程须持续运行。
+- 预付：账期开始日出账；后付：完整账期结束次日出账。服务结束日用于末期折算，末期完成后自动停用。
+- 一个计划可包含同客户多订单，且只使用一种币种。订单价格、数量、产品规格、计费规则、折扣、税率及汇率在计划建立时冻结；名称为计划/账单名称。
+- 创建计划时“账单日期 → 到期日”的天数作为后续付款账期；每次按实际计划出账日期平移到期日。汇率来源和日期保留原快照，须由财务按合同复核。变价或变更规则时停用旧计划，从未出账账期新建计划。
+- 停机恢复后每次扫描每个计划补一期开启期间遗漏的账单；无重复收费。失败不推进账期，同一天不自动反复重试，次日再试；可在计划列表手动重试。保留失败原因。
+- 计划锁 + 订单锁 + 唯一请求编号保证重复运行、进程重启和多实例执行的幂等性。自动生成、审计及账期推进在同一事务内完成。
+- 计划创建者停用、权限撤销、客户停用/终止、账期已有手动账单等情况会阻止生成并显示错误。停用计划保留订单关联，不物理删除计划。
+
+## 权限与兼容
+
+所有路由前缀 `/api/v1/crm-billing`，均经 `DependPermission` 和登录校验。API 权限仍按“HTTP 方法 + 路由模板”分配。
+
+- 管理员和 `finance` / `财务` 角色默认获得新模块 API 权限。其他角色默认仅 GET；出账、审核、收款等写操作须单独授权。NOC 不因旧模块的管理员别名规则获得财务写权限。
+- 管理员/财务可访问全公司账单；其他已授权用户仅能访问 `CrmCustomer.sales_owner == User.username` 的客户账单和计划。现有系统没有可复用的销售团队归属映射，本模块不凭空推断团队权限。
+- 新账单复用 `CrmCustomerBill` 作为客户中心台账，另存不可变的价格/客户快照、分配记录、支付和审计。原客户详情仍能看到状态及金额，原手工账单保持兼容；旧 `/customer-center/bills/{id}` 编辑/删除接口对订单生成账单返回 409，避免绕过锁定。
+- 不迁移或重新关联旧 `/bill` 财务模块的 Company 客户数据，也不重新启用已下线的 IDC 工单出账流程。
+- 已关联账单或计划的订单不可删除或换客户。订单其他修改不覆盖已有账单、计划快照。账单、收款流水及审计不提供物理删除接口。
+
+## API
+
+| 方法 | 路由 | 参数/行为 |
+|---|---|---|
+| GET | `/bills` | `page`≥1、`page_size` 1–100、`keyword`、`customer_id`、`status`、`overdue`；分页列表及随筛选变化的分币种汇总 |
+| POST | `/preview` | `BillingGenerate`，只计算、不写数据 |
+| POST | `/generate` | 同上；`request_key` 相同且内容相同返回原账单，内容冲突返回 409 |
+| GET | `/bills/{document_id}` | 完整快照、明细、收款、审计；这里的 ID 是 document ID，`bill_id` 为原客户台账 ID |
+| PUT | `/bills/{document_id}` | `BillingTerms`；仅草稿可修改，不重读公共价格 |
+| POST | `/bills/{document_id}/actions` | `action`: `issue` / `void` / `remind`；`comment` 必填，最多 500 字 |
+| POST | `/bills/{document_id}/payments` | 收款；`reference` 在账单内唯一，完全相同重试返回原结果 |
+| POST | `/bills/{document_id}/payments/{payment_id}/reverse` | `{"reason":"冲销原因"}`；保留原支付流水 |
+| GET | `/plans` | 可见的自动出账计划，最新 500 条，含下一账期/出账日/最近错误 |
+| POST | `/plans` | `BillingGenerate`；建立快照计划，验证首期，无重复启用的订单币种计划 |
+| POST | `/plans/{plan_id}/stop` | 停用，无需请求体 |
+| POST | `/plans/{plan_id}/run` | 对已到期的启用计划检查/重试，无需请求体；不会提前出账 |
+
+`BillingGenerate` 示例（服务开始日与账期开始日可以不同；周年日模式需对齐）：
+
+```json
+{
+  "title": "2026-11 月度服务费",
+  "customer_id": 1,
+  "order_ids": [10],
+  "currency": "USD",
+  "period_start": "2026-11-01",
+  "months": 1,
+  "calendar_mode": "calendar",
+  "service_start": "2026-11-16",
+  "service_end": null,
+  "payment_timing": "prepaid",
+  "include_nrc": true,
+  "bill_date": "2026-11-01",
+  "due_date": "2026-12-01",
+  "discount": "25.00",
+  "adjustment": "10.00",
+  "adjustment_reason": "合同优惠及变更差额",
+  "tax_rate": "10",
+  "local_currency": "CNY",
+  "fx_rate": "7",
+  "fx_source": "合同约定汇率",
+  "fx_date": "2026-11-01",
+  "remark": "",
+  "request_key": "BILL-202611-CUSTOMER1-USD"
+}
+```
+
+`BillingTerms` 是上述 `title`、`bill_date`、`due_date`、`discount`、`adjustment`、`adjustment_reason`、`tax_rate`、`local_currency`、`fx_rate`、`fx_source`、`fx_date`、`remark` 字段的集合。不得提交客户、订单、账期明细或金额覆盖值。
+
+预览额外返回 `preview_token`（64 位十六进制校验值）。页面在生成账单或建立计划时回传该值；若订单价格、数量或客户资料在预览后变化，返回 409 并要求重新预览，避免实际账单金额与已确认预览不一致。手动接口调用可省略该字段，由服务端按提交时的数据计算。
+
+收款请求示例：
+
+```json
+{"reference":"BANK-20261106-001","payment_date":"2026-11-06","amount":"1000.00","currency":"USD","method":"银行转账","remark":"首笔回款"}
+```
+
+列表响应示例（节选）：
+
+```json
+{
+  "code": 200,
+  "data": [{"id": 1, "bill_id": 20, "bill_no": "INV-20261106-ABC123456789", "customer_name": "客户公司全称", "status": "partial", "currency": "USD", "amount": "2541.00", "paid_amount": "1000.00", "outstanding": "1541.00", "overdue_days": 0}],
+  "total": 1, "page": 1, "page_size": 20,
+  "summary": [{"currency":"USD","receivable":"1541.00","paid":"1000.00","overdue":"0.00"}]
+}
+```
+
+汇总不包含草稿、作废账单，不进行币种混加。状态：`draft` → `issued` → `partial` → `paid`；零金额审核后直接为 `paid`；冲销恢复未收状态；作废为 `void`。
+
+错误：401 未登录；403 路由权限或客户归属不满足；404 账单/计划/流水不存在或不可访问；409 重复账期、请求键冲突、锁定后编辑、非法状态流转、重复流水、引用保护；422 日期/金额/税率/币种不合法、未定价订单、非本客户订单、超额收款等。所有错误保留原记录，可修正后重试。
+
+## 数据库与部署验证
+
+新增 Aerich 迁移 `186_20261106120000_crm_billing.py`，由 Tortoise PostgreSQL schema generator 生成并审阅：新增 6 张表，不改写旧账单数据。包括 document、allocation、payment、audit、plan、plan_order；外键使用 RESTRICT，出账请求编号及账单内收款流水号具有唯一约束。
+
+沿用项目启动时 `command.upgrade(run_in_transaction=True)` 应用迁移，再初始化菜单/API 权限。手动迁移可在部署环境运行 `aerich upgrade`，不能在未迁移情况下单独启动调度服务。迁移降级会删除新增表，已有账务数据时不要直接 downgrade。
+
+测试命令：
+
+```powershell
+.\.venv-win\Scripts\python.exe -m unittest tests.test_crm_billing tests.test_product_orders tests.test_product_variants
+.\.venv-win\Scripts\python.exe -m py_compile app/api/v1/crm_billing.py app/services/crm_billing.py app/models/crm_billing.py app/schemas/crm_billing.py
+cd web
+npm.cmd run build
+npm.cmd run lint
+npx.cmd eslint src/api/crm-billing.js src/views/product-center/billing/index.vue
+```
+
+测试使用隔离的 SQLite 内存数据库，不接触现有账单。PostgreSQL 部署前须在测试库执行迁移和并发验收：同订单同账期两次并发生成只能生成一张；收款并发不能超过余额；计划重复调度不得重复出账；后端重启后应补齐已到期账期。

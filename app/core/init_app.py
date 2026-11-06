@@ -482,6 +482,13 @@ async def ensure_product_center_menu():
             "icon": "mdi:clipboard-list-outline",
             "component": "/product-center/orders",
         },
+        {
+            "name": "账单管理",
+            "path": "billing",
+            "order": 4,
+            "icon": "mdi:receipt-text-outline",
+            "component": "/product-center/billing",
+        },
         # {
         #     "name": "产品模板",
         #     "path": "templates",
@@ -492,6 +499,8 @@ async def ensure_product_center_menu():
     ]
     for menu_data in child_menus:
         menu = await Menu.filter(component=menu_data["component"]).first()
+        if not menu and menu_data["component"] == "/product-center/billing":
+            menu = await Menu.filter(component="/customer-center/billing").first()
         values = {
             "menu_type": MenuType.MENU,
             "name": menu_data["name"],
@@ -1434,6 +1443,7 @@ async def ensure_business_api_permissions():
         | Q(method="GET", path="/api/v1/customer-center/contacts")
         | Q(method="GET", path="/api/v1/customer-center/contracts")
         | Q(method="GET", path="/api/v1/customer-center/bills")
+        | Q(method="GET", path__startswith="/api/v1/crm-billing/")
         | Q(method="GET", path="/api/v1/customer-center/signing-entities")
         | Q(path__startswith="/api/v1/product-center/")
         | Q(method="GET", path="/api/v1/resource/free-devices")
@@ -1453,12 +1463,15 @@ async def ensure_business_api_permissions():
         | Q(path__startswith="/api/v1/product-center/")
     )
     project_menu = await Menu.filter(path="/project-board").first()
+    billing_apis = await Api.filter(path__startswith="/api/v1/crm-billing/")
     customer_center_menu = await Menu.filter(path="/customer-center").first()
     customer_center_child_menus = await Menu.filter(parent_id=customer_center_menu.id) if customer_center_menu else []
     product_center_menu = await Menu.filter(path="/product-center").first()
     product_center_child_menus = await Menu.filter(parent_id=product_center_menu.id) if product_center_menu else []
 
     for role in roles:
+        if billing_apis and str(role.name or "").strip().lower() in {"admin", "管理员", "财务", "finance"}:
+            await role.apis.add(*billing_apis)
         if read_apis:
             await role.apis.add(*read_apis)
         if customer_center_menu:

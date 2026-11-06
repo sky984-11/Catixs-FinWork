@@ -183,6 +183,11 @@ async def save_order(payload, order_id=None):
                 order = await ProductOrder.filter(id=order_id).using_db(conn).select_for_update().first()
                 if not order:
                     raise HTTPException(404, "订单不存在")
+                if payload.customer_id != order.customer_id and (
+                    await order.billing_allocations.all().using_db(conn).exists()
+                    or await order.billing_plans.all().using_db(conn).exists()
+                ):
+                    raise HTTPException(409, "订单已关联账单或计费计划，不能更换客户")
                 old_items = {
                     (item.product_id, item.variant_id): item
                     for item in await ProductOrderItem.filter(order_id=order_id).using_db(conn)
@@ -279,6 +284,11 @@ async def delete_order(order_id: int):
         order = await ProductOrder.filter(id=order_id).using_db(conn).select_for_update().first()
         if not order:
             raise HTTPException(404, "订单不存在")
+        if (
+            await order.billing_allocations.all().using_db(conn).exists()
+            or await order.billing_plans.all().using_db(conn).exists()
+        ):
+            raise HTTPException(409, "订单已关联账单或计费计划，不能删除")
         await order.delete(using_db=conn)
     logger.info("Product order deleted: order_id={}", order_id)
     return Success(msg="订单已删除", data={"id": order_id})

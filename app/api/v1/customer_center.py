@@ -65,6 +65,9 @@ CONTRACT_STATUSES = [
 ]
 BILL_STATUSES = [
     {"label": "草稿", "value": "draft"},
+    {"label": "已锁定", "value": "issued"},
+    {"label": "部分收款", "value": "partial"},
+    {"label": "已结清", "value": "paid"},
     {"label": "待结算", "value": "pending"},
     {"label": "已结算", "value": "settled"},
     {"label": "已作废", "value": "void"},
@@ -654,6 +657,10 @@ async def create_bill(payload: BillPayload):
 
 @router.put("/bills/{bill_id}", summary="编辑账单")
 async def update_bill(bill_id: int, payload: BillPayload):
+    from app.models.crm_billing import CrmBillingDocument
+
+    if await CrmBillingDocument.filter(bill_id=bill_id).exists():
+        return Fail(code=409, msg="此账单由订单出账生成，请在账单管理中操作")
     data = compact(payload.model_dump(exclude_unset=True))
     if data.get("customer_id") and not await customer_selectable(data.get("customer_id")):
         return Fail(msg="请选择有效客户，已终止客户不能继续维护账单")
@@ -664,5 +671,9 @@ async def update_bill(bill_id: int, payload: BillPayload):
 
 @router.delete("/bills/{bill_id}", summary="删除账单")
 async def delete_bill(bill_id: int):
+    from app.models.crm_billing import CrmBillingDocument
+
+    if await CrmBillingDocument.filter(bill_id=bill_id).exists():
+        return Fail(code=409, msg="订单账单不能删除，请在账单管理中作废并保留记录")
     await CrmCustomerBill.filter(id=bill_id).delete()
     return Success(msg="账单已删除")
