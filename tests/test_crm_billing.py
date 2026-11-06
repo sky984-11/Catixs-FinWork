@@ -378,6 +378,80 @@ class CrmBillingTests(unittest.IsolatedAsyncioTestCase):
         result = await self.post("generate", {**self.payload, "preview_token": refreshed["preview_token"]})
         self.assertEqual(result["amount"], "5800.00")
 
+    async def test_plan_enable_resume_and_conflict(self):
+        first = await self.post("plans", self.payload)
+        await self.post(f"plans/{first['id']}/stop", {})
+        second = await self.post("plans", self.payload)
+        await self.post(f"plans/{first['id']}/enable", {}, 409)
+        await self.post(f"plans/{second['id']}/stop", {})
+        await CrmBillingPlan.filter(id=first["id"]).update(last_attempt=date(2026, 11, 6), last_error="Failed")
+        await self.post(f"plans/{first['id']}/enable", {})
+        await self.post(f"plans/{first['id']}/enable", {})
+        saved = await CrmBillingPlan.get(id=first["id"])
+        self.assertTrue(saved.enabled)
+        self.assertIsNone(saved.last_attempt)
+        self.assertEqual(saved.last_error, "")
+        self.assertEqual(saved.next_period, date(2026, 11, 1))
+        with patch("app.services.crm_billing.today", return_value=date(2026, 11, 6)):
+            await run_due_plans()
+        self.assertEqual(await CrmBillingDocument.all().count(), 1)
+        await self.post(f"plans/{first['id']}/stop", {})
+        await self.post(f"plans/{first['id']}/enable", {})
+        self.assertEqual((await CrmBillingPlan.get(id=first["id"])).next_period, date(2026, 12, 1))
+
+    async def test_plan_deletion_stops_schedule_and_preserves_bills(self):
+        plan = await self.post("plans", self.payload)
+        with patch("app.services.crm_billing.today", return_value=date(2026, 11, 6)):
+            await run_plan(plan["id"])
+        path = f"crm-billing/plans/{plan['id']}"
+        self.assertEqual((await self.client.request("DELETE", path, json={"reason": ""})).status_code, 422)
+        response = await self.client.request("DELETE", path, json={"reason": "Stop recurring billing"})
+        self.assertEqual(response.status_code, 200, response.text)
+        saved = await CrmBillingPlan.get(id=plan["id"])
+        self.assertFalse(saved.enabled)
+        self.assertIsNotNone(saved.deleted_at)
+        self.assertEqual(saved.deleted_by_id, self.user.id)
+        self.assertEqual(saved.deletion_reason, "Stop recurring billing")
+        self.assertEqual((await self.client.get("crm-billing/plans")).json()["data"], [])
+        await self.post(f"plans/{plan['id']}/enable", {}, 404)
+        await self.post(f"plans/{plan['id']}/run", {}, 404)
+        with patch("app.services.crm_billing.today", return_value=date(2026, 12, 6)):
+            self.assertIsNone(await run_plan(plan["id"], force=True))
+            await run_due_plans()
+        self.assertEqual(await CrmBillingDocument.all().count(), 1)
+        self.assertEqual((await CrmBillingDocument.first()).lines[0]["mrc_amount"], "4050.00")
+        await self.post("plans", {**self.payload, "period_start": "2026-12-01"})
+
+    async def test_plan_enable_checks_expiry_customer_and_permissions(self):
+        plan = await self.post("plans", {**self.payload, "service_end": "2026-11-30"})
+        await self.post(f"plans/{plan['id']}/stop", {})
+        await CrmBillingPlan.filter(id=plan["id"]).update(next_period=date(2026, 12, 1))
+        await self.post(f"plans/{plan['id']}/enable", {}, 409)
+        await CrmBillingPlan.filter(id=plan["id"]).update(next_period=date(2026, 11, 1))
+        await CrmCustomer.filter(id=self.customer.id).update(status=False)
+        await self.post(f"plans/{plan['id']}/enable", {}, 422)
+        self.app.dependency_overrides.clear()
+        await self.post(f"plans/{plan['id']}/enable", {}, 401)
+        self.assertEqual(
+            (
+                await self.client.request("DELETE", f"crm-billing/plans/{plan['id']}", json={"reason": "Denied"})
+            ).status_code,
+            401,
+        )
+        self.user = await User.create(username="plan-reader", email="plan-reader@test.invalid")
+
+        async def authed():
+            return self.user
+
+        self.app.dependency_overrides[AuthControl.is_authed] = authed
+        await self.post(f"plans/{plan['id']}/enable", {}, 403)
+        self.assertEqual(
+            (
+                await self.client.request("DELETE", f"crm-billing/plans/{plan['id']}", json={"reason": "Denied"})
+            ).status_code,
+            403,
+        )
+
     async def test_soft_delete_releases_period_and_preserves_history(self):
         bill = await self.create()
         path = f"crm-billing/bills/{bill['id']}"

@@ -351,18 +351,23 @@ def plan_run_date(payload):
     return payload.period_start if payload.payment_timing == "prepaid" else period_end(payload) + timedelta(days=1)
 
 
+async def plan_user(plan):
+    user = await User.filter(id=plan.created_by_id, is_active=True).first()
+    if not user:
+        raise HTTPException(409, "计划创建者已停用，请重新建立计划")
+    if not user.is_superuser and not await has_admin_role(user):
+        if not await user.roles.filter(apis__path="/api/v1/crm-billing/plans", apis__method="POST").exists():
+            raise HTTPException(403, "计划创建者已无自动出账权限")
+    return user
+
+
 async def run_plan(plan_id, force=False):
     """Plan lock + order locks + unique request key make restarts and multiple workers safe."""
     async with in_transaction() as conn:
-        plan = await CrmBillingPlan.filter(id=plan_id).using_db(conn).select_for_update().first()
+        plan = await CrmBillingPlan.filter(id=plan_id, deleted_at=None).using_db(conn).select_for_update().first()
         if not plan or not plan.enabled or plan.next_run > today() or (plan.last_attempt == today() and not force):
             return None
-        user = await User.filter(id=plan.created_by_id, is_active=True).first()
-        if not user:
-            raise HTTPException(409, "计划创建者已停用，请停用并重新建立计划")
-        if not user.is_superuser and not await has_admin_role(user):
-            if not await user.roles.filter(apis__path="/api/v1/crm-billing/plans", apis__method="POST").exists():
-                raise HTTPException(403, "计划创建者已无自动出账权限")
+        user = await plan_user(plan)
         values = dict(plan.template)
         values["preview_token"] = None
         values.update(period_start=plan.next_period.isoformat(), request_key=f"PLAN-{plan.id}-{plan.next_period}")
@@ -388,7 +393,7 @@ async def run_plan(plan_id, force=False):
 async def run_due_plans():
     plans = (
         await CrmBillingPlan.filter(
-            Q(last_attempt=None) | ~Q(last_attempt=today()), enabled=True, next_run__lte=today()
+            Q(last_attempt=None) | ~Q(last_attempt=today()), enabled=True, deleted_at=None, next_run__lte=today()
         )
         .order_by("next_run", "id")
         .limit(50)
@@ -401,6 +406,6 @@ async def run_due_plans():
         except Exception as exc:
             # Keep a safe business error for retry; never serialize connection details or secrets.
             message = str(exc.detail) if isinstance(exc, HTTPException) else "自动出账失败，请检查计划和服务日志后重试"
-            await CrmBillingPlan.filter(id=plan.id, next_period=plan.next_period, enabled=True).update(
+            await CrmBillingPlan.filter(id=plan.id, next_period=plan.next_period, enabled=True, deleted_at=None).update(
                 last_attempt=today(), last_error=message[:500]
             )

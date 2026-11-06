@@ -42,6 +42,9 @@ class CrmBillingPlan(BaseModel, TimestampMixin):
     enabled = fields.BooleanField(default=True)
     last_attempt = fields.DateField(null=True)
     last_error = fields.CharField(max_length=500, default="")
+    deleted_at = fields.DatetimeField(null=True)
+    deleted_by_id = fields.BigIntField(null=True)
+    deletion_reason = fields.CharField(max_length=500, default="")
 
     class Meta:
         table = "crm_billing_plan"

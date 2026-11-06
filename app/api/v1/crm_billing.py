@@ -19,10 +19,12 @@ from app.schemas.crm_billing import BillingDeletion
 from app.schemas.crm_billing import BillingAction, BillingGenerate, BillingPaymentIn, BillingReversal, BillingTerms
 from app.services.crm_billing import (
     audit,
+    calculate,
     check_customer_scope,
     document_dict,
     generate,
     plan_run_date,
+    plan_user,
     privileged,
     run_plan,
     serial,
@@ -268,7 +270,7 @@ async def reverse_payment(document_id: int, payment_id: int, payload: BillingRev
 
 @router.get("/plans", summary="自动出账计划及失败状态")
 async def list_plans(user=CurrentUser):
-    query = CrmBillingPlan.all()
+    query = CrmBillingPlan.filter(deleted_at=None)
     if not await privileged(user):
         query = query.filter(customer__sales_owner=user.username)
     return Success(data=[await row.to_dict() for row in await query.order_by("-id").limit(500)])
@@ -280,9 +282,9 @@ async def create_plan(payload: BillingGenerate, user=CurrentUser):
         source, _ = await source_orders(payload, user, conn)
         # Validate first period, tax/fx and overlap before enabling automatic billing.
         await generate(payload, user, preview=True)
-        existing = await CrmBillingPlanOrder.filter(order_id__in=payload.order_ids, plan__enabled=True).select_related(
-            "plan"
-        )
+        existing = await CrmBillingPlanOrder.filter(
+            order_id__in=payload.order_ids, plan__enabled=True, plan__deleted_at=None
+        ).select_related("plan")
         for entry in existing:
             if entry.plan.template.get("currency") == payload.currency:
                 raise HTTPException(409, "该订单币种已有启用的自动出账计划，请先停用原计划")
@@ -300,8 +302,11 @@ async def create_plan(payload: BillingGenerate, user=CurrentUser):
     return Success(data=await plan.to_dict(), msg="自动出账计划已启用")
 
 
-async def require_plan(plan_id, user):
-    plan = await CrmBillingPlan.filter(id=plan_id).first()
+async def require_plan(plan_id, user, lock=False):
+    query = CrmBillingPlan.filter(id=plan_id, deleted_at=None)
+    if lock:
+        query = query.select_for_update()
+    plan = await query.first()
     if not plan:
         raise HTTPException(404, "计划不存在")
     await check_customer_scope(await CrmCustomer.get(id=plan.customer_id), user)
@@ -311,10 +316,53 @@ async def require_plan(plan_id, user):
 @router.post("/plans/{plan_id}/stop", summary="停用自动出账计划，保留历史")
 async def stop_plan(plan_id: int, user=CurrentUser):
     async with in_transaction():
-        plan = await require_plan(plan_id, user)
-        await CrmBillingPlan.filter(id=plan.id).select_for_update().first()
+        plan = await require_plan(plan_id, user, lock=True)
         await CrmBillingPlan.filter(id=plan.id).update(enabled=False)
     return Success(msg="计划已停用")
+
+
+@router.post("/plans/{plan_id}/enable", summary="重新启用自动出账计划")
+async def enable_plan(plan_id: int, user=CurrentUser):
+    async with in_transaction() as conn:
+        plan = await require_plan(plan_id, user, lock=True)
+        if plan.enabled:
+            return Success(msg="计划已启用")
+        payload = BillingGenerate.model_validate(
+            {
+                **plan.template,
+                "period_start": plan.next_period.isoformat(),
+                "preview_token": None,
+            }
+        )
+        if payload.service_end and plan.next_period > payload.service_end:
+            raise HTTPException(409, "服务已结束，没有后续可出账账期")
+        owner = await plan_user(plan)
+        source, _ = await source_orders(payload, owner, conn, plan.order_snapshot)
+        conflicts = (
+            await CrmBillingPlanOrder.filter(order_id__in=payload.order_ids, plan__enabled=True, plan__deleted_at=None)
+            .exclude(plan_id=plan.id)
+            .select_related("plan")
+        )
+        if any(entry.plan.template.get("currency") == payload.currency for entry in conflicts):
+            raise HTTPException(409, "该订单币种已有启用的自动出账计划，请先停用重复计划")
+        await calculate(payload, source)
+        plan.enabled = True
+        plan.last_attempt = None
+        plan.last_error = ""
+        await plan.save(using_db=conn)
+    return Success(msg="计划已启用，将从下个未出账账期继续执行")
+
+
+@router.delete("/plans/{plan_id}", summary="删除自动出账计划并停止后续出账")
+async def delete_plan(plan_id: int, payload: BillingDeletion, user=CurrentUser):
+    async with in_transaction():
+        plan = await require_plan(plan_id, user, lock=True)
+        plan.enabled = False
+        plan.deleted_at = datetime.now(timezone.utc)
+        plan.deleted_by_id = user.id
+        plan.deletion_reason = payload.reason
+        await plan.save()
+    return Success(msg="计划已删除，已生成账单及历史关联保留")
 
 
 @router.post("/plans/{plan_id}/run", summary="重试已到期的自动出账计划")

@@ -80,7 +80,7 @@
             :columns="planColumns"
             :data="plans"
             :loading="loading"
-            :scroll-x="1130"
+            :scroll-x="1160"
             :row-key="(row) => row.id"
           />
         </n-tab-pane>
@@ -426,7 +426,11 @@
     >
       <p>
         {{
-          confirmation.action === 'delete'
+          confirmation.action === 'enable'
+            ? '确认启用此计划？将沿用原价格及计费规则，从下个未出账账期继续执行，已到期的账期会自动补出草稿。'
+            : confirmation.action === 'plan_delete'
+            ? '确认删除此自动出账计划？删除后不再执行，已生成账单和历史关联会保留，此计划不能再启用。'
+            : confirmation.action === 'delete'
             ? '确认删除此账单？删除后从默认列表移除，可筛选“已删除”查看历史。对应账期可重新出账，自动计划仍按原进度执行。'
             : confirmation.action === 'issue'
             ? '审核后锁定金额及价格快照，不能直接修改。'
@@ -438,7 +442,7 @@
         }}
       </p>
       <n-input
-        v-if="confirmation.action !== 'stop'"
+        v-if="!['stop', 'enable'].includes(confirmation.action)"
         v-model:value="confirmation.comment"
         type="textarea"
         placeholder="请填写操作原因 / 审核意见"
@@ -521,6 +525,8 @@ const actionLabels = {
   remind: '登记催收',
   scheduled: '自动出账',
   stop: '停用计划',
+  enable: '启用计划',
+  plan_delete: '删除计划',
 }
 const customerOptions = computed(() =>
   customers.value.map((row) => ({
@@ -765,12 +771,18 @@ function ask(action, row) {
   Object.assign(confirmation, { show: true, action, row, comment: '' })
 }
 async function confirmAction() {
-  if (confirmation.action !== 'stop' && !confirmation.comment.trim())
+  if (!['stop', 'enable'].includes(confirmation.action) && !confirmation.comment.trim())
     return window.$message?.warning('请填写操作原因')
   await execute(async () => {
     const { action, row, comment } = confirmation
     if (action === 'stop') {
       await service.stopPlan(row.id)
+      await loadPlans()
+    } else if (action === 'enable') {
+      await service.enablePlan(row.id)
+      await loadPlans()
+    } else if (action === 'plan_delete') {
+      await service.deletePlan(row.id, { reason: comment })
       await loadPlans()
     } else if (action === 'delete') {
       await service.remove(row.id, { reason: comment })
@@ -796,6 +808,7 @@ function action(label, icon, callback, type = 'default') {
   const paths = {
     冲销: '/bills/{document_id}/payments/{payment_id}/reverse',
     停用: '/plans/{plan_id}/stop',
+    启用: '/plans/{plan_id}/enable',
     '检查 / 重试': '/plans/{plan_id}/run',
   }
   if (paths[label] && !can('post', paths[label])) return null
@@ -931,26 +944,31 @@ const planColumns = businessColumns([
     title: '操作',
     key: 'actions',
     fixed: 'right',
-    width: 100,
+    width: 130,
     render: (row) =>
-      row.enabled
-        ? h(
-            NSpace,
-            { wrap: false, size: 4 },
-            {
-              default: () => [
-                action('检查 / 重试', 'mdi:refresh', () =>
+      h(
+        NSpace,
+        { wrap: false, size: 4 },
+        {
+          default: () => [
+            row.enabled
+              ? action('检查 / 重试', 'mdi:refresh', () =>
                   execute(async () => {
                     const result = await service.runPlan(row.id)
                     window.$message?.success(result.msg)
                     await loadPlans()
                   })
-                ),
-                action('停用', 'mdi:stop-circle-outline', () => ask('stop', row), 'error'),
-              ],
-            }
-          )
-        : null,
+                )
+              : null,
+            row.enabled
+              ? action('停用', 'mdi:stop-circle-outline', () => ask('stop', row), 'error')
+              : action('启用', 'mdi:play-circle-outline', () => ask('enable', row), 'success'),
+            can('delete', '/plans/{plan_id}')
+              ? action('删除计划', 'mdi:trash-can-outline', () => ask('plan_delete', row), 'error')
+              : null,
+          ],
+        }
+      ),
   },
 ])
 function exportDetail() {

@@ -15,5 +15,7 @@ export default {
   plans: () => request.get(`${root}/plans`),
   createPlan: (data) => request.post(`${root}/plans`, data),
   stopPlan: (id) => request.post(`${root}/plans/${id}/stop`),
+  enablePlan: (id) => request.post(`${root}/plans/${id}/enable`),
+  deletePlan: (id, data) => request.delete(`${root}/plans/${id}`, { data }),
   runPlan: (id) => request.post(`${root}/plans/${id}/run`),
 }
