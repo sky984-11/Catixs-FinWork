@@ -359,17 +359,6 @@
             :disabled="busy"
             @save="ask('remind', detail)"
           />
-          <CButton
-            v-if="
-              detail.status !== 'void' &&
-              Number(detail.paid_amount) === 0 &&
-              can('post', '/bills/{document_id}/actions')
-            "
-            show-delete
-            delete-text="作废账单"
-            :disabled="busy"
-            @delete="ask('void', detail)"
-          />
         </n-space>
         <h3 class="gap">收款流水</h3>
         <n-data-table :data="detail.payments" :columns="paymentColumns" :scroll-x="880" />
@@ -437,10 +426,10 @@
     >
       <p>
         {{
-          confirmation.action === 'issue'
+          confirmation.action === 'delete'
+            ? '确认删除此账单？删除后从默认列表移除，可筛选“已删除”查看历史。对应账期可重新出账，自动计划仍按原进度执行。'
+            : confirmation.action === 'issue'
             ? '审核后锁定金额及价格快照，不能直接修改。'
-            : confirmation.action === 'void'
-            ? '作废后保留所有记录，该账期可以重新出账。'
             : confirmation.action === 'reverse'
             ? '冲销后恢复应收余额，原收款流水仍保留。'
             : confirmation.action === 'stop'
@@ -517,7 +506,8 @@ const statusOptions = [
   { value: 'issued', label: '已锁定 / 未收款' },
   { value: 'partial', label: '部分收款' },
   { value: 'paid', label: '已结清' },
-  { value: 'void', label: '已作废' },
+  { value: 'void', label: '历史作废' },
+  { value: 'deleted', label: '已删除' },
 ]
 const statusLabel = (value) => statusOptions.find((row) => row.value === value)?.label || value
 const actionLabels = {
@@ -525,6 +515,7 @@ const actionLabels = {
   edit: '调整草稿',
   issue: '审核锁定',
   void: '作废账单',
+  delete: '删除账单',
   payment: '登记收款',
   reverse: '冲销收款',
   remind: '登记催收',
@@ -781,6 +772,14 @@ async function confirmAction() {
     if (action === 'stop') {
       await service.stopPlan(row.id)
       await loadPlans()
+    } else if (action === 'delete') {
+      await service.remove(row.id, { reason: comment })
+      if (detail.value?.id === row.id) detailShow.value = false
+      await loadBills()
+      if (!rows.value.length && page.value > 1) {
+        page.value -= 1
+        await loadBills()
+      }
     } else {
       const result =
         action === 'reverse'
@@ -853,8 +852,20 @@ const columns = businessColumns([
     title: '操作',
     key: 'actions',
     fixed: 'right',
-    width: 70,
-    render: (row) => action('详情', 'mdi:eye-outline', () => openDetail(row)),
+    width: 100,
+    render: (row) =>
+      h(
+        NSpace,
+        { wrap: false, size: 4 },
+        {
+          default: () => [
+            action('详情', 'mdi:eye-outline', () => openDetail(row)),
+            ['draft', 'void'].includes(row.status) && can('delete', '/bills/{document_id}')
+              ? action('删除', 'mdi:trash-can-outline', () => ask('delete', row), 'error')
+              : null,
+          ],
+        }
+      ),
   },
 ])
 const lineColumns = businessColumns([

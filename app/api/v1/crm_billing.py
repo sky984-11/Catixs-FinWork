@@ -15,6 +15,7 @@ from app.models.crm_billing import (
 )
 from app.models.customer_center import CrmCustomer
 from app.schemas.base import Success, SuccessExtra
+from app.schemas.crm_billing import BillingDeletion
 from app.schemas.crm_billing import BillingAction, BillingGenerate, BillingPaymentIn, BillingReversal, BillingTerms
 from app.services.crm_billing import (
     audit,
@@ -73,13 +74,15 @@ async def list_bills(
         query = query.filter(bill__customer_id=customer_id)
     if status:
         query = query.filter(bill__status=status)
+    else:
+        query = query.exclude(bill__status="deleted")
     if overdue:
         query = query.filter(bill__status__in=["issued", "partial"], bill__due_date__lt=today())
     count = await query.count()
     rows = await query.order_by("-id").offset((page - 1) * page_size).limit(page_size)
     grouped = {}
     for row in await query.values("bill__currency", "bill__status", "bill__amount", "paid_amount", "bill__due_date"):
-        if row["bill__status"] in ("draft", "void"):
+        if row["bill__status"] in ("draft", "void", "deleted"):
             continue
         group = grouped.setdefault(
             row["bill__currency"], {"receivable": Decimal(0), "paid": Decimal(0), "overdue": Decimal(0)}
@@ -156,11 +159,13 @@ async def edit_bill(document_id: int, payload: BillingTerms, user=CurrentUser):
     return Success(data=await document_dict(document, True))
 
 
-@router.post("/bills/{document_id}/actions", summary="审核锁定、作废或记录催收")
+@router.post("/bills/{document_id}/actions", summary="审核锁定或记录催收")
 async def bill_action(document_id: int, payload: BillingAction, user=CurrentUser):
     async with in_transaction():
         document = await require_document(document_id, user, True)
         bill = await document.bill
+        if bill.status == "deleted":
+            raise HTTPException(409, "账单已删除，不能再操作")
         before = await document_dict(document)
         if payload.action == "issue":
             if bill.status != "draft":
@@ -168,11 +173,6 @@ async def bill_action(document_id: int, payload: BillingAction, user=CurrentUser
             bill.status = "paid" if bill.amount == 0 else "issued"
             bill.is_settled = bill.amount == 0
             document.issued_at = datetime.now(timezone.utc)
-        elif payload.action == "void":
-            if bill.status == "void" or document.paid_amount > 0:
-                raise HTTPException(409, "已作废或尚有收款的账单不能作废；请先冲销收款")
-            bill.status = "void"
-            bill.is_settled = False
         else:
             if bill.status not in ("issued", "partial") or bill.due_date >= today():
                 raise HTTPException(409, "仅逾期未结清账单可登记催收")
@@ -181,6 +181,23 @@ async def bill_action(document_id: int, payload: BillingAction, user=CurrentUser
         await document.save()
         await audit(document, user, payload.action, before, await document_dict(document), payload.comment)
     return Success(data=await document_dict(document, True))
+
+
+@router.delete("/bills/{document_id}", summary="删除草稿或已作废账单，保留审计历史")
+async def delete_bill(document_id: int, payload: BillingDeletion, user=CurrentUser):
+    async with in_transaction():
+        document = await require_document(document_id, user, True)
+        bill = await document.bill
+        if bill.status == "deleted":
+            return Success(msg="账单已删除")
+        if bill.status not in ("draft", "void") or document.paid_amount != 0:
+            raise HTTPException(409, "仅草稿或已作废且无未冲销收款的账单可删除")
+        before = await document_dict(document)
+        bill.status = "deleted"
+        bill.is_settled = False
+        await bill.save()
+        await audit(document, user, "delete", before, await document_dict(document), payload.reason)
+    return Success(msg="账单已删除，历史记录已保留")
 
 
 @router.post("/bills/{document_id}/payments", summary="登记收款，支持部分付款与幂等核销")

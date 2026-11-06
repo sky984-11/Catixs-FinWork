@@ -139,7 +139,7 @@ class CrmBillingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await CrmBillingPayment.all().count(), 1)
         await self.post(path, {**payment, "reference": "BANK-2", "amount": "3350.01"}, 422)
         await self.post(path, {**payment, "reference": "BANK-2", "currency": "CNY"}, 422)
-        await self.action(bill, "void", 409)
+        await self.action(bill, "void", 422)
         completed = await self.post(path, {**payment, "reference": "BANK-2", "amount": "3350"})
         self.assertEqual(completed["status"], "paid")
         self.assertTrue(completed["is_settled"])
@@ -194,10 +194,12 @@ class CrmBillingTests(unittest.IsolatedAsyncioTestCase):
             409,
         )
         self.assertEqual((await self.client.delete(f"product-center/orders/{self.order.id}")).status_code, 409)
-        await self.action(bill, "void")
+        await self.action(bill, "void", 422)
+        # Historical void records remain readable and do not reserve a billing period.
+        await CrmCustomerBill.filter(id=bill["bill_id"]).update(status="void")
         replacement = await self.create(request_key="TEST-REPLACEMENT")
         self.assertEqual(replacement["amount"], "4350.00")
-        self.assertGreater(await CrmBillingAudit.all().count(), 3)
+        self.assertGreaterEqual(await CrmBillingAudit.all().count(), 3)
 
     async def test_validation_scope_and_unpriced_orders(self):
         for changes in (
@@ -375,6 +377,56 @@ class CrmBillingTests(unittest.IsolatedAsyncioTestCase):
         refreshed = await self.post("preview", self.payload)
         result = await self.post("generate", {**self.payload, "preview_token": refreshed["preview_token"]})
         self.assertEqual(result["amount"], "5800.00")
+
+    async def test_soft_delete_releases_period_and_preserves_history(self):
+        bill = await self.create()
+        path = f"crm-billing/bills/{bill['id']}"
+        self.assertEqual((await self.client.request("DELETE", path, json={"reason": " "})).status_code, 422)
+        for _ in range(2):
+            response = await self.client.request("DELETE", path, json={"reason": "Wrong billing period"})
+            self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual((await self.client.get("crm-billing/bills")).json()["total"], 0)
+        archived = (await self.client.get("crm-billing/bills", params={"status": "deleted"})).json()
+        self.assertEqual(archived["total"], 1)
+        self.assertEqual(archived["summary"], [])
+        self.assertEqual(archived["data"][0]["outstanding"], "0.00")
+        self.assertEqual((await self.client.get("customer-center/bills")).json()["total"], 0)
+        detail = (await self.client.get(path)).json()["data"]
+        self.assertEqual(detail["status"], "deleted")
+        self.assertEqual(len(detail["lines"]), 1)
+        self.assertEqual(await CrmBillingAudit.filter(document_id=bill["id"], action="delete").count(), 1)
+        self.assertEqual(detail["audits"][0]["comment"], "Wrong billing period")
+        await self.action(bill, "void", 422)
+        await self.post("generate", self.payload, 409)
+        replacement = await self.create(request_key="AFTER-DELETE")
+        self.assertEqual(replacement["amount"], "4350.00")
+        self.assertEqual(await CrmBillingDocument.all().count(), 2)
+
+    async def test_delete_requires_permission_and_preserves_historical_void_support(self):
+        bill = await self.create()
+        path = f"crm-billing/bills/{bill['id']}"
+        await self.action(bill, "issue")
+        self.assertEqual((await self.client.request("DELETE", path, json={"reason": "Invalid"})).status_code, 409)
+        await self.action(bill, "void", 422)
+        await CrmCustomerBill.filter(id=bill["bill_id"]).update(status="void")
+        self.assertEqual((await self.client.request("DELETE", path, json={"reason": "Archive"})).status_code, 200)
+        self.app.dependency_overrides.clear()
+        self.assertEqual((await self.client.request("DELETE", path, json={"reason": "Denied"})).status_code, 401)
+        self.user = await User.create(username="reader", email="reader@test.invalid")
+
+        async def authed():
+            return self.user
+
+        self.app.dependency_overrides[AuthControl.is_authed] = authed
+        self.assertEqual((await self.client.request("DELETE", path, json={"reason": "Denied"})).status_code, 403)
+        role = await Role.create(name="reader")
+        await self.user.roles.add(role)
+        await role.apis.add(
+            await Api.create(
+                method="DELETE", path="/api/v1/crm-billing/bills/{document_id}", summary="Delete", tags="Billing"
+            )
+        )
+        self.assertEqual((await self.client.request("DELETE", path, json={"reason": "Other owner"})).status_code, 404)
 
     async def test_concurrent_requests_are_not_double_charged(self):
         responses = await asyncio.gather(

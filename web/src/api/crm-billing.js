@@ -7,6 +7,7 @@ export default {
   preview: (data) => request.post(`${root}/preview`, data),
   generate: (data) => request.post(`${root}/generate`, data),
   update: (id, data) => request.put(`${root}/bills/${id}`, data),
+  remove: (id, data) => request.delete(`${root}/bills/${id}`, { data }),
   action: (id, data) => request.post(`${root}/bills/${id}/actions`, data),
   payment: (id, data) => request.post(`${root}/bills/${id}/payments`, data),
   reverse: (id, paymentId, data) =>

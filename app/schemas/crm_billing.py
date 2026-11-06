@@ -63,7 +63,7 @@ class BillingGenerate(BillingTerms):
 
 
 class BillingAction(BillingBase):
-    action: Literal["issue", "void", "remind"]
+    action: Literal["issue", "remind"]
     comment: str = Field(min_length=1, max_length=500)
 
 
@@ -83,4 +83,8 @@ class BillingPaymentIn(BillingBase):
 
 
 class BillingReversal(BillingBase):
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class BillingDeletion(BillingBase):
     reason: str = Field(min_length=1, max_length=500)

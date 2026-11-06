@@ -192,7 +192,7 @@ async def calculate(payload, source):
         raise HTTPException(422, "账期与服务有效期没有交集")
     allocations = (
         await CrmBillingAllocation.filter(order_id__in=payload.order_ids, currency=payload.currency)
-        .exclude(document__bill__status="void")
+        .exclude(document__bill__status__in=["void", "deleted"])
         .select_related("document__bill")
     )
     for entry in allocations:
@@ -246,6 +246,8 @@ async def generate(payload, user, preview=False, frozen_source=None):
         source, customer = await source_orders(payload, user, conn, frozen_source)
         existing = await CrmBillingDocument.filter(request_key=payload.request_key).first()
         if existing and not preview:
+            if (await existing.bill).status == "deleted":
+                raise HTTPException(409, "原出账请求对应账单已删除，请使用新请求编号重新出账")
             if existing.request_hash != fingerprint:
                 raise HTTPException(409, "出账请求编号已被其他内容使用，请重新预览")
             return existing
@@ -316,7 +318,7 @@ async def document_dict(document, detail=False):
             "period_start": document.period_start,
             "period_end": document.period_end,
             "paid_amount": document.paid_amount,
-            "outstanding": outstanding if bill.status != "void" else Decimal(0),
+            "outstanding": outstanding if bill.status not in ("void", "deleted") else Decimal(0),
             "overdue_days": overdue,
             "reminder_level": document.reminder_level,
         }

@@ -234,7 +234,7 @@ async def customer_dict(customer: CrmCustomer, include_counts: bool = False) -> 
     if include_counts:
         data["contact_count"] = await CrmCustomerContact.filter(customers__id=customer.id).distinct().count()
         data["contract_count"] = await CrmCustomerContract.filter(customer_id=customer.id).count()
-        data["bill_count"] = await CrmCustomerBill.filter(customer_id=customer.id).count()
+        data["bill_count"] = await CrmCustomerBill.filter(customer_id=customer.id).exclude(status="deleted").count()
     return data
 
 
@@ -322,7 +322,7 @@ async def dashboard():
                 status__in=["active", "expiring"],
             ).count(),
             "contacts": await CrmCustomerContact.all().count(),
-            "unsettled_bills": await CrmCustomerBill.filter(is_settled=False).count(),
+            "unsettled_bills": await CrmCustomerBill.filter(is_settled=False).exclude(status="deleted").count(),
         }
     )
 
@@ -476,7 +476,7 @@ async def get_customer(customer_id: int):
     data = await customer_dict(customer, include_counts=True)
     contacts = await CrmCustomerContact.filter(customers__id=customer_id).distinct().order_by("role", "name")
     contracts = await CrmCustomerContract.filter(customer_id=customer_id).order_by("-expiry_date", "-id")
-    bills = await CrmCustomerBill.filter(customer_id=customer_id).order_by("-bill_date", "-id")
+    bills = await CrmCustomerBill.filter(customer_id=customer_id).exclude(status="deleted").order_by("-bill_date", "-id")
     data["contacts"] = [await contact_dict(item) for item in contacts]
     data["contracts"] = [await contract_dict(item) for item in contracts]
     data["bills"] = [await bill_dict(item) for item in bills]
@@ -638,7 +638,7 @@ async def delete_contract(contract_id: int):
 
 @router.get("/bills", summary="客户账单列表")
 async def list_bills(page: int = Query(1), page_size: int = Query(20), customer_id: int | None = Query(None)):
-    q = Q()
+    q = ~Q(status="deleted")
     if customer_id:
         q &= Q(customer_id=customer_id)
     total = await CrmCustomerBill.filter(q).count()
