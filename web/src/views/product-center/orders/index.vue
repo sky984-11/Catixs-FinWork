@@ -130,6 +130,10 @@
               <div v-if="item.base_mrc != null" class="detail-price-base">
                 公共价格 {{ item.currency }} {{ displayMoney(item.base_mrc) }}
               </div>
+              <div class="mrc-subtotal">
+                月费小计：{{ item.currency }} {{ displayMoney(mrcSubtotal(item)) }}
+                <span>（单价 × {{ item.quantity }}）</span>
+              </div>
             </div>
             <div class="detail-price">
               <div class="detail-price-label">NRC <span>每单位一次性费用</span></div>
@@ -280,6 +284,10 @@
                     :readonly="editor.readonly"
                     :disabled="editor.readonly ? false : busy || !item.price_version_id"
                   />
+                  <div class="mrc-subtotal" aria-live="polite">
+                    月费小计：{{ item.currency }} {{ displayMoney(mrcSubtotal(item)) }}
+                    <span>（单价 × {{ item.quantity }}）</span>
+                  </div>
                 </label>
                 <label
                   >NRC（每单位一次性费用）
@@ -360,6 +368,19 @@ function displayMoney(value) {
   if (value === null || value === undefined || value === '') return '—'
   const [integer, fraction = ''] = String(value).split('.')
   return `${integer.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${fraction.padEnd(2, '0')}`
+}
+function mrcSubtotal(item) {
+  const value = item.mrc === null || item.mrc === '' ? item.base_mrc : item.mrc
+  if (
+    value == null ||
+    !/^(?:0|[1-9]\d{0,13})(?:\.\d{1,2})?$/.test(String(value)) ||
+    !Number.isInteger(item.quantity) ||
+    item.quantity < 1
+  )
+    return null
+  const [integer, fraction = ''] = String(value).split('.')
+  const cents = (BigInt(integer) * 100n + BigInt(fraction.padEnd(2, '0'))) * BigInt(item.quantity)
+  return `${cents / 100n}.${String(cents % 100n).padStart(2, '0')}`
 }
 const service = api.productCenterApi
 const rows = ref([]),
@@ -829,6 +850,16 @@ onMounted(reload)
 </script>
 
 <style scoped>
+.mrc-subtotal {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.mrc-subtotal span {
+  font-weight: 400;
+  opacity: 0.65;
+}
 .detail-specs {
   display: flex;
   flex-wrap: wrap;
