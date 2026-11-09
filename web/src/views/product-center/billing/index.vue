@@ -108,14 +108,14 @@
             {{
               editor.id
                 ? '保存后仍为草稿，审核锁定后进入应收。'
-                : '填写出账信息 → 预览金额 → 生成草稿或建立自动计划'
+                : '选择订单 → 确认服务开始日 → 预览并建立计划'
             }}
           </p>
         </div>
       </div>
       <n-alert v-if="!editor.id" type="info" class="gap">
-        选择订单后自动带入名称、币种和统一结算周期。账期自动对齐，出账日期按预付 /
-        后付联动，到期日默认顺延 30 天；手动修改名称、周期、账单日期或本位币后将保留你的设置。
+        名称、币种和周期自动跟随订单，默认按自然月计费，付款期限为 30
+        天。特殊约定可在“更多设置”中调整。
         <div v-if="selectedDefaults.currencies.length > 1">
           所选订单包含 {{ selectedDefaults.currencies.join(' / ') }}，本次仅收取
           {{ form.currency }}，其他币种需另行出账。
@@ -124,6 +124,16 @@
           当前币种的订单结算周期不一致，请确认本次计费周期。
         </div>
       </n-alert>
+      <div v-if="!editor.id" class="gap">
+        <CButton
+          show-save
+          :save-text="showAdvanced ? '收起更多设置' : '更多设置'"
+          :disabled="busy"
+          @save="showAdvanced = !showAdvanced"
+        >
+          <template #save-icon><TheIcon icon="mdi:tune" :size="18" /></template>
+        </CButton>
+      </div>
       <n-form label-placement="top" :disabled="busy" class="billing-editor-form">
         <section class="editor-section" aria-label="基本信息">
           <div class="section-heading">
@@ -134,7 +144,10 @@
             </div>
           </div>
           <div class="form-grid">
-            <n-form-item label="账单名称" required
+            <n-form-item
+              v-if="editor.id || showAdvanced || (form.order_ids.length && !form.title)"
+              label="账单名称"
+              required
               ><template #label
                 ><BillingFieldLabel label="账单名称" :help="fieldHelp.title" /></template
               ><n-input
@@ -165,7 +178,10 @@
                 placeholder="选择同一客户的订单"
                 @update:value="syncOrders"
             /></n-form-item>
-            <n-form-item v-if="!editor.id" label="出账币种" required
+            <n-form-item
+              v-if="!editor.id && (showAdvanced || billingCurrencies.length > 1)"
+              label="出账币种"
+              required
               ><template #label
                 ><BillingFieldLabel label="出账币种" :help="fieldHelp.currency" /></template
               ><n-select
@@ -179,12 +195,12 @@
           <div class="section-heading">
             <span class="section-marker"></span>
             <div>
-              <h3>计费规则</h3>
-              <p>设置账期与服务时间，计算实际应收费用。</p>
+              <h3>服务时间</h3>
+              <p>确认实际开始收费的日期，首期费用自动按天折算。</p>
             </div>
           </div>
           <div class="form-grid">
-            <n-form-item v-if="!editor.id" label="计费方式"
+            <n-form-item v-if="!editor.id && showAdvanced" label="计费方式"
               ><template #label
                 ><BillingFieldLabel label="计费方式" :help="fieldHelp.calendar_mode" /></template
               ><n-select
@@ -195,7 +211,14 @@
                 ]"
                 @update:value="(value) => updateField('calendar_mode', value)"
             /></n-form-item>
-            <n-form-item v-if="!editor.id" label="计费周期"
+            <n-form-item
+              v-if="
+                !editor.id &&
+                (showAdvanced ||
+                  selectedDefaults.mixedPeriods ||
+                  (form.order_ids.length && !form.months))
+              "
+              label="计费周期"
               ><template #label
                 ><BillingFieldLabel label="计费周期" :help="fieldHelp.months" /></template
               ><n-select
@@ -203,7 +226,7 @@
                 :options="[1, 3, 6, 12, 24, 36].map((value) => ({ value, label: `${value} 个月` }))"
                 @update:value="(value) => updateField('months', value)"
             /></n-form-item>
-            <n-form-item v-if="!editor.id" label="账期开始日" required
+            <n-form-item v-if="!editor.id && showAdvanced" label="账期开始日" required
               ><template #label
                 ><BillingFieldLabel label="账期开始日" :help="fieldHelp.period_start" /></template
               ><n-date-picker
@@ -224,7 +247,7 @@
                 type="date"
                 @update:formatted-value="(value) => updateField('service_start', value)"
             /></n-form-item>
-            <n-form-item v-if="!editor.id" label="服务结束日（可选，含当天）"
+            <n-form-item v-if="!editor.id && showAdvanced" label="服务结束日（可选，含当天）"
               ><template #label
                 ><BillingFieldLabel
                   label="服务结束日（可选，含当天）"
@@ -235,7 +258,7 @@
                 value-format="yyyy-MM-dd"
                 type="date"
             /></n-form-item>
-            <n-form-item v-if="!editor.id" label="首次收取 NRC"
+            <n-form-item v-if="!editor.id && showAdvanced" label="首次收取 NRC"
               ><template #label
                 ><BillingFieldLabel label="首次收取 NRC" :help="fieldHelp.include_nrc" /></template
               ><n-switch v-model:value="form.include_nrc" /><span class="hint inline"
@@ -264,7 +287,7 @@
                 ]"
                 @update:value="(value) => updateField('payment_timing', value)"
             /></n-form-item>
-            <n-form-item label="账单日期" required
+            <n-form-item v-if="editor.id || showAdvanced" label="账单日期" required
               ><template #label
                 ><BillingFieldLabel label="账单日期" :help="fieldHelp.bill_date" /></template
               ><n-date-picker
@@ -273,7 +296,7 @@
                 type="date"
                 @update:formatted-value="(value) => updateField('bill_date', value)"
             /></n-form-item>
-            <n-form-item label="付款到期日" required
+            <n-form-item v-if="editor.id || showAdvanced" label="付款到期日" required
               ><template #label
                 ><BillingFieldLabel label="付款到期日" :help="fieldHelp.due_date" /></template
               ><n-date-picker
@@ -284,7 +307,7 @@
             /></n-form-item>
           </div>
         </section>
-        <section class="editor-section" aria-label="金额调整">
+        <section v-if="editor.id || showAdvanced" class="editor-section" aria-label="金额调整">
           <div class="section-heading">
             <span class="section-marker"></span>
             <div>
@@ -319,44 +342,15 @@
             /></n-form-item>
           </div>
         </section>
-        <section class="editor-section" aria-label="汇率与备注">
+        <section v-if="editor.id || showAdvanced" class="editor-section" aria-label="备注">
           <div class="section-heading">
             <span class="section-marker"></span>
             <div>
-              <h3>汇率与备注</h3>
-              <p>记录本位币换算依据及补充说明。</p>
+              <h3>备注</h3>
+              <p>记录账单补充说明。</p>
             </div>
           </div>
           <div class="form-grid">
-            <n-form-item label="本位币"
-              ><template #label
-                ><BillingFieldLabel label="本位币" :help="fieldHelp.local_currency" /></template
-              ><n-select
-                v-model:value="form.local_currency"
-                :options="currencies"
-                @update:value="(value) => updateField('local_currency', value)"
-            /></n-form-item>
-            <n-form-item label="汇率（1 账单币 = 本位币金额）"
-              ><template #label
-                ><BillingFieldLabel
-                  label="汇率（1 账单币 = 本位币金额）"
-                  :help="fieldHelp.fx_rate" /></template
-              ><n-input v-model:value="form.fx_rate"
-            /></n-form-item>
-            <n-form-item label="汇率来源" required
-              ><template #label
-                ><BillingFieldLabel label="汇率来源" :help="fieldHelp.fx_source" /></template
-              ><n-input v-model:value="form.fx_source" :maxlength="160"
-            /></n-form-item>
-            <n-form-item label="汇率日期" required
-              ><template #label
-                ><BillingFieldLabel label="汇率日期" :help="fieldHelp.fx_date" /></template
-              ><n-date-picker
-                v-model:formatted-value="form.fx_date"
-                value-format="yyyy-MM-dd"
-                type="date"
-                @update:formatted-value="(value) => updateField('fx_date', value)"
-            /></n-form-item>
             <n-form-item label="备注" class="wide"
               ><template #label
                 ><BillingFieldLabel label="备注" :help="fieldHelp.remark" /></template
@@ -365,14 +359,23 @@
           </div>
         </section>
       </n-form>
-      <div v-if="!editor.id" class="editor-notes">
+      <n-alert v-if="!editor.id && form.order_ids.length" type="info" class="gap">
+        {{ form.title }} · {{ form.currency || '待选择币种' }} ·
+        {{ form.months ? `每 ${form.months} 个月出账` : '待确认周期' }}
+        <div>
+          {{ form.calendar_mode === 'calendar' ? '自然月计费' : '周年日计费' }} · 首期账期
+          {{ form.period_start || '待确认' }} · 出账 {{ form.bill_date || '待确认' }} · 到期
+          {{ form.due_date || '待确认' }}
+        </div>
+      </n-alert>
+      <div v-if="!editor.id && showAdvanced" class="editor-notes">
         <p>
           <strong>计费说明</strong>服务日期适用于所选订单，起止日期不同请分别出账。MRC = 单价 × 数量
           × 月数折算系数；NRC = 单价 × 数量。多币种需分别出账。
         </p>
         <p>
           <strong>自动计划</strong
-          >固定当前价格、折扣、税率及汇率，并沿用付款期限。变价时请停用旧计划后新建；跨币种汇率需定期复核。
+          >固定当前价格、折扣及税率，并沿用付款期限。变价时请停用旧计划后新建。
         </p>
       </div>
       <div v-if="preview" class="editor-section preview">
@@ -382,8 +385,7 @@
         <n-data-table :columns="lineColumns" :data="preview.lines" :scroll-x="1140" />
         <p class="amounts">
           小计 {{ money(preview.subtotal) }} · 税额 {{ money(preview.tax_amount) }} ·
-          <strong>应收 {{ money(preview.amount) }}</strong> · 本位币 {{ form.local_currency }}
-          {{ money(preview.local_amount) }}
+          <strong>应收 {{ money(preview.amount) }}</strong>
         </p>
       </div>
       <template #footer>
@@ -487,10 +489,6 @@
           {{ money(detail.adjustment) }} + 税额 {{ money(detail.tax_amount) }}（{{
             detail.tax_rate
           }}%）
-        </p>
-        <p class="hint">
-          本位币 {{ detail.local_currency }} {{ money(detail.local_amount) }} · 汇率
-          {{ detail.fx_rate }} · 来源 {{ detail.fx_source }} · {{ detail.fx_date }}
         </p>
         <p v-if="detail.settings.adjustment_reason">
           调整原因：{{ detail.settings.adjustment_reason }}
@@ -698,14 +696,6 @@ const fieldHelp = {
     '输入百分比数值，例如 6 表示 6%，不收税填 0。税额按“费用小计 − 折扣 + 变更差额”计算后加到应收金额中。',
   adjustment_reason:
     '说明折扣或变更差额的依据，例如合同优惠、服务变更补差。只要折扣或差额不为 0 就必须填写，保存到记录中方便追溯。',
-  local_currency:
-    '财务汇总使用的本位币。账单本身仍按出账币种收费；本位币金额等于账单应收金额乘以汇率。与出账币种相同时，汇率填 1。',
-  fx_rate:
-    '表示 1 单位账单币可换算成多少本位币。例如账单为 USD、本位币为 CNY，填 7 表示 1 USD = 7 CNY。同币种必须填 1，不自动获取实时汇率。',
-  fx_source:
-    '填写汇率依据，例如“合同约定汇率”或“某银行当日牌价”；同币种填“同币种”。用于追溯，不会自动查询该来源。',
-  fx_date:
-    '记录所用汇率对应的日期，不参与服务费用或逾期天数计算。自动计划沿用此汇率及日期快照，财务需按约定复核。',
   remark: '补充账单或收款说明，便于后续查询，不参与费用计算。',
   reference:
     '银行或其他渠道的收款流水号。同一账单内不能重复使用；完全相同的请求重试不会重复核销，已冲销的流水号也不能重新使用。',
@@ -740,6 +730,7 @@ const error = ref(''),
 const busy = computed(() => saving.value)
 const query = reactive({ keyword: '', customer_id: null, status: null, overdue: false })
 const editor = reactive({ show: false, id: null })
+const showAdvanced = ref(false)
 const form = reactive({}),
   preview = ref(null),
   previewPayload = ref(null)
@@ -747,7 +738,6 @@ const detail = ref(null),
   detailShow = ref(false),
   paymentForm = reactive({ show: false })
 const confirmation = reactive({ show: false, action: '', row: null, comment: '' })
-const currencies = ['CNY', 'USD', 'EUR', 'JPY', 'HKD'].map((value) => ({ value, label: value }))
 const statusOptions = [
   { value: 'draft', label: '草稿' },
   { value: 'issued', label: '已锁定 / 未收款' },
@@ -799,7 +789,6 @@ function dateString(date = new Date()) {
 }
 const manualFields = new Set()
 let paymentDays = 30
-let exchangePair = ''
 const selectedOrders = computed(() =>
   orders.value.filter((row) => form.order_ids?.includes(row.id))
 )
@@ -810,18 +799,12 @@ const billingCurrencies = computed(() =>
 function autoSet(name, value) {
   if (!manualFields.has(name)) form[name] = value
 }
+// 保留接口兼容字段，新账单按出账币种记录，不做币种换算。
 function syncRates() {
-  if (form.currency) autoSet('local_currency', form.currency)
-  const pair = `${form.currency}/${form.local_currency}`
-  if (form.currency && form.local_currency === form.currency) {
-    form.fx_rate = '1'
-    form.fx_source = '同币种'
-  } else if (pair !== exchangePair || form.fx_source === '同币种') {
-    form.fx_rate = ''
-    form.fx_source = ''
-  }
-  exchangePair = pair
-  autoSet('fx_date', form.bill_date)
+  form.local_currency = form.currency
+  form.fx_rate = '1'
+  form.fx_source = '同币种'
+  form.fx_date = form.bill_date
 }
 function syncDates() {
   if (editor.id) return
@@ -919,9 +902,9 @@ function search() {
   loadBills()
 }
 function openGenerate() {
+  showAdvanced.value = false
   manualFields.clear()
   paymentDays = 30
-  exchangePair = ''
   editor.id = null
   preview.value = null
   previewPayload.value = null
@@ -1308,7 +1291,6 @@ function exportDetail() {
     ]),
     ['费用小计', bill.subtotal, '折扣', bill.discount, '变更差额', bill.adjustment],
     ['税额', bill.tax_amount, '总额', bill.amount, '已收', bill.paid_amount],
-    ['本位币', bill.local_currency, '本位币金额', bill.local_amount, '汇率', bill.fx_rate],
   ]
     .map((row) => row.map(escape).join(','))
     .join('\r\n')
