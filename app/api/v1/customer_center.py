@@ -5,9 +5,10 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from tortoise.exceptions import IntegrityError
 from tortoise.expressions import Q
 from tortoise.transactions import in_transaction
 
@@ -22,8 +23,39 @@ from app.schemas.base import Fail, Success, SuccessExtra
 from app.models.product_center import ProductPriceVersion
 from app.models.product_order import ProductOrder
 from app.schemas.remote_billing import Currency, Money
+from app.core.dependency import AuthControl
+from app.log import logger
 
 router = APIRouter()
+
+
+class SigningEntityPayload(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    legal_name: str | None = Field(None, max_length=200)
+    code: str | None = Field(None, max_length=50)
+    country: str | None = Field(None, max_length=80)
+    address: str | None = Field(None, max_length=255)
+    tax_no: str | None = Field(None, max_length=80)
+    registration_no: str | None = Field(None, max_length=80)
+    logo_url: str | None = Field(None, max_length=255)
+    status: bool = True
+    remark: str | None = Field(None, max_length=500)
+
+    @field_validator("code")
+    @classmethod
+    def normalize_code(cls, value):
+        return value or None
+
+    @field_validator("logo_url")
+    @classmethod
+    def validate_logo(cls, value):
+        if value and not re.match(r"^(https?://[^\s/]+(?:/[^\s]*)?|/(?!/)[^\s]*)$", value):
+            raise ValueError("Logo 请输入 http(s) 地址或以 / 开头的站内路径")
+        if value and "\\" in value:
+            raise ValueError("Logo 地址不能包含反斜杠")
+        return value or None
 
 ENTITY_TYPES = [
     {"label": "企业", "value": "enterprise"},
@@ -328,9 +360,34 @@ async def dashboard():
 
 
 @router.get("/signing-entities", summary="签约主体列表")
-async def signing_entities():
-    rows = await CrmSigningEntity.filter(status=True).order_by("name")
+async def signing_entities(include_inactive: bool = False):
+    query = CrmSigningEntity.all() if include_inactive else CrmSigningEntity.filter(status=True)
+    rows = await query.order_by("name")
     return Success(data=[await item.to_dict() for item in rows])
+
+
+@router.post("/signing-entities", summary="新增签约主体")
+async def create_signing_entity(payload: SigningEntityPayload, user=Depends(AuthControl.is_authed)):
+    try:
+        entity = await CrmSigningEntity.create(**payload.model_dump())
+    except IntegrityError as exc:
+        raise HTTPException(409, "主体名称或编号已存在") from exc
+    logger.info(f"signing_entity create id={entity.id} user_id={user.id}")
+    return Success(data=await entity.to_dict())
+
+
+@router.put("/signing-entities/{entity_id}", summary="维护签约主体")
+async def update_signing_entity(entity_id: int, payload: SigningEntityPayload, user=Depends(AuthControl.is_authed)):
+    entity = await CrmSigningEntity.get_or_none(id=entity_id)
+    if not entity:
+        raise HTTPException(404, "主体不存在")
+    entity.update_from_dict(payload.model_dump())
+    try:
+        await entity.save()
+    except IntegrityError as exc:
+        raise HTTPException(409, "主体名称或编号已存在") from exc
+    logger.info(f"signing_entity update id={entity.id} user_id={user.id} active={entity.status}")
+    return Success(data=await entity.to_dict())
 
 
 @router.get("/customers", summary="客户列表")

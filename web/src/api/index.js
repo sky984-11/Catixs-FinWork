@@ -351,7 +351,9 @@ export default {
   },
 
   customerCenterApi: {
-    signingEntities: () => request.get('/customer-center/signing-entities'),
+    signingEntities: (params = {}) => request.get('/customer-center/signing-entities', { params }),
+    createSigningEntity: (data) => request.post('/customer-center/signing-entities', data),
+    updateSigningEntity: (id, data) => request.put(`/customer-center/signing-entities/${id}`, data),
     options: () => request.get('/customer-center/options'),
     dashboard: () => request.get('/customer-center/dashboard'),
     listCustomers: (params = {}) => request.get('/customer-center/customers', { params }),

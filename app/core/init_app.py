@@ -358,6 +358,13 @@ async def ensure_customer_center_menu():
             "icon": "mdi:card-account-phone-outline",
             "component": "/customer-center/contacts",
         },
+        {
+            "name": "主体管理",
+            "path": "signing-entities",
+            "order": 4,
+            "icon": "mdi:domain",
+            "component": "/customer-center/signing-entities",
+        },
     ]
     for menu_data in child_menus:
         menu = await Menu.filter(component=menu_data["component"]).first()
@@ -2683,6 +2690,9 @@ async def ensure_company_branding():
 
 
 async def ensure_required_signing_entities():
+    # Defaults are only for first installation. User-maintained data must survive restarts and renames.
+    if await CrmSigningEntity.all().exists():
+        return
     entries = [
         {
             "name": "Catixs Ltd",
@@ -2714,17 +2724,7 @@ async def ensure_required_signing_entities():
         },
     ]
     for item in entries:
-        entity = await CrmSigningEntity.filter(name=item["name"]).first()
-        if entity:
-            changed = False
-            for field, value in item.items():
-                if getattr(entity, field) != value:
-                    setattr(entity, field, value)
-                    changed = True
-            if changed:
-                await entity.save()
-        else:
-            await CrmSigningEntity.create(**item)
+        await CrmSigningEntity.get_or_create(code=item["code"], defaults={k: v for k, v in item.items() if k != "code"})
 
 
 async def ensure_user_columns():

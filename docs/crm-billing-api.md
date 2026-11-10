@@ -4,6 +4,14 @@
 
 ## 使用流程
 
+### 账单版式预览
+
+出账金额预览后点击“账单版式预览”，或在已有账单详情点击“账单预览”，可查看英文 Invoice 版式并打印／保存 PDF。包括签约主体 Logo、地址、客户正式名称与地址、账单日期、付款期限、MRC/NRC 汇总、税额、应付余额和服务明细。生成前标注 PREVIEW，草稿及作废单有相应状态标记；金额沿用后端计算结果。明细以订单号标识，不再单独显示 Location 列。
+
+`POST /api/v1/crm-billing/preview` 请求参数不变，响应 `data.customer` 新增 `signing_entity_address`、`signing_entity_logo_url`；生成账单时一起保存至客户快照。`GET /api/v1/crm-billing/bills/{document_id}` 响应 `data.customer_snapshot` 返回这些快照字段，例如：`{"signing_entity":"Catixs Ltd","signing_entity_address":"6 Watergate Walk, London","signing_entity_logo_url":"/logos/catixs.png"}`。字段可能为空或 null；历史账单缺失字段时不补写主体资料快照。详情响应另含顶层 `signing_entity_logo_url`（例如 `"/logos/catixs.png"`），按账单客户快照的 `signing_entity_id` 动态读取对应主体当前 Logo，预览优先使用此字段；主体不存在时回退至历史 Logo，未配置 Logo 时显示主体名称。切换客户出账时使用该客户关联的签约主体 Logo，不使用固定品牌。Logo 保存的是资源地址，不保存图片二进制。
+
+继续使用上述路由的登录、路由权限及客户归属校验（401/403）；详情不可见返回 404，预览参数错误 422、账期或预览快照冲突 409。未新增写入或打印接口，不改变账务状态。
+
 1. 在订单管理配置客户、产品/规格、数量及 MRC/NRC 单价。
 2. 点击“从订单出账 / 建立计划”，选择同一客户的订单、出账币种、账期和服务有效期，填写税率、折扣/变更差额及汇率，预览金额。
 3. “生成账单草稿”用于手动出账；“建立自动出账计划”保存价格及计费规则快照，按账期持续生成草稿。二者择一，避免同一账期重复出账。

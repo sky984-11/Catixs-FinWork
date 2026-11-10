@@ -379,6 +379,12 @@
         </p>
       </div>
       <div v-if="preview" class="editor-section preview">
+        <CButton
+          show-save
+          save-text="账单版式预览"
+          :disabled="busy"
+          @save="showInvoice({ ...previewPayload, ...preview, settings: previewPayload })"
+        />
         <h3>
           出账预览 · {{ preview.currency }} · {{ preview.period_start }} 至 {{ preview.period_end }}
         </h3>
@@ -448,7 +454,10 @@
             <h2>{{ detail.title }}</h2>
             <p>{{ detail.bill_no }} · {{ statusLabel(detail.status) }}</p>
           </div>
-          <CButton show-save save-text="导出账单明细" :disabled="busy" @save="exportDetail" />
+          <n-space>
+            <CButton show-save save-text="账单预览" :disabled="busy" @save="showInvoice(detail)" />
+            <CButton show-save save-text="导出账单明细" :disabled="busy" @save="exportDetail" />
+          </n-space>
         </div>
         <div class="detail-meta">
           <div>
@@ -638,6 +647,7 @@
           @save="confirmAction"
       /></template>
     </n-modal>
+    <InvoicePreview v-model:show="invoiceShow" :bill="invoiceBill" />
   </AppPage>
 </template>
 
@@ -650,6 +660,7 @@ import { usePermissionStore, useUserStore } from '@/store'
 import CButton from '@/components/public/CButton.vue'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import BillingFieldLabel from './components/BillingFieldLabel.vue'
+import InvoicePreview from './components/InvoicePreview.vue'
 import { addDays, daysBetween, alignPeriod, nextPeriod, orderDefaults } from './autofill.mjs'
 
 const themeVars = useThemeVars()
@@ -731,6 +742,12 @@ const busy = computed(() => saving.value)
 const query = reactive({ keyword: '', customer_id: null, status: null, overdue: false })
 const editor = reactive({ show: false, id: null })
 const showAdvanced = ref(false)
+const invoiceShow = ref(false)
+const invoiceBill = ref(null)
+function showInvoice(bill) {
+  invoiceBill.value = bill
+  invoiceShow.value = true
+}
 const form = reactive({}),
   preview = ref(null),
   previewPayload = ref(null)

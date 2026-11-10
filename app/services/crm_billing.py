@@ -21,7 +21,7 @@ from app.models.crm_billing import (
     CrmBillingDocument,
     CrmBillingPlan,
 )
-from app.models.customer_center import CrmCustomer, CrmCustomerBill
+from app.models.customer_center import CrmCustomer, CrmCustomerBill, CrmSigningEntity
 from app.models.product_order import ProductOrder, ProductOrderItem
 from app.schemas.crm_billing import BillingGenerate
 
@@ -180,6 +180,8 @@ async def source_orders(payload, user, conn, frozen_source=None):
         "invoice_info": customer.invoice_info,
         "signing_entity": (entity.legal_name or entity.name) if entity else "",
         "signing_entity_id": customer.signing_entity_id,
+        "signing_entity_address": entity.address if entity else "",
+        "signing_entity_logo_url": entity.logo_url if entity else "",
     }
     return result, snapshot
 
@@ -324,8 +326,13 @@ async def document_dict(document, detail=False):
         }
     )
     if detail:
+        # Resolve branding from the invoice's signing entity without rewriting its historical snapshot.
+        entity = await CrmSigningEntity.filter(id=document.customer_snapshot.get("signing_entity_id")).first()
         data.update(
             {
+                "signing_entity_logo_url": (
+                    (entity.logo_url or "") if entity else document.customer_snapshot.get("signing_entity_logo_url", "")
+                ),
                 "lines": document.lines,
                 "customer_snapshot": document.customer_snapshot,
                 "settings": document.settings,

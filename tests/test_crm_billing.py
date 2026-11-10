@@ -13,7 +13,7 @@ from app.api.v1 import v1_router
 from app.core.dependency import AuthControl
 from app.models.admin import Api, Menu, Role, User
 from app.models.crm_billing import CrmBillingAudit, CrmBillingDocument, CrmBillingPayment, CrmBillingPlan
-from app.models.customer_center import CrmCustomer, CrmCustomerBill
+from app.models.customer_center import CrmCustomer, CrmCustomerBill, CrmSigningEntity
 from app.models.product_center import ProductItem
 from app.models.product_order import ProductOrder, ProductOrderItem
 from app.services.crm_billing import add_months, month_factor, run_due_plans, run_plan
@@ -84,7 +84,12 @@ class CrmBillingTests(unittest.IsolatedAsyncioTestCase):
         return await self.post(f"bills/{doc['id']}/actions", {"action": action, "comment": "Reviewed"}, status)
 
     async def test_preview_generate_idempotency_and_snapshot(self):
+        entity = await CrmSigningEntity.create(name="Invoice issuer", address="Test address", logo_url="/logos/test.png")
+        self.customer.signing_entity = entity
+        await self.customer.save()
         preview = await self.post("preview", self.payload)
+        self.assertEqual(preview["customer"]["signing_entity_address"], "Test address")
+        self.assertEqual(preview["customer"]["signing_entity_logo_url"], "/logos/test.png")
         self.assertEqual(preview["amount"], "4350.00")
         self.assertEqual(preview["lines"][0]["mrc_amount"], "4050.00")
         self.assertEqual(await CrmCustomerBill.all().count(), 0)
@@ -94,7 +99,11 @@ class CrmBillingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bill["customer_name"], "Formal Customer")
         await ProductOrderItem.filter(order=self.order).update(mrc=1)
         await CrmCustomer.filter(id=self.customer.id).update(legal_name="Changed")
+        await CrmSigningEntity.filter(id=entity.id).update(address="Changed address", logo_url="/logos/changed.png")
         detail = (await self.client.get(f"crm-billing/bills/{bill['id']}")).json()["data"]
+        self.assertEqual(detail["customer_snapshot"]["signing_entity_address"], "Test address")
+        self.assertEqual(detail["customer_snapshot"]["signing_entity_logo_url"], "/logos/test.png")
+        self.assertEqual(detail["signing_entity_logo_url"], "/logos/changed.png")
         self.assertEqual(Decimal(detail["lines"][0]["mrc"]), Decimal("1350"))
         self.assertEqual(detail["customer_name"], "Formal Customer")
         await self.post("generate", {**self.payload, "request_key": "TEST-DUP-002"}, 409)
