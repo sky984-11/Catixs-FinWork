@@ -91,7 +91,7 @@
             <span>供应商属性</span><small>签约归属与所属地区</small>
           </div>
           <NAlert v-if="legacyEntityUnmatched" type="warning" class="mb-12">
-            原签约主体未能唯一匹配客户管理，请重新选择签约主体后保存。
+            原签约主体未能唯一匹配主体管理，请重新选择签约主体后保存。
           </NAlert>
           <div class="form-grid">
             <NFormItem label="签约主体" path="signing_entity_id" required>
@@ -101,7 +101,7 @@
                 filterable
                 :options="contractCompanyOptions"
                 :loading="entitiesLoading"
-                placeholder="请选择签约主体"
+                placeholder="请选择主体管理中的主体"
                 @update:value="handleSigningEntityChange"
               />
             </NFormItem>
@@ -160,7 +160,7 @@
           <CButton
             show-cancel
             show-save
-            :disabled="modalLoading || attachmentBusy || codeLoading"
+            :disabled="modalLoading || attachmentBusy || codeLoading || entitiesLoading"
             :save-loading="modalLoading"
             @cancel="cancelModal"
             @save="handleSave"
@@ -285,6 +285,7 @@ const modalRules = {
 
 async function fetchContractCompanies() {
   entitiesLoading.value = true
+  contractCompanyList.value = []
   try {
     const res = await api.customerCenterApi.signingEntities()
     contractCompanyList.value = res?.data || []
@@ -420,6 +421,7 @@ async function openEdit(vendor) {
   try {
     const response = await api.getVendorById({ vendor_id: vendor.id })
     vendor = response.data
+    await fetchContractCompanies()
   } catch {
     return
   }
@@ -445,9 +447,10 @@ async function openEdit(vendor) {
 }
 
 async function handleSave() {
-  if (modalLoading.value || attachmentBusy.value || codeLoading.value) return
+  if (modalLoading.value || attachmentBusy.value || codeLoading.value || entitiesLoading.value)
+    return
   if (legacyEntityUnmatched.value && !modalForm.signing_entity_id) {
-    window.$message?.error('请选择客户管理中的签约主体')
+    window.$message?.error('请选择主体管理中的签约主体')
     return
   }
   try {

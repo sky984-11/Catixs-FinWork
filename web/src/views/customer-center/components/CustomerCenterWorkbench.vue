@@ -156,7 +156,7 @@
             </div>
             <n-grid :cols="2" :x-gap="16" :y-gap="2" responsive="screen">
               <n-form-item-gi label="主体类型"><n-select v-model:value="customerModal.form.entity_type" :options="options.entityTypes" placeholder="请选择主体类型" /></n-form-item-gi>
-              <n-form-item-gi label="签约主体" required><n-select v-model:value="customerModal.form.signing_entity_id" clearable filterable :options="options.signingEntities" placeholder="请选择签约主体" @update:value="handleCustomerSigningEntityChange" /></n-form-item-gi>
+              <n-form-item-gi label="签约主体" required><n-select v-model:value="customerModal.form.signing_entity_id" clearable filterable :options="formSigningEntities(customerModal.form)" :loading="signingEntitiesLoading" placeholder="请选择主体管理中的主体" @update:value="handleCustomerSigningEntityChange" /></n-form-item-gi>
               <n-form-item-gi label="客户编号"><n-input v-model:value="customerModal.form.customer_code" clearable placeholder="选择签约主体后自动生成，可手动修改" /></n-form-item-gi>
               <n-form-item-gi label="客户等级"><n-select v-model:value="customerModal.form.customer_level" :options="options.levels" placeholder="请选择客户等级" /></n-form-item-gi>
               <n-form-item-gi label="客户生命周期"><n-select v-model:value="customerModal.form.lifecycle" :options="options.lifecycles" placeholder="请选择生命周期" /></n-form-item-gi>
@@ -201,7 +201,7 @@
         <n-form :model="contractModal.form" label-placement="top">
           <n-grid :cols="2" :x-gap="14">
             <n-form-item-gi label="签约客户" required><n-select v-model:value="contractModal.form.customer_id" filterable :options="options.customers" /></n-form-item-gi>
-            <n-form-item-gi label="签约主体"><n-select v-model:value="contractModal.form.signing_entity_id" clearable filterable :options="options.signingEntities" /></n-form-item-gi>
+            <n-form-item-gi label="签约主体"><n-select v-model:value="contractModal.form.signing_entity_id" clearable filterable :options="formSigningEntities(contractModal.form)" :loading="signingEntitiesLoading" /></n-form-item-gi>
             <n-form-item-gi label="合同编号"><n-input v-model:value="contractModal.form.contract_no" /></n-form-item-gi>
             <n-form-item-gi label="合同名称" required><n-input v-model:value="contractModal.form.name" /></n-form-item-gi>
             <n-form-item-gi label="合同状态"><n-select v-model:value="contractModal.form.status" :options="options.contractStatuses" /></n-form-item-gi>
@@ -539,10 +539,31 @@ async function loadNetworkRegions() {
   networkRegions.value = Array.isArray(res?.data) ? res.data : []
 }
 
+const signingEntitiesLoading = ref(false)
+async function loadSigningEntities() {
+  signingEntitiesLoading.value = true
+  try {
+    const res = await api.customerCenterApi.signingEntities()
+    options.signingEntities = optionize(res.data || [])
+  } finally {
+    signingEntitiesLoading.value = false
+  }
+}
+function formSigningEntities(form) {
+  const list = options.signingEntities
+  if (!form.signing_entity_id || list.some((item) => item.value === form.signing_entity_id)) return list
+  return [
+    ...list,
+    {
+      value: form.signing_entity_id,
+      label: `${form.signing_entity_name || '原关联主体'}（已停用）`,
+      disabled: true,
+    },
+  ]
+}
 async function loadOptions() {
-  const res = await api.customerCenterApi.options()
+  const [res] = await Promise.all([api.customerCenterApi.options(), loadSigningEntities()])
   const data = res.data || {}
-  options.signingEntities = optionize(data.signing_entities || [])
   options.customers = data.customers || []
   options.entityTypes = data.entity_types || []
   options.lifecycles = data.lifecycles || []
@@ -781,7 +802,14 @@ function emptyBill() {
   return { id: null, customer_id: detail.value?.id || null, bill_no: '', title: '', status: 'draft', amount: 0, currency: 'USD', bill_date: null, due_date: null, is_settled: false, business_closed: false, remark: '' }
 }
 
-function openCustomerModal(row = null) {
+async function openCustomerModal(row = null) {
+  if (signingEntitiesLoading.value) return
+  try {
+    await loadSigningEntities()
+  } catch {
+    window.$message?.error('签约主体加载失败，请重试')
+    return
+  }
   const form = row ? { ...emptyCustomer(), ...row } : emptyCustomer()
   customerModal.form = form
   customerModal.show = true
@@ -802,7 +830,14 @@ async function handleCustomerSigningEntityChange(signingEntityId) {
     customerModal.form.customer_code = ''
   }
 }
-function openContractModal(row = null) {
+async function openContractModal(row = null) {
+  if (signingEntitiesLoading.value) return
+  try {
+    await loadSigningEntities()
+  } catch {
+    window.$message?.error('签约主体加载失败，请重试')
+    return
+  }
   contractModal.form = row ? { ...emptyContract(), ...row } : emptyContract()
   contractModal.show = true
 }
