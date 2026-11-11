@@ -99,11 +99,15 @@ class CrmBillingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bill["customer_name"], "Formal Customer")
         await ProductOrderItem.filter(order=self.order).update(mrc=1)
         await CrmCustomer.filter(id=self.customer.id).update(legal_name="Changed")
-        await CrmSigningEntity.filter(id=entity.id).update(address="Changed address", logo_url="/logos/changed.png")
+        await CrmSigningEntity.filter(id=entity.id).update(
+            legal_name="Updated issuer", address="Changed address", logo_url="/logos/changed.png"
+        )
         detail = (await self.client.get(f"crm-billing/bills/{bill['id']}")).json()["data"]
         self.assertEqual(detail["customer_snapshot"]["signing_entity_address"], "Test address")
         self.assertEqual(detail["customer_snapshot"]["signing_entity_logo_url"], "/logos/test.png")
         self.assertEqual(detail["signing_entity_logo_url"], "/logos/changed.png")
+        self.assertEqual(detail["signing_entity_name"], "Updated issuer")
+        self.assertEqual(detail["signing_entity_address"], "Changed address")
         self.assertEqual(Decimal(detail["lines"][0]["mrc"]), Decimal("1350"))
         self.assertEqual(detail["customer_name"], "Formal Customer")
         await self.post("generate", {**self.payload, "request_key": "TEST-DUP-002"}, 409)

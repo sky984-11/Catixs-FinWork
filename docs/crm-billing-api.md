@@ -8,7 +8,7 @@
 
 出账金额预览后点击“账单版式预览”，或在已有账单详情点击“账单预览”，可查看英文 Invoice 版式并打印／保存 PDF。包括签约主体 Logo、地址、客户正式名称与地址、账单日期、付款期限、MRC/NRC 汇总、税额、应付余额和服务明细。生成前标注 PREVIEW，草稿及作废单有相应状态标记；金额沿用后端计算结果。明细以订单号标识，不再单独显示 Location 列。
 
-`POST /api/v1/crm-billing/preview` 请求参数不变，响应 `data.customer` 新增 `signing_entity_address`、`signing_entity_logo_url`；生成账单时一起保存至客户快照。`GET /api/v1/crm-billing/bills/{document_id}` 响应 `data.customer_snapshot` 返回这些快照字段，例如：`{"signing_entity":"Catixs Ltd","signing_entity_address":"6 Watergate Walk, London","signing_entity_logo_url":"/logos/catixs.png"}`。字段可能为空或 null；历史账单缺失字段时不补写主体资料快照。详情响应另含顶层 `signing_entity_logo_url`（例如 `"/logos/catixs.png"`），按账单客户快照的 `signing_entity_id` 动态读取对应主体当前 Logo，预览优先使用此字段；主体不存在时回退至历史 Logo，未配置 Logo 时显示主体名称。切换客户出账时使用该客户关联的签约主体 Logo，不使用固定品牌。Logo 保存的是资源地址，不保存图片二进制。
+`POST /api/v1/crm-billing/preview` 请求参数不变，响应 `data.customer` 新增 `signing_entity_address`、`signing_entity_logo_url`；生成账单时一起保存至客户快照。`GET /api/v1/crm-billing/bills/{document_id}` 响应 `data.customer_snapshot` 返回这些快照字段，例如：`{"signing_entity":"Catixs Ltd","signing_entity_address":"6 Watergate Walk, London","signing_entity_logo_url":"/logos/catixs.png"}`。字段可能为空或 null；历史账单缺失字段时不补写主体资料快照。详情响应顶层 `signing_entity_name`、`signing_entity_address`、`signing_entity_logo_url` 按账单客户快照的 `signing_entity_id` 读取主体管理的当前全称（空时用名称）、注册地址和 Logo。例如 `{"signing_entity_name":"Catixs Ltd","signing_entity_address":"6 Watergate Walk, London","signing_entity_logo_url":"/logos/catixs.png"}`。预览优先使用这些字段，地址显示在右上角主体名称下方；主体不存在时回退至历史快照，未配置 Logo 时显示主体名称。清空当前地址后不回填历史地址。客户和主体的历史快照不改写，接口参数、权限及错误码不变。切换客户出账时使用该客户关联的签约主体 Logo，不使用固定品牌。Logo 保存的是资源地址，不保存图片二进制。
 
 继续使用上述路由的登录、路由权限及客户归属校验（401/403）；详情不可见返回 404，预览参数错误 422、账期或预览快照冲突 409。未新增写入或打印接口，不改变账务状态。
 

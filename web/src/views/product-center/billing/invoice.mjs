@@ -29,7 +29,8 @@ export function invoiceHtml(bill, origin) {
   const terms = bill.settings || bill
   const lines = bill.lines || []
   const currency = escape(bill.currency || '—')
-  const issuer = escape(customer.signing_entity || bill.signing_entity_name || '—')
+  const issuer = escape(bill.signing_entity_name ?? customer.signing_entity ?? '—')
+  const issuerAddress = bill.signing_entity_address ?? customer.signing_entity_address ?? ''
   const logoUrl = bill.signing_entity_logo_url ?? customer.signing_entity_logo_url
   let logo = ''
   if (logoUrl) {
@@ -88,9 +89,7 @@ export function invoiceHtml(bill, origin) {
     logo
       ? `<img class="logo" src="${escape(logo)}" alt="${issuer}">`
       : `<div class="brand">${issuer}</div>`
-  }</div><div class="issuer">${issuer}<br>${escape(
-    customer.signing_entity_address || ''
-  )}</div></header>
+  }</div><div class="issuer">${issuer}<br>${escape(issuerAddress)}</div></header>
   <section class="parties"><div class="customer"><strong>${escape(
     customer.name || bill.customer_name || '—'
   )}</strong><br>${escape(customer.address || '')}</div><table class="meta"><tbody>

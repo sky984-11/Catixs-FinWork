@@ -63,3 +63,22 @@ test('saved invoices show outstanding, adjustments, snapshots and void state', (
     /Total Due<\/td><td>0\.00/
   )
 })
+test('issuer address appears below the current entity name, with snapshot fallback only when missing', () => {
+  const data = {
+    ...bill,
+    customer_snapshot: { signing_entity: 'Old issuer', signing_entity_address: 'Old address' },
+    signing_entity_name: 'Current issuer',
+    signing_entity_address: 'Managed address\nLondon <UK>',
+  }
+  const html = invoiceHtml(data, 'https://example.test')
+  assert.ok(
+    html.includes('<div class="issuer">Current issuer<br>Managed address\nLondon &lt;UK&gt;</div>')
+  )
+  assert.ok(!html.includes('Old address'))
+  assert.ok(!invoiceHtml({ ...data, signing_entity_address: '' }).includes('Old address'))
+  assert.ok(
+    invoiceHtml({ ...bill, customer_snapshot: data.customer_snapshot }).includes(
+      'Old issuer<br>Old address'
+    )
+  )
+})

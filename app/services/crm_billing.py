@@ -330,6 +330,12 @@ async def document_dict(document, detail=False):
         entity = await CrmSigningEntity.filter(id=document.customer_snapshot.get("signing_entity_id")).first()
         data.update(
             {
+                "signing_entity_name": (
+                    (entity.legal_name or entity.name) if entity else document.customer_snapshot.get("signing_entity", "")
+                ),
+                "signing_entity_address": (
+                    (entity.address or "") if entity else document.customer_snapshot.get("signing_entity_address", "")
+                ),
                 "signing_entity_logo_url": (
                     (entity.logo_url or "") if entity else document.customer_snapshot.get("signing_entity_logo_url", "")
                 ),
