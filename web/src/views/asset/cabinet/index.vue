@@ -586,11 +586,15 @@
               <CButton v-if="devicePositionError" show-save save-text="自动选空位" size="small" :disabled="deviceEditorBusy" @save="selectAvailableDevicePosition" />
             </div>
           </section>
-          <section v-show="deviceEditorTab === 'hardware'" class="device-editor-section">
+          <section v-if="deviceEditorTab === 'hardware'" class="device-editor-section">
             <div class="device-section-heading">
               <TheIcon icon="mdi:chip" :size="18" />
               <h3>硬件信息</h3>
             </div>
+            <n-alert v-if="devicePlatformError" type="warning" :show-icon="false">
+              厂商型号加载失败，其他信息可继续编辑。
+              <CButton show-save save-text="重试" size="small" :disabled="deviceEditorBusy" @save="loadDevicePlatformsForEditor" />
+            </n-alert>
             <n-grid cols="1 560:3" responsive="self" :x-gap="20">
               <n-form-item-gi label="厂商">
                 <n-select
@@ -599,6 +603,8 @@
                   filterable
                   tag
                   :options="platformOptions"
+                  :loading="devicePlatformLoading"
+                  :disabled="deviceEditorBusy || devicePlatformLoading || devicePlatformError"
                   placeholder="选择厂商"
                   @update:value="handlePlatformChange"
                 />
@@ -610,6 +616,8 @@
                   filterable
                   tag
                   :options="modelOptions"
+                  :loading="devicePlatformLoading"
+                  :disabled="deviceEditorBusy || devicePlatformLoading || devicePlatformError"
                   placeholder="选择型号"
                   @update:value="handleModelChange"
                 />
@@ -624,7 +632,7 @@
 
           </section>
 
-          <div v-if="deviceModal.form.form_factor !== 'four_node'" v-show="deviceEditorTab === 'remote'" class="device-ipmi-editor device-editor-section">
+          <div v-if="deviceModal.form.form_factor !== 'four_node' && deviceEditorTab === 'remote'" class="device-ipmi-editor device-editor-section">
             <div class="four-node-head">
               <div>
                 <span class="eyebrow">IPMI / Redfish</span>
@@ -652,7 +660,7 @@
             </n-grid>
           </div>
 
-          <div v-if="deviceModal.form.form_factor !== 'four_node'" v-show="deviceEditorTab === 'hardware'" class="device-attribute-editor device-editor-section">
+          <div v-if="deviceModal.form.form_factor !== 'four_node' && deviceEditorTab === 'hardware'" class="device-attribute-editor device-editor-section">
             <div class="four-node-head">
               <div>
                 <span class="eyebrow">Device Config</span>
@@ -696,7 +704,7 @@
             </div>
           </div>
 
-          <div v-if="deviceModal.form.form_factor === 'four_node'" v-show="deviceEditorTab === 'nodes'" class="four-node-editor device-editor-section">
+          <div v-if="deviceModal.form.form_factor === 'four_node' && deviceEditorTab === 'nodes'" class="four-node-editor device-editor-section">
             <div class="four-node-head">
               <div>
                 <span class="eyebrow">Four Node Server</span>
@@ -919,14 +927,22 @@ function selectAvailableDevicePosition() {
   else window.$message?.warning(`当前机柜没有连续 ${deviceEditorHeight.value} U 的可用空间`)
 }
 async function prepareDeviceEditor() {
+  deviceOpening.value = true
   deviceEditorTab.value = 'basic'
   deviceSaveAnother.value = false
   deviceModal.show = true
-  await nextTick()
-  deviceNameInput.value?.focus()
+  try {
+    await nextTick()
+    deviceNameInput.value?.focus()
+  } finally {
+    deviceOpening.value = false
+  }
+  void loadDevicePlatformsForEditor()
 }
 const devicePlatformTree = ref([])
 const devicePlatformLoaded = ref(false)
+const devicePlatformLoading = ref(false)
+const devicePlatformError = ref(false)
 let devicePlatformLoadingPromise = null
 const route = useRoute()
 const router = useRouter()
@@ -1811,17 +1827,32 @@ function renderCustomerOption(option) {
 async function ensureDevicePlatformsLoaded() {
   if (devicePlatformLoaded.value) return
   if (!devicePlatformLoadingPromise) {
+    devicePlatformLoading.value = true
+    devicePlatformError.value = false
     devicePlatformLoadingPromise = api.assetApi
       .deviceBrands()
       .then((res) => {
         devicePlatformTree.value = normalizeDevicePlatformTree(res.data || [])
         devicePlatformLoaded.value = true
       })
+      .catch((error) => {
+        devicePlatformError.value = true
+        throw error
+      })
       .finally(() => {
         devicePlatformLoadingPromise = null
+        devicePlatformLoading.value = false
       })
   }
   await devicePlatformLoadingPromise
+}
+
+async function loadDevicePlatformsForEditor() {
+  try {
+    await ensureDevicePlatformsLoaded()
+  } catch {
+    // The hardware tab displays a retry action; opening the editor must not depend on this request.
+  }
 }
 
 function handlePlatformChange(value) {
@@ -1877,6 +1908,7 @@ async function ensureDeviceBrandAndModel() {
   const brandName = String(deviceModal.form.brand || '').trim()
   const modelName = String(deviceModal.form.model || '').trim()
   if (!brandName) return
+  await ensureDevicePlatformsLoaded()
 
   let platform = devicePlatformTree.value.find((item) => item.value === brandName || item.name === brandName)
   if (!platform?.id) {
@@ -2114,22 +2146,10 @@ async function deleteCabinet(cabinet) {
 
 async function openDeviceModal(device = null, uPosition = null) {
   if (deviceOpening.value || deviceEditorBusy.value || deviceLoading.value || rackLoadError.value || deletingDeviceId.value) return
-  const cabinetId = selectedCabinetId.value
   if (!selectedCabinetId.value) {
     window.$message?.warning('请先选择机柜')
     return
   }
-  deviceOpening.value = true
-  try {
-    await ensureDevicePlatformsLoaded()
-  } catch (error) {
-    console.error(error)
-    window.$message?.error('设备厂商型号加载失败，请稍后重试')
-    return
-  } finally {
-    deviceOpening.value = false
-  }
-  if (cabinetId !== selectedCabinetId.value) return
   const isFourNodeDevice = isFourNodeAttributes(device?.attributes)
   const ipmiInfo = extractIpmiInfo(device?.attributes || {})
   deviceModal.form = device
@@ -2317,18 +2337,7 @@ function handleRackMenuConsole() {
 
 async function openDeviceCloneModal(device) {
   if (deviceOpening.value || deviceEditorBusy.value || deviceLoading.value || rackLoadError.value || deletingDeviceId.value) return
-  const cabinetId = selectedCabinetId.value
   if (!selectedCabinetId.value || !device) return
-  deviceOpening.value = true
-  try {
-    await ensureDevicePlatformsLoaded()
-  } catch (error) {
-    window.$message?.error('设备厂商型号加载失败，请稍后重试')
-    return
-  } finally {
-    deviceOpening.value = false
-  }
-  if (cabinetId !== selectedCabinetId.value) return
   const isFourNodeDevice = isFourNodeAttributes(device.attributes)
   const ipmiInfo = extractIpmiInfo(device.attributes || {})
   const height = isFourNodeDevice ? 2 : Math.max(Number(device.u_height || 1), 1)
