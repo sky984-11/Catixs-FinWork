@@ -272,6 +272,46 @@ class CrmBillingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(latest.lines[0]["mrc_amount"], "1959.68")
         self.assertEqual((await self.client.delete(f"product-center/orders/{self.order.id}")).status_code, 409)
 
+    async def test_overdue_october_plan_catches_up_in_november_without_skipping(self):
+        plan = await self.post("plans", {
+            **self.payload,
+            "period_start": "2026-10-01",
+            "service_start": "2026-10-01",
+            "bill_date": "2026-10-01",
+            "due_date": "2026-10-31",
+        })
+        with patch("app.services.crm_billing.today", return_value=date(2026, 11, 12)):
+            await run_due_plans()
+            saved = await CrmBillingPlan.get(id=plan["id"])
+            self.assertEqual(saved.next_run, date(2026, 11, 1))
+            self.assertTrue(saved.enabled)
+            await run_due_plans()
+            await saved.refresh_from_db()
+            self.assertEqual(saved.next_period, date(2026, 12, 1))
+            self.assertEqual(saved.next_run, date(2026, 12, 1))
+            documents = await CrmBillingDocument.all().order_by("period_start")
+            self.assertEqual([row.period_start for row in documents], [date(2026, 10, 1), date(2026, 11, 1)])
+            self.assertEqual(documents[1].lines[0]["nrc_amount"], "0.00")
+            await run_due_plans()
+            self.assertEqual(await CrmBillingDocument.all().count(), 2)
+
+    async def test_plan_due_dates_follow_month_end_including_leap_year(self):
+        for start, expected_dates in [
+            ("2023-11-01", [date(2023, 11, 30), date(2023, 12, 31), date(2024, 1, 31), date(2024, 2, 29)]),
+            ("2025-02-01", [date(2025, 2, 28)]),
+        ]:
+            plan = await self.post("plans", {
+                **self.payload, "period_start": start, "service_start": start,
+                "bill_date": start, "due_date": start,
+            })
+            for expected in expected_dates:
+                with patch("app.services.crm_billing.today", return_value=expected):
+                    document = await run_plan(plan["id"])
+                bill = await document.bill
+                self.assertEqual(bill.due_date, expected)
+                self.assertEqual(document.settings["due_date"], expected.isoformat())
+            await self.post(f"plans/{plan['id']}/stop", {})
+
     async def test_failed_plan_preserves_next_period_and_logs_reason(self):
         plan = await self.post("plans", self.payload)
         await CrmCustomer.filter(id=self.customer.id).update(status=False)
@@ -329,7 +369,8 @@ class CrmBillingTests(unittest.IsolatedAsyncioTestCase):
         with patch("app.services.crm_billing.today", return_value=date(2024, 4, 29)):
             self.assertIsNone(await run_plan(plan["id"]))
         with patch("app.services.crm_billing.today", return_value=date(2024, 4, 30)):
-            await run_plan(plan["id"])
+            document = await run_plan(plan["id"])
+            self.assertEqual((await document.bill).due_date, date(2024, 4, 30))
         saved = await CrmBillingPlan.get(id=plan["id"])
         self.assertEqual(saved.next_period, date(2024, 4, 30))
         self.assertEqual(saved.next_run, date(2024, 7, 31))

@@ -29,6 +29,7 @@
             <n-select
               v-model:value="query.customer_id"
               :options="customerOptions"
+              :render-label="renderCustomerOption"
               clearable
               filterable
               placeholder="客户"
@@ -71,8 +72,17 @@
         </n-tab-pane>
         <n-tab-pane name="plans" tab="自动出账计划">
           <n-alert type="info" class="gap"
-            >每日按上海时区检查到期计划，生成待审核草稿。预付在账期开始日出账，后付在账期结束次日出账。失败保留原因，可手动重试；停用后不会继续出账。</n-alert
+            >后台每 60
+            秒检查到期计划，出账日早于今天的账期也会逐期补出草稿，不会失效或跳过。预付在账期开始日出账，后付在账期结束次日出账。列表每
+            60 秒自动刷新；长期未推进可点击“检查 / 重试”查看结果。</n-alert
           >
+          <CButton
+            show-save
+            save-text="刷新计划"
+            class="gap"
+            :disabled="busy || loading"
+            @save="loadPlans"
+          />
           <n-alert v-if="error" type="error"
             >{{ error }}<CButton show-save save-text="重试" @save="loadPlans"
           /></n-alert>
@@ -114,8 +124,7 @@
         </div>
       </div>
       <n-alert v-if="!editor.id" type="info" class="gap">
-        名称、币种和周期自动跟随订单，默认按自然月计费，付款期限为 30
-        天。特殊约定可在“更多设置”中调整。
+        名称、币种和周期自动跟随订单，默认按自然月计费，付款到期日为出账当月最后一天。特殊约定可在“更多设置”中调整。
         <div v-if="selectedDefaults.currencies.length > 1">
           所选订单包含 {{ selectedDefaults.currencies.join(' / ') }}，本次仅收取
           {{ form.currency }}，其他币种需另行出账。
@@ -155,14 +164,13 @@
                 :maxlength="160"
                 @update:value="(value) => updateField('title', value)"
             /></n-form-item>
-            <n-form-item v-if="!editor.id" label="客户（正式名称）" required
+            <n-form-item v-if="!editor.id" label="客户" required
               ><template #label
-                ><BillingFieldLabel
-                  label="客户（正式名称）"
-                  :help="fieldHelp.customer_id" /></template
+                ><BillingFieldLabel label="客户" :help="fieldHelp.customer_id" /></template
               ><n-select
                 v-model:value="form.customer_id"
                 :options="activeCustomerOptions"
+                :render-label="renderCustomerOption"
                 filterable
                 @update:value="changeCustomer"
             /></n-form-item>
@@ -375,7 +383,7 @@
         </p>
         <p>
           <strong>自动计划</strong
-          >固定当前价格、折扣及税率，并沿用付款期限。变价时请停用旧计划后新建。
+          >固定当前价格、折扣及税率，自动账单于出账当月最后一天到期。变价时请停用旧计划后新建。
         </p>
       </div>
       <div v-if="preview" class="editor-section preview">
@@ -652,7 +660,17 @@
 </template>
 
 <script setup>
-import { computed, h, onMounted, reactive, ref, watch } from 'vue'
+import {
+  computed,
+  h,
+  onActivated,
+  onDeactivated,
+  onMounted,
+  onUnmounted,
+  reactive,
+  ref,
+  watch,
+} from 'vue'
 import { NButton, NSpace, NTag, NTooltip, useThemeVars } from 'naive-ui'
 import api from '@/api'
 import service from '@/api/crm-billing'
@@ -661,7 +679,7 @@ import CButton from '@/components/public/CButton.vue'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import BillingFieldLabel from './components/BillingFieldLabel.vue'
 import InvoicePreview from './components/InvoicePreview.vue'
-import { addDays, daysBetween, alignPeriod, nextPeriod, orderDefaults } from './autofill.mjs'
+import { monthEnd, alignPeriod, nextPeriod, orderDefaults } from './autofill.mjs'
 
 const themeVars = useThemeVars()
 const editorTheme = computed(() => ({
@@ -696,9 +714,9 @@ const fieldHelp = {
   include_nrc:
     'NRC 是安装、开通等一次性费用。开启时，对尚未计收的订单产品/规格收取 NRC 单价 × 数量；系统自动避免重复收取。\n关闭后本次不收；建立自动计划时，后续也不收。NRC 为 0 时不影响金额。',
   bill_date:
-    '账单单据上的出账日期，不决定服务收费天数。自动计划后续按预付/后付规则填写出账日期，并沿用此日期与付款到期日之间的天数间隔。',
+    '账单单据上的出账日期，不决定服务收费天数。自动计划后续按预付/后付规则填写出账日期，付款到期日固定为出账当月最后一天。',
   due_date:
-    '客户最晚应付款的日期，不得早于账单日期。已锁定账单到期后仍有未收金额，会计算逾期天数。\n例如账单日期为 11 月 6 日、到期日为 12 月 6 日，自动计划沿用 30 天付款期限。',
+    '客户最晚应付款的日期，不得早于账单日期。已锁定账单到期后仍有未收金额，会计算逾期天数。\n自动计划统一在出账当月最后一天到期，例如 11 月出账于 11 月 30 日到期。手动修改仅适用于本次手动账单，不改变自动计划规则。',
   discount:
     '从费用小计中扣除的金额，使用账单币种，不是折扣百分比。无优惠填 0；非零时须填写原因。自动计划每期沿用此金额。',
   adjustment:
@@ -781,11 +799,45 @@ const actionLabels = {
 const customerOptions = computed(() =>
   customers.value.map((row) => ({
     value: row.id,
-    label: `${row.legal_name || row.name}${
-      row.signing_entity_name ? ` · ${row.signing_entity_name}` : ''
-    }`,
+    label: row.name || '未命名客户',
+    signing_entity_name: row.signing_entity_name,
+    class: 'billing-customer-option',
   }))
 )
+function renderCustomerOption(option) {
+  const entity = String(option.signing_entity_name || '')
+  const normalized = entity.toLowerCase()
+  const tag = entity.includes('科特思')
+    ? ['科', 'success']
+    : normalized.includes('77')
+    ? ['7', 'warning']
+    : normalized.includes('catixs')
+    ? ['C', 'info']
+    : entity
+    ? [entity, 'default']
+    : null
+  return h(
+    'span',
+    {
+      style:
+        'display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;width:100%;min-width:0',
+    },
+    [
+      h(
+        'span',
+        { title: option.label, style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap' },
+        option.label
+      ),
+      tag
+        ? h(
+            NTag,
+            { size: 'small', round: true, type: tag[1], title: entity },
+            { default: () => tag[0] }
+          )
+        : null,
+    ]
+  )
+}
 const activeCustomerOptions = computed(() =>
   customerOptions.value.filter((option) =>
     customers.value.some(
@@ -805,7 +857,6 @@ function dateString(date = new Date()) {
   return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(date)
 }
 const manualFields = new Set()
-let paymentDays = 30
 const selectedOrders = computed(() =>
   orders.value.filter((row) => form.order_ids?.includes(row.id))
 )
@@ -827,9 +878,8 @@ function syncDates() {
   if (editor.id) return
   form.period_start = alignPeriod(form)
   const next = nextPeriod(form)
-  const previous = form.bill_date
   autoSet('bill_date', form.payment_timing === 'postpaid' ? next : form.period_start)
-  if (form.bill_date !== previous) form.due_date = addDays(form.bill_date, paymentDays)
+  autoSet('due_date', monthEnd(form.bill_date))
   syncRates()
 }
 function syncOrders() {
@@ -842,11 +892,7 @@ function syncOrders() {
 function updateField(name, value) {
   form[name] = value
   manualFields.add(name)
-  if (name === 'due_date') {
-    const days = daysBetween(form.bill_date, value)
-    if (Number.isFinite(days) && days >= 0) paymentDays = days
-  }
-  if (name === 'bill_date') form.due_date = addDays(value, paymentDays)
+  if (name === 'bill_date') autoSet('due_date', monthEnd(value))
   if (editor.id) return
   if (name === 'currency') autoSet('months', selectedDefaults.value.months)
   if (form.calendar_mode === 'anniversary' && ['calendar_mode', 'service_start'].includes(name)) {
@@ -921,7 +967,6 @@ function search() {
 function openGenerate() {
   showAdvanced.value = false
   manualFields.clear()
-  paymentDays = 30
   editor.id = null
   preview.value = null
   previewPayload.value = null
@@ -941,7 +986,7 @@ function openGenerate() {
     payment_timing: 'prepaid',
     include_nrc: true,
     bill_date: `${day.slice(0, 7)}-01`,
-    due_date: addDays(`${day.slice(0, 7)}-01`, 30),
+    due_date: monthEnd(day),
     discount: '0.00',
     adjustment: '0.00',
     tax_rate: '0',
@@ -1046,7 +1091,6 @@ const termFields = [
 ]
 function editDraft(row) {
   manualFields.clear()
-  paymentDays = Math.max(0, daysBetween(row.settings.bill_date, row.settings.due_date)) || 0
   Object.keys(form).forEach((name) => delete form[name])
   for (const name of termFields) form[name] = row.settings[name]
   editor.id = row.id
@@ -1251,9 +1295,21 @@ const planColumns = businessColumns([
     width: 120,
     render: (row) => `${row.template.currency} / ${row.template.months} 月`,
   },
-  { title: '下个账期', key: 'next_period', width: 120 },
+  { title: '下个未出账账期', key: 'next_period', width: 120 },
   { title: '出账日', key: 'next_run', width: 120 },
-  { title: '状态', key: 'enabled', width: 100, render: (row) => (row.enabled ? '启用' : '已停用') },
+  {
+    title: '状态',
+    key: 'enabled',
+    width: 140,
+    render: (row) =>
+      !row.enabled
+        ? '已停用'
+        : row.last_error
+        ? '出账失败'
+        : row.next_run <= dateString()
+        ? '已到期待出账'
+        : '等待出账日',
+  },
   { title: '最近失败原因', key: 'last_error', width: 330, ellipsis: { tooltip: true } },
   {
     title: '操作',
@@ -1318,13 +1374,34 @@ function exportDetail() {
   link.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
+let planRefreshTimer
+let pageActive = true
+onActivated(() => {
+  pageActive = true
+})
+onDeactivated(() => {
+  pageActive = false
+})
+onUnmounted(() => clearInterval(planRefreshTimer))
 onMounted(() => {
   loadCustomers()
   loadBills()
+  planRefreshTimer = setInterval(() => {
+    if (pageActive && tab.value === 'plans' && !document.hidden && !loading.value && !busy.value)
+      loadPlans()
+  }, 60000)
 })
 </script>
 
 <style scoped>
+:global(.n-base-select-option.billing-customer-option .n-base-select-option__content) {
+  display: flex;
+  width: 100%;
+}
+:global(.n-base-select-option.billing-customer-option .n-base-select-option__content > span) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
 .billing-editor {
   display: flex;
   flex-direction: column;

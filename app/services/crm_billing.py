@@ -384,10 +384,9 @@ async def run_plan(plan_id, force=False):
         values = dict(plan.template)
         values["preview_token"] = None
         values.update(period_start=plan.next_period.isoformat(), request_key=f"PLAN-{plan.id}-{plan.next_period}")
-        original = BillingGenerate.model_validate(plan.template)
-        due_days = (original.due_date - original.bill_date).days
         values.update(
-            bill_date=plan.next_run.isoformat(), due_date=(plan.next_run + timedelta(days=due_days)).isoformat()
+            bill_date=plan.next_run.isoformat(),
+            due_date=plan.next_run.replace(day=monthrange(plan.next_run.year, plan.next_run.month)[1]).isoformat(),
         )
         payload = BillingGenerate.model_validate(values)
         document = await generate(payload, user, frozen_source=plan.order_snapshot)

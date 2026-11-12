@@ -2,11 +2,20 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   addDays,
+  monthEnd,
   daysBetween,
   alignPeriod,
   nextPeriod,
   orderDefaults,
 } from '../src/views/product-center/billing/autofill.mjs'
+
+test('payment defaults use the billing month end across short, leap and year-end months', () => {
+  assert.equal(monthEnd('2026-11-01'), '2026-11-30')
+  assert.equal(monthEnd('2026-12-12'), '2026-12-31')
+  assert.equal(monthEnd('2025-02-01'), '2025-02-28')
+  assert.equal(monthEnd('2024-02-10'), '2024-02-29')
+  assert.equal(monthEnd(null), null)
+})
 
 test('calendar billing normalizes the month and advances across the year', () => {
   const form = { calendar_mode: 'calendar', period_start: '2026-11-13', months: 3 }

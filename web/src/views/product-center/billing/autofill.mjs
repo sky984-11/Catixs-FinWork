@@ -1,4 +1,11 @@
 // Date-only arithmetic in UTC, matching the backend's clamped anniversary dates.
+export function monthEnd(value) {
+  if (!value) return null
+  const [year, month] = value.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month, 0))
+  return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10)
+}
+
 export function addDays(value, days) {
   if (!value) return null
   const date = new Date(`${value}T00:00:00Z`)
