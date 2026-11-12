@@ -24,7 +24,11 @@
         <main class="cabinet-stage">
           <div class="cabinet-content">
             <n-spin :show="deviceLoading" class="rack-spin">
-              <div v-if="selectedCabinet" class="rack-board">
+              <n-alert v-if="rackLoadError" type="error" title="设备加载失败" class="rack-load-error">
+                {{ rackLoadError }}
+                <n-button size="small" :loading="deviceLoading" @click="loadCabinetDevices()">重试</n-button>
+              </n-alert>
+              <div v-if="selectedCabinet" class="rack-board" :class="{ 'rack-comfortable': rackComfortable }">
                 <div class="rack-title">
                   <div>
                     <span class="eyebrow">Rack Diagram</span>
@@ -48,10 +52,27 @@
                       <template #icon><TheIcon icon="mdi:image-multiple-outline" :size="17" /></template>
                       机柜图预览
                     </n-button>
-                    <n-button type="primary" round @click="openDeviceModal()">新增设备</n-button>
+                    <n-button type="primary" round :disabled="rackActionsBusy || !rackFreeUnits" :loading="deviceOpening" @click="openDeviceModal()">新增设备</n-button>
                   </n-space>
                 </div>
 
+                <div class="rack-overview">
+                  <div class="rack-capacity">
+                    <strong>{{ rackUsedUnits }}<small> / {{ rackVisibleUnitCount }} U 已占用</small></strong>
+                    <n-progress type="line" :percentage="Math.round(rackUsedUnits / rackVisibleUnitCount * 100)" :show-indicator="false" :height="5" />
+                  </div>
+                  <span>可用 <b>{{ rackFreeUnits }} U</b></span>
+                  <span>最大连续空位 <b>{{ rackLargestGap }} U</b></span>
+                  <span>{{ rackDevices.length }} 台设备</span>
+                </div>
+                <div class="rack-toolbar">
+                  <n-input v-model:value="rackSearch" clearable placeholder="搜索设备名称、客户、型号" aria-label="搜索机柜设备">
+                    <template #prefix><TheIcon icon="mdi:magnify" :size="18" /></template>
+                  </n-input>
+                  <span v-if="rackSearch.trim()" class="rack-search-count">{{ rackMatchCount }} 台匹配</span>
+                  <n-switch v-model:value="rackComfortable" aria-label="切换舒适视图"><template #checked>舒适</template><template #unchecked>紧凑</template></n-switch>
+                </div>
+                <div class="rack-help">单击空位新增 · 点击设备查看详情 · 使用右侧图标编辑或克隆</div>
                 <div
                   class="rack-table-shell"
                   :style="{ '--rack-units': rackVisibleUnitCount }"
@@ -73,7 +94,7 @@
                           :class="[
                             `device-type-${Number(row.block.device.type)}`,
                             `device-status-${Number(row.block.device.status)}`,
-                            { conflict: row.block.conflict },
+                            { conflict: row.block.conflict, 'search-muted': !matchesRackSearch(row.block.device) },
                           ]"
                           :rowspan="row.block.height"
                           :title="row.block.device.remark || row.block.device.name"
@@ -95,16 +116,25 @@
                                 {{ customer.label }}
                               </n-tag>
                             </strong>
-                            <span>{{ formatDeviceUPosition(row.block.device) }}</span>
+                            <span>{{ formatDeviceUPosition(row.block.device) }} · {{ getDeviceStatus(row.block.device.status) }}</span>
                           </div>
                           <i class="rack-status-dot"></i>
+                          <div class="rack-device-actions">
+                            <n-space :size="2" :wrap="false">
+                              <n-tooltip><template #trigger>
+                                <n-button size="small" circle quaternary aria-label="编辑设备" :disabled="rackActionsBusy" @click.stop="openDeviceModal(row.block.device)"><TheIcon icon="mdi:pencil-outline" :size="17" /></n-button>
+                              </template>编辑设备</n-tooltip>
+                              <n-tooltip><template #trigger>
+                                <n-button size="small" circle quaternary aria-label="克隆设备" :disabled="rackActionsBusy || !rackFreeUnits" @click.stop="openDeviceCloneModal(row.block.device)"><TheIcon icon="mdi:content-copy" :size="17" /></n-button>
+                              </template>克隆设备</n-tooltip>
+                            </n-space>
+                          </div>
                         </td>
                         <td
                           v-else-if="!row.hidden"
                           class="rack-empty-cell"
-                          @dblclick="openDeviceModal(null, row.u)"
                           @contextmenu.prevent.stop="openRackContextMenu($event, row.u)"
-                        ></td>
+                        ><button class="rack-add-slot" :disabled="rackActionsBusy" :aria-label="`在 ${row.u} U 新增设备`" @click.stop="openDeviceModal(null, row.u)"><span>＋ 在 {{ row.u }} U 新增设备</span></button></td>
                       </tr>
                     </tbody>
                   </table>
@@ -121,7 +151,7 @@
                     <button v-if="rackContextMenu.device && !isFourNodeAttributes(rackContextMenu.device.attributes)" @click="handleRackMenuConsole">
                       {{ deviceConsoleLabel(rackContextMenu.device) }}
                     </button>
-                    <button v-if="rackContextMenu.device" @click="handleRackMenuDelete">删除设备</button>
+                    <button v-if="rackContextMenu.device" :disabled="rackActionsBusy" @click="handleRackMenuDelete">删除设备</button>
                   </div>
                 </div>
 
@@ -157,8 +187,10 @@
                   <span>Cabinets</span>
                   <strong>{{ selectedCabinets.length }}</strong>
                 </div>
+                <n-input v-model:value="cabinetSearch" clearable size="small" placeholder="查找机柜或机房" aria-label="查找机柜或机房" />
+                <n-empty v-if="!filteredCabinets.length" size="small" description="没有匹配的机柜" />
                 <article
-                  v-for="cabinet in selectedCabinets"
+                  v-for="cabinet in filteredCabinets"
                   :key="cabinet.id"
                   class="cabinet-card"
                   :class="{ active: selectedCabinetId === cabinet.id }"
@@ -167,10 +199,14 @@
                   <i v-if="selectedCabinetId === cabinet.id" class="cabinet-active-mark"></i>
                   <div class="cabinet-card-head">
                     <strong>{{ cabinet.name }}</strong>
-                    <span class="cabinet-card-actions">
-                      <button title="编辑机柜" @click.stop="openCabinetModal(cabinet)">编辑</button>
-                      <button title="删除机柜" @click.stop="deleteCabinet(cabinet)">删除</button>
-                    </span>
+                    <n-space :size="2" :wrap="false">
+                      <n-tooltip><template #trigger>
+                        <n-button size="small" circle quaternary aria-label="编辑机柜" :disabled="Boolean(deletingCabinetId)" @click.stop="openCabinetModal(cabinet)"><TheIcon icon="mdi:pencil-outline" :size="17" /></n-button>
+                      </template>编辑机柜</n-tooltip>
+                      <n-tooltip><template #trigger>
+                        <n-button size="small" circle quaternary type="error" aria-label="删除机柜" :loading="deletingCabinetId === cabinet.id" :disabled="Boolean(deletingCabinetId)" @click.stop="deleteCabinet(cabinet)"><TheIcon icon="mdi:trash-can-outline" :size="17" /></n-button>
+                      </template>删除机柜</n-tooltip>
+                    </n-space>
                   </div>
                   <div class="cabinet-card-metrics">
                     <em>{{ cabinetDeviceCount(cabinet.id) }} 台设备</em>
@@ -389,8 +425,8 @@
         </div>
       </n-modal>
 
-      <n-modal v-model:show="cabinetModal.show" preset="dialog" :title="cabinetModalTitle" style="width: min(760px, calc(100vw - 32px))">
-        <n-form label-placement="top">
+      <n-modal v-model:show="cabinetModal.show" preset="dialog" :title="cabinetModalTitle" :mask-closable="false" :close-on-esc="!cabinetModal.submitting" :closable="!cabinetModal.submitting" style="width: min(760px, calc(100vw - 32px))">
+        <n-form label-placement="top" :disabled="cabinetModal.submitting">
           <n-form-item label="机房位置" required>
             <n-select
               v-model:value="cabinetModal.form.location_id"
@@ -398,7 +434,7 @@
               placeholder="选择机房"
             />
           </n-form-item>
-          <n-grid :cols="2" :x-gap="12">
+          <n-grid cols="1 520:2" responsive="self" :x-gap="12">
             <n-form-item-gi label="机柜名称" required>
               <n-input v-model:value="cabinetModal.form.name" placeholder="例如 A01" />
             </n-form-item-gi>
@@ -453,6 +489,7 @@
             show-cancel
             show-save
             :save-loading="cabinetModal.submitting"
+            :disabled="cabinetModal.submitting"
             @cancel="cabinetModal.show = false"
             @save="submitCabinet"
           />
@@ -464,26 +501,37 @@
         preset="card"
         class="device-editor-modal"
         :bordered="false"
+        :mask-closable="false"
+        :close-on-esc="!deviceEditorBusy"
+        :closable="!deviceEditorBusy"
         style="width: min(920px, calc(100vw - 32px))"
+        @keydown.ctrl.enter.prevent.stop="submitDevice"
+        @keydown.meta.enter.prevent.stop="submitDevice"
       >
         <template #header>
           <div class="device-editor-heading">
             <span class="device-editor-icon"><TheIcon icon="mdi:server-outline" :size="24" /></span>
             <div>
               <h2>{{ deviceModalTitle }}</h2>
-              <p>{{ selectedCabinet?.name || '机柜资源' }} · 维护设备信息与硬件配置</p>
+              <p>{{ selectedCabinet?.name || '机柜资源' }} · {{ devicePositionError || `${deviceModal.form.u_position} U 起 · 占用 ${deviceEditorHeight} U` }}</p>
             </div>
           </div>
         </template>
-        <n-form label-placement="top" class="device-editor-form">
-          <section class="device-editor-section">
+        <n-tabs v-model:value="deviceEditorTab" type="line" class="device-editor-tabs">
+          <n-tab name="basic">基本信息</n-tab>
+          <n-tab name="hardware">硬件配置</n-tab>
+          <n-tab v-if="deviceModal.form.form_factor !== 'four_node'" name="remote">远程管理</n-tab>
+          <n-tab v-else name="nodes">四节点配置</n-tab>
+        </n-tabs>
+        <n-form label-placement="top" class="device-editor-form" :disabled="deviceEditorBusy" @submit.prevent>
+          <section v-show="deviceEditorTab === 'basic'" class="device-editor-section">
             <div class="device-section-heading">
               <TheIcon icon="mdi:server" :size="18" />
               <h3>基础信息</h3>
             </div>
             <n-grid cols="1 560:2" responsive="self" :x-gap="20">
               <n-form-item-gi label="设备名称" required>
-                <n-input v-model:value="deviceModal.form.name" placeholder="例如 Server-01" />
+                <n-input ref="deviceNameInput" v-model:value="deviceModal.form.name" placeholder="例如 Server-01" />
               </n-form-item-gi>
               <n-form-item-gi label="设备类型">
                 <n-select v-model:value="deviceModal.form.type" :options="deviceTypeOptions" />
@@ -510,7 +558,7 @@
               </n-form-item-gi>
             </n-grid>
           </section>
-          <section class="device-editor-section">
+          <section v-show="deviceEditorTab === 'basic'" class="device-editor-section">
             <div class="device-section-heading">
               <TheIcon icon="mdi:server-network" :size="18" />
               <h3>机柜位置与状态</h3>
@@ -518,22 +566,27 @@
             </div>
             <n-grid cols="1 560:3" responsive="self" :x-gap="20">
               <n-form-item-gi label="占用 U 数">
-                <n-input-number v-model:value="deviceModal.form.u_height" :min="1" :max="rackVisibleUnitCount" />
+                <n-input-number v-model:value="deviceModal.form.u_height" :min="1" :max="rackVisibleUnitCount" :precision="0" :disabled="deviceEditorBusy || deviceModal.form.form_factor === 'four_node'" />
               </n-form-item-gi>
               <n-form-item-gi label="起始 U 位">
-                <n-input-number v-model:value="deviceModal.form.u_position" :min="rackStartU" :max="rackEndU" />
+                <n-select v-model:value="deviceModal.form.u_position" filterable :options="devicePositionOptions" placeholder="选择可用 U 位" />
               </n-form-item-gi>
               <n-form-item-gi label="状态">
                 <n-select
                   v-model:value="deviceModal.form.status"
                   :options="deviceStatusOptions"
-                  :disabled="deviceModal.form.form_factor === 'four_node'"
+                  :disabled="deviceEditorBusy || deviceModal.form.form_factor === 'four_node'"
                   :placeholder="deviceModal.form.form_factor === 'four_node' ? '由四节点状态自动计算' : '请选择设备状态'"
                 />
               </n-form-item-gi>
             </n-grid>
+            <div class="device-position-feedback" :class="{ 'has-error': devicePositionError }">
+              <TheIcon :icon="devicePositionError ? 'mdi:alert-circle-outline' : 'mdi:check-circle-outline'" :size="18" />
+              <span>{{ devicePositionError || `将放置在 ${deviceModal.form.u_position}–${Number(deviceModal.form.u_position) + deviceEditorHeight - 1} U，位置可用` }}</span>
+              <CButton v-if="devicePositionError" show-save save-text="自动选空位" size="small" :disabled="deviceEditorBusy" @save="selectAvailableDevicePosition" />
+            </div>
           </section>
-          <section class="device-editor-section">
+          <section v-show="deviceEditorTab === 'hardware'" class="device-editor-section">
             <div class="device-section-heading">
               <TheIcon icon="mdi:chip" :size="18" />
               <h3>硬件信息</h3>
@@ -571,7 +624,7 @@
 
           </section>
 
-          <div v-if="deviceModal.form.form_factor !== 'four_node'" class="device-ipmi-editor device-editor-section">
+          <div v-if="deviceModal.form.form_factor !== 'four_node'" v-show="deviceEditorTab === 'remote'" class="device-ipmi-editor device-editor-section">
             <div class="four-node-head">
               <div>
                 <span class="eyebrow">IPMI / Redfish</span>
@@ -582,7 +635,7 @@
                 save-text="Redfish 获取配置"
                 size="small"
                 :save-loading="redfishLoading"
-                :disabled="!deviceModal.form.ipmi_host"
+                :disabled="deviceEditorBusy || !deviceModal.form.ipmi_host"
                 @save="probeDeviceRedfish"
               />
             </div>
@@ -599,15 +652,15 @@
             </n-grid>
           </div>
 
-          <div v-if="deviceModal.form.form_factor !== 'four_node'" class="device-attribute-editor device-editor-section">
+          <div v-if="deviceModal.form.form_factor !== 'four_node'" v-show="deviceEditorTab === 'hardware'" class="device-attribute-editor device-editor-section">
             <div class="four-node-head">
               <div>
                 <span class="eyebrow">Device Config</span>
                 <h3>设备配置</h3>
               </div>
               <n-space size="small">
-                <CButton show-save save-text="添加模板" size="small" @save="applyDeviceAttributeTemplate" />
-                <CButton show-save save-text="添加配置" size="small" @save="addDeviceAttribute" />
+                <CButton show-save save-text="添加模板" size="small" :disabled="deviceEditorBusy" @save="applyDeviceAttributeTemplate" />
+                <CButton show-save save-text="添加配置" size="small" :disabled="deviceEditorBusy" @save="addDeviceAttribute" />
               </n-space>
             </div>
             <n-empty v-if="!deviceModal.form.attributeList.length" class="device-config-empty" description="暂无配置，可添加模板或自定义配置项" />
@@ -621,12 +674,12 @@
                   placeholder="配置值"
                   show-password-on="click"
                 />
-                <CButton show-delete size="small" @delete="removeDeviceAttribute(index)" />
+                <CButton show-delete size="small" :disabled="deviceEditorBusy" @delete="removeDeviceAttribute(index)" />
               </div>
             </div>
           </div>
 
-          <div v-if="deviceModal.form.form_factor === 'four_node'" class="four-node-editor device-editor-section">
+          <div v-if="deviceModal.form.form_factor === 'four_node'" v-show="deviceEditorTab === 'nodes'" class="four-node-editor device-editor-section">
             <div class="four-node-head">
               <div>
                 <span class="eyebrow">Four Node Server</span>
@@ -647,7 +700,7 @@
                     :show-checkmark="false"
                     :options="nodeCustomerOptions"
                     :render-label="renderCustomerOption"
-                    :disabled="!deviceModal.form.customer_ids.length"
+                    :disabled="deviceEditorBusy || !deviceModal.form.customer_ids.length"
                     placeholder="所属客户（先选择设备客户）"
                   />
                   <n-input v-model:value="node.device_name" size="small" placeholder="设备名称" />
@@ -675,10 +728,14 @@
         </n-form>
         <template #footer>
           <div class="device-editor-footer">
+            <n-checkbox v-if="!deviceModal.form.id" v-model:checked="deviceSaveAnother" :disabled="deviceEditorBusy">保存后继续新增</n-checkbox>
+            <span v-else class="device-footer-hint">Ctrl / ⌘ + Enter 保存</span>
             <CButton
               show-cancel
               show-save
               :save-loading="deviceModal.submitting"
+              :disabled="deviceEditorBusy"
+              :save-text="deviceSaveAnother && !deviceModal.form.id ? '保存并继续' : '保存'"
               @cancel="deviceModal.show = false"
               @save="submitDevice"
             />
@@ -763,6 +820,8 @@ defineOptions({ name: 'AssetCabinetWorldMap' })
 
 const loading = ref(false)
 const deviceLoading = ref(false)
+const rackLoadError = ref('')
+let rackLoadRequest = 0
 const redfishLoading = ref(false)
 const powerLoadingKey = ref('')
 const ipmiLogLoadingKey = ref('')
@@ -789,6 +848,66 @@ function handleDeviceCustomersChange(ids) {
 const REGION_POINT_CACHE_KEY = 'finwork:cabinet-region-points:v1'
 const geocodedRegionPoints = ref(loadGeocodedRegionPoints())
 const rackDevices = ref([])
+const rackSearch = ref('')
+const cabinetSearch = ref('')
+const rackComfortable = ref(true)
+const deviceOpening = ref(false)
+const deletingCabinetId = ref(null)
+const deletingDeviceId = ref(null)
+const rackActionsBusy = computed(() => deviceOpening.value || deviceLoading.value || Boolean(rackLoadError.value) || Boolean(deletingDeviceId.value))
+const deviceEditorTab = ref('basic')
+const deviceSaveAnother = ref(false)
+const deviceNameInput = ref(null)
+const deviceEditorBusy = computed(() => deviceModal.submitting || redfishLoading.value)
+const filteredCabinets = computed(() => {
+  const keyword = cabinetSearch.value.trim().toLowerCase()
+  return selectedCabinets.value.filter((item) => `${item.name} ${cabinetLocationName(item)}`.toLowerCase().includes(keyword))
+})
+function matchesRackSearch(device) {
+  const keyword = rackSearch.value.trim().toLowerCase()
+  return !keyword || [device.name, device.asset_no, device.brand, device.model,
+    ...deviceCustomerItems(device).map((item) => item.label)].join(' ').toLowerCase().includes(keyword)
+}
+const rackMatchCount = computed(() => rackPlacedDevices.value.filter(matchesRackSearch).length)
+const rackFreeUnits = computed(() => rackVisibleUnitCount.value - rackUsedUnits.value)
+const rackLargestGap = computed(() => {
+  let largest = 0
+  let current = 0
+  for (const unit of rackUnits.value) {
+    current = unit.occupied ? 0 : current + 1
+    largest = Math.max(largest, current)
+  }
+  return largest
+})
+const deviceEditorHeight = computed(() => deviceModal.form.form_factor === 'four_node' ? 2 : Number(deviceModal.form.u_height || 1))
+const devicePositionOptions = computed(() => {
+  const height = deviceEditorHeight.value
+  return Array.from({ length: rackVisibleUnitCount.value }, (_, index) => {
+    const start = rackStartU.value + index
+    const outside = start + height - 1 > rackEndU.value
+    const occupied = hasRackOverlap(start, height, deviceModal.form.id || null)
+    return { value: start, label: `${start} U${outside ? ' · 空间不足' : occupied ? ' · 已占用' : ' · 可用'}`, disabled: outside || occupied }
+  })
+})
+const devicePositionError = computed(() => {
+  const start = Number(deviceModal.form.u_position)
+  const height = deviceEditorHeight.value
+  if (!Number.isInteger(start) || !Number.isInteger(height) || height < 1 || start < rackStartU.value || start + height - 1 > rackEndU.value) return '请选择容纳设备的有效 U 位'
+  if (hasRackOverlap(start, height, deviceModal.form.id || null)) return '当前位置已占用，请选择其他空位'
+  return ''
+})
+function selectAvailableDevicePosition() {
+  const available = devicePositionOptions.value.find((option) => !option.disabled)
+  if (available) deviceModal.form.u_position = available.value
+  else window.$message?.warning(`当前机柜没有连续 ${deviceEditorHeight.value} U 的可用空间`)
+}
+async function prepareDeviceEditor() {
+  deviceEditorTab.value = 'basic'
+  deviceSaveAnother.value = false
+  deviceModal.show = true
+  await nextTick()
+  deviceNameInput.value?.focus()
+}
 const devicePlatformTree = ref([])
 const devicePlatformLoaded = ref(false)
 let devicePlatformLoadingPromise = null
@@ -1799,24 +1918,34 @@ function selectCabinet(cabinetId) {
 }
 
 async function loadCabinetDevices(focusDeviceId = null) {
+  const request = ++rackLoadRequest
+  const cabinetId = selectedCabinetId.value
+  rackLoadError.value = ''
   if (!selectedCabinetId.value) {
     rackDevices.value = []
+    deviceLoading.value = false
     return
   }
   deviceLoading.value = true
+  rackDevices.value = []
   try {
     const res = await api.assetApi.devices({
       page: 1,
       page_size: 1000,
-      cabinet_id: selectedCabinetId.value,
+      cabinet_id: cabinetId,
     })
+    if (request !== rackLoadRequest || cabinetId !== selectedCabinetId.value) return
     rackDevices.value = res.data || []
-    updateCabinetDeviceCount(selectedCabinetId.value, rackDevices.value.length)
+    updateCabinetDeviceCount(cabinetId, rackDevices.value.length)
     if (focusDeviceId) {
       openRouteDeviceDetail(focusDeviceId)
     }
+  } catch (error) {
+    if (request === rackLoadRequest && cabinetId === selectedCabinetId.value) {
+      rackLoadError.value = '请重试后再操作，避免使用过期的 U 位信息。'
+    }
   } finally {
-    deviceLoading.value = false
+    if (request === rackLoadRequest) deviceLoading.value = false
   }
 }
 
@@ -1853,6 +1982,7 @@ function openCabinetModal(cabinet = null) {
 }
 
 async function submitCabinet() {
+  if (cabinetModal.submitting) return
   const name = String(cabinetModal.form.name || '').trim()
   const rentalStart = Number(cabinetModal.form.rental_start_u || 1)
   const rentalEnd = Number(cabinetModal.form.rental_end_u || rentalStart)
@@ -1911,6 +2041,7 @@ async function submitCabinet() {
 }
 
 async function deleteCabinet(cabinet) {
+  if (deletingCabinetId.value) return
   if (!cabinet?.id) return
   const count = cabinetDeviceCount(cabinet.id)
   if (count > 0) {
@@ -1918,28 +2049,39 @@ async function deleteCabinet(cabinet) {
     return
   }
   if (!window.confirm(`确认删除机柜 ${cabinet.name || ''}？`)) return
-  await api.assetApi.deleteCabinet({ cabinet_id: cabinet.id })
-  const nextCabinetId = selectedCabinets.value.find((item) => item.id !== cabinet.id)?.id || null
-  removeCabinetLocal(cabinet.id)
-  if (selectedCabinetId.value === cabinet.id) {
-    if (nextCabinetId) routeToCabinet(selectedRegionId.value, nextCabinetId)
-    else routeToCabinet(selectedRegionId.value)
+  deletingCabinetId.value = cabinet.id
+  try {
+    await api.assetApi.deleteCabinet({ cabinet_id: cabinet.id })
+    const nextCabinetId = selectedCabinets.value.find((item) => item.id !== cabinet.id)?.id || null
+    removeCabinetLocal(cabinet.id)
+    if (selectedCabinetId.value === cabinet.id) {
+      if (nextCabinetId) routeToCabinet(selectedRegionId.value, nextCabinetId)
+      else routeToCabinet(selectedRegionId.value)
+    }
+    window.$message?.success(`机柜 ${cabinet.name || ''} 已删除`)
+  } finally {
+    deletingCabinetId.value = null
   }
-  window.$message?.success(`机柜 ${cabinet.name || ''} 已删除`)
 }
 
 async function openDeviceModal(device = null, uPosition = null) {
+  if (deviceOpening.value || deviceEditorBusy.value || deviceLoading.value || rackLoadError.value || deletingDeviceId.value) return
+  const cabinetId = selectedCabinetId.value
   if (!selectedCabinetId.value) {
     window.$message?.warning('请先选择机柜')
     return
   }
+  deviceOpening.value = true
   try {
     await ensureDevicePlatformsLoaded()
   } catch (error) {
     console.error(error)
     window.$message?.error('设备厂商型号加载失败，请稍后重试')
     return
+  } finally {
+    deviceOpening.value = false
   }
+  if (cabinetId !== selectedCabinetId.value) return
   const isFourNodeDevice = isFourNodeAttributes(device?.attributes)
   const ipmiInfo = extractIpmiInfo(device?.attributes || {})
   deviceModal.form = device
@@ -1957,7 +2099,7 @@ async function openDeviceModal(device = null, uPosition = null) {
     deviceModal.form.u_position = uPosition || firstAvailableU()
   }
   if (deviceModal.form.form_factor === 'four_node') syncFourNodeDeviceStatus()
-  deviceModal.show = true
+  await prepareDeviceEditor()
 }
 
 function handleDeviceFormFactorChange(value) {
@@ -1992,19 +2134,23 @@ function hasRackOverlap(start, height, ignoredDeviceId = null) {
 }
 
 async function submitDevice() {
+  if (deviceEditorBusy.value) return
   const name = String(deviceModal.form.name || '').trim()
   const start = Number(deviceModal.form.u_position || 0)
   const isFourNode = deviceModal.form.form_factor === 'four_node'
   const height = isFourNode ? 2 : Number(deviceModal.form.u_height || 1)
   if (!deviceModal.form.cabinet_id || !name) {
+    deviceEditorTab.value = 'basic'
     window.$message?.warning('请选择机柜并填写设备名称')
     return
   }
-  if (!start || start < rackStartU.value || height < 1 || start + height - 1 > rackEndU.value) {
+  if (!Number.isInteger(start) || !Number.isInteger(height) || !start || start < rackStartU.value || height < 1 || start + height - 1 > rackEndU.value) {
+    deviceEditorTab.value = 'basic'
     window.$message?.warning(`请填写有效的 U 位和占用 U 数，当前机柜可用范围为 ${rackStartU.value}-${rackEndU.value}U`)
     return
   }
   if (hasRackOverlap(start, height, deviceModal.form.id || null)) {
+    deviceEditorTab.value = 'basic'
     window.$message?.warning('该 U 位已被占用，请调整起始 U 位或占用 U 数')
     return
   }
@@ -2048,12 +2194,36 @@ async function submitDevice() {
     delete payload.nodeList
     delete payload.attributeList
     const submit = payload.id ? api.assetApi.updateDevice : api.assetApi.createDevice
-    await submit(payload)
-    deviceModal.show = false
+    const res = await submit(payload)
+    const keepAdding = !payload.id && deviceSaveAnother.value
+    if (!keepAdding) deviceModal.show = false
+    if (res.data?.id) {
+      const index = rackDevices.value.findIndex((item) => item.id === res.data.id)
+      if (index < 0) rackDevices.value.push(res.data)
+      else rackDevices.value.splice(index, 1, res.data)
+      if (deviceDrawer.row?.id === res.data.id) deviceDrawer.row = res.data
+      updateCabinetDeviceCount(payload.cabinet_id, rackDevices.value.length)
+    }
     window.$message?.success(payload.id ? `设备 ${name} 已更新` : `设备 ${name} 已新增`)
-    await loadCabinetDevices()
+    if (keepAdding) {
+      // Start a clean form so asset numbers, serial numbers and credentials are never reused.
+      deviceModal.form = createDeviceForm()
+      deviceModal.form.cabinet_id = payload.cabinet_id
+      deviceModal.form.u_position = firstAvailableU()
+      deviceEditorTab.value = 'basic'
+      if (!deviceModal.form.u_position) {
+        deviceModal.show = false
+        window.$message?.info('设备已保存，当前机柜已无可用 U 位')
+      }
+    }
+  } catch (error) {
+    window.$message?.error(error?.message || '设备保存失败，请重试')
   } finally {
     deviceModal.submitting = false
+    if (deviceModal.show && !deviceModal.form.name) {
+      await nextTick()
+      deviceNameInput.value?.focus()
+    }
   }
 }
 
@@ -2097,8 +2267,20 @@ function handleRackMenuConsole() {
   if (device) openDeviceConsole(device)
 }
 
-function openDeviceCloneModal(device) {
+async function openDeviceCloneModal(device) {
+  if (deviceOpening.value || deviceEditorBusy.value || deviceLoading.value || rackLoadError.value || deletingDeviceId.value) return
+  const cabinetId = selectedCabinetId.value
   if (!selectedCabinetId.value || !device) return
+  deviceOpening.value = true
+  try {
+    await ensureDevicePlatformsLoaded()
+  } catch (error) {
+    window.$message?.error('设备厂商型号加载失败，请稍后重试')
+    return
+  } finally {
+    deviceOpening.value = false
+  }
+  if (cabinetId !== selectedCabinetId.value) return
   const isFourNodeDevice = isFourNodeAttributes(device.attributes)
   const ipmiInfo = extractIpmiInfo(device.attributes || {})
   const height = isFourNodeDevice ? 2 : Math.max(Number(device.u_height || 1), 1)
@@ -2126,7 +2308,7 @@ function openDeviceCloneModal(device) {
     nodeList: isFourNodeDevice ? normalizeCloneFourNodeList(device.attributes?.nodes || []) : createFourNodeList(),
   }
   if (deviceModal.form.form_factor === 'four_node') syncFourNodeDeviceStatus()
-  deviceModal.show = true
+  await prepareDeviceEditor()
 }
 
 function buildCloneDeviceName(name) {
@@ -2157,13 +2339,20 @@ function normalizeCloneFourNodeList(nodes) {
 }
 
 async function handleRackMenuDelete() {
+  if (rackActionsBusy.value || deviceEditorBusy.value) return
   const device = rackContextMenu.device
   closeRackContextMenu()
   if (!device?.id) return
   const deviceName = device.name || '该设备'
-  await api.assetApi.deleteDevice({ device_id: device.id })
-  window.$message?.success(`设备 ${deviceName} 已删除`)
-  await loadCabinetDevices()
+  if (!window.confirm(`确认删除设备 ${deviceName}？`)) return
+  deletingDeviceId.value = device.id
+  try {
+    await api.assetApi.deleteDevice({ device_id: device.id })
+    window.$message?.success(`设备 ${deviceName} 已删除`)
+    await loadCabinetDevices()
+  } finally {
+    deletingDeviceId.value = null
+  }
 }
 
 function cabinetLocationName(cabinet) {
@@ -2688,10 +2877,63 @@ onBeforeUnmount(() => {
 
 .device-editor-footer {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
+.device-editor-tabs { padding: 0 28px 12px; }
+.device-footer-hint { color: #64748b; font-size: 12px; }
+.device-position-feedback {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f0fdf4;
+  color: #15803d;
+  font-size: 12px;
+}
+.device-position-feedback.has-error { color: #b45309; background: #fffbeb; }
+.rack-overview {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  padding: 16px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  color: #64748b;
+  font-size: 12px;
+}
+.rack-overview b { color: #0f172a; }
+.rack-capacity { width: 190px; }
+.rack-capacity strong { display: block; margin-bottom: 8px; color: #0f172a; font-size: 22px; }
+.rack-capacity small { font-size: 12px; color: #64748b; font-weight: 400; }
+.rack-toolbar { display: flex; align-items: center; gap: 12px; padding: 12px 16px 6px; }
+.rack-toolbar > :first-child { flex: 1; min-width: 0; }
+.rack-search-count { color: #64748b; font-size: 12px; white-space: nowrap; }
+.rack-help { padding: 0 16px 10px; color: #64748b; font-size: 12px; }
+.rack-device-cell.search-muted { opacity: 0.3; }
+.rack-device-actions { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); border-radius: 18px; background: #ffffffec; }
+.rack-add-slot { display: block; width: 100%; height: 100%; min-height: 26px; border: 0; background: transparent; color: #64748b; cursor: pointer; font: inherit; font-size: 11px; }
+.rack-add-slot span { opacity: 0.35; }
+.rack-add-slot:hover span, .rack-add-slot:focus-visible span { opacity: 1; }
+.rack-add-slot:focus-visible { outline: 2px solid #2563eb; outline-offset: -2px; }
+.rack-add-slot:disabled { cursor: wait; }
+.rack-comfortable .rack-u-cell, .rack-comfortable .rack-empty-cell { height: 44px; }
+.rack-comfortable .rack-device-main > strong { font-size: 13px; }
+.rack-comfortable .rack-device-main { gap: 4px; }
+.rack-load-error { margin-bottom: 10px; }
+
 @media (max-width: 640px) {
+  .device-editor-tabs { padding: 0 16px 12px; }
+  .rack-overview { gap: 10px 16px; padding: 12px; }
+  .rack-capacity { width: 100%; }
+  .rack-toolbar { flex-wrap: wrap; padding: 10px 12px 6px; }
+  .rack-help { padding: 0 12px 10px; }
   .device-editor-modal :deep(.n-card-header) {
     padding: 18px 16px;
   }
@@ -3282,7 +3524,7 @@ onBeforeUnmount(() => {
 
 .rack-table {
   width: 100%;
-  min-width: 620px;
+  min-width: 380px;
   border-collapse: collapse;
   table-layout: fixed;
 }
@@ -3342,7 +3584,7 @@ onBeforeUnmount(() => {
     linear-gradient(180deg, #3477f6 0%, #2563eb 100%);
   color: #fff;
   cursor: pointer;
-  padding: 3px 34px 3px 12px;
+  padding: 4px 82px 4px 28px;
   text-align: center;
   vertical-align: middle;
   box-shadow:
@@ -3400,7 +3642,7 @@ onBeforeUnmount(() => {
 
 .rack-status-dot {
   position: absolute;
-  right: 12px;
+  left: 10px;
   top: 50%;
   width: 10px;
   height: 10px;
