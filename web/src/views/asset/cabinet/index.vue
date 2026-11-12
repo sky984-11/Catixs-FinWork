@@ -656,14 +656,31 @@
             <div class="four-node-head">
               <div>
                 <span class="eyebrow">Device Config</span>
-                <h3>设备配置</h3>
+                <h3>{{ Number(deviceModal.form.type) === 0 ? '服务器硬件配置' : '设备配置' }}</h3>
               </div>
-              <n-space size="small">
-                <CButton show-save save-text="添加模板" size="small" :disabled="deviceEditorBusy" @save="applyDeviceAttributeTemplate" />
+              <n-space v-if="Number(deviceModal.form.type) !== 0" size="small">
                 <CButton show-save save-text="添加配置" size="small" :disabled="deviceEditorBusy" @save="addDeviceAttribute" />
               </n-space>
             </div>
-            <n-empty v-if="!deviceModal.form.attributeList.length" class="device-config-empty" description="暂无配置，可添加模板或自定义配置项" />
+            <div v-if="Number(deviceModal.form.type) === 0" class="server-hardware-fields">
+              <section v-for="group in serverHardwareGroups" :key="group.title" class="server-hardware-group">
+                <div class="device-section-heading">
+                  <TheIcon :icon="group.icon" :size="18" />
+                  <h3>{{ group.title }}</h3>
+                </div>
+                <n-grid cols="1 560:2" responsive="self" :x-gap="20">
+                  <n-form-item-gi v-for="field in group.fields" :key="field.key" :label="field.label">
+                    <n-input
+                      :value="serverHardwareValue(field.key)"
+                      :placeholder="field.placeholder"
+                      clearable
+                      @update:value="setServerHardwareValue(field.key, $event)"
+                    />
+                  </n-form-item-gi>
+                </n-grid>
+              </section>
+            </div>
+            <n-empty v-else-if="!deviceModal.form.attributeList.length" class="device-config-empty" description="暂无配置，可添加自定义配置项" />
             <div v-else class="attribute-editor-list">
               <div v-for="(attr, index) in deviceModal.form.attributeList" :key="index" class="attribute-editor-row">
                 <n-input v-model:value="attr.key" size="small" placeholder="配置项，例如 IPMI密码" />
@@ -1159,12 +1176,43 @@ const deviceConfigAttributeAliases = {
   ],
 }
 const deviceConfigAliasKeys = new Set(Object.values(deviceConfigAttributeAliases).flat())
-const deviceAttributeTemplate = [
-  ['CPU型号', ''],
-  ['CPU数量', ''],
-  ['CPU核心数', ''],
-  ['内存总数', ''],
-  ['磁盘总数', ''],
+const serverHardwareGroups = [
+  {
+    title: '处理器', icon: 'mdi:cpu-64-bit',
+    fields: [
+      { key: 'CPU型号', label: 'CPU 型号', placeholder: '例如 Intel Xeon Gold 6330' },
+      { key: 'CPU数量', label: 'CPU 数量', placeholder: '例如 2 颗' },
+      { key: 'CPU核心数', label: 'CPU 核心总数', placeholder: '例如 56 核' },
+      { key: 'CPU线程数', label: 'CPU 线程总数', placeholder: '例如 112 线程' },
+    ],
+  },
+  {
+    title: '内存与存储', icon: 'mdi:memory',
+    fields: [
+      { key: '内存总数', label: '内存总容量', placeholder: '例如 256GB' },
+      { key: '内存规格', label: '内存规格 / 数量', placeholder: '例如 8 × 32GB DDR4 ECC 3200MHz' },
+      { key: '磁盘总数', label: '磁盘配置', placeholder: '例如 2 × 960GB SSD + 4 × 4TB HDD' },
+      { key: 'RAID控制器', label: 'RAID 控制器', placeholder: '例如 PERC H755 / HBA' },
+      { key: 'RAID级别', label: 'RAID 级别', placeholder: '例如 RAID 1 + RAID 10 / JBOD' },
+      { key: '磁盘槽位', label: '磁盘槽位', placeholder: '例如 8 × 2.5 英寸，已用 6 槽' },
+    ],
+  },
+  {
+    title: '网络与扩展', icon: 'mdi:expansion-card',
+    fields: [
+      { key: '网卡规格', label: '网卡型号 / 端口', placeholder: '例如 Intel X710，双口 10GbE SFP+' },
+      { key: '网卡MAC', label: '网卡 MAC 地址', placeholder: '多个地址用 / 分隔' },
+      { key: 'GPU型号', label: 'GPU 型号', placeholder: '例如 NVIDIA L40S 48GB，无则留空' },
+      { key: 'GPU数量', label: 'GPU 数量', placeholder: '例如 2 张' },
+    ],
+  },
+  {
+    title: '电源', icon: 'mdi:power-plug-outline',
+    fields: [
+      { key: '电源规格', label: '单电源额定功率', placeholder: '例如 800W' },
+      { key: '电源数量', label: '电源数量 / 冗余', placeholder: '例如 2 个，1+1 冗余' },
+    ],
+  },
 ]
 const vncAttributeKeys = ['vnc_host', 'vnc_address', 'VNC地址', 'VNC主机', 'ipmi_host', 'IPMI地址']
 const webConsoleUrlKeys = [
@@ -1471,20 +1519,20 @@ function addDeviceAttribute() {
   deviceModal.form.attributeList.push({ key: '', value: '' })
 }
 
-function applyDeviceAttributeTemplate() {
-  const existingKeys = new Set(
-    (deviceModal.form.attributeList || [])
-      .map((item) => String(item.key || '').trim())
-      .filter(Boolean)
-  )
-  let addedCount = 0
-  deviceAttributeTemplate.forEach(([key, value]) => {
-    if (!key || existingKeys.has(key)) return
-    deviceModal.form.attributeList.push({ key, value })
-    existingKeys.add(key)
-    addedCount += 1
-  })
-  window.$message?.success(addedCount ? `已添加 ${addedCount} 个配置字段` : '配置模板字段已存在')
+function serverHardwareValue(key) {
+  return deviceModal.form.attributeList.find((item) => item.key === key)?.value || ''
+}
+
+function setServerHardwareValue(key, value) {
+  const rows = deviceModal.form.attributeList
+  const index = rows.findIndex((item) => item.key === key)
+  if (!value) {
+    if (index >= 0) rows.splice(index, 1)
+  } else if (index >= 0) {
+    rows[index].value = value
+  } else {
+    rows.push({ key, value })
+  }
 }
 
 function removeDeviceAttribute(index) {
@@ -2884,6 +2932,12 @@ onBeforeUnmount(() => {
 }
 
 .device-editor-tabs { padding: 0 28px 12px; }
+.server-hardware-fields { display: grid; gap: 16px; }
+.server-hardware-group + .server-hardware-group {
+  padding-top: 16px;
+  border-top: 1px solid var(--n-border-color, #e2e8f0);
+}
+.server-hardware-group :deep(.n-form-item:last-child) { margin-bottom: 0; }
 .device-footer-hint { color: #64748b; font-size: 12px; }
 .device-position-feedback {
   display: flex;
