@@ -20,7 +20,6 @@ class DeviceCustomerStatusTests(unittest.IsolatedAsyncioTestCase):
         self.customer = await CrmCustomer.create(name="Test")
         self.patches = [
             patch.object(assets, "can_view_device_secrets", AsyncMock(return_value=True)),
-            patch.object(assets, "sync_physical_server_specs", AsyncMock()),
         ]
         for mocked in self.patches:
             mocked.start()
@@ -49,7 +48,7 @@ class DeviceCustomerStatusTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(device["status"], 1)
         device = await self.update(device, status=2, customer_ids=[self.customer.id])
         self.assertEqual(device["status"], 2)
-        device = await self.update(device, status=1, customer_ids=[])
+        device = await self.update(device, status=2, customer_ids=[])
         self.assertEqual(device["status"], 0)
         self.assertEqual(device["customer_ids"], [])
         self.assertIsNone((await AssetDevice.get(id=device["id"])).customer_id)
@@ -79,3 +78,33 @@ class DeviceCustomerStatusTests(unittest.IsolatedAsyncioTestCase):
         device = await self.update(device, customer_ids=[self.customer.id], attributes=attributes)
         self.assertEqual(device["status"], 1)
         self.assertEqual((await AssetDevice.get(id=device["id"])).status, 1)
+
+    async def test_assign_customer_and_change_status_in_one_save(self):
+        device = await self.create(status=6, customer_ids=[])
+        device = await self.update(device, status=2, customer_ids=[self.customer.id])
+        self.assertEqual(device["status"], 2)
+        self.assertEqual((await AssetDevice.get(id=device["id"])).status, 2)
+
+    async def test_remove_customer_and_reserve_in_one_save(self):
+        device = await self.create(customer_ids=[self.customer.id])
+        device = await self.update(device, status=6, customer_ids=[])
+        self.assertEqual(device["status"], 6)
+        saved = await AssetDevice.get(id=device["id"])
+        self.assertEqual(saved.status, 6)
+        self.assertIsNone(saved.customer_id)
+
+    async def test_explicit_idle_status_with_unchanged_customer(self):
+        device = await self.create(customer_ids=[self.customer.id])
+        device = await self.update(device, status=0, customer_ids=[self.customer.id])
+        self.assertEqual(device["status"], 0)
+        self.assertEqual((await AssetDevice.get(id=device["id"])).status, 0)
+        device = await self.update(device, status=0, customer_ids=[self.customer.id])
+        self.assertEqual(device["status"], 0)
+
+    async def test_assign_customer_and_change_node_status_in_one_save(self):
+        attributes = {"form_factor": "four_node", "nodes": [{"name": "N1", "status": 6}]}
+        device = await self.create(customer_ids=[], attributes=attributes)
+        attributes["nodes"][0]["status"] = 3
+        device = await self.update(device, customer_ids=[self.customer.id], attributes=attributes)
+        self.assertEqual(device["status"], 3)
+        self.assertEqual((await AssetDevice.get(id=device["id"])).status, 3)

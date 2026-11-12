@@ -2164,14 +2164,23 @@ async def sync_device_customer_status(device_in):
     if previous and previous.customer_id:
         old_ids.add(previous.customer_id)
     new_ids = set(device_in.customer_ids)
-    if new_ids and (new_ids != old_ids or device_in.status == 0):
-        device_in.status = 1
+    # Customer changes provide a default, but must not overwrite an explicit status change.
+    status_changed = (
+        previous is not None and "status" in device_in.model_fields_set and device_in.status != previous.status
+    )
+    if previous and is_four_node_attributes(device_in.attributes):
+        status_changed = device_in.status != aggregate_four_node_status((previous.attributes or {}).get("nodes", []))
+    if new_ids and new_ids != old_ids:
+        if not status_changed:
+            device_in.status = 1
     elif old_ids and not new_ids:
-        device_in.status = 0
+        if not status_changed:
+            device_in.status = 0
         if is_four_node_attributes(device_in.attributes):
             for node in device_in.attributes.get("nodes", []):
                 node["customer_id"] = None
                 node["status"] = 0
+            device_in.status = 0
 
 
 @router.post("/device/create", summary="创建设备")
