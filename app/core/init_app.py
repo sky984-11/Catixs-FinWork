@@ -496,6 +496,13 @@ async def ensure_product_center_menu():
             "icon": "mdi:receipt-text-outline",
             "component": "/product-center/billing",
         },
+        {
+            "name": "资源成本库",
+            "path": "resource-costs",
+            "order": 5,
+            "icon": "mdi:database-outline",
+            "component": "/product-center/resource-costs",
+        },
         # {
         #     "name": "产品模板",
         #     "path": "templates",
@@ -1471,6 +1478,7 @@ async def ensure_business_api_permissions():
     )
     project_menu = await Menu.filter(path="/project-board").first()
     billing_apis = await Api.filter(path__startswith="/api/v1/crm-billing/")
+    cost_apis = await Api.filter(path__startswith="/api/v1/resource-costs")
     customer_center_menu = await Menu.filter(path="/customer-center").first()
     customer_center_child_menus = await Menu.filter(parent_id=customer_center_menu.id) if customer_center_menu else []
     product_center_menu = await Menu.filter(path="/product-center").first()
@@ -1479,6 +1487,8 @@ async def ensure_business_api_permissions():
     for role in roles:
         if billing_apis and str(role.name or "").strip().lower() in {"admin", "管理员", "财务", "finance"}:
             await role.apis.add(*billing_apis)
+        if cost_apis and str(role.name or "").strip().lower() in {"admin", "管理员", "财务", "finance"}:
+            await role.apis.add(*cost_apis)
         if read_apis:
             await role.apis.add(*read_apis)
         if customer_center_menu:
@@ -1488,7 +1498,11 @@ async def ensure_business_api_permissions():
         if product_center_menu:
             await role.menus.add(product_center_menu)
         if product_center_child_menus:
-            await role.menus.add(*product_center_child_menus)
+            visible_product_menus = [menu for menu in product_center_child_menus if menu.component != "/product-center/resource-costs"]
+            if await role.apis.filter(method="GET", path="/api/v1/resource-costs").exists():
+                visible_product_menus += [menu for menu in product_center_child_menus if menu.component == "/product-center/resource-costs"]
+            if visible_product_menus:
+                await role.menus.add(*visible_product_menus)
         if is_admin_role_name(role.name):
             if manage_apis:
                 await role.apis.add(*manage_apis)

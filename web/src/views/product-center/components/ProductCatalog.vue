@@ -117,7 +117,7 @@
           :data="rows"
           :loading="loading"
           :row-key="(row) => row.id"
-          :scroll-x="1160"
+          :scroll-x="1200"
           :pagination="false"
         />
         <n-pagination
@@ -307,6 +307,29 @@
       :units="units"
       @close="closePricing"
     />
+    <n-modal
+      v-model:show="costModal.show"
+      preset="card"
+      title="关联资源成本"
+      style="width: min(1400px, calc(100vw - 24px))"
+      :closable="!costModal.busy"
+      :mask-closable="!costModal.busy"
+      :close-on-esc="!costModal.busy"
+    >
+      <ResourceCostLibrary
+        v-if="costModal.show && costModal.product"
+        :key="costModal.product.id"
+        :product="costModal.product"
+        @busy="(value) => (costModal.busy = value)"
+      />
+      <template #footer
+        ><CButton
+          show-cancel
+          cancel-text="关闭"
+          :disabled="costModal.busy"
+          @cancel="costModal.show = false"
+      /></template>
+    </n-modal>
   </AppPage>
 </template>
 
@@ -318,6 +341,17 @@ import TheIcon from '@/components/icon/TheIcon.vue'
 import CButton from '@/components/public/CButton.vue'
 import ProductVariants from './ProductVariants.vue'
 import ProductPriceVersions from './ProductPriceVersions.vue'
+import ResourceCostLibrary from './ResourceCostLibrary.vue'
+import { usePermissionStore, useUserStore } from '@/store'
+
+const permissionStore = usePermissionStore()
+const userStore = useUserStore()
+const canReadCosts = computed(
+  () =>
+    userStore.isSuperUser ||
+    permissionStore.apis.includes('get/api/v1/resource-costs/products/{product_id}/links')
+)
+const costModal = reactive({ show: false, product: null, busy: false })
 
 const service = api.productCenterApi
 const rows = ref([]),
@@ -609,7 +643,7 @@ const columns = computed(() =>
     {
       title: '操作',
       key: 'actions',
-      width: 180,
+      width: 220,
       fixed: 'right',
       render: (row) =>
         h(
@@ -619,6 +653,18 @@ const columns = computed(() =>
             default: () => [
               actionButton(row, '编辑', 'mdi:pencil-outline', 'info', () => editProduct(row)),
               actionButton(row, '克隆', 'mdi:content-copy', 'default', () => openClone(row)),
+              canReadCosts.value
+                ? actionButton(
+                    row,
+                    '关联成本资源',
+                    'mdi:database-search-outline',
+                    'default',
+                    () => {
+                      costModal.product = row
+                      costModal.show = true
+                    }
+                  )
+                : null,
               actionButton(row, '删除', 'mdi:delete-outline', 'error', () =>
                 confirmDelete(row, 'product')
               ),

@@ -27,6 +27,7 @@ migrations/models/*
 !migrations/models/185_20261105120000_product_variants.py
 !migrations/models/186_20261106120000_crm_billing.py
 !migrations/models/187_20261106160000_billing_plan_deletion.py
+!migrations/models/188_20261113120000_resource_costs.py
 .env
 .pnpm-store/
 

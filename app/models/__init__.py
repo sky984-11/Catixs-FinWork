@@ -15,3 +15,4 @@ from .product_order import *
 from .crm_billing import *
 from .vendor_contact import *
 from .idc import *
+from .resource_cost import *

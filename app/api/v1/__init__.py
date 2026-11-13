@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from .resource_costs import router as resource_costs_router
 
 from app.core.dependency import DependAuth, DependPermission
 
@@ -77,6 +78,7 @@ v1_router.include_router(companies_router, prefix="/company", dependencies=[Depe
 v1_router.include_router(customer_center_router, prefix="/customer-center", dependencies=[DependPermission], tags=["客户中心"])
 v1_router.include_router(crm_billing_router, prefix="/crm-billing", dependencies=[DependPermission], tags=["账单管理"])
 v1_router.include_router(product_center_router, prefix="/product-center", dependencies=[DependPermission], tags=["产品中心"])
+v1_router.include_router(resource_costs_router, prefix="/resource-costs", dependencies=[DependPermission], tags=["资源成本库"])
 v1_router.include_router(projects_router, prefix="/project", dependencies=[DependPermission])
 v1_router.include_router(resources_router, prefix="/resource", dependencies=[DependPermission])
 v1_router.include_router(akvorado_router, prefix="/akvorado", tags=["Sflow"])
