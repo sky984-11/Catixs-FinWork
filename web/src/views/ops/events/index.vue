@@ -172,9 +172,6 @@
         striped
         class="event-history-table"
       />
-      <template #footer>
-        <CButton show-cancel cancel-text="关闭" @cancel="typeHistoryOpen = false" />
-      </template>
     </n-modal>
     <n-drawer
       v-model:show="detailOpen"
@@ -372,8 +369,8 @@ const snapshot = ref({ rows: [], categories: [] }),
 const keyword = ref(''),
   category = ref(null),
   severity = ref(null),
-  state = ref('all'),
-  historyMode = ref(1),
+  state = ref('unacknowledged'),
+  historyMode = ref(0),
   page = ref(1)
 const autoRefresh = ref(true),
   viewportWidth = ref(window.innerWidth)
