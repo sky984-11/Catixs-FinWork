@@ -499,7 +499,7 @@ const columns = [
   { title: '状态', key: 'state', width: 100, render: status },
   { title: '发生时间', key: 'clock', width: 180, render: (row) => date(row.clock) },
   { title: '持续时间', key: 'duration', width: 130, render: duration },
-  { title: '建议分类', key: 'advice', width: 110, render: (row) => row.advice.type },
+  { title: '排查方向', key: 'advice', width: 110, render: (row) => row.advice.type },
 ].map((col) => ({ ...col, resizable: true, ellipsis: { tooltip: true } }))
 columns.push({
   title: '操作',

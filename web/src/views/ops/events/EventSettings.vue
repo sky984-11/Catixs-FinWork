@@ -16,17 +16,17 @@
         >
         <n-alert v-if="error" type="error" class="gap">{{ error }}</n-alert>
 
-        <h3>分类标签</h3>
+        <h3>仪表盘分组依据</h3>
         <n-select
           v-model:value="form.category_tag"
           :options="tagOptions"
           filterable
           :disabled="working"
-          placeholder="选择 Zabbix 主机标签名"
+          placeholder="选择分组维度"
         />
         <p class="muted">
-          分类来自该标签的值，在 Zabbix
-          中维护。先选择主机组可发现更多标签；缺少该标签或值为空的主机归入未分类。
+          推荐按业务分类分组，也可按供应商或线路类型查看健康情况。此选项仅决定仪表盘的分组方式，
+          下方各项主机属性保持独立。属性值在 Zabbix 中维护，缺少分组值的主机归入未分类。
         </p>
         <n-alert v-if="form.tags_warning" type="warning" class="gap">{{
           form.tags_warning
@@ -76,7 +76,7 @@
           :data="candidates"
           :row-key="(row) => row.hostid"
           :max-height="260"
-          :scroll-x="720"
+          :scroll-x="1340"
           :loading="searching"
           size="small"
         >
@@ -101,7 +101,7 @@
           :data="form.hosts"
           :row-key="(row) => row.hostid"
           :max-height="300"
-          :scroll-x="740"
+          :scroll-x="1240"
           size="small"
         />
         <p class="muted">
@@ -163,27 +163,44 @@ const groupOptions = computed(() =>
 )
 const removal = reactive({ show: false, kind: '', key: '' })
 const working = computed(() => loading.value || saving.value || searching.value)
+const tagLabels = {
+  business_category: '业务分类',
+  line_type: '线路类型',
+  provider: '供应商',
+  site_a: 'A 端位置',
+  site_b: 'B 端位置',
+  site: '站点',
+  role: '设备角色',
+  customer: '客户',
+  probe_site: '探测位置',
+  circuit_id: '线路编号',
+  asset_id: '资产编号',
+  class: '设备类别（模板）',
+  subclass: '设备子类（模板）',
+  target: '监控对象（模板）',
+}
 const tagOptions = computed(() =>
   [
     ...new Set(
       [
+        'business_category',
         form.category_tag,
         ...[...form.hosts, ...candidates.value].flatMap((h) => (h.tags || []).map((t) => t.tag)),
       ].filter(Boolean)
     ),
   ]
-    .sort()
-    .map((value) => ({ label: value, value }))
+    .sort((a, b) =>
+      a === 'business_category' ? -1 : b === 'business_category' ? 1 : a.localeCompare(b)
+    )
+    .map((value) => ({ label: tagLabels[value] || `自定义标签：${value}`, value }))
 )
-function hostCategory(row) {
+function tagValue(row, key) {
   return (
     [
       ...new Set(
-        (row.tags || [])
-          .filter((t) => t.tag === form.category_tag && t.value?.trim())
-          .map((t) => t.value.trim())
+        (row.tags || []).filter((t) => t.tag === key && t.value?.trim()).map((t) => t.value.trim())
       ),
-    ].join(' / ') || '未分类'
+    ].join(' / ') || (key === 'business_category' ? '未分类' : '—')
   )
 }
 function actionButton(label, icon, callback, disabled = false) {
@@ -208,6 +225,15 @@ function actionButton(label, icon, callback, disabled = false) {
     default: () => (disabled ? '请先重新分配该分类的主机' : label),
   })
 }
+const attributeColumns = () =>
+  ['business_category', 'line_type', 'provider', 'site_a', 'site_b'].map((key) => ({
+    title: tagLabels[key],
+    key,
+    width: key === 'line_type' ? 170 : 150,
+    resizable: true,
+    ellipsis: { tooltip: true },
+    render: (row) => tagValue(row, key),
+  }))
 const candidateColumns = [
   {
     type: 'selection',
@@ -221,19 +247,12 @@ const candidateColumns = [
       width: 220,
       render: (row) => row.addresses.join(' / ') || '—',
     },
-    { title: '标签分类', key: 'category', width: 200, render: hostCategory },
   ].map((c) => ({ ...c, resizable: true, ellipsis: { tooltip: true } })),
+  ...attributeColumns(),
 ]
 const selectedColumns = [
-  { title: '主机名称', key: 'name', width: 280, resizable: true, ellipsis: { tooltip: true } },
-  { title: 'Zabbix ID', key: 'hostid', width: 140, resizable: true },
-  {
-    title: '所属分类',
-    key: 'category',
-    width: 240,
-    resizable: true,
-    render: hostCategory,
-  },
+  { title: '主机名称', key: 'name', width: 390, resizable: true, ellipsis: { tooltip: true } },
+  ...attributeColumns(),
   {
     title: '操作',
     key: 'actions',
