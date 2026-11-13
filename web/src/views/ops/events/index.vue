@@ -120,12 +120,13 @@
       </div>
       <n-data-table
         class="event-table"
-        flex-height
         size="small"
+        striped
+        flex-height
         :loading="loading"
         :columns="columns"
         :data="pageRows"
-        :scroll-x="1590"
+        :scroll-x="1510"
         :row-key="(row) => row.id"
         :row-props="historyRowProps"
       >
@@ -164,10 +165,12 @@
         :data="typeHistoryRows"
         :loading="typeHistoryLoading"
         :row-key="(row) => row.id"
-        :scroll-x="1590"
+        :scroll-x="1510"
         :max-height="480"
         :pagination="{ pageSize: 10 }"
         size="small"
+        striped
+        class="event-history-table"
       />
       <template #footer>
         <CButton show-cancel cancel-text="关闭" @cancel="typeHistoryOpen = false" />
@@ -420,6 +423,44 @@ function status(row) {
     ? '已确认'
     : '待处理'
 }
+function statusTag(row) {
+  const type = row.recovered
+    ? 'success'
+    : row.suppressed
+    ? 'warning'
+    : row.acknowledged
+    ? 'info'
+    : 'error'
+  return h(
+    NTag,
+    { type, size: 'small', bordered: false, round: true },
+    { default: () => status(row) }
+  )
+}
+function timeCell(value) {
+  if (!Number(value)) return h('span', { class: 'event-secondary' }, '—')
+  const timestamp = new Date(Number(value) * 1000)
+  return h('div', { class: 'event-time', title: date(value) }, [
+    h('span', timestamp.toLocaleTimeString('zh-CN', { hour12: false })),
+    h('span', { class: 'event-secondary' }, timestamp.toLocaleDateString('zh-CN')),
+  ])
+}
+function hostCell(row) {
+  if (!row.hosts.length) return '不可见'
+  return h(
+    'div',
+    { class: 'event-hosts' },
+    row.hosts.map((host) => {
+      const [name, ...path] = host.name.split(/\s+PATH\s*/)
+      return h('div', { title: host.name }, [
+        h('div', { class: 'event-host-name' }, name),
+        path.length
+          ? h('div', { class: 'event-secondary event-path' }, `路径：${path.join(' PATH ')}`)
+          : null,
+      ])
+    })
+  )
+}
 function duration(row) {
   if (row.recovered && !row.recovery_clock) return '恢复时间不可用'
   const seconds = Math.max(
@@ -532,7 +573,8 @@ const columns = [
   {
     title: '级别',
     key: 'severity',
-    width: 110,
+    width: 90,
+    align: 'center',
     render: (row) =>
       h(
         NTag,
@@ -540,39 +582,69 @@ const columns = [
         { default: () => severityNames[row.severity] }
       ),
   },
-  { title: '告警 / 事件', key: 'name', width: 330 },
+  {
+    title: '告警 / 事件',
+    key: 'name',
+    width: 280,
+    ellipsis: false,
+    render: (row) => h('div', { class: 'event-name', title: row.name }, row.name),
+  },
   {
     title: '目标主机',
     key: 'hosts',
-    width: 190,
-    render: (row) => row.hosts.map((h) => h.name).join(' / ') || '不可见',
+    width: 300,
+    ellipsis: false,
+    render: hostCell,
   },
   {
     title: 'IP / 地址',
     key: 'address',
-    width: 170,
-    render: (row) => row.hosts.flatMap((h) => h.addresses).join(' / ') || '—',
+    width: 150,
+    render: (row) =>
+      h(
+        'span',
+        { class: 'event-address' },
+        row.hosts.flatMap((h) => h.addresses).join(' / ') || '—'
+      ),
   },
-  { title: '状态', key: 'state', width: 100, render: status },
-  { title: '发生时间', key: 'clock', width: 180, render: (row) => date(row.clock) },
+  { title: '状态', key: 'state', width: 100, align: 'center', render: statusTag },
+  {
+    title: '发生时间',
+    key: 'clock',
+    width: 120,
+    ellipsis: false,
+    render: (row) => timeCell(row.clock),
+  },
   {
     title: '恢复时间',
     key: 'recovery_clock',
-    width: 180,
-    render: (row) => date(row.recovery_clock),
+    width: 120,
+    ellipsis: false,
+    render: (row) => timeCell(row.recovery_clock),
   },
-  { title: '持续时间', key: 'duration', width: 130, render: duration },
-  { title: '排查方向', key: 'advice', width: 110, render: (row) => row.advice.type },
-].map((col) => ({ ...col, resizable: true, ellipsis: { tooltip: true } }))
+  {
+    title: '持续时间',
+    key: 'duration',
+    width: 150,
+    render: (row) => h('span', { class: 'event-duration' }, duration(row)),
+  },
+  {
+    title: '排查方向',
+    key: 'advice',
+    width: 110,
+    render: (row) => h('span', { class: 'event-secondary' }, row.advice.type),
+  },
+].map((col) => ({ resizable: true, ellipsis: { tooltip: true }, ...col }))
 columns.push({
   title: '操作',
   key: 'actions',
   width: 90,
+  align: 'center',
   fixed: 'right',
   render: (row) =>
     h(
       NSpace,
-      { wrap: false, size: 4 },
+      { wrap: false, size: 4, justify: 'center' },
       {
         default: () => [
           actionButton('定位 / 查看建议', 'mdi:target', () => openDetail(row)),
@@ -898,6 +970,51 @@ h3 {
 .event-table {
   flex: 1;
   min-height: 180px;
+}
+:deep(.event-name) {
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+:deep(.event-host-name) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+:deep(.event-secondary) {
+  color: var(--n-th-text-color, #7d899a);
+  opacity: 0.75;
+  font-size: 12px;
+}
+:deep(.event-path) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 3px;
+}
+:deep(.event-time),
+:deep(.event-hosts) {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+:deep(.event-time),
+:deep(.event-address),
+:deep(.event-duration) {
+  font-variant-numeric: tabular-nums;
+}
+:deep(.event-address) {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+}
+:deep(.event-duration) {
+  font-weight: 600;
+}
+.event-table :deep(.n-data-table-td),
+.event-history-table :deep(.n-data-table-td) {
+  padding-top: 12px;
+  padding-bottom: 12px;
 }
 .list-footer {
   padding-top: 4px;
