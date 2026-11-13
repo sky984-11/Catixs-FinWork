@@ -3017,6 +3017,9 @@ async def init_data():
     await init_apis()
     await ensure_business_api_permissions()
     await init_roles()
+    from app.services.monitor_event_menu import ensure_monitor_event_menu
+
+    await ensure_monitor_event_menu()
     await ensure_task_permissions()
     await ensure_virtual_machine_permissions()
     await ensure_database_backup_task()

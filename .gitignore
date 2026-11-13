@@ -28,6 +28,8 @@ migrations/models/*
 !migrations/models/186_20261106120000_crm_billing.py
 !migrations/models/187_20261106160000_billing_plan_deletion.py
 !migrations/models/188_20261113120000_resource_costs.py
+!migrations/models/189_20261113180000_monitor_event_config.py
+!migrations/models/190_20261113190000_monitor_category_tag.py
 .env
 .pnpm-store/
 

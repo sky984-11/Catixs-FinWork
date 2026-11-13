@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from .resource_costs import router as resource_costs_router
+from .monitor_events import router as monitor_events_router
 
 from app.core.dependency import DependAuth, DependPermission
 
@@ -37,6 +38,7 @@ from .tickets import ticket_router
 from .tg_assistant import router as tg_assistant_router
 
 v1_router = APIRouter()
+v1_router.include_router(monitor_events_router, prefix="/monitor-events", dependencies=[DependPermission], tags=["事件管理"])
 
 v1_router.include_router(base_router, prefix="/base")
 v1_router.include_router(users_router, prefix="/user", dependencies=[DependPermission])

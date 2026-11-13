@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     ZABBIX_URL: str = ""
     ZABBIX_TOKEN: str = ""
     ZABBIX_PVE_REFERENCE_HOSTID: str = "10777"
+    ZABBIX_VERIFY_TLS: bool = False
     NETBOX_URL: str = "https://10.4.10.100"
     NETBOX_TOKEN: str = ""
     GRAFANA_URL: str = "http://10.4.10.11:3000"
