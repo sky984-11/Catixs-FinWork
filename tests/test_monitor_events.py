@@ -69,7 +69,7 @@ class FakeZabbix:
             return [copy.deepcopy(EVENT)]
         if method == "event.get":
             if params.get("eventids") == ["99"]:
-                return [{"clock": "200"}]
+                return [{"eventid": "99", "clock": "200"}]
             return [copy.deepcopy(self.event)]
         if method == "trigger.get":
             return [
@@ -205,6 +205,8 @@ class MonitorEventTests(unittest.IsolatedAsyncioTestCase):
         self.fake.event["r_eventid"] = "99"
         history = await dashboard(self.fake, history=True)
         self.assertTrue(history["rows"][0]["recovered"])
+        self.assertEqual(history["rows"][0]["recovery_clock"], 200)
+        self.assertEqual(history["rows"][0]["duration_seconds"], 100)
         self.assertEqual(history["summary"], current["summary"])
         self.assertEqual(history["rows"][0]["categories"], tag_categories([HOST], "business_category")[0]["1"])
 
@@ -215,6 +217,27 @@ class MonitorEventTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["hosts"][0]["location"], "Test site")
         self.assertEqual(result["items"][0]["lastvalue"], "95")
         self.assertEqual(result["recovery_clock"], 200)
+
+    async def test_missing_recovery_event_does_not_invent_duration(self):
+        self.fake.event["r_eventid"] = "99"
+        original_call = self.fake.call
+
+        async def call(method, params):
+            if method == "event.get" and params.get("eventids") == ["99"]:
+                return []
+            return await original_call(method, params)
+
+        self.fake.call = call
+        result = await dashboard(self.fake, history=True)
+        self.assertTrue(result["rows"][0]["recovered"])
+        self.assertEqual(result["rows"][0]["recovery_clock"], 0)
+        self.assertIsNone(result["rows"][0]["duration_seconds"])
+
+    async def test_existing_recovery_clock_needs_no_extra_lookup(self):
+        self.fake.event.update(r_eventid="99", r_clock="175")
+        result = await dashboard(self.fake, history=True)
+        self.assertEqual(result["rows"][0]["duration_seconds"], 75)
+        self.assertFalse(any(p.get("eventids") == ["99"] for _, p in self.fake.calls))
 
     async def test_all_actions_are_audited_and_duration_bounded(self):
         bits = {

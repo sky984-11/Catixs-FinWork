@@ -230,6 +230,23 @@ async def enrich(client, events, hosts=None, categories=None):
         },
     )
     trigger_map = {t["triggerid"]: t for t in triggers}
+    recovery_ids = sorted(
+        {
+            str(e["r_eventid"])
+            for e in events
+            if str(e.get("r_eventid") or "0") != "0" and not int(e.get("r_clock") or 0)
+        }
+    )
+    recovery_clocks = {}
+    if recovery_ids:
+        recoveries = await client.call(
+            "event.get",
+            {
+                "eventids": recovery_ids,
+                "output": ["eventid", "clock"],
+            },
+        )
+        recovery_clocks = {e["eventid"]: int(e["clock"]) for e in recoveries}
     if hosts is None:
         hosts = await get_hosts(client, list({h["hostid"] for t in triggers for h in t.get("hosts", [])}))
     host_map = {h["hostid"]: host_view(h) for h in hosts}
@@ -242,6 +259,7 @@ async def enrich(client, events, hosts=None, categories=None):
         trigger = trigger_map.get(event["objectid"], {})
         event_hosts = [host_map[h["hostid"]] for h in trigger.get("hosts", []) if h["hostid"] in host_map]
         recovered = str(event.get("r_eventid") or "0") != "0"
+        recovery_clock = int(event.get("r_clock") or recovery_clocks.get(str(event.get("r_eventid")), 0))
         output.append(
             {
                 "id": event["eventid"],
@@ -249,7 +267,12 @@ async def enrich(client, events, hosts=None, categories=None):
                 "name": event["name"],
                 "severity": int(event.get("severity", 0)),
                 "clock": int(event["clock"]),
-                "recovery_clock": int(event.get("r_clock", 0)),
+                "recovery_clock": recovery_clock,
+                "duration_seconds": (
+                    max(0, (recovery_clock if recovered else int(time.time())) - int(event["clock"]))
+                    if not recovered or recovery_clock
+                    else None
+                ),
                 "recovery_id": event.get("r_eventid", "0"),
                 "recovered": recovered,
                 "acknowledged": str(event.get("acknowledged")) == "1",
@@ -390,8 +413,4 @@ async def detail(client, eventid, config=None):
         items=items,
         history=event.get("acknowledges", []),
     )
-    if row["recovered"]:
-        recovery = await client.call("event.get", {"eventids": [row["recovery_id"]], "output": ["clock"]})
-        if recovery:
-            row["recovery_clock"] = int(recovery[0]["clock"])
     return row

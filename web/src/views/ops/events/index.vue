@@ -78,8 +78,8 @@
         </div>
       </div>
       <div class="section-title">
-        <h3>{{ historyMode ? '近 7 天事件' : '当前事件' }}</h3>
-        <span>按严重程度、发生时间排序 · 建议为排查提示，非已确认根因</span>
+        <h3>各类型最新告警</h3>
+        <span>同一主机、同一触发器仅显示最新一条 · 双击行查看近 7 天历史</span>
       </div>
       <div class="filters">
         <n-input
@@ -102,7 +102,12 @@
           placeholder="严重程度"
           @update:value="page = 1"
         />
-        <n-select v-model:value="state" :options="stateOptions" @update:value="page = 1" />
+        <n-select
+          v-model:value="state"
+          :options="stateOptions"
+          :disabled="loading || acting"
+          @update:value="changeState"
+        />
         <n-select
           v-model:value="historyMode"
           :options="[
@@ -120,15 +125,16 @@
         :loading="loading"
         :columns="columns"
         :data="pageRows"
-        :scroll-x="1410"
+        :scroll-x="1590"
         :row-key="(row) => row.id"
+        :row-props="historyRowProps"
       >
         <template #empty
           ><n-empty :description="error ? '无法获取事件，请检查连接后重试' : '当前条件下没有事件'"
         /></template>
       </n-data-table>
       <footer class="list-footer">
-        <span>共 {{ filtered.length }} 条 · {{ snapshot.scope || '等待同步' }}</span>
+        <span>共 {{ filtered.length }} 类 · {{ snapshot.scope || '等待同步' }}</span>
         <n-pagination
           v-model:page="page"
           :item-count="filtered.length"
@@ -138,6 +144,35 @@
       </footer>
     </section>
 
+    <n-modal
+      v-model:show="typeHistoryOpen"
+      preset="card"
+      title="同类告警历史"
+      style="width: min(1450px, calc(100vw - 24px))"
+    >
+      <p>
+        {{ typeHistoryTarget?.hosts.map((host) => host.name).join(' / ') }} ·
+        {{ typeHistoryTarget?.name }}
+      </p>
+      <p class="muted">同一主机、同一触发器 · 近 7 天发生的告警 · 按发生时间从新到旧排列</p>
+      <n-alert v-if="typeHistoryError" type="error">{{ typeHistoryError }}</n-alert>
+      <n-alert v-if="typeHistoryTruncated" type="warning"
+        >历史查询达到读取上限，以下记录可能不完整。</n-alert
+      >
+      <n-data-table
+        :columns="historyColumns"
+        :data="typeHistoryRows"
+        :loading="typeHistoryLoading"
+        :row-key="(row) => row.id"
+        :scroll-x="1590"
+        :max-height="480"
+        :pagination="{ pageSize: 10 }"
+        size="small"
+      />
+      <template #footer>
+        <CButton show-cancel cancel-text="关闭" @cancel="typeHistoryOpen = false" />
+      </template>
+    </n-modal>
     <n-drawer
       v-model:show="detailOpen"
       :width="Math.min(900, viewportWidth - 24)"
@@ -335,7 +370,7 @@ const keyword = ref(''),
   category = ref(null),
   severity = ref(null),
   state = ref('all'),
-  historyMode = ref(0),
+  historyMode = ref(1),
   page = ref(1)
 const autoRefresh = ref(true),
   viewportWidth = ref(window.innerWidth)
@@ -386,7 +421,12 @@ function status(row) {
     : '待处理'
 }
 function duration(row) {
-  if (row.recovered && !row.recovery_clock) return '已恢复（详情查看时间）'
+  if (row.recovered && !row.recovery_clock) return '恢复时间不可用'
+  const seconds = Math.max(
+    0,
+    Math.floor((row.recovered ? row.recovery_clock : Date.now() / 1000) - row.clock)
+  )
+  if (seconds < 60) return `${seconds} 秒`
   const minutes = Math.max(
     0,
     Math.floor(((row.recovered ? row.recovery_clock : Date.now() / 1000) - row.clock) / 60)
@@ -395,10 +435,27 @@ function duration(row) {
     ? `${Math.floor(minutes / 1440)} 天 ${Math.floor((minutes % 1440) / 60)} 小时`
     : minutes >= 60
     ? `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分`
-    : `${minutes} 分`
+    : `${minutes} 分 ${seconds % 60} 秒`
 }
+function eventTypeKey(row) {
+  return JSON.stringify([row.trigger_id, row.hosts.map((host) => host.hostid).sort()])
+}
+const latestRows = computed(() => {
+  const latest = new Map()
+  for (const row of snapshot.value.rows) {
+    const key = eventTypeKey(row)
+    const previous = latest.get(key)
+    if (
+      !previous ||
+      row.clock > previous.clock ||
+      (row.clock === previous.clock && BigInt(row.id) > BigInt(previous.id))
+    )
+      latest.set(key, row)
+  }
+  return [...latest.values()]
+})
 const filtered = computed(() =>
-  snapshot.value.rows
+  latestRows.value
     .filter((row) => {
       const text = [
         row.id,
@@ -498,6 +555,12 @@ const columns = [
   },
   { title: '状态', key: 'state', width: 100, render: status },
   { title: '发生时间', key: 'clock', width: 180, render: (row) => date(row.clock) },
+  {
+    title: '恢复时间',
+    key: 'recovery_clock',
+    width: 180,
+    render: (row) => date(row.recovery_clock),
+  },
   { title: '持续时间', key: 'duration', width: 130, render: duration },
   { title: '排查方向', key: 'advice', width: 110, render: (row) => row.advice.type },
 ].map((col) => ({ ...col, resizable: true, ellipsis: { tooltip: true } }))
@@ -520,6 +583,44 @@ columns.push({
       }
     ),
 })
+const historyColumns = columns
+const typeHistoryOpen = ref(false),
+  typeHistoryLoading = ref(false),
+  typeHistoryError = ref(''),
+  typeHistoryTruncated = ref(false),
+  typeHistoryTarget = ref(null),
+  typeHistoryRows = ref([])
+let typeHistoryRequest = 0
+function historyRowProps(row) {
+  return {
+    style: 'cursor: pointer',
+    onDblclick: (event) => {
+      if (!event.target.closest('button')) openTypeHistory(row)
+    },
+  }
+}
+async function openTypeHistory(row) {
+  const request = ++typeHistoryRequest
+  typeHistoryTarget.value = row
+  typeHistoryOpen.value = true
+  typeHistoryLoading.value = true
+  typeHistoryError.value = ''
+  typeHistoryRows.value = []
+  typeHistoryTruncated.value = false
+  try {
+    const result = await api.list({ history: true })
+    if (request !== typeHistoryRequest) return
+    typeHistoryRows.value = result.data.rows
+      .filter((event) => eventTypeKey(event) === eventTypeKey(row))
+      .sort((a, b) => b.clock - a.clock || (BigInt(a.id) > BigInt(b.id) ? -1 : 1))
+    typeHistoryTruncated.value = result.data.truncated
+  } catch (e) {
+    if (request === typeHistoryRequest)
+      typeHistoryError.value = e.message || '历史记录加载失败，请重新打开重试'
+  } finally {
+    if (request === typeHistoryRequest) typeHistoryLoading.value = false
+  }
+}
 const itemColumns = [
   { title: '指标', key: 'name', width: 280 },
   {
@@ -567,7 +668,15 @@ function chooseCategory(key) {
 }
 function changeScope() {
   page.value = 1
+  if (!historyMode.value && state.value === 'recovered') state.value = 'all'
   refresh()
+}
+function changeState() {
+  page.value = 1
+  if (state.value === 'recovered' && !historyMode.value) {
+    historyMode.value = 1
+    refresh()
+  }
 }
 async function refresh() {
   if (loading.value || acting.value) return
