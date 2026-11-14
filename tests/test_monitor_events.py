@@ -463,7 +463,7 @@ class MonitorEventTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(root.parent_id, 0)
         self.assertEqual(str(root.menu_type), "catalog")
         self.assertEqual((await admin.menus.filter(path="/ops/events").first()).parent_id, root.id)
-        self.assertEqual(await admin.menus.filter(parent_id=root.id).count(), 4)
+        self.assertEqual(await admin.menus.filter(parent_id=root.id).count(), 5)
         self.assertFalse(await reader.menus.filter(path="/ops/events").exists())
 
     async def test_menu_upgrade_preserves_existing_reader_access(self):

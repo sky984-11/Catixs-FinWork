@@ -17,3 +17,4 @@ from .vendor_contact import *
 from .idc import *
 from .resource_cost import *
 from .monitor_event_config import *
+from .monitor_notification import *

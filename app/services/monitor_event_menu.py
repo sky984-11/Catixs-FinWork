@@ -39,6 +39,7 @@ async def ensure_monitor_event_menu():
         (2, "history", "历史事件", "mdi:history"),
         (3, "hosts", "监控主机", "mdi:server-network"),
         (4, "categories", "分类管理", "mdi:tag-multiple-outline"),
+        (5, "notifications", "通知管理", "mdi:bell-cog-outline"),
     ]:
         child, _ = await Menu.update_or_create(
             path=f"/events/{key}",
@@ -65,4 +66,6 @@ async def ensure_monitor_event_menu():
             # Preserve existing event readers without granting new API permissions.
             await role.menus.add(root, children[0])
             if await role.apis.filter(path="/api/v1/monitor-events/settings", method="GET").exists():
-                await role.menus.add(*children[1:])
+                await role.menus.add(*children[1:3])
+            if await role.apis.filter(path="/api/v1/monitor-events/notifications", method="GET").exists():
+                await role.menus.add(children[3])

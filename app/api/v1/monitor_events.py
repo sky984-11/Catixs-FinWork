@@ -6,11 +6,13 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.dependency import AuthControl
+from app.api.v1.monitor_notifications import router as notifications_router
 from app.schemas.base import Success
 from app.services.monitor_event_config import SettingsPayload, load_settings, save_settings
 from app.services.monitor_events import ZabbixClient, dashboard, detail, get_hosts, host_view, metric_history
 
 router = APIRouter()
+router.include_router(notifications_router, prefix="/notifications")
 logger = logging.getLogger(__name__)
 EventId = Path(pattern=r"^[1-9][0-9]{0,19}$")
 

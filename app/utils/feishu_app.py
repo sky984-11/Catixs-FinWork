@@ -76,6 +76,7 @@ async def send_feishu_app_card(
     receive_id: str,
     card: dict[str, Any],
     receive_id_type: str = "email",
+    message_uuid: str | None = None,
 ) -> bool:
     receive_id = str(receive_id or "").strip()
     if not receive_id:
@@ -96,6 +97,8 @@ async def send_feishu_app_card(
         "msg_type": "interactive",
         "content": content,
     }
+    if message_uuid:
+        payload["uuid"] = message_uuid
     content_bytes = len(content.encode("utf-8"))
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:

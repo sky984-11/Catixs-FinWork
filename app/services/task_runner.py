@@ -16,6 +16,7 @@ from app.services.remote_hands_plan_notifier import notify_due_remote_hands_plan
 from app.settings.config import settings
 
 _scheduler_task: asyncio.Task | None = None
+_monitor_notification_task: asyncio.Task | None = None
 _running_task_ids: set[int] = set()
 _project_task_notification_running = False
 _project_daily_summary_running = False
@@ -109,9 +110,12 @@ async def execute_scheduled_task(task: ScheduledTask) -> None:
 
 async def scheduler_loop() -> None:
     global _project_daily_summary_running, _project_task_notification_running, _remote_hands_plan_notification_running
+    global _monitor_notification_task
     while True:
         try:
             now = datetime.now()
+            if _monitor_notification_task is None or _monitor_notification_task.done():
+                _monitor_notification_task = asyncio.create_task(run_monitor_notifications())
             # This service owns its cross-process locks and retries; no external notifications are sent.
             from app.services.crm_billing import run_due_plans
 
@@ -138,6 +142,15 @@ async def scheduler_loop() -> None:
         except Exception:
             logger.exception("scheduled task loop error")
         await asyncio.sleep(60)
+
+
+async def run_monitor_notifications() -> None:
+    from app.services.monitor_notifications import run_notifications
+
+    try:
+        await run_notifications()
+    except Exception:
+        logger.error("monitor event notification worker failed")
 
 
 async def run_remote_hands_plan_notifications(now: datetime) -> None:
@@ -183,7 +196,7 @@ def start_scheduler() -> None:
 
 
 async def stop_scheduler() -> None:
-    global _scheduler_task
+    global _scheduler_task, _monitor_notification_task
     if _scheduler_task:
         _scheduler_task.cancel()
         try:
@@ -191,3 +204,10 @@ async def stop_scheduler() -> None:
         except asyncio.CancelledError:
             pass
         _scheduler_task = None
+    if _monitor_notification_task:
+        _monitor_notification_task.cancel()
+        try:
+            await _monitor_notification_task
+        except asyncio.CancelledError:
+            pass
+        _monitor_notification_task = None

@@ -1,6 +1,12 @@
 import { request } from '@/utils'
 
 export default {
+  notifications: () => request.get('/monitor-events/notifications'),
+  saveNotifications: (data) => request.put('/monitor-events/notifications', data),
+  previewNotification: (data) => request.post('/monitor-events/notifications/preview', data),
+  notificationDeliveries: (params) =>
+    request.get('/monitor-events/notifications/deliveries', { params }),
+  retryNotification: (id) => request.post(`/monitor-events/notifications/deliveries/${id}/retry`),
   settings: () => request.get('/monitor-events/settings'),
   saveSettings: (data) => request.put('/monitor-events/settings', data),
   hostGroups: () => request.get('/monitor-events/host-groups'),

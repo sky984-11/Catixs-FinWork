@@ -30,6 +30,7 @@ migrations/models/*
 !migrations/models/188_20261113120000_resource_costs.py
 !migrations/models/189_20261113180000_monitor_event_config.py
 !migrations/models/190_20261113190000_monitor_category_tag.py
+!migrations/models/191_20261114110636_monitor_notifications.py
 .env
 .pnpm-store/
 
