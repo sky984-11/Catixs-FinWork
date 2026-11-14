@@ -43,7 +43,7 @@
       :data="visibleRows"
       :row-key="(row) => (mode === 'hosts' ? row.hostid : row.key)"
       :loading="loading"
-      :scroll-x="mode === 'hosts' ? 1150 : 850"
+      :scroll-x="mode === 'hosts' ? 1510 : 1110"
       :max-height="tableHeight"
       striped
       size="small"
@@ -113,6 +113,15 @@
         placeholder="未分类（可稍后分配）"
         :disabled="busy"
       />
+      <h3 v-if="draftFields.length">分类属性</h3>
+      <n-form-item v-for="field in draftFields" :key="field.key" :label="field.label">
+        <n-input
+          v-model:value="draft.attributes[field.key]"
+          :disabled="busy"
+          maxlength="300"
+          :placeholder="`填写${field.label}`"
+        />
+      </n-form-item>
       <h3>监控项范围</h3>
       <n-radio-group
         v-model:value="draft.scope"
@@ -197,6 +206,34 @@
         :disabled="busy"
         placeholder="例如：传输线路、网络设备、虚拟化平台"
     /></n-form-item>
+    <h3>分类字段</h3>
+    <p class="muted">键用于保存数据，名称用于展示。删除字段后保存会清除对应主机值。</p>
+    <n-space v-for="(field, index) in categoryDraft.fields" :key="index" class="gap" :wrap="false">
+      <n-input
+        v-model:value="field.key"
+        placeholder="键，例如 provider"
+        :disabled="busy || field.locked"
+        maxlength="40"
+      />
+      <n-input
+        v-model:value="field.label"
+        placeholder="名称，例如供应商"
+        :disabled="busy"
+        maxlength="40"
+      />
+      <CButton
+        show-save
+        save-text="移除"
+        :disabled="busy"
+        @save="categoryDraft.fields.splice(index, 1)"
+      />
+    </n-space>
+    <CButton
+      show-save
+      save-text="添加字段"
+      :disabled="busy || categoryDraft.fields.length >= 20"
+      @save="categoryDraft.fields.push({ key: '', label: '' })"
+    />
     <template #footer
       ><CButton
         show-save
@@ -268,7 +305,10 @@ const categoryOptions = computed(() =>
 const categoryName = (key) => form.categories.find((c) => c.key === key)?.label || '未分类'
 const visibleRows = computed(() =>
   (props.mode === 'hosts' ? form.hosts : form.categories).filter((row) =>
-    (props.mode === 'hosts' ? `${row.name} ${categoryName(row.category)}` : row.label)
+    (props.mode === 'hosts'
+      ? `${row.name} ${categoryName(row.category)} ${Object.values(row.attributes || {}).join(' ')}`
+      : row.label
+    )
       .toLowerCase()
       .includes(filter.value.trim().toLowerCase())
   )
@@ -300,6 +340,19 @@ const businessColumns = (columns) =>
 const hostColumns = [
   ...businessColumns([
     { title: '主机名称', key: 'name', width: 500 },
+    {
+      title: '分类属性',
+      key: 'attributes',
+      width: 360,
+      render: (row) =>
+        h(
+          'div',
+          { style: 'white-space: pre-wrap' },
+          (form.categories.find((c) => c.key === row.category)?.fields || [])
+            .map((f) => `${f.label}：${row.attributes?.[f.key] || '—'}`)
+            .join('\n') || '—'
+        ),
+    },
     {
       title: '平台分类',
       key: 'category',
@@ -346,6 +399,12 @@ const hostColumns = [
 const categoryColumns = [
   ...businessColumns([
     { title: '分类名称', key: 'label', width: 240 },
+    {
+      title: '自定义字段',
+      key: 'fields',
+      width: 260,
+      render: (row) => (row.fields || []).map((f) => f.label).join(' / ') || '—',
+    },
     {
       title: '关联主机数',
       key: 'count',
@@ -409,8 +468,18 @@ const groupId = ref(null),
   itemKeyword = ref('')
 const hostsTruncated = ref(false),
   itemsTruncated = ref(false)
-const draft = reactive({ hostid: null, name: '', category: null, scope: 'selected', itemids: [] })
-const categoryDraft = reactive({ key: null, label: '' })
+const draft = reactive({
+  hostid: null,
+  name: '',
+  category: null,
+  scope: 'selected',
+  itemids: [],
+  attributes: {},
+})
+const draftFields = computed(
+  () => form.categories.find((c) => c.key === draft.category)?.fields || []
+)
+const categoryDraft = reactive({ key: null, label: '', fields: [] })
 const removal = reactive({ show: false, kind: '', key: '' })
 async function reload() {
   if (busy.value) return
@@ -439,6 +508,7 @@ async function persist(hosts, categories) {
         hostid: h.hostid,
         category: h.category || null,
         itemids: h.itemids ?? null,
+        attributes: h.attributes || {},
       })),
     })
     Object.assign(form, result.data)
@@ -469,6 +539,7 @@ async function openHost(row) {
     category: row?.category || null,
     scope: row && row.itemids == null ? 'all' : 'selected',
     itemids: [...(row?.itemids || [])],
+    attributes: { ...(row?.attributes || {}) },
   })
   hostDialog.value = true
   if (row) {
@@ -552,6 +623,9 @@ async function saveHost() {
   const host = {
     hostid: draft.hostid,
     category: draft.category,
+    attributes: Object.fromEntries(
+      draftFields.value.map((f) => [f.key, draft.attributes[f.key] || ''])
+    ),
     itemids: draft.scope === 'all' ? null : [...draft.itemids],
   }
   const hosts = editingHost.value
@@ -561,7 +635,11 @@ async function saveHost() {
 }
 function openCategory(row) {
   dialogError.value = ''
-  Object.assign(categoryDraft, { key: row?.key || null, label: row?.label || '' })
+  Object.assign(categoryDraft, {
+    key: row?.key || null,
+    label: row?.label || '',
+    fields: (row?.fields || []).map((f) => ({ ...f, locked: true })),
+  })
   categoryDialog.value = true
 }
 async function saveCategory() {
@@ -575,6 +653,7 @@ async function saveCategory() {
     return
   }
   const category = {
+    fields: categoryDraft.fields.map((f) => ({ key: f.key.trim(), label: f.label.trim() })),
     key:
       categoryDraft.key ||
       `cat_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`,

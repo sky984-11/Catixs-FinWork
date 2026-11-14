@@ -194,6 +194,7 @@ def host_view(host):
         "category": classify(host),
         "tags": host.get("tags", []),
         "maintenance": str(host.get("maintenance_status")) == "1",
+        "attributes": host.get("attributes", []),
     }
 
 

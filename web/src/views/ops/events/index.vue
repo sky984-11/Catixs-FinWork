@@ -84,7 +84,7 @@
         <h3>{{ historyPage ? '历史事件记录' : '各类型最新告警' }}</h3>
         <span>{{
           historyPage
-            ? '逐次展示历史事件，按发生时间倒序 · 双击查看同类历史'
+            ? '同一主机、同一告警合并展示最新记录 · 双击查看近 7 天同类历史'
             : '同一主机、同一触发器仅显示最新一条 · 双击行查看近 7 天历史'
         }}</span>
       </div>
@@ -133,10 +133,7 @@
         /></template>
       </n-data-table>
       <footer class="list-footer">
-        <span
-          >共 {{ filtered.length }} {{ historyPage ? '条' : '类' }} ·
-          {{ snapshot.scope || '等待同步' }}</span
-        >
+        <span>共 {{ filtered.length }} 类 · {{ snapshot.scope || '等待同步' }}</span>
         <n-pagination
           v-model:page="page"
           :item-count="filtered.length"
@@ -210,6 +207,9 @@
               <p>地址：{{ host.addresses.join(' / ') || '未配置' }}</p>
               <p>站点：{{ host.location || '未维护位置' }}</p>
               <p>主机组：{{ host.groups.join(' / ') || '未分组' }}</p>
+              <p v-for="field in host.attributes || []" :key="field.key">
+                {{ field.label }}：{{ field.value }}
+              </p>
               <CButton show-save save-text="复制定位信息" @save="copyHost(host)" />
             </article>
             <n-empty
@@ -459,6 +459,9 @@ function hostCell(row) {
       const [name, ...path] = host.name.split(/\s+PATH\s*/)
       return h('div', { title: host.name }, [
         h('div', { class: 'event-host-name' }, name),
+        ...(host.attributes || []).map((field) =>
+          h('div', { class: 'event-secondary' }, `${field.label}：${field.value}`)
+        ),
         path.length
           ? h('div', { class: 'event-secondary event-path' }, `路径：${path.join(' PATH ')}`)
           : null,
@@ -486,10 +489,12 @@ function duration(row) {
 function eventTypeKey(row) {
   return JSON.stringify([row.trigger_id, row.hosts.map((host) => host.hostid).sort()])
 }
-const latestRows = computed(() => {
+function groupEvents(rows) {
   const latest = new Map()
-  for (const row of snapshot.value.rows) {
+  const counts = new Map()
+  for (const row of rows) {
     const key = eventTypeKey(row)
+    counts.set(key, (counts.get(key) || 0) + 1)
     const previous = latest.get(key)
     if (
       !previous ||
@@ -498,9 +503,10 @@ const latestRows = computed(() => {
     )
       latest.set(key, row)
   }
-  return [...latest.values()]
-})
-const filtered = computed(() =>
+  return [...latest.entries()].map(([key, row]) => ({ ...row, event_count: counts.get(key) }))
+}
+const latestRows = computed(() => groupEvents(snapshot.value.rows))
+const matchingRows = computed(() =>
   (props.historyPage ? snapshot.value.rows : latestRows.value)
     .filter((row) => {
       const text = [
@@ -536,6 +542,9 @@ const filtered = computed(() =>
     .sort((a, b) =>
       props.historyPage ? b.clock - a.clock : b.severity - a.severity || b.clock - a.clock
     )
+)
+const filtered = computed(() =>
+  props.historyPage ? groupEvents(matchingRows.value) : matchingRows.value
 )
 const pageRows = computed(() => filtered.value.slice((page.value - 1) * 20, page.value * 20))
 watch(
@@ -594,7 +603,17 @@ const columns = [
     key: 'name',
     width: 280,
     ellipsis: false,
-    render: (row) => h('div', { class: 'event-name', title: row.name }, row.name),
+    render: (row) =>
+      h('div', null, [
+        h('div', { class: 'event-name', title: row.name }, row.name),
+        props.historyPage && row.event_count
+          ? h(
+              'span',
+              { class: 'event-secondary' },
+              `${row.event_count} 次 · 当前筛选范围 · 双击查看同类历史`
+            )
+          : null,
+      ]),
   },
   {
     title: '目标主机',

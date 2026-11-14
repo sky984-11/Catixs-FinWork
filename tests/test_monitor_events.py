@@ -105,6 +105,44 @@ class FakeZabbix:
 
 
 class MonitorEventTests(unittest.IsolatedAsyncioTestCase):
+    async def test_category_fields_host_values_and_event_propagation(self):
+        payload = {
+            "revision": 1,
+            "categories": [{"key": "pve", "label": "Test", "fields": [{"key": "provider", "label": "Provider"}]}],
+            "hosts": [{"hostid": "1", "category": "pve", "attributes": {"provider": "Example"}}],
+        }
+        response = await self.client.put("/settings", json=payload)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"]["hosts"][0]["attributes"], {"provider": "Example"})
+        event = (await self.client.get("/10")).json()["data"]
+        self.assertEqual(
+            event["hosts"][0]["attributes"], [{"key": "provider", "label": "Provider", "value": "Example"}]
+        )
+        # Older clients omit new fields without erasing stored definitions/values.
+        payload["revision"] = response.json()["data"]["revision"]
+        del payload["categories"][0]["fields"]
+        del payload["hosts"][0]["attributes"]
+        response = await self.client.put("/settings", json=payload)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"]["hosts"][0]["attributes"]["provider"], "Example")
+        payload["revision"] = response.json()["data"]["revision"]
+        payload["categories"][0]["fields"] = []
+        response = await self.client.put("/settings", json=payload)
+        self.assertEqual(response.json()["data"]["hosts"][0]["attributes"], {})
+
+    async def test_category_field_validation(self):
+        payload = {
+            "revision": 1,
+            "categories": [{"key": "pve", "label": "Test", "fields": [{"key": "provider", "label": "Provider"}] * 2}],
+            "hosts": [],
+        }
+        self.assertEqual((await self.client.put("/settings", json=payload)).status_code, 422)
+        payload["categories"][0]["fields"] = [{"key": "invalid key", "label": "Invalid"}]
+        self.assertEqual((await self.client.put("/settings", json=payload)).status_code, 422)
+        payload["categories"][0]["fields"] = []
+        payload["hosts"] = [{"hostid": "1", "attributes": {"provider": "x" * 301}}]
+        self.assertEqual((await self.client.put("/settings", json=payload)).status_code, 422)
+
     async def test_scope_change_during_action_requires_refresh(self):
         with patch(
             "app.api.v1.monitor_events.load_settings",

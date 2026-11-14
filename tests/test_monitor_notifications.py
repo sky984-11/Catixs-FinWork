@@ -9,8 +9,7 @@ from tortoise import Tortoise
 
 from app.api.v1.monitor_events import router
 from app.core.dependency import AuthControl, DependPermission
-from app.models import (MonitorEventConfig, MonitorNotificationConfig,
-                        MonitorNotificationDelivery, User)
+from app.models import MonitorEventConfig, MonitorNotificationConfig, MonitorNotificationDelivery, User
 from app.services import monitor_notifications as service
 
 SCOPE = {
@@ -178,6 +177,11 @@ class NotificationTests(unittest.IsolatedAsyncioTestCase):
         card = service.build_card(EVENT, "problem", text, source, SCOPE["categories"])
         self.assertEqual(card["header"]["template"], "red")
         self.assertEqual(card["header"]["title"]["tag"], "plain_text")
+        enriched = copy.deepcopy(EVENT)
+        enriched["hosts"][0]["attributes"] = [{"key": "provider", "label": "Provider", "value": "ExampleCarrier"}]
+        enriched_card = service.build_card(enriched, "problem", text, source, SCOPE["categories"])
+        self.assertIn("ExampleCarrier", enriched_card["elements"][1]["text"]["content"])
+        self.assertEqual(enriched_card["elements"][1]["text"]["tag"], "plain_text")
         recovery = service.build_card({**EVENT, "recovery_clock": 290}, "recovery", text, source, SCOPE["categories"])
         self.assertEqual(recovery["header"]["template"], "green")
         with (

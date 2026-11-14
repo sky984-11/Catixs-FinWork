@@ -45,9 +45,9 @@
             ><n-select
               v-model:value="form.recipient_ids"
               :options="userOptions"
-              multiple
               filterable
               clearable
+              multiple
               placeholder="选择 FinWork 用户，可通过飞书绑定身份或邮箱送达"
           /></n-form-item>
           <n-form-item label="通知分类"
@@ -154,6 +154,16 @@
           </div>
         </div>
         <div class="advice">
+          <p
+            v-for="(block, index) in previewData.card.elements
+              .slice(1)
+              .filter(
+                (e) => e.tag === 'div' && e.text && !e.text.content.includes(previewData.advice)
+              )"
+            :key="index"
+          >
+            {{ block.text.content }}
+          </p>
           <strong>{{
             previewData.advice_source === 'ai'
               ? 'AI 排查建议（需人工核实）'

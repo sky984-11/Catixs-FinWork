@@ -13,8 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from tortoise import timezone
 from tortoise.transactions import in_transaction
 
-from app.models import (MonitorNotificationConfig, MonitorNotificationDelivery,
-                        User)
+from app.models import MonitorNotificationConfig, MonitorNotificationDelivery, User
 from app.services.monitor_event_config import load_settings
 from app.services.monitor_events import ZabbixClient, dashboard, detail
 from app.settings.config import settings
@@ -127,7 +126,9 @@ async def generate_advice(row, enabled):
         "级别": LEVELS[row["severity"]],
         "已恢复": row["recovered"],
         "持续秒数": row.get("duration_seconds"),
-        "主机": [{"名称": h["name"], "地址": h["addresses"]} for h in row["hosts"][:5]],
+        "主机": [
+            {"名称": h["name"], "地址": h["addresses"], "属性": h.get("attributes", [])} for h in row["hosts"][:5]
+        ],
         "当前采样（不是发生时快照）": [
             {k: i.get(k) for k in ("name", "lastvalue", "lastclock", "units")} for i in row.get("items", [])[:8]
         ],
@@ -221,6 +222,21 @@ def build_card(row, phase, advice_text, source, categories):
             },
         ],
     }
+    for host in row["hosts"][:5]:
+        attributes = host.get("attributes", [])
+        if attributes:
+            card["elements"].insert(
+                1,
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "plain_text",
+                        "content": (host["name"] + "\n" + "\n".join(f"{a['label']}：{a['value']}" for a in attributes))[
+                            :2000
+                        ],
+                    },
+                },
+            )
     if str(row.get("url", "")).startswith(("https://", "http://")):
         card["elements"].append(
             {

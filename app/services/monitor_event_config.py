@@ -15,10 +15,39 @@ DEFAULT_CATEGORIES = [
 ]
 
 
+TRANSMISSION_FIELDS = [
+    {"key": "circuit_id", "label": "线路编号"},
+    {"key": "provider", "label": "供应商"},
+    {"key": "site_a", "label": "A 端位置"},
+    {"key": "site_b", "label": "B 端位置"},
+    {"key": "bandwidth", "label": "带宽"},
+]
+
+
+def category_fields(category):
+    fields = category.get("fields")
+    return fields if fields is not None else TRANSMISSION_FIELDS if category.get("label") == "传输线路" else []
+
+
+class CategoryField(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    key: str = Field(pattern=r"^[a-zA-Z][a-zA-Z0-9_-]{0,39}$")
+    label: str = Field(min_length=1, max_length=40)
+
+
 class Category(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     key: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
     label: str = Field(min_length=1, max_length=40)
+    fields: list[CategoryField] | None = Field(default=None, max_length=20)
+
+    @model_validator(mode="after")
+    def unique_fields(self):
+        keys = [f.key for f in self.fields or []]
+        labels = [f.label for f in self.fields or []]
+        if len(keys) != len(set(keys)) or len(labels) != len(set(labels)):
+            raise ValueError("字段键和名称不能重复")
+        return self
 
 
 class SelectedHost(BaseModel):
@@ -26,9 +55,12 @@ class SelectedHost(BaseModel):
     hostid: str = Field(pattern=r"^[1-9][0-9]{0,19}$")
     category: str | None = Field(default=None, min_length=1, max_length=64)
     itemids: list[str] | None = Field(default=None, min_length=1, max_length=2000)
+    attributes: dict[str, str] = Field(default_factory=dict, max_length=20)
 
     @model_validator(mode="after")
     def validate_items(self):
+        if any(len(k) > 40 or len(v) > 300 for k, v in self.attributes.items()):
+            raise ValueError("属性键最多 40 字符，值最多 300 字符")
         if self.itemids is not None and (
             len(set(self.itemids)) != len(self.itemids)
             or any(
@@ -100,7 +132,7 @@ async def load_settings():
             "revision": row.revision,
             "category_tag": row.category_tag,
             "category_source": "platform",
-            "categories": row.categories,
+            "categories": [{**c, "fields": category_fields(c)} for c in row.categories],
             "hosts": row.hosts,
         }
         if row
@@ -124,6 +156,10 @@ async def save_settings(payload, verified_hosts, user_id):
         if row.revision != payload.revision:
             raise HTTPException(409, "配置已被其他用户修改，请重新加载后保存")
         categories = [c.model_dump() for c in payload.categories] if payload.categories is not None else row.categories
+        previous_categories = {c["key"]: c for c in row.categories}
+        for category in categories:
+            if category.get("fields") is None:
+                category["fields"] = category_fields(previous_categories.get(category["key"], category)) or []
         old_hosts = {h["hostid"]: h for h in row.hosts}
         hosts = []
         for host in payload.hosts:
@@ -132,6 +168,10 @@ async def save_settings(payload, verified_hosts, user_id):
             itemids = host.itemids if "itemids" in host.model_fields_set else old.get("itemids")
             if category is not None and category not in {c["key"] for c in categories}:
                 raise HTTPException(422, "分类仍有关联主机，请先调整主机分类")
+            definition = next((c for c in categories if c["key"] == category), {})
+            allowed = {f["key"] for f in category_fields(definition)}
+            values = host.attributes if "attributes" in host.model_fields_set else old.get("attributes", {})
+            attributes = {k: v.strip() for k, v in values.items() if k in allowed and v.strip()}
             hosts.append(
                 {
                     "hostid": host.hostid,
@@ -139,6 +179,7 @@ async def save_settings(payload, verified_hosts, user_id):
                     "tags": lookup[host.hostid].get("tags", []),
                     "category": category,
                     "itemids": itemids,
+                    "attributes": attributes,
                 }
             )
         row.categories = categories
@@ -162,6 +203,16 @@ def local_categories(hosts, config):
     categories = config.get("categories", [])
     keys = {c["key"] for c in categories}
     selected = {h["hostid"]: h.get("category") for h in config["hosts"]}
+    definitions = {c["key"]: category_fields(c) for c in categories}
+    selected_hosts = {h["hostid"]: h for h in config["hosts"]}
+    for host in hosts:
+        saved = selected_hosts.get(host["hostid"], {})
+        values = saved.get("attributes", {})
+        host["attributes"] = [
+            {**field, "value": values[field["key"]]}
+            for field in definitions.get(saved.get("category"), [])
+            if values.get(field["key"])
+        ]
     assigned = {
         h["hostid"]: [selected[h["hostid"]]] if selected.get(h["hostid"]) in keys else ["unclassified"] for h in hosts
     }
