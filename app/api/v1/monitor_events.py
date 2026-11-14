@@ -40,16 +40,7 @@ async def list_events(history: bool = False):
 
 @router.get("/settings", summary="读取事件分类与已选 Zabbix 主机")
 async def get_settings():
-    config = await load_settings()
-    if config["hosts"]:
-        try:
-            async with ZabbixClient() as client:
-                hosts = await get_hosts(client, [h["hostid"] for h in config["hosts"]])
-            lookup = {h["hostid"]: h for h in hosts}
-            config["hosts"] = [{**h, "tags": lookup.get(h["hostid"], {}).get("tags", [])} for h in config["hosts"]]
-        except HTTPException:
-            config["tags_warning"] = "当前无法刷新 Zabbix 标签，仍可调整或清空监控范围"
-    return Success(data=config)
+    return Success(data=await load_settings())
 
 
 @router.get("/host-groups", summary="读取可选择的 Zabbix 主机组")
@@ -83,12 +74,57 @@ async def host_options(
         return Success(data={"rows": [host_view(h) for h in hosts], "truncated": len(candidates) > 100})
 
 
-@router.put("/settings", summary="保存事件分类与监控范围")
+@router.get("/host-items", summary="读取指定主机的可纳管监控项")
+async def host_items(
+    host_id: str = Query(pattern=r"^[1-9][0-9]{0,19}$"), keyword: str = Query(default="", max_length=100)
+):
+    async with ZabbixClient() as client:
+        if not await get_hosts(client, [host_id]):
+            raise HTTPException(404, "主机不可见或已停用")
+        params = {
+            "hostids": [host_id],
+            "output": ["itemid", "hostid", "name", "key_", "units", "value_type"],
+            "filter": {"status": 0},
+            "sortfield": "name",
+            "limit": 501,
+        }
+        if keyword.strip():
+            params.update(search={"name": keyword.strip(), "key_": keyword.strip()}, searchByAny=True)
+        items = await client.call("item.get", params)
+        return Success(data={"rows": items[:500], "truncated": len(items) > 500})
+
+
+@router.put("/settings", summary="保存平台分类与主机/监控项纳管范围")
 async def put_settings(payload: SettingsPayload, user=Depends(AuthControl.is_authed)):
-    hosts = []
-    if payload.hosts:
+    current = await load_settings()
+    if payload.revision != current["revision"]:
+        raise HTTPException(409, "配置已被其他用户修改，请重新加载后保存")
+    existing = {h["hostid"]: h for h in current["hosts"]}
+    changed = [
+        h
+        for h in payload.hosts
+        if h.hostid not in existing
+        or ("itemids" in h.model_fields_set and h.itemids != existing[h.hostid].get("itemids"))
+    ]
+    changed_ids = {h.hostid for h in changed}
+    hosts = [{**existing[h.hostid], "status": "0"} for h in payload.hosts if h.hostid not in changed_ids]
+    if changed:
         async with ZabbixClient() as client:
-            hosts = await get_hosts(client, [h.hostid for h in payload.hosts])
+            hosts.extend(await get_hosts(client, [h.hostid for h in changed]))
+            requested = {itemid: h.hostid for h in changed for itemid in h.itemids or []}
+            if requested:
+                items = await client.call(
+                    "item.get",
+                    {
+                        "itemids": list(requested),
+                        "hostids": [h.hostid for h in payload.hosts],
+                        "output": ["itemid", "hostid", "status"],
+                        "filter": {"status": 0},
+                    },
+                )
+                valid = {i["itemid"]: i["hostid"] for i in items if str(i.get("status")) == "0"}
+                if any(valid.get(itemid) != h.hostid for h in changed for itemid in h.itemids or []):
+                    raise HTTPException(422, "监控项已停用、不可见或不属于所选主机")
     result = await save_settings(payload, hosts, user.id)
     logger.info("monitor_event settings actor_id=%s host_count=%s revision=%s", user.id, len(hosts), result["revision"])
     return Success(data=result)

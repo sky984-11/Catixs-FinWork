@@ -1,6 +1,15 @@
 # 事件管理
 
-入口：一级菜单“事件管理”（保留 `/ops/events` 路由）。数据实时读取用户已选的 Zabbix 主机，不创建本地事件副本。支持当前问题、近 7 天发生的问题及恢复事件、分类/级别/状态筛选和定位信息查询。
+入口：一级目录“事件管理”（`/events`），包含四个独立页面：
+
+| 菜单 | 路由 | 用途 |
+| --- | --- | --- |
+| 事件列表 | `/ops/events`（兼容原入口） | 当前问题，默认未确认，同主机/触发器仅显示最新一条 |
+| 历史事件 | `/events/history` | 近 7 天逐次事件记录，默认已恢复，支持切换全部状态 |
+| 监控主机 | `/events/hosts` | 点击“纳管主机”打开弹窗，按主机组选主机，指定平台分类及监控项；编辑/移除立即保存后生效 |
+| 分类管理 | `/events/categories` | 平台内新增、重命名、删除分类；显示关联主机；分类被使用时禁止删除，须先重新分配主机 |
+
+数据实时读取用户已选的 Zabbix 主机，不创建本地事件副本。菜单升级复用原事件列表 ID，并保留 `/ops/events` 访问。管理员获得目录和全部子菜单；原事件读者保留事件/历史入口，具有 settings GET 权限的原读者同时可查看配置页面，无 PUT 权限时为只读，不自动扩展 API 权限。
 
 ## 配置与权限
 
@@ -10,10 +19,10 @@
 
 ## 仪表盘与定位
 
-- 列表默认只读取当前问题（`history=false`），默认筛选未确认告警，不加载已恢复历史。选择“已恢复”或历史范围时才查询近 7 天事件。按同一主机集合和同一触发器归类，仅展示每类最新事件，再应用状态等筛选；双击行打开该类型近 7 天的历史（不继承列表的状态筛选），按发生时间倒序排列。达到 2,000 条读取上限时提示历史可能不完整。
+- 事件列表只读取当前问题（`history=false`），默认筛选未确认告警，不加载已恢复历史；按同一主机集合和同一触发器归类，仅展示每类最新事件，再应用状态等筛选。历史事件页使用 `history=true`，逐次展示近 7 天记录，按发生时间倒序，默认已恢复。两个页面均可双击行打开同类历史（不继承列表的状态筛选）。达到 2,000 条读取上限时提示历史可能不完整。
 - 列表和详情批量读取恢复事件时间，返回 `recovery_clock` 和 `duration_seconds`。已恢复告警持续时间为恢复时间减发生时间，未恢复时为查询时刻减发生时间；无法读取恢复事件时 `duration_seconds=null`，不将未知时长显示为零。记录来源为 Zabbix，FinWork 不另存历史副本，历史可用性取决于 Zabbix 保留策略。
 - 顶部统计始终针对当前未恢复问题（包括抑制），不随历史列表切换而改变；异常主机按 ID 去重。
-- 分类来源为用户指定的 Zabbix 主机标签名，标签值自动成为分类名称；主机自身标签与模板继承标签合并去重。缺少该标签或值为空时归为“未分类”。一个主机同名标签有多个不同值时可归属多个分类，每类内部去重，顶部总数不重复计算。原本地分类不再参与归类，也不再支持在 FinWork 手动指定主机分类。
+- 分类由 FinWork 的 categories 与 host.category 控制，与 Zabbix 标签脱钩。每台主机可指定一个平台分类或保持未分类；事件按关联主机的分类归属，跨主机触发器可以出现在多个分类，顶部主机数按 ID 去重。Zabbix 标签保留作为定位参考。
 - 明细聚合目标 IP、主机名、Zabbix ID、主机组、库存位置、触发/恢复表达式、指标现值及采样时间、标签、同主机事件、抑制来源、处置历史；支持复制定位信息和跳转原事件。
 - 指标值是最新采样而非告警发生时快照。规则建议按名称关键词覆盖连通性、存储、CPU、内存、网络线路及硬件环境；明确标注建议依据，不生成未经证实的根因。
 - 页面可每 30 秒刷新，后台页和操作弹窗期间暂停自动刷新。错误时保留上次成功数据并标注错误及更新时间，不以空数据冒充健康。
@@ -25,10 +34,11 @@
 
 | 方法 | 路径 | 参数 / 用途 |
 | --- | --- | --- |
-| GET | `/settings` | 读取 category_tag、已选主机及其当前 tags、revision；首次主机为空。标签刷新失败时返回 tags_warning，仍可修改或清空范围 |
+| GET | `/settings` | 读取本地 categories、hosts（含 category、itemids）、revision、category_source=platform；不连接 Zabbix |
 | GET | `/host-groups` | 返回当前 Zabbix 账号可见、包含启用主机的主机组，不加载主机列表 |
 | GET | `/host-options` | 必填正整数 `group_id`；可选 `keyword` 最长 100 字符，仅在该组内筛选主机名称/技术名称；最多返回 100 台，超过提示缩小范围 |
-| PUT | `/settings` | 保存 category_tag 与主机范围；校验主机可见且启用、标签名非空及 revision；不会修改上游标签 |
+| GET | `/host-items` | 必填正整数 host_id；可选 keyword 最长 100 字符，匹配监控项名称或键值；仅查询指定启用主机的启用监控项，最多 500 条，超过返回 truncated=true |
+| PUT | `/settings` | 保存平台分类、主机与监控项范围；新增主机或改变监控项时验证上游归属和启用状态；仅分类修改/移除无需连接 Zabbix；revision 防并发覆盖 |
 | GET | 空路径 | `history=false` 默认读取当前问题；true 读取近 7 天问题事件；返回顶部统计、分类健康、列表、更新时间及上限标识 |
 | GET | `/{eventid}` | 正整数事件 ID；返回定位、指标、建议、恢复时间、处置记录 |
 | GET | `/{eventid}/metrics/{itemid}/history` | 必填 Unix 秒 `time_from>=0`、`time_till>time_from`，单次最长 7 天；仅查询该事件触发器关联且属于已纳管主机的数值指标（value_type 0/3） |
@@ -64,19 +74,27 @@
 
 ## 分类与监控范围
 
-初始为空范围，仪表盘返回 `configured:false`、统计为 0，完全不连接 Zabbix。先选择 Zabbix 主机组，再勾选组内主机；分类标签下拉框汇总已选主机和当前组候选的标签名，可选择如 business_category、class、type、env。选组后才加载该组候选，可再用名称筛选；缺少 group_id 返回 422。切换组清空候选勾选，不影响已添加主机。候选不自动纳入范围，必须添加并保存。当前/历史事件和详情仍按已选 hostids 查询，标签不会扩大监控范围。
+初始为空范围，仪表盘返回 `configured:false`、统计为 0，完全不连接 Zabbix。纳管弹窗先选主机组，再选主机，并分配本地分类和监控项。未选组不加载候选主机；未选主机不查询监控项。新纳管默认指定监控项、至少勾选一项，也可显式选择全部。监控项搜索保留已选项，支持移除已选项。保存、查询期间禁用重复提交与关闭弹窗。
 
 保存请求：
 
 ```json
-{"revision":0,"category_tag":"business_category","hosts":[{"hostid":"123"}]}
+{"revision":0,"categories":[{"key":"network","label":"网络设备"}],"hosts":[{"hostid":"123","category":"network","itemids":["456","457"]}]}
 ```
 
-响应 `data` 包含递增 revision、category_tag 和 hosts（增加服务端获取的 name、tags）。category_tag 为 1–255 字符的标签名，名称精确匹配；主机不重复且最多 1000 台。保留旧 categories 和 host.category 请求字段以兼容旧调用方，但不会用它们替代 Zabbix 标签。事务行锁及 revision 防止覆盖配置，冲突返回 409；非法标签名或主机返回 422。空 hosts 可在 Zabbix 不可用时保存，停止事件读取。
+响应 data 包含递增 revision、categories、hosts（hostid/name/category/itemids/tags 快照）和 category_source=platform。category_tag 字段仅保留兼容，不参与分类。categories 最多 50 个，key 为 1–64 位字母数字下划线/横线（unclassified 保留），label 去首尾空格后 1–40 字符且不重复。每台主机 category 为现有分类 key 或 null。主机最多 1000 台；itemids=null 表示全部（含未来新增），数组为指定监控项，不能为空、不能重复，单主机最多 2000 项、总计 20000 项。旧客户端省略 categories/category/itemids 时保留原值，避免将指定范围意外扩大为全部。
+
+响应示例：`{"code":200,"data":{"revision":1,"category_source":"platform","categories":[{"key":"network","label":"网络设备"}],"hosts":[{"hostid":"123","name":"Router","category":"network","itemids":["456"],"tags":[]}]}}`。
+
+配置与监控项查询均沿用登录及对应 API 权限：401 未登录；403 无权限；host-items 404 表示主机不可见或停用；保存非法分类、重复/空监控项、跨主机监控项、停用或不可见的新监控项返回 422；revision 冲突 409；上游失败 502、未配置 503。纯分类 CRUD、移除主机不调用上游。分类被主机引用时不能删除，除非同一请求先将这些主机分配到其他分类或未分类。
+
+指定监控项时，通过 trigger.get 的 itemids 找到引用任一已选项的触发器（OR 语义），与整机纳管触发器取并集，在 problem.get/event.get 查询阶段使用 objectids 限制，而非仅前端筛选。没有匹配触发器时返回空事件，绝不退回查询全部。详情、处置和指标历史也执行相同校验；详情只返回纳管范围内的监控项。主机数仍反映纳管主机数量，告警统计仅覆盖纳管触发器。协议依据：[Zabbix trigger.get](https://www.zabbix.com/documentation/7.4/en/manual/api/reference/trigger/get)。
 
 仪表盘增加 `configured`、`selected_hosts`、`unavailable_hosts`；停用、删除或权限变化的主机无法读取时明确显示数量，管理员可移除或重新选择。配置操作只写 FinWork，不修改上游主机或分组。
 
-部署需执行迁移 190 并重启后端，已选主机保留。进入“分类与监控范围”选择分类标签与主机。配置入口需要 GET `/settings`、GET `/host-groups`、GET `/host-options` 与 PUT `/settings` 权限。标签维护在 Zabbix，刷新时自动同步；FinWork 不写入或删除上游标签。已选标签在全部主机上不存在时，所有已选主机会显示未分类，请选择实际存在的标签名。
+本次复用已有 JSON 字段，无数据库结构或历史迁移文件改动。首次读取旧配置时，在事务行锁内补齐 host.category/itemids 并递增 revision：已有分类关联保留；无关联时将旧标签快照对应的分类一次性转为本地分类（多个旧标签值取排序后的首个），随后不再随 Zabbix 标签变化；旧主机 itemids=null 保留原整机纳管范围。转换幂等，不查询或写入 Zabbix。
+
+配置页面需要 GET `/settings`、PUT `/settings`；主机纳管额外需要 GET `/host-groups`、GET `/host-options`、GET `/host-items`。普通角色需配置新增监控项查询权限。所有配置操作仅写 FinWork，绝不新增/删除上游主机、监控项或标签。
 
 标签协议依据：[Zabbix 7.4 host.get 的 selectTags / selectInheritedTags](https://www.zabbix.com/documentation/7.4/en/manual/api/reference/host/get)。
 

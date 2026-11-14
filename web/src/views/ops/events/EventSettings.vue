@@ -1,209 +1,279 @@
 <template>
-  <n-modal
-    :show="show"
-    preset="card"
-    title="分类与监控范围"
-    style="width: min(1100px, calc(100vw - 24px))"
-    :closable="!working"
-    :mask-closable="!working"
-    :close-on-esc="!working"
-    @update:show="emit('update:show', $event)"
-  >
-    <n-spin :show="loading">
-      <div class="settings-body">
-        <n-alert type="info"
-          >仅已选主机会进入仪表盘。以下修改保存后生效，移除主机不会删除 Zabbix 数据。</n-alert
-        >
-        <n-alert v-if="error" type="error" class="gap">{{ error }}</n-alert>
-
-        <h3>仪表盘分组依据</h3>
-        <n-select
-          v-model:value="form.category_tag"
-          :options="tagOptions"
-          filterable
-          :disabled="working"
-          placeholder="选择分组维度"
+  <n-card :title="mode === 'hosts' ? '监控主机' : '分类管理'">
+    <template #header-extra
+      ><n-space>
+        <CButton
+          show-save
+          save-text="刷新"
+          :disabled="busy || hostDialog || categoryDialog"
+          @save="reload"
         />
-        <p class="muted">
-          推荐按业务分类分组，也可按供应商或线路类型查看健康情况。此选项仅决定仪表盘的分组方式，
-          下方各项主机属性保持独立。属性值在 Zabbix 中维护，缺少分组值的主机归入未分类。
-        </p>
-        <n-alert v-if="form.tags_warning" type="warning" class="gap">{{
-          form.tags_warning
-        }}</n-alert>
-        <h3>从 Zabbix 选择主机</h3>
+        <CButton
+          v-if="canEdit"
+          show-save
+          :save-text="mode === 'hosts' ? '纳管主机' : '新增分类'"
+          :disabled="busy || !ready"
+          @save="mode === 'hosts' ? openHost() : openCategory()"
+        /> </n-space
+    ></template>
+    <n-alert type="info" class="gap">{{
+      mode === 'hosts'
+        ? '按需纳管主机及监控项。指定监控项时，仅纳入引用所选监控项的触发器告警；选择全部时包含后续新增监控项。'
+        : '分类由 FinWork 独立维护。新增、重命名和删除不会修改 Zabbix 标签；被主机使用的分类须先解除关联才能删除。'
+    }}</n-alert>
+    <n-alert v-if="error" type="error" class="gap">{{ error }}</n-alert>
+    <n-alert v-if="form.tags_warning" type="warning" class="gap">{{ form.tags_warning }}</n-alert>
+    <n-input
+      v-model:value="filter"
+      :placeholder="mode === 'hosts' ? '搜索主机、分类' : '搜索分类名称'"
+      clearable
+      class="gap"
+    />
+    <p class="muted">
+      {{
+        mode === 'hosts'
+          ? `已纳管 ${form.hosts.length} 台主机`
+          : `共 ${form.categories.length} 个分类，${
+              form.hosts.filter((h) => !h.category).length
+            } 台主机未分类`
+      }}
+    </p>
+    <n-data-table
+      :columns="mode === 'hosts' ? hostColumns : categoryColumns"
+      :data="visibleRows"
+      :row-key="(row) => (mode === 'hosts' ? row.hostid : row.key)"
+      :loading="loading"
+      :scroll-x="mode === 'hosts' ? 1150 : 850"
+      :max-height="tableHeight"
+      striped
+      size="small"
+    />
+  </n-card>
+  <n-modal
+    v-model:show="hostDialog"
+    preset="card"
+    :title="editingHost ? '调整纳管范围' : '纳管主机'"
+    style="width: min(1100px, calc(100vw - 24px))"
+    :closable="!busy"
+    :mask-closable="!busy"
+    :close-on-esc="!busy"
+  >
+    <div class="dialog-body">
+      <n-alert v-if="dialogError" type="error" class="gap">{{ dialogError }}</n-alert>
+      <template v-if="!editingHost">
         <n-space class="gap" align="center">
           <n-select
             v-model:value="groupId"
-            :options="groupOptions"
-            placeholder="① 选择 Zabbix 主机组"
+            :options="groups.map((g) => ({ label: g.name, value: g.groupid }))"
             filterable
-            clearable
-            :disabled="working"
-            style="width: 260px"
-            @update:value="groupChanged"
+            placeholder="选择 Zabbix 主机组"
+            :disabled="busy"
+            style="width: 280px"
+            @update:value="changeGroup"
           />
           <n-input
-            v-model:value="keyword"
-            placeholder="② 组内主机名称筛选（可选）"
-            clearable
-            :disabled="working || !groupId"
-            style="width: 320px; max-width: 100%"
-            @keyup.enter="search"
+            v-model:value="hostKeyword"
+            placeholder="组内主机名称筛选（可选）"
+            :disabled="busy || !groupId"
+            style="width: 300px"
+            @keyup.enter="searchHosts"
           />
           <CButton
             show-save
             save-text="搜索主机"
-            :save-loading="searching"
-            :disabled="working || !groupId"
-            @save="search"
+            :disabled="busy || !groupId"
+            @save="searchHosts"
           />
         </n-space>
-        <CButton
-          v-if="searchError && !groups.length"
-          show-save
-          save-text="重新加载主机组"
-          :disabled="working"
-          @save="loadGroups"
+        <n-alert v-if="hostsTruncated" type="warning" class="gap"
+          >仅显示前 100 台，请按名称缩小范围。</n-alert
+        >
+        <n-select
+          v-model:value="draft.hostid"
+          :options="
+            candidates.map((h) => ({
+              label: h.name,
+              value: h.hostid,
+              disabled: form.hosts.some((saved) => saved.hostid === h.hostid),
+            }))
+          "
+          filterable
+          placeholder="选择需要纳管的主机"
+          :disabled="busy || !groupId"
+          @update:value="changeHost"
         />
-        <n-alert v-if="searchError" type="error" class="gap">{{ searchError }}</n-alert>
-        <n-alert v-if="truncated" type="warning" class="gap"
-          >匹配超过 100 台，仅展示前 100 台，请缩小搜索范围。</n-alert
-        >
-        <n-data-table
-          v-model:checked-row-keys="checked"
-          :columns="candidateColumns"
-          :data="candidates"
-          :row-key="(row) => row.hostid"
-          :max-height="260"
-          :scroll-x="1340"
-          :loading="searching"
-          size="small"
-        >
-          <template #empty
-            ><n-empty
-              :description="
-                searched ? '当前主机组内没有匹配的主机' : '先选择主机组，再勾选需要监控的主机'
-              "
-          /></template>
-        </n-data-table>
-        <n-space align="center" class="gap">
+      </template>
+      <h3 v-else>{{ draft.name }}</h3>
+      <h3>平台分类</h3>
+      <n-select
+        v-model:value="draft.category"
+        :options="categoryOptions"
+        clearable
+        filterable
+        placeholder="未分类（可稍后分配）"
+        :disabled="busy"
+      />
+      <h3>监控项范围</h3>
+      <n-radio-group
+        v-model:value="draft.scope"
+        :disabled="busy || !draft.hostid"
+        @update:value="scopeChanged"
+        ><n-space
+          ><n-radio value="selected">指定监控项</n-radio
+          ><n-radio value="all">全部监控项（含未来新增）</n-radio></n-space
+        ></n-radio-group
+      >
+      <template v-if="draft.scope === 'selected'">
+        <n-space class="gap" align="center">
+          <n-input
+            v-model:value="itemKeyword"
+            placeholder="搜索监控项名称或键值"
+            :disabled="busy || !draft.hostid"
+            style="width: 350px; max-width: 100%"
+            @keyup.enter="loadItems"
+          />
           <CButton
             show-save
-            :save-text="`添加选中主机（${checked.length}）`"
-            :disabled="working || !checked.length"
-            @save="addHosts"
+            save-text="查询监控项"
+            :disabled="busy || !draft.hostid"
+            @save="loadItems"
           />
         </n-space>
-        <h3>已选主机（{{ form.hosts.length }} / 1000）</h3>
-        <n-data-table
-          :columns="selectedColumns"
-          :data="form.hosts"
-          :row-key="(row) => row.hostid"
-          :max-height="300"
-          :scroll-x="1240"
-          size="small"
-        />
-        <p class="muted">
-          主机停用、删除或 Zabbix
-          权限变化后，仪表盘会提示无法读取。清空主机并保存后，事件读取将停止。
+        <n-alert v-if="itemsTruncated" type="warning" class="gap"
+          >仅显示前 500 个监控项，可搜索后继续勾选，已选项会保留。</n-alert
+        >
+        <p>
+          已选 {{ draft.itemids.length }} 项
+          <span class="muted">至少选择一项；没有关联触发器的监控项不会产生事件。</span>
         </p>
-      </div>
-    </n-spin>
+        <n-data-table
+          :columns="itemColumns"
+          :data="items"
+          :checked-row-keys="draft.itemids"
+          :row-key="(row) => row.itemid"
+          :scroll-x="850"
+          :max-height="300"
+          :loading="searching"
+          size="small"
+          @update:checked-row-keys="updateItems"
+        />
+        <n-space class="gap"
+          ><n-tag
+            v-for="id in draft.itemids"
+            :key="id"
+            closable
+            :disabled="busy"
+            @close="removeItem(id)"
+            >{{ itemNames[id] || `监控项 ${id}` }}</n-tag
+          ></n-space
+        >
+      </template>
+    </div>
     <template #footer
-      ><n-space justify="end">
-        <CButton show-cancel :disabled="working" @cancel="emit('update:show', false)" />
-        <CButton
+      ><n-space justify="end"
+        ><CButton show-cancel :disabled="busy" @cancel="hostDialog = false" /><CButton
           show-save
-          save-text="保存配置"
+          save-text="保存纳管配置"
           :save-loading="saving"
-          :disabled="working || !ready"
-          @save="save"
-        /> </n-space
+          :disabled="busy || !draft.hostid"
+          @save="saveHost" /></n-space
     ></template>
+  </n-modal>
+  <n-modal
+    v-model:show="categoryDialog"
+    preset="card"
+    :title="categoryDraft.key ? '编辑分类' : '新增分类'"
+    style="width: min(480px, calc(100vw - 24px))"
+    :closable="!busy"
+    :mask-closable="!busy"
+    :close-on-esc="!busy"
+  >
+    <n-alert v-if="dialogError" type="error" class="gap">{{ dialogError }}</n-alert>
+    <n-form-item label="分类名称" required
+      ><n-input
+        v-model:value="categoryDraft.label"
+        maxlength="40"
+        show-count
+        :disabled="busy"
+        placeholder="例如：传输线路、网络设备、虚拟化平台"
+    /></n-form-item>
+    <template #footer
+      ><CButton
+        show-save
+        show-cancel
+        :disabled="busy"
+        :save-loading="saving"
+        @save="saveCategory"
+        @cancel="categoryDialog = false"
+    /></template>
   </n-modal>
   <n-modal
     v-model:show="removal.show"
     preset="card"
     title="确认移除"
-    style="width: min(440px, calc(100vw - 24px))"
+    style="width: min(480px, calc(100vw - 24px))"
+    :closable="!busy"
+    :mask-closable="!busy"
+    :close-on-esc="!busy"
   >
-    <p>从当前配置移除此主机？保存配置后生效。</p>
+    <p>
+      {{
+        removal.kind === 'host'
+          ? '移除后将不再查询此主机的事件，不会删除 Zabbix 数据。'
+          : '确认删除这个未关联主机的分类？'
+      }}
+    </p>
+    <n-alert v-if="dialogError" type="error" class="gap">{{ dialogError }}</n-alert>
     <template #footer
-      ><CButton show-save show-cancel @save="remove" @cancel="removal.show = false"
+      ><CButton
+        show-save
+        show-cancel
+        :disabled="busy"
+        :save-loading="saving"
+        @save="remove"
+        @cancel="removal.show = false"
     /></template>
   </n-modal>
 </template>
 
 <script setup>
-import { computed, h, reactive, ref, watch } from 'vue'
-import { NButton, NSpace, NTooltip } from 'naive-ui'
+import { computed, h, reactive, ref, onMounted } from 'vue'
+import { useWindowSize } from '@vueuse/core'
+import { NButton, NSpace, NTag, NTooltip } from 'naive-ui'
 import CButton from '@/components/public/CButton.vue'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import api from '@/api/monitor-events'
+import { usePermissionStore, useUserStore } from '@/store'
 
-const props = defineProps({ show: Boolean })
-const emit = defineEmits(['update:show', 'saved'])
-const form = reactive({ revision: 0, category_tag: 'business_category', hosts: [] })
+const props = defineProps({ mode: { type: String, default: 'hosts' } })
+const user = useUserStore(),
+  permissions = usePermissionStore()
+const canEdit = computed(
+  () => user.isSuperUser || permissions.apis.includes('put/api/v1/monitor-events/settings')
+)
+const form = reactive({ revision: 0, categories: [], hosts: [] })
 const loading = ref(false),
-  saving = ref(false),
   searching = ref(false),
-  ready = ref(false),
-  error = ref(''),
-  searchError = ref('')
-const keyword = ref(''),
-  candidates = ref([]),
-  checked = ref([]),
-  searched = ref(false),
-  truncated = ref(false)
-const groupId = ref(null),
-  groups = ref([])
-const groupOptions = computed(() =>
-  groups.value.map((group) => ({ label: group.name, value: group.groupid }))
+  saving = ref(false),
+  ready = ref(false)
+const busy = computed(() => loading.value || searching.value || saving.value)
+const error = ref(''),
+  dialogError = ref(''),
+  filter = ref('')
+const { height } = useWindowSize()
+const tableHeight = computed(() => Math.max(240, height.value - 330))
+const categoryOptions = computed(() =>
+  form.categories.map((c) => ({ label: c.label, value: c.key }))
 )
-const removal = reactive({ show: false, kind: '', key: '' })
-const working = computed(() => loading.value || saving.value || searching.value)
-const tagLabels = {
-  business_category: '业务分类',
-  line_type: '线路类型',
-  provider: '供应商',
-  site_a: 'A 端位置',
-  site_b: 'B 端位置',
-  site: '站点',
-  role: '设备角色',
-  customer: '客户',
-  probe_site: '探测位置',
-  circuit_id: '线路编号',
-  asset_id: '资产编号',
-  class: '设备类别（模板）',
-  subclass: '设备子类（模板）',
-  target: '监控对象（模板）',
-}
-const tagOptions = computed(() =>
-  [
-    ...new Set(
-      [
-        'business_category',
-        form.category_tag,
-        ...[...form.hosts, ...candidates.value].flatMap((h) => (h.tags || []).map((t) => t.tag)),
-      ].filter(Boolean)
-    ),
-  ]
-    .sort((a, b) =>
-      a === 'business_category' ? -1 : b === 'business_category' ? 1 : a.localeCompare(b)
-    )
-    .map((value) => ({ label: tagLabels[value] || `自定义标签：${value}`, value }))
-)
-function tagValue(row, key) {
-  return (
-    [
-      ...new Set(
-        (row.tags || []).filter((t) => t.tag === key && t.value?.trim()).map((t) => t.value.trim())
-      ),
-    ].join(' / ') || (key === 'business_category' ? '未分类' : '—')
+const categoryName = (key) => form.categories.find((c) => c.key === key)?.label || '未分类'
+const visibleRows = computed(() =>
+  (props.mode === 'hosts' ? form.hosts : form.categories).filter((row) =>
+    (props.mode === 'hosts' ? `${row.name} ${categoryName(row.category)}` : row.label)
+      .toLowerCase()
+      .includes(filter.value.trim().toLowerCase())
   )
-}
-function actionButton(label, icon, callback, disabled = false) {
+)
+function action(label, icon, callback, disabled = false, danger = false) {
   return h(NTooltip, null, {
     trigger: () =>
       h(
@@ -212,199 +282,339 @@ function actionButton(label, icon, callback, disabled = false) {
           size: 'small',
           circle: true,
           quaternary: true,
-          type: 'error',
-          disabled: working.value || disabled,
+          type: danger ? 'error' : 'default',
+          disabled: busy.value || !canEdit.value || disabled,
           'aria-label': label,
           onClick: (event) => {
             event.stopPropagation()
-            if (!working.value && !disabled) callback()
+            if (!busy.value && canEdit.value && !disabled) callback()
           },
         },
         { icon: () => h(TheIcon, { icon, size: 17 }) }
       ),
-    default: () => (disabled ? '请先重新分配该分类的主机' : label),
+    default: () => label,
   })
 }
-const attributeColumns = () =>
-  ['business_category', 'line_type', 'provider', 'site_a', 'site_b'].map((key) => ({
-    title: tagLabels[key],
-    key,
-    width: key === 'line_type' ? 170 : 150,
-    resizable: true,
-    ellipsis: { tooltip: true },
-    render: (row) => tagValue(row, key),
-  }))
-const candidateColumns = [
-  {
-    type: 'selection',
-    disabled: (row) => working.value || form.hosts.some((h) => h.hostid === row.hostid),
-  },
-  ...[
-    { title: '主机名称', key: 'name', width: 250 },
+const businessColumns = (columns) =>
+  columns.map((c) => ({ ...c, resizable: true, ellipsis: { tooltip: true } }))
+const hostColumns = [
+  ...businessColumns([
+    { title: '主机名称', key: 'name', width: 500 },
     {
-      title: 'IP / 地址',
-      key: 'addresses',
+      title: '平台分类',
+      key: 'category',
       width: 220,
-      render: (row) => row.addresses.join(' / ') || '—',
+      render: (row) =>
+        h(
+          NTag,
+          { size: 'small', bordered: false, type: row.category ? 'info' : 'default' },
+          { default: () => categoryName(row.category) }
+        ),
     },
-  ].map((c) => ({ ...c, resizable: true, ellipsis: { tooltip: true } })),
-  ...attributeColumns(),
-]
-const selectedColumns = [
-  { title: '主机名称', key: 'name', width: 390, resizable: true, ellipsis: { tooltip: true } },
-  ...attributeColumns(),
+    {
+      title: '监控项范围',
+      key: 'itemids',
+      width: 300,
+      render: (row) =>
+        row.itemids == null ? '全部监控项（含未来新增）' : `指定 ${row.itemids.length} 个监控项`,
+    },
+  ]),
   {
     title: '操作',
     key: 'actions',
-    width: 80,
+    width: 130,
     fixed: 'right',
     render: (row) =>
       h(
         NSpace,
         { wrap: false },
         {
-          default: () =>
-            actionButton('移除主机', 'mdi:delete-outline', () => confirmRemove('host', row.hostid)),
+          default: () => [
+            action('调整分类和监控项', 'mdi:pencil-outline', () => openHost(row)),
+            action(
+              '移除纳管',
+              'mdi:delete-outline',
+              () => confirmRemove('host', row.hostid),
+              false,
+              true
+            ),
+          ],
         }
       ),
   },
 ]
-watch(
-  () => props.show,
-  async (value) => {
-    if (!value) return
-    loading.value = true
-    ready.value = false
-    error.value = ''
-    searchError.value = ''
-    candidates.value = []
-    checked.value = []
-    searched.value = false
-    keyword.value = ''
-    groupId.value = null
-    groups.value = []
-    truncated.value = false
-    try {
-      const result = await api.settings()
-      form.tags_warning = ''
-      Object.assign(form, result.data)
-      ready.value = true
-      await loadGroups()
-    } catch (e) {
-      error.value = e.message || '配置读取失败，请关闭后重新打开'
-    } finally {
-      loading.value = false
-    }
-  }
-)
-function confirmRemove(kind, key) {
-  Object.assign(removal, { show: true, kind, key })
-}
-function remove() {
-  form.hosts = form.hosts.filter((h) => h.hostid !== removal.key)
-  removal.show = false
-}
-async function search() {
-  if (working.value || !groupId.value) return
-  searching.value = true
-  searchError.value = ''
-  checked.value = []
-  candidates.value = []
-  truncated.value = false
+const categoryColumns = [
+  ...businessColumns([
+    { title: '分类名称', key: 'label', width: 240 },
+    {
+      title: '关联主机数',
+      key: 'count',
+      width: 130,
+      render: (row) => form.hosts.filter((h) => h.category === row.key).length,
+    },
+    {
+      title: '关联主机',
+      key: 'hosts',
+      width: 350,
+      render: (row) =>
+        form.hosts
+          .filter((h) => h.category === row.key)
+          .map((h) => h.name)
+          .join(' / ') || '—',
+    },
+  ]),
+  {
+    title: '操作',
+    key: 'actions',
+    width: 130,
+    fixed: 'right',
+    render: (row) =>
+      h(
+        NSpace,
+        { wrap: false },
+        {
+          default: () => [
+            action('编辑分类', 'mdi:pencil-outline', () => openCategory(row)),
+            action(
+              form.hosts.some((h) => h.category === row.key)
+                ? '请先调整关联主机的分类'
+                : '删除分类',
+              'mdi:delete-outline',
+              () => confirmRemove('category', row.key),
+              form.hosts.some((h) => h.category === row.key),
+              true
+            ),
+          ],
+        }
+      ),
+  },
+]
+const itemColumns = [
+  { type: 'selection', disabled: () => busy.value },
+  ...businessColumns([
+    { title: '监控项', key: 'name', width: 360 },
+    { title: '键值', key: 'key_', width: 340 },
+    { title: '单位', key: 'units', width: 100 },
+  ]),
+]
+const hostDialog = ref(false),
+  editingHost = ref(false),
+  categoryDialog = ref(false)
+const groups = ref([]),
+  candidates = ref([]),
+  items = ref([]),
+  itemNames = reactive({})
+const groupId = ref(null),
+  hostKeyword = ref(''),
+  itemKeyword = ref('')
+const hostsTruncated = ref(false),
+  itemsTruncated = ref(false)
+const draft = reactive({ hostid: null, name: '', category: null, scope: 'selected', itemids: [] })
+const categoryDraft = reactive({ key: null, label: '' })
+const removal = reactive({ show: false, kind: '', key: '' })
+async function reload() {
+  if (busy.value) return
+  loading.value = true
+  error.value = ''
+  ready.value = false
   try {
-    const result = await api.hosts(groupId.value, keyword.value.trim())
-    candidates.value = result.data.rows
-    truncated.value = result.data.truncated
-    searched.value = true
+    Object.assign(form, { tags_warning: '' }, (await api.settings()).data)
+    ready.value = true
   } catch (e) {
-    searchError.value = e.message || '主机搜索失败'
+    error.value = e.message || '配置加载失败，请重试'
   } finally {
-    searching.value = false
+    loading.value = false
   }
 }
-async function loadGroups() {
-  searching.value = true
-  searchError.value = ''
-  try {
-    groups.value = (await api.hostGroups()).data || []
-  } catch (e) {
-    searchError.value = e.message || '主机组加载失败，请重试'
-  } finally {
-    searching.value = false
-  }
-}
-function groupChanged() {
-  keyword.value = ''
-  candidates.value = []
-  checked.value = []
-  searched.value = false
-  truncated.value = false
-  if (groupId.value) search()
-}
-function addHosts() {
-  const selected = candidates.value.filter(
-    (h) => checked.value.includes(h.hostid) && !form.hosts.some((s) => s.hostid === h.hostid)
-  )
-  if (form.hosts.length + selected.length > 1000) {
-    error.value = '最多选择 1000 台主机'
-    return
-  }
-  form.hosts.push(...selected.map((h) => ({ hostid: h.hostid, name: h.name, tags: h.tags || [] })))
-  checked.value = []
-}
-async function save() {
-  if (working.value) return
+async function persist(hosts, categories) {
+  if (!canEdit.value || busy.value || !ready.value) return false
   saving.value = true
+  dialogError.value = ''
   error.value = ''
   try {
-    const data = {
+    const result = await api.saveSettings({
       revision: form.revision,
-      category_tag: form.category_tag,
-      hosts: form.hosts.map((h) => ({ hostid: h.hostid })),
-    }
-    if (!data.category_tag?.trim()) throw new Error('请选择分类标签')
-    await api.saveSettings(data)
-    window.$message?.success('分类与监控范围已保存')
-    emit('update:show', false)
-    emit('saved')
+      categories,
+      hosts: hosts.map((h) => ({
+        hostid: h.hostid,
+        category: h.category || null,
+        itemids: h.itemids ?? null,
+      })),
+    })
+    Object.assign(form, result.data)
+    window.$message?.success('配置已保存')
+    return true
   } catch (e) {
-    error.value = e.message || '保存失败'
+    dialogError.value = e.message || '保存失败，请重试'
+    error.value = dialogError.value
+    return false
   } finally {
     saving.value = false
   }
 }
-</script>
-
-<style scoped>
-.settings-body {
-  max-height: 70vh;
-  overflow: auto;
-  padding-right: 8px;
+async function openHost(row) {
+  if (busy.value) return
+  dialogError.value = ''
+  editingHost.value = !!row
+  groupId.value = null
+  hostKeyword.value = ''
+  itemKeyword.value = ''
+  candidates.value = []
+  items.value = []
+  hostsTruncated.value = false
+  itemsTruncated.value = false
+  Object.assign(draft, {
+    hostid: row?.hostid || null,
+    name: row?.name || '',
+    category: row?.category || null,
+    scope: row && row.itemids == null ? 'all' : 'selected',
+    itemids: [...(row?.itemids || [])],
+  })
+  hostDialog.value = true
+  if (row) {
+    if (draft.scope === 'selected') await loadItems()
+    return
+  }
+  searching.value = true
+  try {
+    groups.value = (await api.hostGroups()).data
+  } catch (e) {
+    dialogError.value = e.message || '主机组加载失败，请关闭后重试'
+  } finally {
+    searching.value = false
+  }
 }
+function changeGroup() {
+  draft.hostid = null
+  draft.itemids = []
+  items.value = []
+  hostKeyword.value = ''
+  searchHosts()
+}
+async function searchHosts() {
+  if (busy.value || !groupId.value) return
+  searching.value = true
+  dialogError.value = ''
+  candidates.value = []
+  try {
+    const result = (await api.hosts(groupId.value, hostKeyword.value.trim())).data
+    candidates.value = result.rows
+    hostsTruncated.value = result.truncated
+  } catch (e) {
+    dialogError.value = e.message || '主机查询失败'
+  } finally {
+    searching.value = false
+  }
+}
+function changeHost() {
+  draft.itemids = []
+  items.value = []
+  itemKeyword.value = ''
+  draft.name = candidates.value.find((h) => h.hostid === draft.hostid)?.name || ''
+  if (draft.scope === 'selected') loadItems()
+}
+function scopeChanged() {
+  if (draft.scope === 'selected') loadItems()
+}
+async function loadItems() {
+  if (busy.value || !draft.hostid) return
+  searching.value = true
+  dialogError.value = ''
+  items.value = []
+  try {
+    const result = (await api.hostItems(draft.hostid, itemKeyword.value.trim())).data
+    items.value = result.rows
+    itemsTruncated.value = result.truncated
+    for (const item of items.value) itemNames[item.itemid] = item.name
+  } catch (e) {
+    dialogError.value = e.message || '监控项查询失败'
+  } finally {
+    searching.value = false
+  }
+}
+function updateItems(keys) {
+  const visible = new Set(items.value.map((i) => i.itemid))
+  draft.itemids = [...new Set([...draft.itemids.filter((id) => !visible.has(id)), ...keys])]
+}
+function removeItem(id) {
+  if (!busy.value) draft.itemids = draft.itemids.filter((value) => value !== id)
+}
+async function saveHost() {
+  if (!draft.hostid || busy.value) return
+  if (draft.scope === 'selected' && !draft.itemids.length) {
+    dialogError.value = '请至少选择一个监控项'
+    return
+  }
+  if (!editingHost.value && form.hosts.length >= 1000) {
+    dialogError.value = '最多纳管 1000 台主机'
+    return
+  }
+  const host = {
+    hostid: draft.hostid,
+    category: draft.category,
+    itemids: draft.scope === 'all' ? null : [...draft.itemids],
+  }
+  const hosts = editingHost.value
+    ? form.hosts.map((h) => (h.hostid === draft.hostid ? host : h))
+    : [...form.hosts, host]
+  if (await persist(hosts, form.categories)) hostDialog.value = false
+}
+function openCategory(row) {
+  dialogError.value = ''
+  Object.assign(categoryDraft, { key: row?.key || null, label: row?.label || '' })
+  categoryDialog.value = true
+}
+async function saveCategory() {
+  const label = categoryDraft.label.trim()
+  if (!label) {
+    dialogError.value = '请输入分类名称'
+    return
+  }
+  if (form.categories.some((c) => c.key !== categoryDraft.key && c.label === label)) {
+    dialogError.value = '分类名称已存在'
+    return
+  }
+  const category = {
+    key:
+      categoryDraft.key ||
+      `cat_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`,
+    label,
+  }
+  const categories = categoryDraft.key
+    ? form.categories.map((c) => (c.key === category.key ? category : c))
+    : [...form.categories, category]
+  if (await persist(form.hosts, categories)) categoryDialog.value = false
+}
+function confirmRemove(kind, key) {
+  dialogError.value = ''
+  Object.assign(removal, { show: true, kind, key })
+}
+async function remove() {
+  const hosts =
+    removal.kind === 'host' ? form.hosts.filter((h) => h.hostid !== removal.key) : form.hosts
+  const categories =
+    removal.kind === 'category'
+      ? form.categories.filter((c) => c.key !== removal.key)
+      : form.categories
+  if (await persist(hosts, categories)) removal.show = false
+}
+onMounted(reload)
+</script>
+<style scoped>
 .gap {
   margin: 12px 0;
 }
-.category-list {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 12px;
-}
-.category-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
 .muted {
+  opacity: 0.7;
   font-size: 12px;
-  color: #7d899a;
+}
+.dialog-body {
+  max-height: 68vh;
+  overflow: auto;
+  padding-right: 8px;
 }
 h3 {
   margin: 18px 0 10px;
-}
-@media (max-width: 700px) {
-  .category-list {
-    grid-template-columns: 1fr;
-  }
+  font-size: 14px;
 }
 </style>

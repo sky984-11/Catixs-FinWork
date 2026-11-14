@@ -10,8 +10,9 @@ from tortoise import Tortoise
 
 from app.api.v1.monitor_events import router
 from app.core.dependency import AuthControl, DependPermission
-from app.models import Api, MonitorEventConfig, Role, User
+from app.models import Api, Menu, MonitorEventConfig, Role, User
 from app.services.monitor_event_menu import ensure_monitor_event_menu
+from app.services.monitor_event_config import load_settings
 from app.services.monitor_events import ZabbixClient, advice, classify, dashboard, detail, get_hosts, tag_categories
 
 HOST = {
@@ -41,7 +42,7 @@ EVENT = {
 SCOPE = {
     "revision": 1,
     "categories": [{"key": "pve", "label": "PVE 虚拟化"}],
-    "hosts": [{"hostid": "1", "name": "Test PVE", "category": "pve"}],
+    "hosts": [{"hostid": "1", "name": "Test PVE", "category": "pve", "itemids": None}],
 }
 
 
@@ -72,6 +73,8 @@ class FakeZabbix:
                 return [{"eventid": "99", "clock": "200"}]
             return [copy.deepcopy(self.event)]
         if method == "trigger.get":
+            if "itemids" in params and "30" not in params["itemids"]:
+                return []
             return [
                 {
                     "triggerid": "20",
@@ -91,6 +94,7 @@ class FakeZabbix:
                     "lastclock": "100",
                     "units": "%",
                     "value_type": "0",
+                    "status": "0",
                 }
             ]
         if method == "history.get":
@@ -147,10 +151,11 @@ class MonitorEventTests(unittest.IsolatedAsyncioTestCase):
         result = await self.client.put("/settings", json=data)
         self.assertEqual(result.status_code, 200, result.text)
         self.assertEqual(result.json()["data"]["revision"], 2)
+        self.assertFalse(self.fake.calls)  # Local categories work without Zabbix.
         self.assertEqual((await self.client.put("/settings", json=data)).status_code, 409)
         snapshot = (await self.client.get("")).json()["data"]
-        self.assertEqual(snapshot["rows"][0]["categories"], tag_categories([HOST], "env")[0]["1"])
-        self.assertEqual(snapshot["categories"][0]["label"], "prod")
+        self.assertEqual(snapshot["rows"][0]["categories"], ["pve"])
+        self.assertEqual(snapshot["categories"][0]["label"], "PVE 虚拟化")
         self.assertEqual(
             (await self.client.put("/settings", json={**data, "revision": 2, "category_tag": ""})).status_code, 422
         )
@@ -220,7 +225,7 @@ class MonitorEventTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(history["rows"][0]["recovery_clock"], 200)
         self.assertEqual(history["rows"][0]["duration_seconds"], 100)
         self.assertEqual(history["summary"], current["summary"])
-        self.assertEqual(history["rows"][0]["categories"], tag_categories([HOST], "business_category")[0]["1"])
+        self.assertEqual(history["rows"][0]["categories"], ["pve"])
 
     async def test_detail_locates_host_metric_and_recovery_time(self):
         self.fake.event["r_eventid"] = "99"
@@ -358,9 +363,95 @@ class MonitorEventTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(data["points"]), 10000)
         self.assertEqual(data["points"][0]["clock"], 2)
         value_type = "1"
+        self.assertEqual((await self.client.get("/10/metrics/30/history?time_from=0&time_till=20000")).status_code, 422)
+
+    async def test_local_categories_crud_without_zabbix_and_delete_guard(self):
+        payload = {
+            "revision": 1,
+            "categories": [{"key": "pve", "label": "Compute"}, {"key": "new", "label": "New"}],
+            "hosts": SCOPE["hosts"],
+        }
+        # API accepts identifiers only, not presentation names.
+        payload["hosts"] = [{"hostid": "1", "category": "pve", "itemids": None}]
+        self.assertEqual((await self.client.put("/settings", json=payload)).status_code, 200)
+        self.assertFalse(self.fake.calls)
+        result = await self.client.get("/settings")
+        self.assertEqual(result.json()["data"]["categories"][0]["label"], "Compute")
+        self.assertFalse(self.fake.calls)
+        payload.update(revision=2, categories=[{"key": "new", "label": "New"}])
+        self.assertEqual((await self.client.put("/settings", json=payload)).status_code, 422)
+        payload["hosts"][0]["category"] = "new"
+        self.assertEqual((await self.client.put("/settings", json=payload)).status_code, 200)
+        self.assertFalse(self.fake.calls)
+
+    async def test_item_scope_validates_owner_and_filters_all_event_paths(self):
+        payload = {"revision": 1, "hosts": [{"hostid": "1", "category": "pve", "itemids": ["30"]}]}
+        saved = await self.client.put("/settings", json=payload)
+        self.assertEqual(saved.status_code, 200, saved.text)
+        self.assertEqual(saved.json()["data"]["hosts"][0]["itemids"], ["30"])
+        self.fake.calls.clear()
+        response = await self.client.get("?history=true")
+        self.assertEqual(response.status_code, 200)
+        queries = [
+            (method, p)
+            for method, p in self.fake.calls
+            if method == "problem.get" or method == "event.get" and "value" in p
+        ]
+        self.assertTrue(queries)
+        self.assertTrue(all(p["objectids"] == ["20"] for _, p in queries))
+        self.assertEqual((await self.client.get("/10")).status_code, 200)
+        # Omitted fields in older clients must not broaden a restricted scope.
+        legacy = await self.client.put("/settings", json={"revision": 2, "hosts": [{"hostid": "1"}]})
+        self.assertEqual(legacy.status_code, 200)
+        self.assertEqual(legacy.json()["data"]["hosts"][0]["itemids"], ["30"])
+        payload.update(revision=3, hosts=[{"hostid": "1", "category": "pve", "itemids": ["999"]}])
+        self.assertEqual((await self.client.put("/settings", json=payload)).status_code, 422)
+        for invalid in [[], ["30", "30"], ["x"], ["0"]]:
+            payload["hosts"][0]["itemids"] = invalid
+            self.assertEqual((await self.client.put("/settings", json=payload)).status_code, 422)
+        row = await MonitorEventConfig.get(id=1)
+        row.hosts[0]["itemids"] = ["999"]
+        await row.save()
+        self.fake.calls.clear()
+        empty = (await self.client.get("?history=true")).json()["data"]
+        self.assertEqual(empty["rows"], [])
+        self.assertEqual(empty["summary"]["problems"], 0)
+        self.assertFalse(any(m in {"problem.get", "event.get"} for m, _ in self.fake.calls))
+        self.assertEqual((await self.client.get("/10")).status_code, 404)
+        self.assertEqual((await self.client.get("/10/metrics/30/history?time_from=50&time_till=200")).status_code, 404)
         self.assertEqual(
-            (await self.client.get("/10/metrics/30/history?time_from=0&time_till=20000")).status_code, 422
+            (await self.client.post("/10/actions", json={"action": "acknowledge", "message": "test"})).status_code, 404
         )
+        self.assertFalse(any(m == "event.acknowledge" for m, _ in self.fake.calls))
+
+    async def test_host_items_only_queries_explicit_host(self):
+        self.assertEqual((await self.client.get("/host-items")).status_code, 422)
+        self.assertFalse(self.fake.calls)
+        response = await self.client.get("/host-items?host_id=1&keyword=cpu")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"]["rows"][0]["itemid"], "30")
+        self.assertTrue(
+            all(params["hostids"] == ["1"] for method, params in self.fake.calls if method in {"host.get", "item.get"})
+        )
+        self.user.is_superuser = False
+        self.assertEqual((await self.client.get("/host-items?host_id=1")).status_code, 403)
+
+    async def test_old_tag_configuration_upgrades_once(self):
+        row = await MonitorEventConfig.get(id=1)
+        row.categories = []
+        row.hosts = [{"hostid": "1", "name": "Test", "tags": HOST["tags"]}]
+        await row.save()
+        first = await load_settings()
+        self.assertEqual(first["revision"], 2)
+        self.assertEqual(first["categories"][0]["label"], "PVE 虚拟化")
+        self.assertEqual(first["hosts"][0]["category"], first["categories"][0]["key"])
+        self.assertIsNone(first["hosts"][0]["itemids"])
+        row = await MonitorEventConfig.get(id=1)
+        row.hosts[0]["tags"] = [{"tag": "business_category", "value": "Changed upstream"}]
+        await row.save()
+        second = await load_settings()
+        self.assertEqual(second["revision"], 2)
+        self.assertEqual(second["categories"], first["categories"])
 
     async def test_menu_only_granted_to_admin(self):
         admin = await Role.create(name="admin")
@@ -368,8 +459,31 @@ class MonitorEventTests(unittest.IsolatedAsyncioTestCase):
         await ensure_monitor_event_menu()
         await ensure_monitor_event_menu()
         self.assertEqual(await admin.menus.filter(path="/ops/events").count(), 1)
-        self.assertEqual((await admin.menus.filter(path="/ops/events").first()).parent_id, 0)
+        root = await admin.menus.filter(path="/events").get()
+        self.assertEqual(root.parent_id, 0)
+        self.assertEqual(str(root.menu_type), "catalog")
+        self.assertEqual((await admin.menus.filter(path="/ops/events").first()).parent_id, root.id)
+        self.assertEqual(await admin.menus.filter(parent_id=root.id).count(), 4)
         self.assertFalse(await reader.menus.filter(path="/ops/events").exists())
+
+    async def test_menu_upgrade_preserves_existing_reader_access(self):
+        await ensure_monitor_event_menu()
+        menu = await Menu.get(path="/ops/events")
+        reader = await Role.create(name="event-reader")
+        await reader.menus.add(menu)
+        await ensure_monitor_event_menu()
+        self.assertTrue(await reader.menus.filter(path="/events").exists())
+        self.assertTrue(await reader.menus.filter(path="/events/history").exists())
+        self.assertFalse(await reader.menus.filter(path="/events/hosts").exists())
+        self.assertEqual(await reader.apis.all().count(), 0)
+        settings_api = await Api.create(
+            path="/api/v1/monitor-events/settings", method="GET", summary="Read settings", tags="Events"
+        )
+        await reader.apis.add(settings_api)
+        await ensure_monitor_event_menu()
+        self.assertTrue(await reader.menus.filter(path="/events/hosts").exists())
+        self.assertTrue(await reader.menus.filter(path="/events/categories").exists())
+        self.assertFalse(await reader.apis.filter(method="PUT").exists())
 
 
 class ZabbixTransportTests(unittest.IsolatedAsyncioTestCase):

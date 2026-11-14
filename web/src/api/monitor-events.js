@@ -4,6 +4,8 @@ export default {
   settings: () => request.get('/monitor-events/settings'),
   saveSettings: (data) => request.put('/monitor-events/settings', data),
   hostGroups: () => request.get('/monitor-events/host-groups'),
+  hostItems: (hostId, keyword = '') =>
+    request.get('/monitor-events/host-items', { params: { host_id: hostId, keyword } }),
   hosts: (groupId, keyword = '') =>
     request.get('/monitor-events/host-options', { params: { group_id: groupId, keyword } }),
   list: (params) => request.get('/monitor-events', { params }),

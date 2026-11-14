@@ -10,7 +10,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 from fastapi import HTTPException
 
-from app.services.monitor_event_config import load_settings
+from app.services.monitor_event_config import load_settings, local_categories
 from app.settings.config import settings
 
 CATEGORIES = {
@@ -292,6 +292,26 @@ async def enrich(client, events, hosts=None, categories=None):
     return output
 
 
+async def scoped_trigger_ids(client, config):
+    """None means full-host scope; [] means no matching triggers, never an unfiltered query."""
+    if all(h.get("itemids") is None for h in config["hosts"]):
+        return None
+    full_hosts = [h["hostid"] for h in config["hosts"] if h.get("itemids") is None]
+    itemids = list({itemid for h in config["hosts"] for itemid in h.get("itemids") or []})
+    queries = []
+    if full_hosts:
+        queries.append(client.call("trigger.get", {"hostids": full_hosts, "output": ["triggerid"]}))
+    if itemids:
+        queries.append(
+            client.call(
+                "trigger.get",
+                {"hostids": [h["hostid"] for h in config["hosts"]], "itemids": itemids, "output": ["triggerid"]},
+            )
+        )
+    results = await asyncio.gather(*queries)
+    return sorted({t["triggerid"] for rows in results for t in rows})
+
+
 async def dashboard(client, history=False, config=None):
     config = config if config is not None else await load_settings()
     hostids = [h["hostid"] for h in config["hosts"]]
@@ -306,14 +326,17 @@ async def dashboard(client, history=False, config=None):
         "limit": LIMIT + 1,
         "hostids": hostids,
     }
-    problems, hosts = (
-        await asyncio.gather(client.call("problem.get", params), get_hosts(client, hostids)) if hostids else ([], [])
-    )
-    assigned, category_options = tag_categories(hosts, config.get("category_tag", "business_category"))
+    triggerids = await scoped_trigger_ids(client, config) if hostids else []
+    if triggerids is not None:
+        params["objectids"] = triggerids
+    can_query = bool(hostids) and triggerids != []
+    hosts = await get_hosts(client, hostids) if hostids else []
+    problems = await client.call("problem.get", params) if can_query else []
+    assigned, category_options = local_categories(hosts, config)
     active_rows = await enrich(client, problems[:LIMIT], hosts[:10000], assigned)
     rows = active_rows
     truncated = len(problems) > LIMIT or len(hosts) > 10000
-    if history and hostids:
+    if history and can_query:
         params.update(time_from=int(time.time()) - 7 * 86400, value=1)
         events = await client.call("event.get", params)
         rows = await enrich(client, events[:LIMIT], hosts[:10000], assigned)
@@ -350,6 +373,7 @@ async def dashboard(client, history=False, config=None):
         "version": client.version if client else "",
         "configured": bool(hostids),
         "category_tag": config.get("category_tag", "business_category"),
+        "category_source": "platform",
         "selected_hosts": len(hostids),
         "unavailable_hosts": len(set(hostids) - {h["hostid"] for h in hosts}),
     }
@@ -378,7 +402,10 @@ async def detail(client, eventid, config=None):
         raise HTTPException(404, "事件不存在或 Zabbix 账号不可见")
     event = events[0]
     hosts = await get_hosts(client, hostids)
-    assigned, _ = tag_categories(hosts, config.get("category_tag", "business_category"))
+    allowed = await scoped_trigger_ids(client, config)
+    if allowed is not None and event["objectid"] not in allowed:
+        raise HTTPException(404, "事件不在已选择的监控项范围内")
+    assigned, _ = local_categories(hosts, config)
     row = (await enrich(client, events, hosts, assigned))[0]
     if not row["hosts"]:
         raise HTTPException(404, "事件不在已选择的监控范围内")
@@ -406,7 +433,13 @@ async def detail(client, eventid, config=None):
         if ids
         else []
     )
-    items = [item for item in items if item.get("hostid") in hostids]
+    item_scopes = {h["hostid"]: h.get("itemids") for h in config["hosts"]}
+    items = [
+        item
+        for item in items
+        if item.get("hostid") in hostids
+        and (item_scopes[item["hostid"]] is None or item["itemid"] in item_scopes[item["hostid"]])
+    ]
     row.update(
         expression=trigger.get("expression", ""),
         recovery_expression=trigger.get("recovery_expression", ""),

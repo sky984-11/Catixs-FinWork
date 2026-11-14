@@ -3,16 +3,22 @@
     <section class="events-panel">
       <header class="page-header">
         <div>
-          <h2>事件管理 <span class="brand">MonitorOps</span></h2>
-          <p>Zabbix 统一监控 · 定位、研判与处置</p>
+          <h2>{{ historyPage ? '历史事件' : '事件列表' }} <span class="brand">MonitorOps</span></h2>
+          <p>
+            {{
+              historyPage
+                ? '回溯近 7 天事件 · 恢复记录、持续时间与指标历史'
+                : '处理当前未确认告警 · 定位、研判与处置'
+            }}
+          </p>
         </div>
         <n-space align="center">
           <CButton
             v-if="canConfigure"
             show-save
-            save-text="分类与监控范围"
+            save-text="监控主机"
             :disabled="acting || loading"
-            @save="settingsOpen = true"
+            @save="router.push('/events/hosts')"
           />
           <span class="updated">{{ updatedAt ? `更新于 ${date(updatedAt)}` : '等待同步' }}</span>
           <n-switch v-model:value="autoRefresh" :disabled="acting" /><span>30 秒刷新</span>
@@ -31,27 +37,24 @@
       <n-alert v-if="snapshot.truncated" type="warning" class="notice"
         >数据达到读取上限，统计仅覆盖已加载范围，请在 Zabbix 核实完整数据。</n-alert
       >
-      <div class="metrics">
+      <div v-if="!historyPage" class="metrics">
         <div v-for="metric in metrics" :key="metric.key" class="metric" :class="metric.key">
           <span>{{ metric.label }}</span
           ><strong>{{ snapshot.summary?.[metric.key] ?? '—' }}</strong>
         </div>
       </div>
       <n-alert v-if="snapshot.configured === false" type="info"
-        >尚未选择监控主机，请通过“分类与监控范围”添加；无配置权限时请联系管理员。</n-alert
+        >尚未纳管主机，请在“事件管理 → 监控主机”中添加；无配置权限时请联系管理员。</n-alert
       >
       <n-alert v-if="snapshot.unavailable_hosts" type="warning"
         >有
         {{ snapshot.unavailable_hosts }}
         台已选主机无法读取，请在配置中核查是否已停用、删除或权限变化。</n-alert
       >
-      <div class="health-section">
+      <div v-if="!historyPage" class="health-section">
         <div class="section-title">
           <h3>业务分类健康情况</h3>
-          <span
-            >标签：{{ snapshot.category_tag || 'business_category' }} · 多值标签可归属多个分类 ·
-            点击筛选</span
-          >
+          <span>平台分类 · 点击筛选</span>
         </div>
         <div class="health-grid">
           <button
@@ -78,8 +81,12 @@
         </div>
       </div>
       <div class="section-title">
-        <h3>各类型最新告警</h3>
-        <span>同一主机、同一触发器仅显示最新一条 · 双击行查看近 7 天历史</span>
+        <h3>{{ historyPage ? '历史事件记录' : '各类型最新告警' }}</h3>
+        <span>{{
+          historyPage
+            ? '逐次展示历史事件，按发生时间倒序 · 双击查看同类历史'
+            : '同一主机、同一触发器仅显示最新一条 · 双击行查看近 7 天历史'
+        }}</span>
       </div>
       <div class="filters">
         <n-input
@@ -108,15 +115,6 @@
           :disabled="loading || acting"
           @update:value="changeState"
         />
-        <n-select
-          v-model:value="historyMode"
-          :options="[
-            { label: '当前问题', value: 0 },
-            { label: '近 7 天（含恢复）', value: 1 },
-          ]"
-          :disabled="loading || acting"
-          @update:value="changeScope"
-        />
       </div>
       <n-data-table
         class="event-table"
@@ -135,7 +133,10 @@
         /></template>
       </n-data-table>
       <footer class="list-footer">
-        <span>共 {{ filtered.length }} 类 · {{ snapshot.scope || '等待同步' }}</span>
+        <span
+          >共 {{ filtered.length }} {{ historyPage ? '条' : '类' }} ·
+          {{ snapshot.scope || '等待同步' }}</span
+        >
         <n-pagination
           v-model:page="page"
           :item-count="filtered.length"
@@ -335,7 +336,6 @@
         </n-space>
       </template>
     </n-modal>
-    <EventSettings v-model:show="settingsOpen" @saved="settingsSaved" />
   </AppPage>
 </template>
 
@@ -343,14 +343,16 @@
 import { computed, h, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { NButton, NSpace, NTag, NTooltip } from 'naive-ui'
 import MetricHistory from './MetricHistory.vue'
+import { useRouter } from 'vue-router'
 import CButton from '@/components/public/CButton.vue'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import api from '@/api/monitor-events'
-import EventSettings from './EventSettings.vue'
 import { usePermissionStore, useUserStore } from '@/store'
 
 const permissions = usePermissionStore(),
   user = useUserStore()
+const props = defineProps({ historyPage: Boolean })
+const router = useRouter()
 const canAct = computed(
   () =>
     user.isSuperUser || permissions.apis.includes('post/api/v1/monitor-events/{eventid}/actions')
@@ -358,7 +360,6 @@ const canAct = computed(
 const canConfigure = computed(
   () => user.isSuperUser || permissions.apis.includes('put/api/v1/monitor-events/settings')
 )
-const settingsOpen = ref(false)
 const canViewMetrics = computed(
   () =>
     user.isSuperUser ||
@@ -370,11 +371,6 @@ function openMetricHistory(row) {
   metricTarget.value = row
   metricOpen.value = true
 }
-function settingsSaved() {
-  category.value = null
-  detailOpen.value = false
-  refresh()
-}
 const snapshot = ref({ rows: [], categories: [] }),
   loading = ref(false),
   error = ref(''),
@@ -382,8 +378,7 @@ const snapshot = ref({ rows: [], categories: [] }),
 const keyword = ref(''),
   category = ref(null),
   severity = ref(null),
-  state = ref('unacknowledged'),
-  historyMode = ref(0),
+  state = ref(props.historyPage ? 'recovered' : 'unacknowledged'),
   page = ref(1)
 const autoRefresh = ref(true),
   viewportWidth = ref(window.innerWidth)
@@ -405,7 +400,7 @@ const stateOptions = [
   { label: '已抑制', value: 'suppressed' },
   { label: '未抑制', value: 'unsuppressed' },
   { label: '已恢复', value: 'recovered' },
-]
+].filter((option) => props.historyPage || option.value !== 'recovered')
 const metrics = [
   { key: 'hosts', label: '监控主机' },
   { key: 'abnormal_hosts', label: '异常主机' },
@@ -506,7 +501,7 @@ const latestRows = computed(() => {
   return [...latest.values()]
 })
 const filtered = computed(() =>
-  latestRows.value
+  (props.historyPage ? snapshot.value.rows : latestRows.value)
     .filter((row) => {
       const text = [
         row.id,
@@ -538,7 +533,9 @@ const filtered = computed(() =>
               }[state.value]))
       )
     })
-    .sort((a, b) => b.severity - a.severity || b.clock - a.clock)
+    .sort((a, b) =>
+      props.historyPage ? b.clock - a.clock : b.severity - a.severity || b.clock - a.clock
+    )
 )
 const pageRows = computed(() => filtered.value.slice((page.value - 1) * 20, page.value * 20))
 watch(
@@ -751,24 +748,15 @@ function chooseCategory(key) {
   category.value = category.value === key ? null : key
   page.value = 1
 }
-function changeScope() {
-  page.value = 1
-  if (!historyMode.value && state.value === 'recovered') state.value = 'all'
-  refresh()
-}
 function changeState() {
   page.value = 1
-  if (state.value === 'recovered' && !historyMode.value) {
-    historyMode.value = 1
-    refresh()
-  }
 }
 async function refresh() {
   if (loading.value || acting.value) return
   loading.value = true
   error.value = ''
   try {
-    const result = await api.list({ history: !!historyMode.value })
+    const result = await api.list({ history: props.historyPage })
     snapshot.value = result.data
     updatedAt.value = result.data.updated_at
   } catch (e) {
@@ -840,7 +828,7 @@ let timer
 onMounted(() => {
   refresh()
   timer = setInterval(() => {
-    if (autoRefresh.value && !document.hidden && !actionOpen.value && !settingsOpen.value) refresh()
+    if (autoRefresh.value && !document.hidden && !actionOpen.value) refresh()
   }, 30000)
   window.addEventListener('resize', resize)
 })
