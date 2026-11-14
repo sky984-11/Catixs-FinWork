@@ -176,6 +176,7 @@ class NotificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((text, source), ("Check connectivity", "rule"))
         card = service.build_card(EVENT, "problem", text, source, SCOPE["categories"])
         self.assertEqual(card["header"]["template"], "red")
+        self.assertFalse(any(f["text"]["content"].startswith("持续时间\n") for f in card["elements"][0]["fields"]))
         self.assertEqual(card["header"]["title"]["tag"], "plain_text")
         enriched = copy.deepcopy(EVENT)
         enriched["hosts"][0]["attributes"] = [{"key": "provider", "label": "Provider", "value": "ExampleCarrier"}]
@@ -183,6 +184,7 @@ class NotificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("ExampleCarrier", enriched_card["elements"][1]["text"]["content"])
         self.assertEqual(enriched_card["elements"][1]["text"]["tag"], "plain_text")
         recovery = service.build_card({**EVENT, "recovery_clock": 290}, "recovery", text, source, SCOPE["categories"])
+        self.assertIn("持续时间\n0 小时 1 分 30 秒", [f["text"]["content"] for f in recovery["elements"][0]["fields"]])
         self.assertEqual(recovery["header"]["template"], "green")
         with (
             patch.object(service.settings, "FW_ASSISTANT_API_KEY", "test-key"),

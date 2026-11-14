@@ -182,7 +182,7 @@ def build_card(row, phase, advice_text, source, categories):
         ("状态", "已恢复" if recovered else "已确认" if row["acknowledged"] else "未确认"),
         ("发生时间", card_time(row["clock"])),
         ("恢复时间", card_time(row.get("recovery_clock"))),
-        ("持续时间", duration),
+        *([("持续时间", duration)] if recovered else []),
         ("事件编号", row["id"]),
     ]
     card = {
