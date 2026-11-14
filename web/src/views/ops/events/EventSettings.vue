@@ -129,7 +129,7 @@
         @update:value="scopeChanged"
         ><n-space
           ><n-radio value="selected">指定监控项</n-radio
-          ><n-radio value="all">全部监控项（含未来新增）</n-radio></n-space
+          ><n-radio value="all">全部监控项</n-radio></n-space
         ></n-radio-group
       >
       <template v-if="draft.scope === 'selected'">
@@ -336,7 +336,22 @@ function action(label, icon, callback, disabled = false, danger = false) {
   })
 }
 const businessColumns = (columns) =>
-  columns.map((c) => ({ ...c, resizable: true, ellipsis: { tooltip: true } }))
+  columns.map((c) => ({ resizable: true, ellipsis: { tooltip: true }, ...c }))
+function attributeCell(row) {
+  const fields = form.categories.find((c) => c.key === row.category)?.fields || []
+  const filled = fields.filter((field) => row.attributes?.[field.key])
+  if (!filled.length) return h('span', { class: 'muted' }, fields.length ? '未填写' : '—')
+  return h(
+    'div',
+    { class: 'host-attributes' },
+    filled.map((field) =>
+      h('div', { class: 'host-attribute', title: `${field.label}：${row.attributes[field.key]}` }, [
+        h('span', { class: 'host-attribute-label' }, field.label),
+        h('span', { class: 'host-attribute-value' }, row.attributes[field.key]),
+      ])
+    )
+  )
+}
 const hostColumns = [
   ...businessColumns([
     { title: '主机名称', key: 'name', width: 500 },
@@ -344,14 +359,8 @@ const hostColumns = [
       title: '分类属性',
       key: 'attributes',
       width: 360,
-      render: (row) =>
-        h(
-          'div',
-          { style: 'white-space: pre-wrap' },
-          (form.categories.find((c) => c.key === row.category)?.fields || [])
-            .map((f) => `${f.label}：${row.attributes?.[f.key] || '—'}`)
-            .join('\n') || '—'
-        ),
+      ellipsis: false,
+      render: attributeCell,
     },
     {
       title: '平台分类',
@@ -368,8 +377,7 @@ const hostColumns = [
       title: '监控项范围',
       key: 'itemids',
       width: 300,
-      render: (row) =>
-        row.itemids == null ? '全部监控项（含未来新增）' : `指定 ${row.itemids.length} 个监控项`,
+      render: (row) => (row.itemids == null ? '全部监控项' : `指定 ${row.itemids.length} 个监控项`),
     },
   ]),
   {
@@ -691,6 +699,35 @@ onMounted(reload)
   max-height: 68vh;
   overflow: auto;
   padding-right: 8px;
+}
+:deep(.host-attributes) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 0;
+}
+:deep(.host-attribute) {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 3px 8px;
+  border: 1px solid rgba(128, 128, 128, 0.14);
+  border-radius: 5px;
+  background: rgba(128, 128, 128, 0.05);
+  font-size: 12px;
+  line-height: 20px;
+}
+:deep(.host-attribute-label) {
+  flex-shrink: 0;
+  opacity: 0.65;
+}
+:deep(.host-attribute-value) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  font-weight: 500;
 }
 h3 {
   margin: 18px 0 10px;
