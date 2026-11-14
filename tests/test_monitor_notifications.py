@@ -172,20 +172,32 @@ class NotificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await MonitorNotificationDelivery.all().count(), 0)
 
     async def test_card_and_ai_fallback(self):
+        with patch.object(service.httpx, "AsyncClient") as upstream:
+            self.assertEqual(await service.generate_advice({**EVENT, "recovered": True}, True), ("", "none"))
+            upstream.assert_not_called()
         text, source = await service.generate_advice(EVENT, False)
         self.assertEqual((text, source), ("Check connectivity", "rule"))
         card = service.build_card(EVENT, "problem", text, source, SCOPE["categories"])
         self.assertEqual(card["header"]["template"], "red")
-        self.assertFalse(any(f["text"]["content"].startswith("持续时间\n") for f in card["elements"][0]["fields"]))
+        self.assertNotIn("持续时间\n", str(card).replace("\\n", "\n"))
         self.assertEqual(card["header"]["title"]["tag"], "plain_text")
         enriched = copy.deepcopy(EVENT)
         enriched["hosts"][0]["attributes"] = [{"key": "provider", "label": "Provider", "value": "ExampleCarrier"}]
         enriched_card = service.build_card(enriched, "problem", text, source, SCOPE["categories"])
-        self.assertIn("ExampleCarrier", enriched_card["elements"][1]["text"]["content"])
+        self.assertIn("ExampleCarrier", str(enriched_card))
         self.assertEqual(enriched_card["elements"][1]["text"]["tag"], "plain_text")
         recovery = service.build_card({**EVENT, "recovery_clock": 290}, "recovery", text, source, SCOPE["categories"])
-        self.assertIn("持续时间\n0 小时 1 分 30 秒", [f["text"]["content"] for f in recovery["elements"][0]["fields"]])
+        self.assertIn(
+            "持续时间\n1 分 30 秒", [f["text"]["content"] for e in recovery["elements"] for f in e.get("fields", [])]
+        )
         self.assertEqual(recovery["header"]["template"], "green")
+        self.assertNotIn(text, str(recovery))
+        self.assertNotIn("排查建议", str(recovery))
+        enriched["hosts"][0]["name"] = "A -- Carrier -- B PATH - device1 - device2"
+        layout = service.build_card(enriched, "problem", "**Check**\n# Steps\n`ping`", "ai", SCOPE["categories"])
+        self.assertIn("线路 / 主机\nA -- Carrier -- B", [e.get("text", {}).get("content") for e in layout["elements"]])
+        self.assertNotIn("**Check**", str(layout))
+        self.assertIn("device1 - device2", str(layout))
         with (
             patch.object(service.settings, "FW_ASSISTANT_API_KEY", "test-key"),
             patch.object(service.httpx, "AsyncClient", side_effect=RuntimeError("offline")),

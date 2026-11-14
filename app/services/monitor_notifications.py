@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 import time
 import uuid
 from datetime import datetime, timedelta
@@ -118,6 +119,8 @@ def matches(row, config):
 
 
 async def generate_advice(row, enabled):
+    if row["recovered"]:
+        return "", "none"
     fallback = "\n".join(row["advice"]["steps"])
     if not enabled or not settings.FW_ASSISTANT_API_KEY:
         return fallback, "rule"
@@ -171,17 +174,23 @@ def card_time(clock):
 
 def build_card(row, phase, advice_text, source, categories):
     recovered = phase == "recovery"
-    title = f"{'已恢复' if recovered else '告警'} · {LEVELS[row['severity']]} · {row['name']}"[:160]
+    title = f"{'✓ 已恢复' if recovered else '● 告警'} · {LEVELS[row['severity']]}"[:160]
     category_map = {c["key"]: c["label"] for c in categories}
     seconds = row.get("duration_seconds")
-    duration = "未知" if seconds is None else f"{seconds // 3600} 小时 {(seconds % 3600) // 60} 分 {seconds % 60} 秒"
+    duration = (
+        "未知"
+        if seconds is None
+        else " ".join(
+            f"{value} {unit}"
+            for value, unit in [(seconds // 3600, "小时"), ((seconds % 3600) // 60, "分"), (seconds % 60, "秒")]
+            if value or seconds == 0 and unit == "秒"
+        )
+    )
     fields = [
-        ("主机", " / ".join(h["name"] for h in row["hosts"])),
-        ("地址", " / ".join(a for h in row["hosts"] for a in h["addresses"])),
         ("分类", " / ".join(category_map.get(key, "未分类") for key in row["categories"])),
         ("状态", "已恢复" if recovered else "已确认" if row["acknowledged"] else "未确认"),
         ("发生时间", card_time(row["clock"])),
-        ("恢复时间", card_time(row.get("recovery_clock"))),
+        *([("恢复时间", card_time(row.get("recovery_clock")))] if recovered else []),
         *([("持续时间", duration)] if recovered else []),
         ("事件编号", row["id"]),
     ]
@@ -192,6 +201,7 @@ def build_card(row, phase, advice_text, source, categories):
             "title": {"tag": "plain_text", "content": title},
         },
         "elements": [
+            {"tag": "div", "text": {"tag": "plain_text", "content": row["name"][:500]}},
             {
                 "tag": "div",
                 "fields": [
@@ -208,7 +218,7 @@ def build_card(row, phase, advice_text, source, categories):
                         "AI 排查建议（需人工核实）" if source == "ai" else "规则排查建议（AI 未启用或暂不可用）"
                     )
                     + "\n"
-                    + advice_text[:1600],
+                    + re.sub(r"(?m)^#{1,6}\s+", "", advice_text[:1600]).replace("**", "").replace("`", ""),
                 },
             },
             {
@@ -222,21 +232,30 @@ def build_card(row, phase, advice_text, source, categories):
             },
         ],
     }
+    if recovered:
+        del card["elements"][2:4]
+        card["elements"][2]["elements"][0]["content"] = "FinWork · 时间为北京时间"
+    host_blocks = []
     for host in row["hosts"][:5]:
         attributes = host.get("attributes", [])
-        if attributes:
-            card["elements"].insert(
-                1,
-                {
-                    "tag": "div",
-                    "text": {
-                        "tag": "plain_text",
-                        "content": (host["name"] + "\n" + "\n".join(f"{a['label']}：{a['value']}" for a in attributes))[
-                            :2000
-                        ],
-                    },
-                },
+        name, *path = re.split(r"\s+PATH\s*", host["name"], maxsplit=1)
+        host_blocks.append({"tag": "div", "text": {"tag": "plain_text", "content": "线路 / 主机\n" + name[:500]}})
+        host_fields = [("IP / 地址", " / ".join(host["addresses"]))] + [(a["label"], a["value"]) for a in attributes]
+        host_blocks.append(
+            {
+                "tag": "div",
+                "fields": [
+                    {"is_short": True, "text": {"tag": "plain_text", "content": f"{label}\n{str(value)[:300]}"}}
+                    for label, value in host_fields
+                    if value
+                ],
+            }
+        )
+        if path:
+            host_blocks.append(
+                {"tag": "note", "elements": [{"tag": "plain_text", "content": "路径：" + path[0].strip(" -")[:500]}]}
             )
+    card["elements"][1:1] = host_blocks + [{"tag": "hr"}]
     if str(row.get("url", "")).startswith(("https://", "http://")):
         card["elements"].append(
             {

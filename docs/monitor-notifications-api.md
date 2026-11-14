@@ -17,13 +17,17 @@
 
 ## API
 
+卡片排版：短状态标题 → 告警名称 → 各主机简称、地址和分类属性双列布局 → 小字路径 → 状态与时间信息 → 未恢复事件的排查建议 → 事件入口。主机名按 `PATH` 分离展示，不重复打印完整名称。持续时间省略零值单位；建议正文按纯文本输出并清除 Markdown 加粗、标题和代码标记，避免原始符号影响阅读。页面预览按服务端卡片区块渲染。
+
+恢复通知不调用 AI、不生成或展示 AI/规则排查建议；卡片仅保留恢复事实、最终持续时间、主机属性及事件链接。恢复预览返回 `advice: ""`、`advice_source: "none"`，告警通知仍按原配置生成建议。已发送的消息不回写修改。
+
 前缀 `/api/v1/monitor-events/notifications`。全部接口使用现有登录 token 和 `DependPermission` 按 HTTP 方法/路由校验，返回标准 `{code, msg, data}`。
 
 | 方法/路径 | 参数 | 响应 data |
 | --- | --- | --- |
 | GET 空路径 | 无 | 配置、`users:[{id,name,reachable}]`、`categories:[{key,label}]`、`feishu_configured`、`ai_configured` |
 | PUT 空路径 | 下方 JSON | 保存后的配置及新 revision |
-| POST `/preview` | `{ "event_id": "123" }`，省略或 null 使用示例 | `{card,advice,advice_source:"ai或rule",sample:boolean}` |
+| POST `/preview` | `{ "event_id": "123" }`，省略或 null 使用示例 | `{card,advice,advice_source:"ai或rule或none",sample:boolean}` |
 | GET `/deliveries` | page≥1，page_size=1..100 默认20，status 可选 pending/sending/sent/failed/skipped | `{total,rows:[{id,event_id,event_name,phase,user_id,user_name,status,attempts,message,advice,advice_source,sent_at,created_at}]}` |
 | POST `/deliveries/{delivery_id}/retry` | 正整数 ID，无请求体 | 成功消息“已加入发送队列” |
 

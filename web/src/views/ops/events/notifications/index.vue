@@ -148,30 +148,28 @@
         <h3 :class="previewData.card.header.template">
           {{ previewData.card.header.title.content }}
         </h3>
-        <div class="card-fields">
-          <div v-for="(field, index) in previewData.card.elements[0].fields" :key="index">
-            {{ field.text.content }}
+        <template v-for="(block, index) in previewData.card.elements" :key="index">
+          <hr v-if="block.tag === 'hr'" class="card-divider" />
+          <div v-else-if="block.fields" class="card-fields">
+            <div v-for="(field, fieldIndex) in block.fields" :key="fieldIndex">
+              <span class="muted">{{ field.text.content.split('\n')[0] }}</span>
+              <div class="card-value">{{ field.text.content.split('\n').slice(1).join('\n') }}</div>
+            </div>
           </div>
-        </div>
-        <div class="advice">
-          <p
-            v-for="(block, index) in previewData.card.elements
-              .slice(1)
-              .filter(
-                (e) => e.tag === 'div' && e.text && !e.text.content.includes(previewData.advice)
-              )"
-            :key="index"
+          <div
+            v-else-if="block.tag === 'div' && block.text"
+            class="card-text"
+            :class="{ 'card-event': index === 0 }"
           >
             {{ block.text.content }}
+          </div>
+          <p v-else-if="block.tag === 'note'" class="muted card-note">
+            {{ block.elements.map((e) => e.content).join(' ') }}
           </p>
-          <strong>{{
-            previewData.advice_source === 'ai'
-              ? 'AI 排查建议（需人工核实）'
-              : '规则排查建议（AI 未启用或暂不可用）'
-          }}</strong>
-          <p>{{ previewData.advice }}</p>
-        </div>
-        <p class="muted">建议不是已确认根因，仅供人工排查。</p>
+          <div v-else-if="block.tag === 'action'" class="card-link">
+            {{ block.actions[0].text.content }}
+          </div>
+        </template>
       </div>
     </n-modal>
     <n-modal
@@ -185,8 +183,12 @@
         <p>
           {{ selected.user_name }} · {{ statusLabels[selected.status] }} · {{ selected.message }}
         </p>
-        <strong>{{ selected.advice_source === 'ai' ? 'AI 排查建议' : '规则排查建议' }}</strong>
-        <p class="advice">{{ selected.advice || '尚未生成建议' }}</p></template
+        <strong v-if="selected.phase !== 'recovery'">{{
+          selected.advice_source === 'ai' ? 'AI 排查建议' : '规则排查建议'
+        }}</strong>
+        <p v-if="selected.phase !== 'recovery'" class="advice">
+          {{ selected.advice || '尚未生成建议' }}
+        </p></template
       >
     </n-modal>
     <n-modal
@@ -497,6 +499,37 @@ onMounted(() => {
   padding: 20px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+.card-text {
+  padding: 14px 20px 4px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.75;
+}
+.card-event {
+  font-size: 16px;
+  font-weight: 600;
+}
+.card-value {
+  font-weight: 500;
+  margin-top: 4px;
+}
+.card-divider {
+  margin: 14px 20px 0;
+  border: 0;
+  border-top: 1px solid #e5e7eb;
+}
+.card-note {
+  padding: 0 20px;
+  overflow-wrap: anywhere;
+}
+.card-link {
+  margin: 12px 20px 20px;
+  padding: 8px 14px;
+  border: 1px solid #bcd5f8;
+  border-radius: 6px;
+  color: #2878da;
+  width: fit-content;
 }
 .advice {
   white-space: pre-wrap;
