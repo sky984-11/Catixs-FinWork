@@ -31,9 +31,14 @@
 | PUT | `/settings` | 保存 category_tag 与主机范围；校验主机可见且启用、标签名非空及 revision；不会修改上游标签 |
 | GET | 空路径 | `history=false` 默认读取当前问题；true 读取近 7 天问题事件；返回顶部统计、分类健康、列表、更新时间及上限标识 |
 | GET | `/{eventid}` | 正整数事件 ID；返回定位、指标、建议、恢复时间、处置记录 |
+| GET | `/{eventid}/metrics/{itemid}/history` | 必填 Unix 秒 `time_from>=0`、`time_till>time_from`，单次最长 7 天；仅查询该事件触发器关联且属于已纳管主机的数值指标（value_type 0/3） |
 | POST | `/{eventid}/actions` | 提交事件操作；再次读取状态并检查关闭能力 |
 
 查询响应示例（字段省略以 `…` 表示）：
+
+指标历史独立校验上述 GET 路由权限，同时打开弹窗需要事件详情 GET 权限。管理员权限通过启动时 API 同步授予，其他角色需授权新路由。调用 Zabbix `history.get`，按采样时间升序返回最新最多 10,000 点，超限 `truncated=true`，不做平均或趋势替代；无历史时返回空 points。历史保留由 Zabbix 管理。接口遵循 [Zabbix history.get](https://www.zabbix.com/documentation/7.4/en/manual/api/reference/history/get) 的指标类型和时间参数。
+
+历史响应示例：`{"code":200,"data":{"item":{"itemid":"30","name":"CPU","units":"%","value_type":"0"},"points":[{"clock":1800000000,"ns":0,"value":95.5}],"time_from":1799996400,"time_till":1800003600,"truncated":false,"event_clock":1800000000,"recovery_clock":0}}`。401 未登录；403 无接口权限；404 事件/指标不可见、未纳管或指标与事件无关联；422 范围无效/超过 7 天/非数值指标；502 上游失败；503 未配置 Zabbix。不会更改上游监控数据。
 
 ```json
 {"code":200,"msg":"OK","data":{"summary":{"hosts":300,"abnormal_hosts":95,"problems":255,"critical":13,"suppressed":36},"categories":[{"key":"pve","label":"PVE 虚拟化","total":20,"abnormal":2,"events":3}],"rows":[{"id":"10","name":"CPU high","severity":4,"recovered":false,"acknowledged":false,"suppressed":false,"hosts":[],"categories":["pve"]}],"truncated":false,"updated_at":1800000000,"version":"7.4.11"}}

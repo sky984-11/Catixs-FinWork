@@ -82,7 +82,19 @@ class FakeZabbix:
                 }
             ]
         if method == "item.get":
-            return [{"itemid": "30", "hostid": "1", "name": "CPU", "lastvalue": "95", "lastclock": "100", "units": "%"}]
+            return [
+                {
+                    "itemid": "30",
+                    "hostid": "1",
+                    "name": "CPU",
+                    "lastvalue": "95",
+                    "lastclock": "100",
+                    "units": "%",
+                    "value_type": "0",
+                }
+            ]
+        if method == "history.get":
+            return [{"clock": "150", "value": "95.5", "ns": "0"}, {"clock": "100", "value": "80", "ns": "0"}]
         if method == "event.acknowledge":
             return {"eventids": params["eventids"]}
         raise AssertionError(method)
@@ -297,6 +309,57 @@ class MonitorEventTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.client.get("")).status_code, 200)
         self.assertEqual(
             (await self.client.post("/10/actions", json={"action": "comment", "message": "X"})).status_code, 403
+        )
+
+    async def test_metric_history_validates_scope_and_returns_ordered_points(self):
+        response = await self.client.get("/10/metrics/30/history?time_from=50&time_till=200")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertEqual([p["clock"] for p in data["points"]], [100, 150])
+        self.assertEqual(data["points"][1]["value"], 95.5)
+        params = next(p for m, p in self.fake.calls if m == "history.get")
+        self.assertEqual(params["history"], 0)
+        self.assertEqual(params["hostids"], ["1"])
+        self.assertEqual(params["itemids"], ["30"])
+        self.fake.calls.clear()
+        self.assertEqual((await self.client.get("/10/metrics/999/history?time_from=50&time_till=200")).status_code, 404)
+        self.assertFalse(any(m == "history.get" for m, _ in self.fake.calls))
+
+    async def test_metric_history_rejects_invalid_range_and_permissions(self):
+        for query in ["time_from=200&time_till=100", "time_from=0&time_till=604801", "time_from=-1&time_till=100"]:
+            self.assertEqual((await self.client.get("/10/metrics/30/history?" + query)).status_code, 422)
+        self.assertFalse(any(m == "history.get" for m, _ in self.fake.calls))
+        await MonitorEventConfig.filter(id=1).update(hosts=[])
+        self.assertEqual((await self.client.get("/10/metrics/30/history?time_from=50&time_till=200")).status_code, 404)
+        self.user.is_superuser = False
+        self.assertEqual((await self.client.get("/10/metrics/30/history?time_from=50&time_till=200")).status_code, 403)
+        self.app.dependency_overrides.clear()
+        self.assertEqual((await self.client.get("/10/metrics/30/history?time_from=50&time_till=200")).status_code, 401)
+
+    async def test_metric_history_numeric_type_and_truncation(self):
+        original_call = self.fake.call
+        value_type = "3"
+
+        async def call(method, params):
+            if method == "item.get":
+                rows = await original_call(method, params)
+                rows[0]["value_type"] = value_type
+                return rows
+            if method == "history.get":
+                self.assertEqual(params["history"], 3)
+                return [{"clock": str(i), "value": "1"} for i in range(10001, 0, -1)]
+            return await original_call(method, params)
+
+        self.fake.call = call
+        response = await self.client.get("/10/metrics/30/history?time_from=0&time_till=20000")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertTrue(data["truncated"])
+        self.assertEqual(len(data["points"]), 10000)
+        self.assertEqual(data["points"][0]["clock"], 2)
+        value_type = "1"
+        self.assertEqual(
+            (await self.client.get("/10/metrics/30/history?time_from=0&time_till=20000")).status_code, 422
         )
 
     async def test_menu_only_granted_to_admin(self):

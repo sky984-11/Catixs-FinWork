@@ -126,7 +126,7 @@
         :loading="loading"
         :columns="columns"
         :data="pageRows"
-        :scroll-x="1510"
+        :scroll-x="1550"
         :row-key="(row) => row.id"
         :row-props="historyRowProps"
       >
@@ -165,7 +165,7 @@
         :data="typeHistoryRows"
         :loading="typeHistoryLoading"
         :row-key="(row) => row.id"
-        :scroll-x="1510"
+        :scroll-x="1550"
         :max-height="480"
         :pagination="{ pageSize: 10 }"
         size="small"
@@ -173,6 +173,7 @@
         class="event-history-table"
       />
     </n-modal>
+    <MetricHistory v-model:show="metricOpen" :event="metricTarget" />
     <n-drawer
       v-model:show="detailOpen"
       :width="Math.min(900, viewportWidth - 24)"
@@ -341,6 +342,7 @@
 <script setup>
 import { computed, h, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { NButton, NSpace, NTag, NTooltip } from 'naive-ui'
+import MetricHistory from './MetricHistory.vue'
 import CButton from '@/components/public/CButton.vue'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import api from '@/api/monitor-events'
@@ -357,6 +359,17 @@ const canConfigure = computed(
   () => user.isSuperUser || permissions.apis.includes('put/api/v1/monitor-events/settings')
 )
 const settingsOpen = ref(false)
+const canViewMetrics = computed(
+  () =>
+    user.isSuperUser ||
+    permissions.apis.includes('get/api/v1/monitor-events/{eventid}/metrics/{itemid}/history')
+)
+const metricOpen = ref(false),
+  metricTarget = ref(null)
+function openMetricHistory(row) {
+  metricTarget.value = row
+  metricOpen.value = true
+}
 function settingsSaved() {
   category.value = null
   detailOpen.value = false
@@ -635,7 +648,7 @@ const columns = [
 columns.push({
   title: '操作',
   key: 'actions',
-  width: 90,
+  width: 130,
   align: 'center',
   fixed: 'right',
   render: (row) =>
@@ -645,6 +658,9 @@ columns.push({
       {
         default: () => [
           actionButton('定位 / 查看建议', 'mdi:target', () => openDetail(row)),
+          canViewMetrics.value
+            ? actionButton('指标历史', 'mdi:chart-line', () => openMetricHistory(row))
+            : null,
           canAct.value
             ? actionButton('处置事件', 'mdi:clipboard-check-outline', () => openAction(row))
             : null,

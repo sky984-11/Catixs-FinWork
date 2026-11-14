@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.core.dependency import AuthControl
 from app.schemas.base import Success
 from app.services.monitor_event_config import SettingsPayload, load_settings, save_settings
-from app.services.monitor_events import ZabbixClient, dashboard, detail, get_hosts, host_view
+from app.services.monitor_events import ZabbixClient, dashboard, detail, get_hosts, host_view, metric_history
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -101,6 +101,17 @@ async def event_detail(eventid: str = EventId):
         raise HTTPException(404, "请先选择监控主机")
     async with ZabbixClient() as client:
         return Success(data=await detail(client, eventid, config))
+
+
+@router.get("/{eventid}/metrics/{itemid}/history", summary="事件关联指标历史曲线")
+async def event_metric_history(
+    eventid: str = EventId,
+    itemid: str = Path(pattern=r"^[1-9][0-9]{0,19}$"),
+    time_from: int = Query(ge=0),
+    time_till: int = Query(ge=1),
+):
+    async with ZabbixClient() as client:
+        return Success(data=await metric_history(client, eventid, itemid, time_from, time_till))
 
 
 @router.post("/{eventid}/actions", summary="确认、备注、抑制、解除抑制、调整级别或手动关闭事件")

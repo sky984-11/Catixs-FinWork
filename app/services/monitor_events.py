@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import math
 import time
 from collections import Counter
 from urllib.parse import urlsplit, urlunsplit
@@ -414,3 +415,42 @@ async def detail(client, eventid, config=None):
         history=event.get("acknowledges", []),
     )
     return row
+
+
+async def metric_history(client, eventid, itemid, time_from, time_till):
+    if time_from >= time_till or time_till - time_from > 7 * 86400:
+        raise HTTPException(422, "请选择有效时间范围，单次最多查询 7 天")
+    row = await detail(client, eventid)
+    item = next((i for i in row["items"] if i["itemid"] == itemid), None)
+    if item is None:
+        raise HTTPException(404, "指标不属于此事件或不在已选主机范围内")
+    if str(item.get("value_type")) not in {"0", "3"}:
+        raise HTTPException(422, "此指标不是数值类型，无法绘制曲线")
+    values = await client.call(
+        "history.get",
+        {
+            "history": int(item["value_type"]),
+            "itemids": [itemid],
+            "hostids": [item["hostid"]],
+            "time_from": time_from,
+            "time_till": time_till,
+            "output": ["clock", "ns", "value"],
+            "sortfield": ["clock", "ns"],
+            "sortorder": "DESC",
+            "limit": 10001,
+        },
+    )
+    points = []
+    for point in reversed(values[:10000]):
+        value = float(point["value"])
+        if math.isfinite(value):
+            points.append({"clock": int(point["clock"]), "ns": int(point.get("ns", 0)), "value": value})
+    return {
+        "item": {k: item.get(k, "") for k in ("itemid", "name", "units", "value_type")},
+        "points": points,
+        "time_from": time_from,
+        "time_till": time_till,
+        "truncated": len(values) > 10000,
+        "event_clock": row["clock"],
+        "recovery_clock": row["recovery_clock"],
+    }
