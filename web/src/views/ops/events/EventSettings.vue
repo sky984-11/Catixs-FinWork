@@ -5,8 +5,15 @@
         <CButton
           show-save
           save-text="刷新"
-          :disabled="busy || hostDialog || categoryDialog"
+          :disabled="busy || hostDialog || categoryDialog || batchOpen"
           @save="reload"
+        />
+        <CButton
+          v-if="mode === 'hosts' && canEdit"
+          show-save
+          :save-text="`批量调整监控项（${checkedHosts.length}）`"
+          :disabled="busy || !ready || !checkedHosts.length"
+          @save="openBatch"
         />
         <CButton
           v-if="canEdit"
@@ -43,12 +50,95 @@
       :data="visibleRows"
       :row-key="(row) => (mode === 'hosts' ? row.hostid : row.key)"
       :loading="loading"
-      :scroll-x="mode === 'hosts' ? 1510 : 1110"
+      :checked-row-keys="checkedHosts"
+      :scroll-x="mode === 'hosts' ? 1558 : 1110"
       :max-height="tableHeight"
       striped
       size="small"
+      @update:checked-row-keys="updateHostSelection"
     />
   </n-card>
+  <n-modal
+    v-model:show="batchOpen"
+    preset="card"
+    title="批量调整监控项"
+    style="width: min(1000px, calc(100vw - 24px))"
+    :closable="!busy"
+    :mask-closable="!busy"
+    :close-on-esc="!busy"
+  >
+    <div class="dialog-body">
+      <n-alert type="info" class="gap"
+        >共
+        {{ batchHosts.length }}
+        台主机。保存将替换这些主机的监控项范围，分类和属性保持不变。</n-alert
+      >
+      <n-alert v-if="dialogError" type="error" class="gap">{{ dialogError }}</n-alert>
+      <n-radio-group v-model:value="batchScope" :disabled="busy"
+        ><n-space
+          ><n-radio value="selected">指定监控项</n-radio
+          ><n-radio value="all">全部监控项</n-radio></n-space
+        ></n-radio-group
+      >
+      <template v-if="batchScope === 'selected'">
+        <n-space class="gap" :wrap="true">
+          <n-input
+            v-model:value="batchKeyword"
+            placeholder="按名称或键搜索所有已选主机的监控项"
+            :disabled="busy"
+            style="width: 340px; max-width: 100%"
+          />
+          <CButton show-save save-text="查询监控项" :disabled="busy" @save="loadBatchItems" />
+        </n-space>
+        <n-alert v-if="batchHosts.some((h) => h.truncated)" type="warning" class="gap"
+          >部分主机仅返回前 500
+          项，请搜索缩小范围；已勾选的监控项会保留。公共项仅按当前查询结果匹配。</n-alert
+        >
+        <n-select
+          v-model:value="batchKeys"
+          :options="commonItemOptions"
+          clearable
+          filterable
+          multiple
+          placeholder="选择所有主机共有的监控项（按相同键匹配）"
+          :disabled="busy"
+        />
+        <CButton
+          class="gap"
+          show-save
+          save-text="应用到全部已选主机"
+          :disabled="busy || !batchKeys.length || batchHosts.some((h) => h.loadError)"
+          @save="applyCommonItems"
+        />
+        <p class="muted">应用公共项会替换下方各主机的选择；也可以逐台调整。</p>
+        <div v-for="host in batchHosts" :key="host.hostid" class="gap">
+          <p>
+            {{ host.name }} <span class="muted">已选 {{ host.itemids.length }} 项</span>
+          </p>
+          <n-alert v-if="host.loadError" type="error">{{ host.loadError }}</n-alert>
+          <n-select
+            v-model:value="host.itemids"
+            :options="batchItemOptions(host)"
+            multiple
+            filterable
+            clearable
+            :disabled="busy || !!host.loadError"
+            placeholder="至少选择一个监控项"
+          />
+        </div>
+      </template>
+    </div>
+    <template #footer
+      ><CButton
+        show-save
+        show-cancel
+        save-text="保存批量调整"
+        :save-loading="saving"
+        :disabled="busy"
+        @save="saveBatch"
+        @cancel="batchOpen = false"
+    /></template>
+  </n-modal>
   <n-modal
     v-model:show="hostDialog"
     preset="card"
@@ -294,6 +384,112 @@ const loading = ref(false),
   saving = ref(false),
   ready = ref(false)
 const busy = computed(() => loading.value || searching.value || saving.value)
+const checkedHosts = ref([]),
+  batchOpen = ref(false),
+  batchHosts = ref([])
+const batchScope = ref('selected'),
+  batchKeyword = ref(''),
+  batchKeys = ref([])
+function updateHostSelection(keys) {
+  if (!canEdit.value || busy.value) return
+  const visible = new Set(visibleRows.value.map((h) => h.hostid))
+  checkedHosts.value = [
+    ...new Set([...checkedHosts.value.filter((id) => !visible.has(id)), ...keys]),
+  ]
+}
+const commonItemOptions = computed(() => {
+  if (!batchHosts.value.length || batchHosts.value.some((h) => h.loadError)) return []
+  return batchHosts.value[0].items
+    .filter(
+      (item) =>
+        item.key_ && batchHosts.value.every((host) => host.items.some((i) => i.key_ === item.key_))
+    )
+    .map((item) => ({ label: `${item.name} · ${item.key_}`, value: item.key_ }))
+})
+function batchItemOptions(host) {
+  const options = new Map(
+    host.items.map((i) => [i.itemid, { label: `${i.name} · ${i.key_}`, value: i.itemid }])
+  )
+  for (const id of host.itemids)
+    if (!options.has(id))
+      options.set(id, { label: host.names[id] || `已选监控项 ${id}`, value: id })
+  return [...options.values()]
+}
+async function openBatch() {
+  if (busy.value || !canEdit.value) return
+  if (checkedHosts.value.length > 50) {
+    window.$message?.warning('每次最多调整 50 台主机')
+    return
+  }
+  batchHosts.value = form.hosts
+    .filter((h) => checkedHosts.value.includes(h.hostid))
+    .map((h) => ({
+      hostid: h.hostid,
+      name: h.name,
+      itemids: [...(h.itemids || [])],
+      items: [],
+      names: {},
+      loadError: '',
+      truncated: false,
+    }))
+  batchScope.value = 'selected'
+  batchKeyword.value = ''
+  batchKeys.value = []
+  dialogError.value = ''
+  batchOpen.value = true
+  await loadBatchItems()
+}
+async function loadBatchItems() {
+  if (busy.value) return
+  searching.value = true
+  batchKeys.value = []
+  try {
+    for (let offset = 0; offset < batchHosts.value.length; offset += 4) {
+      const hosts = batchHosts.value.slice(offset, offset + 4)
+      const results = await Promise.allSettled(
+        hosts.map((h) => api.hostItems(h.hostid, batchKeyword.value.trim()))
+      )
+      results.forEach((result, index) => {
+        const host = hosts[index]
+        host.items = []
+        host.loadError = ''
+        host.truncated = false
+        if (result.status === 'fulfilled') {
+          host.items = result.value.data.rows
+          host.truncated = result.value.data.truncated
+          for (const item of host.items) host.names[item.itemid] = `${item.name} · ${item.key_}`
+        } else host.loadError = '监控项加载失败，请重新查询后保存'
+      })
+    }
+  } finally {
+    searching.value = false
+  }
+}
+function applyCommonItems() {
+  if (busy.value) return
+  for (const host of batchHosts.value)
+    host.itemids = host.items.filter((i) => batchKeys.value.includes(i.key_)).map((i) => i.itemid)
+}
+async function saveBatch() {
+  if (busy.value || !canEdit.value) return
+  if (
+    batchScope.value === 'selected' &&
+    batchHosts.value.some((h) => h.loadError || !h.itemids.length)
+  ) {
+    dialogError.value = '请确保所有主机加载成功，并分别选择至少一个监控项'
+    return
+  }
+  const changes = new Map(
+    batchHosts.value.map((h) => [h.hostid, batchScope.value === 'all' ? null : [...h.itemids]])
+  )
+  const hosts = form.hosts.map((h) =>
+    changes.has(h.hostid) ? { ...h, itemids: changes.get(h.hostid) } : h
+  )
+  if (await persist(hosts, form.categories)) {
+    batchOpen.value = false
+    checkedHosts.value = []
+  }
+}
 const error = ref(''),
   dialogError = ref(''),
   filter = ref('')
@@ -353,6 +549,7 @@ function attributeCell(row) {
   )
 }
 const hostColumns = [
+  { type: 'selection', width: 48, disabled: () => !canEdit.value || busy.value },
   ...businessColumns([
     { title: '主机名称', key: 'name', width: 500 },
     {
@@ -496,6 +693,9 @@ async function reload() {
   ready.value = false
   try {
     Object.assign(form, { tags_warning: '' }, (await api.settings()).data)
+    checkedHosts.value = checkedHosts.value.filter((id) =>
+      form.hosts.some((host) => host.hostid === id)
+    )
     ready.value = true
   } catch (e) {
     error.value = e.message || '配置加载失败，请重试'
