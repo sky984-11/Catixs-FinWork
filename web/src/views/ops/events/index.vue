@@ -7,7 +7,7 @@
           <p>
             {{
               historyPage
-                ? '回溯近 7 天事件 · 恢复记录、持续时间与指标历史'
+                ? '按自定义时间回溯事件 · 恢复记录、持续时间与指标历史'
                 : '处理当前未确认告警 · 定位、研判与处置'
             }}
           </p>
@@ -84,10 +84,22 @@
         <h3>{{ historyPage ? '历史事件记录' : '各类型最新告警' }}</h3>
         <span>{{
           historyPage
-            ? '同一主机、同一告警合并展示最新记录 · 双击查看近 7 天同类历史'
+            ? '同一主机、同一告警合并展示最新记录 · 双击查看所选时间内同类历史'
             : '同一主机、同一触发器仅显示最新一条 · 双击行查看近 7 天历史'
         }}</span>
       </div>
+      <n-space v-if="historyPage" align="center" style="margin-bottom: 12px">
+        <span>发生时间</span>
+        <n-date-picker
+          v-model:value="historyRange"
+          type="datetimerange"
+          :clearable="false"
+          :disabled="loading || acting"
+          style="width: 420px; max-width: 100%"
+          @update:value="changeHistoryRange"
+        />
+        <span class="muted">按告警发生时间查询，默认近 7 天</span>
+      </n-space>
       <div class="filters">
         <n-input
           v-model:value="keyword"
@@ -153,7 +165,15 @@
         {{ typeHistoryTarget?.hosts.map((host) => host.name).join(' / ') }} ·
         {{ typeHistoryTarget?.name }}
       </p>
-      <p class="muted">同一主机、同一触发器 · 近 7 天发生的告警 · 按发生时间从新到旧排列</p>
+      <p class="muted">
+        同一主机、同一触发器 ·
+        {{
+          historyPage
+            ? `${date(historyRange[0] / 1000)} 至 ${date(historyRange[1] / 1000)}`
+            : '近 7 天'
+        }}
+        · 按发生时间从新到旧排列
+      </p>
       <n-alert v-if="typeHistoryError" type="error">{{ typeHistoryError }}</n-alert>
       <n-alert v-if="typeHistoryTruncated" type="warning"
         >历史查询达到读取上限，以下记录可能不完整。</n-alert
@@ -352,6 +372,19 @@ import { usePermissionStore, useUserStore } from '@/store'
 const permissions = usePermissionStore(),
   user = useUserStore()
 const props = defineProps({ historyPage: Boolean })
+const historyRange = ref([Date.now() - 7 * 86400000, Date.now()])
+const historyParams = () =>
+  props.historyPage
+    ? {
+        time_from: Math.floor(historyRange.value[0] / 1000),
+        time_till: Math.floor(historyRange.value[1] / 1000),
+      }
+    : {}
+function changeHistoryRange() {
+  page.value = 1
+  snapshot.value.rows = []
+  refresh()
+}
 const router = useRouter()
 const canAct = computed(
   () =>
@@ -709,7 +742,7 @@ async function openTypeHistory(row) {
   typeHistoryRows.value = []
   typeHistoryTruncated.value = false
   try {
-    const result = await api.list({ history: true })
+    const result = await api.list({ history: true, ...historyParams() })
     if (request !== typeHistoryRequest) return
     typeHistoryRows.value = result.data.rows
       .filter((event) => eventTypeKey(event) === eventTypeKey(row))
@@ -775,7 +808,7 @@ async function refresh() {
   loading.value = true
   error.value = ''
   try {
-    const result = await api.list({ history: props.historyPage })
+    const result = await api.list({ history: props.historyPage, ...historyParams() })
     snapshot.value = result.data
     updatedAt.value = result.data.updated_at
   } catch (e) {

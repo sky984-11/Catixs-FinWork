@@ -313,7 +313,7 @@ async def scoped_trigger_ids(client, config):
     return sorted({t["triggerid"] for rows in results for t in rows})
 
 
-async def dashboard(client, history=False, config=None):
+async def dashboard(client, history=False, config=None, time_from=None, time_till=None):
     config = config if config is not None else await load_settings()
     hostids = [h["hostid"] for h in config["hosts"]]
     params = {
@@ -338,7 +338,11 @@ async def dashboard(client, history=False, config=None):
     rows = active_rows
     truncated = len(problems) > LIMIT or len(hosts) > 10000
     if history and can_query:
-        params.update(time_from=int(time.time()) - 7 * 86400, value=1)
+        params.update(
+            time_from=time_from if time_from is not None else int(time.time()) - 7 * 86400,
+            time_till=time_till if time_till is not None else int(time.time()),
+            value=1,
+        )
         events = await client.call("event.get", params)
         rows = await enrich(client, events[:LIMIT], hosts[:10000], assigned)
         truncated = truncated or len(events) > LIMIT
@@ -369,7 +373,11 @@ async def dashboard(client, history=False, config=None):
             "suppressed": sum(r["suppressed"] for r in active),
         },
         "truncated": truncated,
-        "scope": "已选主机近 7 天发生的问题事件" if history else "已选主机当前未恢复问题（含抑制）",
+        "scope": (
+            ("已选主机指定时间内发生的问题事件" if time_from is not None else "已选主机近 7 天发生的问题事件")
+            if history
+            else "已选主机当前未恢复问题（含抑制）"
+        ),
         "updated_at": int(time.time()),
         "version": client.version if client else "",
         "configured": bool(hostids),

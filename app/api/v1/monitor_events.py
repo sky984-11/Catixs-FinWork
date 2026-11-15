@@ -32,12 +32,20 @@ class EventAction(BaseModel):
 
 
 @router.get("", summary="Zabbix 事件仪表盘")
-async def list_events(history: bool = False):
+async def list_events(
+    history: bool = False,
+    time_from: int | None = Query(default=None, ge=0, le=4102444800),
+    time_till: int | None = Query(default=None, ge=0, le=4102444800),
+):
+    if (time_from is None) != (time_till is None):
+        raise HTTPException(422, "起止时间必须同时填写")
+    if time_from is not None and (not history or time_from > time_till):
+        raise HTTPException(422, "自定义时间仅用于历史事件，开始时间不能晚于结束时间")
     config = await load_settings()
     if not config["hosts"]:
-        return Success(data=await dashboard(None, history, config))
+        return Success(data=await dashboard(None, history, config, time_from, time_till))
     async with ZabbixClient() as client:
-        return Success(data=await dashboard(client, history, config))
+        return Success(data=await dashboard(client, history, config, time_from, time_till))
 
 
 @router.get("/settings", summary="读取事件分类与已选 Zabbix 主机")

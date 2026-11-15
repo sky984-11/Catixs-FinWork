@@ -105,6 +105,20 @@ class FakeZabbix:
 
 
 class MonitorEventTests(unittest.IsolatedAsyncioTestCase):
+    async def test_custom_history_range_forwarded_and_validated(self):
+        response = await self.client.get("?history=true&time_from=100&time_till=500")
+        self.assertEqual(response.status_code, 200)
+        queries = [p for m, p in self.fake.calls if m == "event.get" and "time_from" in p]
+        self.assertEqual(queries[0]["time_from"], 100)
+        self.assertEqual(queries[0]["time_till"], 500)
+        for query in [
+            "history=true&time_from=100",
+            "history=true&time_from=500&time_till=100",
+            "time_from=100&time_till=500",
+            "history=true&time_from=-1&time_till=500",
+        ]:
+            self.assertEqual((await self.client.get("?" + query)).status_code, 422)
+
     async def test_category_fields_host_values_and_event_propagation(self):
         payload = {
             "revision": 1,
