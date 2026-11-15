@@ -76,6 +76,8 @@ class Settings(BaseSettings):
     FW_ASSISTANT_MODEL: str = "deepseek-v4.1-flash"
     FW_ASSISTANT_TIMEOUT: float = 45.0
     FW_ASSISTANT_DB_QUERY_ENABLED: bool = True
+    FW_ASSISTANT_GRAFANA_ENABLED: bool = True
+    GRAFANA_MCP_COMMAND: str = "uvx"
     FW_ASSISTANT_DB_QUERY_LIMIT: int = 50
     DEEPSEEK_API_KEY: str = ""
     DEEPSEEK_API_BASE: str = "https://api.siliconflow.cn/v1"
