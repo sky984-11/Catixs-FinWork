@@ -7,6 +7,7 @@ import time
 import uuid
 from datetime import datetime, timedelta
 from datetime import timezone as datetime_timezone
+from typing import Annotated
 
 import httpx
 from fastapi import HTTPException
@@ -25,6 +26,7 @@ CONFIG_FIELDS = (
     "revision",
     "enabled",
     "recipient_ids",
+    "category_recipients",
     "category_keys",
     "minimum_severity",
     "notify_recovery",
@@ -41,6 +43,9 @@ class NotificationSettings(BaseModel):
     revision: int = Field(ge=0)
     enabled: bool = False
     recipient_ids: list[int] = Field(default_factory=list, max_length=50)
+    category_recipients: dict[str, Annotated[list[Annotated[int, Field(gt=0)]], Field(max_length=50)]] | None = Field(
+        default=None, max_length=51
+    )
     category_keys: list[str] = Field(default_factory=list, max_length=50)
     minimum_severity: int = Field(default=2, ge=0, le=5)
     notify_recovery: bool = True
@@ -53,13 +58,26 @@ class NotificationSettings(BaseModel):
             raise ValueError("接收用户无效或重复")
         if len(set(self.category_keys)) != len(self.category_keys):
             raise ValueError("分类不能重复")
-        if self.enabled and not self.recipient_ids:
-            raise ValueError("请先选择接收用户")
+        if any(len(ids) != len(set(ids)) for ids in (self.category_recipients or {}).values()):
+            raise ValueError("分类接收用户不能重复")
         return self
 
 
 def config_view(row):
-    return {key: getattr(row, key) for key in CONFIG_FIELDS}
+    return {**{key: getattr(row, key) for key in CONFIG_FIELDS}, "category_recipients": row.category_recipients or {}}
+
+
+def all_recipients(config):
+    return set(config.recipient_ids) | {uid for ids in (config.category_recipients or {}).values() for uid in ids}
+
+
+def recipients_for(row, config):
+    overrides = config.category_recipients or {}
+    recipients = set()
+    for key in row.get("categories") or ["unclassified"]:
+        if not config.category_keys or key in config.category_keys:
+            recipients.update(overrides.get(key, config.recipient_ids))
+    return sorted(recipients)
 
 
 async def notification_settings():
@@ -84,14 +102,13 @@ async def notification_settings():
 
 
 async def save_notification_settings(payload, user_id):
-    users = await User.filter(id__in=payload.recipient_ids, is_active=True)
-    if len(users) != len(payload.recipient_ids) or any(
-        not (u.feishu_open_id or u.feishu_user_id or u.email) for u in users
-    ):
+    selected = all_recipients(payload)
+    users = await User.filter(id__in=selected, is_active=True)
+    if len(users) != len(selected) or any(not (u.feishu_open_id or u.feishu_user_id or u.email) for u in users):
         raise HTTPException(422, "接收用户已停用、不存在或缺少飞书身份/邮箱")
     scope = await load_settings()
     keys = {c["key"] for c in scope["categories"]} | {"unclassified"}
-    if set(payload.category_keys) - keys:
+    if (set(payload.category_keys) | set(payload.category_recipients or {})) - keys:
         raise HTTPException(422, "通知分类已不存在，请重新选择")
     if payload.enabled and not feishu_app_enabled():
         raise HTTPException(422, "请先配置飞书应用凭据")
@@ -100,10 +117,18 @@ async def save_notification_settings(payload, user_id):
         row = await MonitorNotificationConfig.filter(id=1).select_for_update().get()
         if row.revision != payload.revision:
             raise HTTPException(409, "通知配置已变化，请刷新后重试")
+        overrides = (
+            payload.category_recipients if payload.category_recipients is not None else row.category_recipients or {}
+        )
+        if payload.enabled and not any(
+            overrides.get(key, payload.recipient_ids) for key in (payload.category_keys or keys)
+        ):
+            raise HTTPException(422, "请为通知范围内至少一个分类选择接收用户")
         if payload.enabled and not row.enabled:
             row.enabled_since = int(time.time())
-        for key, value in payload.model_dump(exclude={"revision"}).items():
+        for key, value in payload.model_dump(exclude={"revision", "category_recipients"}).items():
             setattr(row, key, value)
+        row.category_recipients = overrides
         row.revision += 1
         row.updated_by_id = user_id
         await row.save()
@@ -310,7 +335,7 @@ async def discover(client, config, scope):
         phase = "recovery" if row["recovered"] else "problem"
         if not matches(row, config) or (row["recovered"] and not config.notify_recovery):
             continue
-        for user_id in config.recipient_ids:
+        for user_id in recipients_for(row, config):
             if (
                 row["clock"] < config.enabled_since
                 and not await MonitorNotificationDelivery.filter(
@@ -340,7 +365,7 @@ async def deliver_pending(client, config, scope):
         ):
             return
         user = await User.get_or_none(id=delivery.user_id, is_active=True)
-        if user is None or user.id not in live.recipient_ids:
+        if user is None or user.id not in all_recipients(live):
             await MonitorNotificationDelivery.filter(id=delivery.id).update(
                 status="skipped", message="用户已停用或不再接收通知"
             )
@@ -354,7 +379,11 @@ async def deliver_pending(client, config, scope):
                 status="skipped", message="事件不在当前纳管范围内"
             )
             continue
-        if not matches(row, config) or (delivery.phase == "recovery" and not config.notify_recovery):
+        if (
+            not matches(row, config)
+            or user.id not in recipients_for(row, config)
+            or (delivery.phase == "recovery" and not config.notify_recovery)
+        ):
             await MonitorNotificationDelivery.filter(id=delivery.id).update(
                 status="skipped", message="不再符合通知条件"
             )
@@ -418,7 +447,7 @@ async def deliver_pending(client, config, scope):
 async def run_notifications():
     now = int(time.time())
     config = await MonitorNotificationConfig.get_or_none(id=1)
-    if not config or not config.enabled or not config.recipient_ids:
+    if not config or not config.enabled or not all_recipients(config):
         return
     token = str(uuid.uuid4())
     claimed = await MonitorNotificationConfig.filter(id=1, enabled=True, lease_until__lte=now).update(

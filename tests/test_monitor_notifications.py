@@ -36,6 +36,71 @@ EVENT = {
 
 
 class NotificationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_category_recipients_override_fallback_empty_and_union(self):
+        config = await self.config(category_recipients={"network": [22, 23], "muted": []})
+        self.assertEqual(service.recipients_for(EVENT, config), [22, 23])
+        self.assertEqual(service.recipients_for({**EVENT, "categories": ["other"]}, config), [self.user.id])
+        self.assertEqual(service.recipients_for({**EVENT, "categories": ["muted"]}, config), [])
+        self.assertEqual(
+            service.recipients_for({**EVENT, "categories": ["network", "other", "network"]}, config),
+            sorted({22, 23, self.user.id}),
+        )
+        config.category_keys = ["network"]
+        self.assertEqual(service.recipients_for({**EVENT, "categories": ["network", "other"]}, config), [22, 23])
+
+    async def test_category_only_config_and_legacy_save_preserves_rules(self):
+        payload = {
+            "revision": 0,
+            "enabled": True,
+            "recipient_ids": [],
+            "category_keys": ["network"],
+            "category_recipients": {"network": [self.user.id]},
+        }
+        with patch.object(service, "feishu_app_enabled", return_value=True):
+            response = await self.client.put("/notifications", json=payload)
+            self.assertEqual(response.status_code, 200)
+            payload["revision"] = response.json()["data"]["revision"]
+            del payload["category_recipients"]
+            response = await self.client.put("/notifications", json=payload)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["data"]["category_recipients"], {"network": [self.user.id]})
+            payload["revision"] = response.json()["data"]["revision"]
+            payload["category_recipients"] = {"network": []}
+            self.assertEqual((await self.client.put("/notifications", json=payload)).status_code, 422)
+
+    async def test_invalid_category_recipient_selection(self):
+        for rules in [
+            {"unknown": [self.user.id]},
+            {"network": [9999]},
+            {"network": [self.user.id, self.user.id]},
+            {"network": [-1]},
+        ]:
+            response = await self.client.put("/notifications", json={"revision": 0, "category_recipients": rules})
+            self.assertEqual(response.status_code, 422)
+
+    async def test_category_routing_discovery_recovery_and_old_queue(self):
+        other = await User.create(username="category-recipient", email="category@example.invalid")
+        config = await self.config(ai_enabled=False, category_recipients={"network": [other.id]})
+        old = await MonitorNotificationDelivery.create(event_id="10", phase="problem", user_id=self.user.id)
+        with (
+            patch.object(service, "dashboard", AsyncMock(return_value={"rows": [EVENT], "truncated": False})),
+            patch.object(service, "detail", AsyncMock(return_value=EVENT)),
+            patch.object(service, "send_to_user", AsyncMock(return_value=True)) as send,
+        ):
+            await service.discover(None, config, SCOPE)
+            await service.deliver_pending(None, config, SCOPE)
+        self.assertEqual(send.await_count, 1)
+        self.assertEqual(send.call_args.args[0].id, other.id)
+        await old.refresh_from_db()
+        self.assertEqual(old.status, "skipped")
+        with patch.object(
+            service, "dashboard", AsyncMock(return_value={"rows": [{**EVENT, "recovered": True}], "truncated": False})
+        ):
+            await service.discover(None, config, SCOPE)
+        self.assertEqual(
+            await MonitorNotificationDelivery.filter(phase="recovery").values_list("user_id", flat=True), [other.id]
+        )
+
     async def asyncSetUp(self):
         await Tortoise.init(db_url="sqlite://:memory:", modules={"models": ["app.models"]})
         await Tortoise.generate_schemas()

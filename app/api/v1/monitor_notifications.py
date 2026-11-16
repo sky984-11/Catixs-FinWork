@@ -4,15 +4,20 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.core.dependency import AuthControl
-from app.models import (MonitorNotificationConfig, MonitorNotificationDelivery,
-                        User)
+from app.models import MonitorNotificationConfig, MonitorNotificationDelivery, User
 from app.schemas.base import Success
 from app.services.monitor_event_config import load_settings
 from app.services.monitor_events import ZabbixClient, advice, detail
-from app.services.monitor_notifications import (NotificationSettings,
-                                                build_card, generate_advice,
-                                                notification_settings,
-                                                save_notification_settings)
+from app.services.monitor_notifications import (
+    NotificationSettings,
+    all_recipients,
+    recipients_for,
+    matches,
+    build_card,
+    generate_advice,
+    notification_settings,
+    save_notification_settings,
+)
 
 router = APIRouter()
 
@@ -108,14 +113,16 @@ async def retry_notification(delivery_id: int):
     if not row:
         raise HTTPException(404, "通知记录不存在")
     config = await MonitorNotificationConfig.get_or_none(id=1)
-    if not config or not config.enabled or row.user_id not in config.recipient_ids:
+    if not config or not config.enabled or row.user_id not in all_recipients(config):
         raise HTTPException(409, "请先启用通知并确认接收人仍在配置中")
     if row.status != "failed" or row.attempts >= 5:
         raise HTTPException(409, "仅可重试失败通知，最多尝试 5 次")
     if not await User.filter(id=row.user_id, is_active=True).exists():
         raise HTTPException(409, "接收人已停用或不存在")
     async with ZabbixClient() as client:
-        await detail(client, row.event_id)
+        event = await detail(client, row.event_id)
+    if row.user_id not in recipients_for(event, config) or not matches(event, config):
+        raise HTTPException(409, "接收人已不在该事件分类的通知范围内")
     changed = await MonitorNotificationDelivery.filter(id=row.id, status="failed").update(
         status="pending", message="已排队，等待下一轮发送"
     )

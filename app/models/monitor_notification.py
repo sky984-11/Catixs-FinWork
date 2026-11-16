@@ -7,6 +7,7 @@ class MonitorNotificationConfig(BaseModel, TimestampMixin):
     revision = fields.IntField(default=0)
     enabled = fields.BooleanField(default=False)
     recipient_ids = fields.JSONField(default=list)
+    category_recipients = fields.JSONField(default=dict, null=True)
     category_keys = fields.JSONField(default=list)
     minimum_severity = fields.IntField(default=2)
     notify_recovery = fields.BooleanField(default=True)

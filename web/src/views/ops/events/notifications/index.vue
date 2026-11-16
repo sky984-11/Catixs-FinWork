@@ -41,7 +41,7 @@
           <n-form-item label="最低告警级别"
             ><n-select v-model:value="form.minimum_severity" :options="severityOptions"
           /></n-form-item>
-          <n-form-item label="接收用户" required
+          <n-form-item label="默认接收用户"
             ><n-select
               v-model:value="form.recipient_ids"
               :options="userOptions"
@@ -68,6 +68,46 @@
             ><n-switch v-model:value="form.ai_enabled"
           /></n-form-item>
         </n-form>
+        <section class="recipient-rules">
+          <h3>按分类配置接收人</h3>
+          <p class="muted">
+            未单独配置时使用默认接收人；开启单独配置后仅通知该分类所选用户，留空表示不通知。通知分类筛选仍然生效。
+          </p>
+          <div
+            v-for="category in recipientCategoryOptions"
+            :key="category.value"
+            class="recipient-rule"
+          >
+            <div class="recipient-rule-name">
+              <n-tag size="small" type="info">{{ category.label }}</n-tag
+              ><span
+                v-if="form.category_keys.length && !form.category_keys.includes(category.value)"
+                class="muted"
+                >不在当前通知范围</span
+              >
+            </div>
+            <n-space align="center"
+              ><n-switch
+                :value="hasCategoryRule(category.value)"
+                :disabled="busy || !canSave || !ready"
+                @update:value="(value) => toggleCategoryRule(category.value, value)"
+              /><span>{{
+                hasCategoryRule(category.value) ? '单独配置' : '使用默认'
+              }}</span></n-space
+            >
+            <n-select
+              v-if="hasCategoryRule(category.value)"
+              v-model:value="form.category_recipients[category.value]"
+              :options="userOptions"
+              multiple
+              filterable
+              clearable
+              :disabled="busy || !canSave || !ready"
+              placeholder="选择该分类接收用户（留空不通知）"
+            />
+            <div v-else class="muted">{{ defaultRecipientNames || '未设置默认接收人' }}</div>
+          </div>
+        </section>
         <p class="muted">
           AI 使用系统已配置的服务，分析告警摘要、相关主机/IP
           和当前指标。建议需人工核实，不执行操作；服务异常时回退为规则建议。接收人须处于飞书应用可见范围。
@@ -240,6 +280,7 @@ const form = reactive({
   revision: 0,
   enabled: false,
   recipient_ids: [],
+  category_recipients: {},
   category_keys: [],
   minimum_severity: 2,
   notify_recovery: true,
@@ -263,6 +304,23 @@ const categoryOptions = computed(() => [
   ...metadata.categories.map((c) => ({ label: c.label, value: c.key })),
   { label: '未分类', value: 'unclassified' },
 ])
+const recipientCategoryOptions = computed(() => [
+  ...categoryOptions.value,
+  ...Object.keys(form.category_recipients)
+    .filter((key) => !categoryOptions.value.some((c) => c.value === key))
+    .map((key) => ({ value: key, label: `已删除分类：${key}` })),
+])
+const defaultRecipientNames = computed(() =>
+  form.recipient_ids
+    .map((id) => metadata.users.find((u) => u.id === id)?.name || `用户 ${id}`)
+    .join('、')
+)
+const hasCategoryRule = (key) => Object.prototype.hasOwnProperty.call(form.category_recipients, key)
+function toggleCategoryRule(key, enabled) {
+  if (busy.value || !canSave.value) return
+  if (enabled) form.category_recipients[key] = [...form.recipient_ids]
+  else delete form.category_recipients[key]
+}
 const severityOptions = ['未分类', '信息', '警告', '一般严重', '严重', '灾难'].map(
   (label, value) => ({ label, value })
 )
@@ -470,6 +528,30 @@ onMounted(() => {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0 24px;
+}
+.recipient-rules {
+  border-top: 1px solid rgba(128, 128, 128, 0.15);
+  padding-top: 12px;
+}
+.recipient-rule {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) 140px minmax(260px, 3fr);
+  gap: 16px;
+  align-items: center;
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.12);
+}
+.recipient-rule-name {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+@media (max-width: 700px) {
+  .recipient-rule {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
 }
 .muted {
   opacity: 0.7;
