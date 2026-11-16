@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from app.core.dependency import AuthControl
 from app.models import MonitorNotificationConfig, MonitorNotificationDelivery, User
 from app.schemas.base import Success
-from app.services.monitor_event_config import load_settings
+from app.services.cabinet_monitor import effective_settings as load_settings
 from app.services.monitor_events import ZabbixClient, advice, detail
 from app.services.monitor_notifications import (
     NotificationSettings,

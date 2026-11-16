@@ -16,7 +16,7 @@ from tortoise import timezone
 from tortoise.transactions import in_transaction
 
 from app.models import MonitorNotificationConfig, MonitorNotificationDelivery, User
-from app.services.monitor_event_config import load_settings
+from app.services.cabinet_monitor import effective_settings as load_settings
 from app.services.monitor_events import ZabbixClient, dashboard, detail
 from app.settings.config import settings
 from app.utils.feishu_app import feishu_app_enabled, send_feishu_app_card

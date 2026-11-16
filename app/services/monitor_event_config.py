@@ -96,6 +96,9 @@ class SettingsPayload(BaseModel):
 
 
 async def load_settings():
+    from app.services.cabinet_monitor import ensure_platform_category
+
+    await ensure_platform_category()
     row = await MonitorEventConfig.get_or_none(id=1)
     if row and any("itemids" not in host or "category" not in host for host in row.hosts):
         # One-time JSON upgrade; future classification never reads Zabbix tags.

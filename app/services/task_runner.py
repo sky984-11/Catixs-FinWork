@@ -146,11 +146,18 @@ async def scheduler_loop() -> None:
 
 async def run_monitor_notifications() -> None:
     from app.services.monitor_notifications import run_notifications
+    from app.services.cabinet_monitor import synchronize
 
-    try:
-        await run_notifications()
-    except Exception:
-        logger.error("monitor event notification worker failed")
+    async def run_guarded(operation, name):
+        try:
+            await operation()
+        except Exception:
+            logger.error("%s worker failed", name)
+
+    await asyncio.gather(
+        run_guarded(synchronize, "cabinet monitor enrolment"),
+        run_guarded(run_notifications, "monitor event notification"),
+    )
 
 
 async def run_remote_hands_plan_notifications(now: datetime) -> None:

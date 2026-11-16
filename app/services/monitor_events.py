@@ -10,7 +10,8 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 from fastapi import HTTPException
 
-from app.services.monitor_event_config import load_settings, local_categories
+from app.services.monitor_event_config import local_categories
+from app.services.cabinet_monitor import effective_settings as load_settings
 from app.settings.config import settings
 
 CATEGORIES = {

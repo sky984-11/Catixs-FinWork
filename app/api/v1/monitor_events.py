@@ -1,6 +1,6 @@
 import logging
 import time
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -9,12 +9,45 @@ from app.core.dependency import AuthControl
 from app.api.v1.monitor_notifications import router as notifications_router
 from app.schemas.base import Success
 from app.services.monitor_event_config import SettingsPayload, load_settings, save_settings
+from app.services.cabinet_monitor import effective_settings, update_monitor_items
+from app.api.v1.cabinet_monitor import router as cabinet_router
 from app.services.monitor_events import ZabbixClient, dashboard, detail, get_hosts, host_view, metric_history
 
 router = APIRouter()
 router.include_router(notifications_router, prefix="/notifications")
+router.include_router(cabinet_router, prefix="/cabinet")
 logger = logging.getLogger(__name__)
 EventId = Path(pattern=r"^[1-9][0-9]{0,19}$")
+
+
+class HostItems(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    hostid: str = Field(pattern=r"^[1-9][0-9]{0,19}$")
+    itemids: list[Annotated[str, Field(pattern=r"^[1-9][0-9]{0,19}$")]] | None = Field(min_length=1, max_length=2000)
+
+
+class BatchItems(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revision: int = Field(ge=0)
+    automatic_revision: int = Field(ge=0)
+    hosts: list[HostItems] = Field(min_length=1, max_length=50)
+
+    @model_validator(mode="after")
+    def validate_unique(self):
+        if len({h.hostid for h in self.hosts}) != len(self.hosts):
+            raise ValueError("主机不能重复")
+        if any(len(set(h.itemids or [])) != len(h.itemids or []) for h in self.hosts):
+            raise ValueError("监控项不能重复")
+        if sum(len(h.itemids or []) for h in self.hosts) > 20000:
+            raise ValueError("监控项总数不能超过 20000")
+        return self
+
+
+@router.put("/settings/items", summary="批量修改手动及自动纳管主机的监控项")
+async def batch_items(payload: BatchItems, user=Depends(AuthControl.is_authed)):
+    result = await update_monitor_items(payload, user.id)
+    logger.info("monitor items batch actor_id=%s host_count=%s", user.id, len(payload.hosts))
+    return Success(data=result)
 
 
 class EventAction(BaseModel):
@@ -41,7 +74,7 @@ async def list_events(
         raise HTTPException(422, "起止时间必须同时填写")
     if time_from is not None and (not history or time_from > time_till):
         raise HTTPException(422, "自定义时间仅用于历史事件，开始时间不能晚于结束时间")
-    config = await load_settings()
+    config = await effective_settings()
     if not config["hosts"]:
         return Success(data=await dashboard(None, history, config, time_from, time_till))
     async with ZabbixClient() as client:
@@ -50,7 +83,16 @@ async def list_events(
 
 @router.get("/settings", summary="读取事件分类与已选 Zabbix 主机")
 async def get_settings():
-    return Success(data=await load_settings())
+    config = await load_settings()
+    effective = await effective_settings(config)
+    manual_ids = {host["hostid"] for host in config["hosts"]}
+    manual_categories = {category["key"] for category in config["categories"]}
+    return Success(data={
+        **config,
+        "automatic_revision": effective["automatic_revision"],
+        "automatic_hosts": [host for host in effective["hosts"] if host["hostid"] not in manual_ids],
+        "automatic_categories": [category for category in effective["categories"] if category["key"] not in manual_categories],
+    })
 
 
 @router.get("/host-groups", summary="读取可选择的 Zabbix 主机组")
@@ -107,6 +149,13 @@ async def host_items(
 @router.put("/settings", summary="保存平台分类与主机/监控项纳管范围")
 async def put_settings(payload: SettingsPayload, user=Depends(AuthControl.is_authed)):
     current = await load_settings()
+    if payload.categories is not None:
+        allowed = {c.key for c in payload.categories}
+        removed = {c["key"] for c in current["categories"]} - allowed
+        effective = await effective_settings(current)
+        manual_ids = {h["hostid"] for h in current["hosts"]}
+        if any(h.get("category") in removed and h["hostid"] not in manual_ids for h in effective["hosts"]):
+            raise HTTPException(422, "分类仍被纳管主机使用，请先调整主机分类")
     if payload.revision != current["revision"]:
         raise HTTPException(409, "配置已被其他用户修改，请重新加载后保存")
     existing = {h["hostid"]: h for h in current["hosts"]}
@@ -142,7 +191,7 @@ async def put_settings(payload: SettingsPayload, user=Depends(AuthControl.is_aut
 
 @router.get("/{eventid}", summary="事件定位、指标现值、建议与处置记录")
 async def event_detail(eventid: str = EventId):
-    config = await load_settings()
+    config = await effective_settings()
     if not config["hosts"]:
         raise HTTPException(404, "请先选择监控主机")
     async with ZabbixClient() as client:
@@ -162,7 +211,7 @@ async def event_metric_history(
 
 @router.post("/{eventid}/actions", summary="确认、备注、抑制、解除抑制、调整级别或手动关闭事件")
 async def event_action(payload: EventAction, eventid: str = EventId, user=Depends(AuthControl.is_authed)):
-    config = await load_settings()
+    config = await effective_settings()
     if not config["hosts"]:
         raise HTTPException(404, "请先选择监控主机")
     async with ZabbixClient() as client:
@@ -171,7 +220,7 @@ async def event_action(payload: EventAction, eventid: str = EventId, user=Depend
             raise HTTPException(409, "事件已经恢复，请刷新后操作")
         if payload.action == "close" and not row["manual_close"]:
             raise HTTPException(409, "该触发器不允许手动关闭；请排除故障后等待 Zabbix 自动恢复")
-        if (await load_settings())["revision"] != config["revision"]:
+        if (await effective_settings())["revision"] != config["revision"]:
             raise HTTPException(409, "监控范围刚刚发生变化，请刷新后重新操作")
         bits = {
             "acknowledge": 2,

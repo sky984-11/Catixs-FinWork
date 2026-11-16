@@ -2,6 +2,12 @@
   <n-card :title="mode === 'hosts' ? '监控主机' : '分类管理'">
     <template #header-extra
       ><n-space>
+        <CabinetMonitor
+          v-if="mode === 'hosts'"
+          ref="cabinetMonitor"
+          :editable="canEdit"
+          @updated="reload"
+        />
         <CButton
           show-save
           save-text="刷新"
@@ -30,16 +36,27 @@
     }}</n-alert>
     <n-alert v-if="error" type="error" class="gap">{{ error }}</n-alert>
     <n-alert v-if="form.tags_warning" type="warning" class="gap">{{ form.tags_warning }}</n-alert>
-    <n-input
-      v-model:value="filter"
-      :placeholder="mode === 'hosts' ? '搜索主机、分类' : '搜索分类名称'"
-      clearable
-      class="gap"
-    />
+    <div class="gap list-filters">
+      <n-input
+        v-model:value="filter"
+        :placeholder="mode === 'hosts' ? '搜索主机、客户、机柜' : '搜索分类名称'"
+        clearable
+      />
+      <n-select
+        v-if="mode === 'hosts'"
+        v-model:value="categoryFilter"
+        class="category-filter"
+        :options="filterCategoryOptions"
+        placeholder="全部分类"
+        aria-label="按分类筛选主机"
+        clearable
+        filterable
+      />
+    </div>
     <p class="muted">
       {{
         mode === 'hosts'
-          ? `已纳管 ${form.hosts.length} 台主机`
+          ? `已纳管 ${displayHosts.length} 台主机（手动 ${form.hosts.length} 台 / 自动 ${automaticHosts.length} 台） · 当前显示 ${visibleRows.length} 台`
           : `共 ${form.categories.length} 个分类，${
               form.hosts.filter((h) => !h.category).length
             } 台主机未分类`
@@ -51,7 +68,7 @@
       :row-key="(row) => (mode === 'hosts' ? row.hostid : row.key)"
       :loading="loading"
       :checked-row-keys="checkedHosts"
-      :scroll-x="mode === 'hosts' ? 1558 : 1110"
+      :scroll-x="mode === 'hosts' ? 1678 : 1110"
       :max-height="tableHeight"
       striped
       size="small"
@@ -345,7 +362,9 @@
   >
     <p>
       {{
-        removal.kind === 'host'
+        removal.kind === 'automatic'
+          ? '移除后不再查询此主机的事件，也不会被自动同步重新加入。Zabbix 主机及历史数据保留，可在机柜联动中恢复纳管。'
+          : removal.kind === 'host'
           ? '移除后将不再查询此主机的事件，不会删除 Zabbix 数据。'
           : '确认删除这个未关联主机的分类？'
       }}
@@ -370,6 +389,7 @@ import { NButton, NSpace, NTag, NTooltip } from 'naive-ui'
 import CButton from '@/components/public/CButton.vue'
 import TheIcon from '@/components/icon/TheIcon.vue'
 import api from '@/api/monitor-events'
+import CabinetMonitor from './CabinetMonitor.vue'
 import { usePermissionStore, useUserStore } from '@/store'
 
 const props = defineProps({ mode: { type: String, default: 'hosts' } })
@@ -421,7 +441,7 @@ async function openBatch() {
     window.$message?.warning('每次最多调整 50 台主机')
     return
   }
-  batchHosts.value = form.hosts
+  batchHosts.value = displayHosts.value
     .filter((h) => checkedHosts.value.includes(h.hostid))
     .map((h) => ({
       hostid: h.hostid,
@@ -482,10 +502,15 @@ async function saveBatch() {
   const changes = new Map(
     batchHosts.value.map((h) => [h.hostid, batchScope.value === 'all' ? null : [...h.itemids]])
   )
-  const hosts = form.hosts.map((h) =>
-    changes.has(h.hostid) ? { ...h, itemids: changes.get(h.hostid) } : h
-  )
-  if (await persist(hosts, form.categories)) {
+  if (
+    await persistAutomatic(() =>
+      api.saveHostItems({
+        revision: form.revision,
+        automatic_revision: form.automatic_revision || 0,
+        hosts: [...changes].map(([hostid, itemids]) => ({ hostid, itemids })),
+      })
+    )
+  ) {
     batchOpen.value = false
     checkedHosts.value = []
   }
@@ -496,18 +521,43 @@ const error = ref(''),
 const { height } = useWindowSize()
 const tableHeight = computed(() => Math.max(240, height.value - 330))
 const categoryOptions = computed(() =>
-  form.categories.map((c) => ({ label: c.label, value: c.key }))
+  (editingAutomatic.value ? displayCategories.value : form.categories).map((c) => ({
+    label: c.label,
+    value: c.key,
+  }))
 )
-const categoryName = (key) => form.categories.find((c) => c.key === key)?.label || '未分类'
+const cabinetMonitor = ref(null)
+const categoryFilter = ref(null)
+const automaticHosts = computed(() =>
+  (form.automatic_hosts || [])
+    .filter((host) => !form.hosts.some((manual) => manual.hostid === host.hostid))
+    .map((host) => ({ ...host, automatic: true }))
+)
+const displayHosts = computed(() => [...form.hosts, ...automaticHosts.value])
+const displayCategories = computed(() => [...form.categories, ...(form.automatic_categories || [])])
+const filterCategoryOptions = computed(() => [
+  ...displayCategories.value.map((c) => ({ label: c.label, value: c.key })),
+  { label: '未分类', value: 'unclassified' },
+])
+const categoryName = (key) => displayCategories.value.find((c) => c.key === key)?.label || '未分类'
 const visibleRows = computed(() =>
-  (props.mode === 'hosts' ? form.hosts : form.categories).filter((row) =>
-    (props.mode === 'hosts'
-      ? `${row.name} ${categoryName(row.category)} ${Object.values(row.attributes || {}).join(' ')}`
-      : row.label
+  (props.mode === 'hosts' ? displayHosts.value : form.categories).filter((row) => {
+    if (props.mode === 'hosts' && categoryFilter.value) {
+      const category = displayCategories.value.some((c) => c.key === row.category)
+        ? row.category
+        : 'unclassified'
+      if (category !== categoryFilter.value) return false
+    }
+    return (
+      props.mode === 'hosts'
+        ? `${row.name} ${categoryName(row.category)} ${Object.values(row.attributes || {}).join(
+            ' '
+          )}`
+        : row.label
     )
       .toLowerCase()
       .includes(filter.value.trim().toLowerCase())
-  )
+  })
 )
 function action(label, icon, callback, disabled = false, danger = false) {
   return h(NTooltip, null, {
@@ -534,7 +584,7 @@ function action(label, icon, callback, disabled = false, danger = false) {
 const businessColumns = (columns) =>
   columns.map((c) => ({ resizable: true, ellipsis: { tooltip: true }, ...c }))
 function attributeCell(row) {
-  const fields = form.categories.find((c) => c.key === row.category)?.fields || []
+  const fields = displayCategories.value.find((c) => c.key === row.category)?.fields || []
   const filled = fields.filter((field) => row.attributes?.[field.key])
   if (!filled.length) return h('span', { class: 'muted' }, fields.length ? '未填写' : '—')
   return h(
@@ -549,9 +599,24 @@ function attributeCell(row) {
   )
 }
 const hostColumns = [
-  { type: 'selection', width: 48, disabled: () => !canEdit.value || busy.value },
+  {
+    type: 'selection',
+    width: 48,
+    disabled: () => !canEdit.value || busy.value,
+  },
   ...businessColumns([
     { title: '主机名称', key: 'name', width: 500 },
+    {
+      title: '纳管来源',
+      key: 'source',
+      width: 120,
+      render: (row) =>
+        h(
+          NTag,
+          { size: 'small', bordered: false, type: row.automatic ? 'success' : 'default' },
+          { default: () => (row.automatic ? '自动纳管' : '手动纳管') }
+        ),
+    },
     {
       title: '分类属性',
       key: 'attributes',
@@ -574,7 +639,12 @@ const hostColumns = [
       title: '监控项范围',
       key: 'itemids',
       width: 300,
-      render: (row) => (row.itemids == null ? '全部监控项' : `指定 ${row.itemids.length} 个监控项`),
+      render: (row) =>
+        row.automatic && !row.scope_customized
+          ? `Ping 监控（${row.itemids.length} 项）`
+          : row.itemids == null
+          ? '全部监控项'
+          : `指定 ${row.itemids.length} 个监控项`,
     },
   ]),
   {
@@ -592,7 +662,7 @@ const hostColumns = [
             action(
               '移除纳管',
               'mdi:delete-outline',
-              () => confirmRemove('host', row.hostid),
+              () => confirmRemove(row.automatic ? 'automatic' : 'host', row.hostid),
               false,
               true
             ),
@@ -614,14 +684,14 @@ const categoryColumns = [
       title: '关联主机数',
       key: 'count',
       width: 130,
-      render: (row) => form.hosts.filter((h) => h.category === row.key).length,
+      render: (row) => displayHosts.value.filter((h) => h.category === row.key).length,
     },
     {
       title: '关联主机',
       key: 'hosts',
       width: 350,
       render: (row) =>
-        form.hosts
+        displayHosts.value
           .filter((h) => h.category === row.key)
           .map((h) => h.name)
           .join(' / ') || '—',
@@ -640,12 +710,12 @@ const categoryColumns = [
           default: () => [
             action('编辑分类', 'mdi:pencil-outline', () => openCategory(row)),
             action(
-              form.hosts.some((h) => h.category === row.key)
+              displayHosts.value.some((h) => h.category === row.key)
                 ? '请先调整关联主机的分类'
                 : '删除分类',
               'mdi:delete-outline',
               () => confirmRemove('category', row.key),
-              form.hosts.some((h) => h.category === row.key),
+              displayHosts.value.some((h) => h.category === row.key),
               true
             ),
           ],
@@ -662,6 +732,7 @@ const itemColumns = [
   ]),
 ]
 const hostDialog = ref(false),
+  editingAutomatic = ref(false),
   editingHost = ref(false),
   categoryDialog = ref(false)
 const groups = ref([]),
@@ -682,7 +753,7 @@ const draft = reactive({
   attributes: {},
 })
 const draftFields = computed(
-  () => form.categories.find((c) => c.key === draft.category)?.fields || []
+  () => displayCategories.value.find((c) => c.key === draft.category)?.fields || []
 )
 const categoryDraft = reactive({ key: null, label: '', fields: [] })
 const removal = reactive({ show: false, kind: '', key: '' })
@@ -693,8 +764,14 @@ async function reload() {
   ready.value = false
   try {
     Object.assign(form, { tags_warning: '' }, (await api.settings()).data)
+    if (
+      categoryFilter.value &&
+      !filterCategoryOptions.value.some((option) => option.value === categoryFilter.value)
+    ) {
+      categoryFilter.value = null
+    }
     checkedHosts.value = checkedHosts.value.filter((id) =>
-      form.hosts.some((host) => host.hostid === id)
+      displayHosts.value.some((host) => host.hostid === id)
     )
     ready.value = true
   } catch (e) {
@@ -734,6 +811,7 @@ async function openHost(row) {
   if (busy.value) return
   dialogError.value = ''
   editingHost.value = !!row
+  editingAutomatic.value = !!row?.automatic
   groupId.value = null
   hostKeyword.value = ''
   itemKeyword.value = ''
@@ -839,7 +917,14 @@ async function saveHost() {
   const hosts = editingHost.value
     ? form.hosts.map((h) => (h.hostid === draft.hostid ? host : h))
     : [...form.hosts, host]
-  if (await persist(hosts, form.categories)) hostDialog.value = false
+  if (editingAutomatic.value) {
+    if (
+      await persistAutomatic(() =>
+        api.saveAutomaticHost({ ...host, revision: form.automatic_revision })
+      )
+    )
+      hostDialog.value = false
+  } else if (await persist(hosts, form.categories)) hostDialog.value = false
 }
 function openCategory(row) {
   dialogError.value = ''
@@ -877,6 +962,11 @@ function confirmRemove(kind, key) {
   Object.assign(removal, { show: true, kind, key })
 }
 async function remove() {
+  if (removal.kind === 'automatic') {
+    if (await persistAutomatic(() => api.removeAutomaticHost(removal.key, form.automatic_revision)))
+      removal.show = false
+    return
+  }
   const hosts =
     removal.kind === 'host' ? form.hosts.filter((h) => h.hostid !== removal.key) : form.hosts
   const categories =
@@ -884,6 +974,21 @@ async function remove() {
       ? form.categories.filter((c) => c.key !== removal.key)
       : form.categories
   if (await persist(hosts, categories)) removal.show = false
+}
+async function persistAutomatic(operation) {
+  if (busy.value) return false
+  saving.value = true
+  dialogError.value = ''
+  try {
+    await operation()
+  } catch (e) {
+    dialogError.value = e.message || '操作失败，请刷新后重试'
+    return false
+  } finally {
+    saving.value = false
+  }
+  await reload()
+  return true
 }
 onMounted(reload)
 </script>
@@ -932,5 +1037,21 @@ onMounted(reload)
 h3 {
   margin: 18px 0 10px;
   font-size: 14px;
+}
+.list-filters {
+  display: flex;
+  gap: 12px;
+}
+.category-filter {
+  width: 240px;
+  flex-shrink: 0;
+}
+@media (max-width: 640px) {
+  .list-filters {
+    flex-direction: column;
+  }
+  .category-filter {
+    width: 100%;
+  }
 }
 </style>

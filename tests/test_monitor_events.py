@@ -159,7 +159,7 @@ class MonitorEventTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_scope_change_during_action_requires_refresh(self):
         with patch(
-            "app.api.v1.monitor_events.load_settings",
+            "app.api.v1.monitor_events.effective_settings",
             AsyncMock(side_effect=[SCOPE, {**SCOPE, "revision": 2, "hosts": []}]),
         ):
             response = await self.client.post("/10/actions", json={"action": "close", "message": "Checked"})
@@ -392,6 +392,33 @@ class MonitorEventTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.client.get("/10/metrics/30/history?time_from=50&time_till=200")).status_code, 403)
         self.app.dependency_overrides.clear()
         self.assertEqual((await self.client.get("/10/metrics/30/history?time_from=50&time_till=200")).status_code, 401)
+
+    async def test_cabinet_monitor_endpoints_require_permissions(self):
+        self.assertEqual((await self.client.get("/cabinet")).status_code, 200)
+        self.user.is_superuser = False
+        for method, path in [("GET", "/cabinet"), ("GET", "/cabinet/options"), ("PUT", "/cabinet"), ("POST", "/cabinet/sync"),
+                             ("PUT", "/cabinet/hosts"), ("DELETE", "/cabinet/hosts/2?revision=0"), ("POST", "/cabinet/hosts/2/restore?revision=0"), ("PUT", "/settings/items")]:
+            response = await self.client.request(method, path, json={})
+            self.assertEqual(response.status_code, 403)
+        self.app.dependency_overrides.clear()
+        self.assertEqual((await self.client.get("/cabinet")).status_code, 401)
+
+    async def test_settings_lists_automatic_hosts_without_changing_manual_configuration(self):
+        from app.models import CabinetMonitorConfig, CabinetMonitorTarget
+
+        await CabinetMonitorConfig.create(id=1, enabled=True)
+        target = {"key": "7:device", "ip": "192.0.2.2", "name": "Customer server", "customer": "C",
+                  "location": "L", "cabinet": "R", "position": "1U"}
+        await CabinetMonitorTarget.create(target_key="7:device", metadata=target, host_id="2", item_ids=["20"], status="managed")
+        with patch("app.services.cabinet_monitor.inventory", AsyncMock(return_value=[target])):
+            result = (await self.client.get("/settings")).json()["data"]
+        self.assertEqual([h["hostid"] for h in result["hosts"]], ["1"])
+        self.assertEqual([h["hostid"] for h in result["automatic_hosts"]], ["2"])
+        self.assertEqual(result["automatic_hosts"][0]["attributes"]["customer"], "C")
+        self.assertEqual(result["automatic_categories"], [])
+        self.assertTrue(any(c["key"] == "cabinet_customer" for c in result["categories"]))
+        self.assertEqual(result["revision"], 2)
+        self.assertEqual([h["hostid"] for h in (await MonitorEventConfig.get(id=1)).hosts], ["1"])
 
     async def test_metric_history_numeric_type_and_truncation(self):
         original_call = self.fake.call
