@@ -71,7 +71,7 @@
         <section class="recipient-rules">
           <h3>按分类配置接收人</h3>
           <p class="muted">
-            未单独配置时使用默认接收人；开启单独配置后仅通知该分类所选用户，留空表示不通知。通知分类筛选仍然生效。
+            分类开关和接收人变更后自动保存。未单独配置时使用默认接收人；单独配置留空表示不通知。其他通知设置需点击顶部保存按钮。
           </p>
           <div
             v-for="category in recipientCategoryOptions"
@@ -104,6 +104,7 @@
               clearable
               :disabled="busy || !canSave || !ready"
               placeholder="选择该分类接收用户（留空不通知）"
+              @update:value="saveCategoryRecipients"
             />
             <div v-else class="muted">{{ defaultRecipientNames || '未设置默认接收人' }}</div>
           </div>
@@ -316,10 +317,31 @@ const defaultRecipientNames = computed(() =>
     .join('、')
 )
 const hasCategoryRule = (key) => Object.prototype.hasOwnProperty.call(form.category_recipients, key)
-function toggleCategoryRule(key, enabled) {
-  if (busy.value || !canSave.value) return
+async function toggleCategoryRule(key, enabled) {
+  if (busy.value || !canSave.value || !ready.value) return
   if (enabled) form.category_recipients[key] = [...form.recipient_ids]
   else delete form.category_recipients[key]
+  await saveCategoryRecipients()
+}
+async function saveCategoryRecipients() {
+  if (busy.value || !canSave.value || !ready.value) return
+  saving.value = true
+  error.value = ''
+  try {
+    // Persist only category rules against the last saved configuration.
+    const payload = Object.fromEntries(Object.keys(form).map((key) => [key, metadata[key]]))
+    payload.category_recipients = JSON.parse(JSON.stringify(form.category_recipients))
+    const data = (await api.saveNotifications(payload)).data
+    Object.assign(metadata, JSON.parse(JSON.stringify(data)))
+    form.revision = data.revision
+    form.category_recipients = JSON.parse(JSON.stringify(data.category_recipients || {}))
+    window.$message?.success('分类接收人已自动保存')
+  } catch (e) {
+    error.value = `${e.message || '保存失败'}，分类接收人尚未保存，请重试`
+    window.$message?.error(error.value)
+  } finally {
+    saving.value = false
+  }
 }
 const severityOptions = ['未分类', '信息', '警告', '一般严重', '严重', '灾难'].map(
   (label, value) => ({ label, value })
@@ -438,7 +460,7 @@ async function reload() {
   try {
     const data = (await api.notifications()).data
     Object.assign(metadata, data)
-    for (const key of Object.keys(form)) form[key] = data[key]
+    for (const key of Object.keys(form)) form[key] = JSON.parse(JSON.stringify(data[key]))
     ready.value = true
   } catch (e) {
     error.value = e.message || '通知配置加载失败'
@@ -453,7 +475,7 @@ async function save() {
   try {
     const data = (await api.saveNotifications({ ...form })).data
     Object.assign(metadata, data)
-    for (const key of Object.keys(form)) form[key] = data[key]
+    for (const key of Object.keys(form)) form[key] = JSON.parse(JSON.stringify(data[key]))
     window.$message?.success('通知配置已保存')
   } catch (e) {
     error.value = e.message || '保存失败'
