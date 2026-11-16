@@ -69,7 +69,26 @@
           /></n-form-item>
         </n-form>
         <section class="recipient-rules">
-          <h3>按分类配置接收人</h3>
+          <div class="recipient-heading">
+            <h3>按分类配置接收人</h3>
+            <div class="save-status" role="status" aria-live="polite">
+              <span>{{ saving ? '正在保存…' : loading ? '正在刷新…' : categorySaveStatus }}</span>
+              <n-tooltip
+                ><template #trigger
+                  ><n-button
+                    size="small"
+                    circle
+                    quaternary
+                    :disabled="busy"
+                    :loading="loading"
+                    aria-label="刷新通知配置"
+                    @click.stop="reload"
+                    ><template #icon
+                      ><TheIcon icon="mdi:refresh" :size="17" /></template></n-button></template
+                >刷新通知配置</n-tooltip
+              >
+            </div>
+          </div>
           <p class="muted">
             分类开关和接收人变更后自动保存。未单独配置时使用默认接收人；单独配置留空表示不通知。其他通知设置需点击顶部保存按钮。
           </p>
@@ -317,6 +336,7 @@ const defaultRecipientNames = computed(() =>
     .join('、')
 )
 const hasCategoryRule = (key) => Object.prototype.hasOwnProperty.call(form.category_recipients, key)
+const categorySaveStatus = ref('自动保存已开启')
 async function toggleCategoryRule(key, enabled) {
   if (busy.value || !canSave.value || !ready.value) return
   if (enabled) form.category_recipients[key] = [...form.recipient_ids]
@@ -335,9 +355,12 @@ async function saveCategoryRecipients() {
     Object.assign(metadata, JSON.parse(JSON.stringify(data)))
     form.revision = data.revision
     form.category_recipients = JSON.parse(JSON.stringify(data.category_recipients || {}))
-    window.$message?.success('分类接收人已自动保存')
+    categorySaveStatus.value = `已保存 · ${new Date().toLocaleTimeString('zh-CN', {
+      hour12: false,
+    })}`
   } catch (e) {
     error.value = `${e.message || '保存失败'}，分类接收人尚未保存，请重试`
+    categorySaveStatus.value = '保存失败，修改尚未保存'
     window.$message?.error(error.value)
   } finally {
     saving.value = false
@@ -462,8 +485,10 @@ async function reload() {
     Object.assign(metadata, data)
     for (const key of Object.keys(form)) form[key] = JSON.parse(JSON.stringify(data[key]))
     ready.value = true
+    categorySaveStatus.value = '已同步最新配置'
   } catch (e) {
     error.value = e.message || '通知配置加载失败'
+    categorySaveStatus.value = '刷新失败'
   } finally {
     loading.value = false
   }
@@ -476,9 +501,12 @@ async function save() {
     const data = (await api.saveNotifications({ ...form })).data
     Object.assign(metadata, data)
     for (const key of Object.keys(form)) form[key] = JSON.parse(JSON.stringify(data[key]))
-    window.$message?.success('通知配置已保存')
+    categorySaveStatus.value = `已保存 · ${new Date().toLocaleTimeString('zh-CN', {
+      hour12: false,
+    })}`
   } catch (e) {
     error.value = e.message || '保存失败'
+    categorySaveStatus.value = '保存失败，修改尚未保存'
   } finally {
     saving.value = false
   }
@@ -554,6 +582,20 @@ onMounted(() => {
 .recipient-rules {
   border-top: 1px solid rgba(128, 128, 128, 0.15);
   padding-top: 12px;
+}
+.recipient-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.save-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #9ca3af;
+  font-size: 12px;
 }
 .recipient-rule {
   display: grid;
