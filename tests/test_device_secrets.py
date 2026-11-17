@@ -161,6 +161,7 @@ class DeviceSecretTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await middleware.get_request_args(request), {})
         self.assertIsNone(await middleware.get_response_body(request, Success(data={"ipmi_password": "secret"})))
         old = {"request_args": {"attributes": {"IPMI密码": "secret", "nodes": [{"ipmiPassword": "secret"}]}}}
+        old["attributeList"] = [{"key": "IPMI密码", "value": "secret"}]
         self.assertNotIn("secret", json.dumps(mask_ipmi(old)))
 
 

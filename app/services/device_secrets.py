@@ -19,7 +19,10 @@ def is_ipmi_password(key):
 
 def mask_ipmi(value):
     if isinstance(value, dict):
-        return {k: MASK if is_ipmi_password(k) and v else mask_ipmi(v) for k, v in value.items()}
+        result = {k: MASK if is_ipmi_password(k) and v else mask_ipmi(v) for k, v in value.items()}
+        if is_ipmi_password(value.get("key")) and value.get("value"):
+            result["value"] = MASK
+        return result
     if isinstance(value, list):
         return [mask_ipmi(v) for v in value]
     return value
