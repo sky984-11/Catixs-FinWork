@@ -66,6 +66,14 @@ class DeviceSecretTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("test-device-secret", json.dumps(result))
         self.assertEqual(self.device.attributes["ipmi_password"], "test-device-secret")
 
+    async def test_resource_board_does_not_bypass_masking(self):
+        from app.api.v1.resources.resources import device_to_sales_rows
+
+        await self.device.fetch_related("cabinet", "location", "region")
+        result = json.dumps(device_to_sales_rows(self.device))
+        self.assertNotIn("test-device-secret", result)
+        self.assertNotIn("test-node-secret", result)
+
     async def test_masks_preserved_on_save_and_cannot_be_stored_as_password(self):
         payload = AssetDeviceUpdate(
             id=self.device.id,

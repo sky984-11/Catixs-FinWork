@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from app.log import logger
 from app.models.asset import AssetDevice
 from app.schemas.base import Success
+from app.services.device_secrets import mask_ipmi
 from app.settings.config import settings
 
 router = APIRouter()
@@ -317,7 +318,7 @@ def device_to_card_row(device: AssetDevice) -> dict:
         "country": region.country if region else "",
         "city": region.city if region else "",
         "config": format_device_config(attrs),
-        "attributes": attrs,
+        "attributes": mask_ipmi(attrs),
         "remark": device.remark or "",
     }
 

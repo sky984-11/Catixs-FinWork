@@ -2222,7 +2222,10 @@ async def unlock_device_ipmi(payload: DeviceSecretUnlock, user=Depends(AuthContr
     if not value:
         raise HTTPException(404, "未保存 IPMI 密码")
     logger.info("device secret revealed actor_id={} device_id={} node={}", user.id, device.id, payload.node_name or "device")
-    return Success(data={"ipmi_password": value, "expires_in": 60}, headers={"Cache-Control": "no-store", "Pragma": "no-cache"})
+    response = Success(data={"ipmi_password": value, "expires_in": 60})
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 
 @router.post("/device/create", summary="创建设备")

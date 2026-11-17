@@ -53,12 +53,12 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
 import CButton from '@/components/public/CButton.vue'
 import api from '@/api'
 
 const props = defineProps({
-  deviceId: Number,
+  deviceId: { type: Number, default: null },
   nodeName: { type: String, default: '' },
   available: Boolean,
   canUnlock: Boolean,
@@ -123,6 +123,7 @@ watch(visible, (value) => {
   if (!value) clear()
 })
 onMounted(() => document.addEventListener('visibilitychange', hidden))
+onDeactivated(close)
 onBeforeUnmount(() => {
   clear()
   document.removeEventListener('visibilitychange', hidden)

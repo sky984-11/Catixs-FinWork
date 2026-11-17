@@ -655,7 +655,7 @@
                 <n-input v-model:value="deviceModal.form.ipmi_user" placeholder="ADMIN" />
               </n-form-item-gi>
               <n-form-item-gi label="IPMI 密码">
-                <n-input v-model:value="deviceModal.form.ipmi_password" type="password" show-password-on="click" />
+                <n-input v-model:value="deviceModal.form.ipmi_password" type="password" placeholder="已保存的密码需解锁查看；输入新密码可修改" />
                 <IpmiPassword v-if="deviceModal.form.id" :device-id="deviceModal.form.id" :available="deviceModal.form.ipmi_password === '******'" :can-unlock="!!deviceModal.form.can_unlock_ipmi" />
               </n-form-item-gi>
             </n-grid>
@@ -745,7 +745,7 @@
                   <n-input v-model:value="node.disk" size="small" placeholder="磁盘总数" />
                   <n-input v-model:value="node.ipmi_host" size="small" placeholder="IPMI 地址" />
                   <n-input v-model:value="node.ipmi_user" size="small" placeholder="IPMI User" />
-                  <n-input v-model:value="node.ipmi_password" size="small" placeholder="IPMI Password" type="password" show-password-on="click" />
+                  <n-input v-model:value="node.ipmi_password" size="small" placeholder="输入新密码可修改，查看需解锁" type="password" />
                   <IpmiPassword v-if="deviceModal.form.id" :device-id="deviceModal.form.id" :node-name="node.name" :available="node.ipmi_password === '******'" :can-unlock="!!deviceModal.form.can_unlock_ipmi" />
                   <n-input v-model:value="node.remark" size="small" placeholder="备注" />
                 </div>
