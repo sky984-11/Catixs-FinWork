@@ -242,6 +242,7 @@ export default {
     devicePower: (data = {}) => request.post('/asset/device/power', data),
     deviceIpmiLogs: (data = {}) => request.post('/asset/device/ipmi-logs', data),
     redfishProbeDevice: (data = {}) => request.post('/asset/device/redfish-probe', data),
+    unlockDeviceIpmi: (data) => request.post('/asset/device/ipmi-unlock', data),
     deleteDevice: (params = {}) => request.delete('/asset/device/delete', { params }),
     inventory: (params = {}) => request.get('/asset/inventory/list', { params }),
     getInventory: (params = {}) => request.get('/asset/inventory/get', { params }),

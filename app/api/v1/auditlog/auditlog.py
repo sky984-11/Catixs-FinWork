@@ -3,6 +3,7 @@ from fastapi import APIRouter, Query
 from tortoise.expressions import Q
 
 from app.models.admin import AuditLog
+from app.services.device_secrets import mask_ipmi
 from app.schemas import SuccessExtra
 from app.schemas.apis import *
 
@@ -66,5 +67,5 @@ async def get_audit_log_list(
         .limit(page_size)
     )
     total = await AuditLog.filter(q).count()
-    data = [await audit_log.to_dict() for audit_log in audit_log_objs]
+    data = [mask_ipmi(await audit_log.to_dict()) for audit_log in audit_log_objs]
     return SuccessExtra(data=data, total=total, page=page, page_size=page_size)

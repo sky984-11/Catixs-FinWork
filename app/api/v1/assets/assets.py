@@ -18,9 +18,9 @@ from urllib.parse import urlencode
 
 import httpx
 import websockets
-from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile, WebSocket
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, WebSocket
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from starlette.websockets import WebSocketDisconnect
 from tortoise.expressions import Q
 from tortoise.functions import Count
@@ -74,6 +74,7 @@ from app.schemas.assets import (
     AssetRegionUpdate,
 )
 from app.schemas.base import Success, SuccessExtra
+from app.services.device_secrets import mask_ipmi, preserve_ipmi, ipmi_password, verify_unlock
 from app.settings.config import settings
 
 router = APIRouter()
@@ -752,15 +753,17 @@ async def validate_node_customer_mapping(device_in: AssetDeviceCreate | AssetDev
 
 async def prepare_device_attributes_for_save(device_in: AssetDeviceCreate | AssetDeviceUpdate) -> None:
     attributes = normalize_device_config_attributes(dict(device_in.attributes or {}))
-    if await can_view_device_secrets():
-        device_in.attributes = attributes
-        return
-
     if isinstance(device_in, AssetDeviceUpdate):
         existed_device = await asset_device_controller.get(id=device_in.id)
         existed_attributes = dict(existed_device.attributes or {})
     else:
         existed_attributes = {}
+
+    can_edit = await can_view_device_secrets()
+    attributes = preserve_ipmi(attributes, existed_attributes, can_edit)
+    if can_edit:
+        device_in.attributes = attributes
+        return
 
     for key in SENSITIVE_DEVICE_ATTRIBUTE_KEYS:
         if key in existed_attributes:
@@ -783,6 +786,8 @@ async def device_to_dict(device: AssetDevice, can_view_secrets: bool = False) ->
             data["status"] = 1
     if not can_view_secrets:
         data["attributes"] = mask_device_secret_attributes(data.get("attributes"))
+    data["attributes"] = mask_ipmi(data["attributes"])
+    data["can_unlock_ipmi"] = can_view_secrets
     cabinet = await AssetCabinet.get_or_none(id=device.cabinet_id)
     customer = await CrmCustomer.get_or_none(id=device.customer_id) if device.customer_id else None
     customer_ids = [int(item) for item in (device.customer_ids or []) if str(item).isdigit()]
@@ -2101,6 +2106,16 @@ async def device_vnc_websocket_proxy(
 
 @router.post("/device/redfish-probe", summary="根据IPMI地址采集Redfish设备信息")
 async def redfish_probe_device(probe_in: AssetDeviceRedfishProbe):
+    if probe_in.ipmi_password == MASKED_DEVICE_SECRET:
+        if not probe_in.device_id:
+            raise HTTPException(400, "请输入新设备的 IPMI 密码")
+        device = await AssetDevice.get_or_none(id=probe_in.device_id)
+        if not device:
+            raise HTTPException(404, "设备不存在")
+        config = device_ipmi_config(device)
+        if probe_in.ipmi_host.strip() != config["host"] or probe_in.ipmi_user.strip() != config["user"]:
+            raise HTTPException(400, "IPMI 地址或用户已变更，请重新输入凭据")
+        probe_in = probe_in.model_copy(update={"ipmi_password": config["password"]})
     try:
         data = await collect_redfish_inventory(probe_in)
     except httpx.HTTPStatusError as exc:
@@ -2181,6 +2196,33 @@ async def sync_device_customer_status(device_in):
                 node["customer_id"] = None
                 node["status"] = 0
             device_in.status = 0
+
+
+class DeviceSecretUnlock(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    device_id: int = Field(gt=0)
+    node_name: str | None = Field(default=None, max_length=80)
+    password: SecretStr = Field(min_length=1, max_length=1024)
+
+
+@router.post("/device/ipmi-unlock", summary="验证登录密码后查看单台设备或节点的 IPMI 密码")
+async def unlock_device_ipmi(payload: DeviceSecretUnlock, user=Depends(AuthControl.is_authed)):
+    if not await can_view_device_secrets():
+        raise HTTPException(403, "没有查看设备密码的权限")
+    await verify_unlock(user.id, payload.password.get_secret_value())
+    device = await AssetDevice.get_or_none(id=payload.device_id)
+    if not device:
+        raise HTTPException(404, "设备不存在")
+    attributes = device.attributes or {}
+    if payload.node_name:
+        attributes = next((n for n in attributes.get("nodes", []) if isinstance(n, dict) and n.get("name") == payload.node_name), None)
+        if attributes is None:
+            raise HTTPException(404, "节点不存在")
+    value = ipmi_password(attributes)
+    if not value:
+        raise HTTPException(404, "未保存 IPMI 密码")
+    logger.info("device secret revealed actor_id={} device_id={} node={}", user.id, device.id, payload.node_name or "device")
+    return Success(data={"ipmi_password": value, "expires_in": 60}, headers={"Cache-Control": "no-store", "Pragma": "no-cache"})
 
 
 @router.post("/device/create", summary="创建设备")

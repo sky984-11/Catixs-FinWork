@@ -299,7 +299,7 @@
                 </div>
                 <div v-if="deviceIpmiDetail.ipmi_password" class="attribute-item">
                   <span>IPMI密码</span>
-                  <strong>{{ deviceIpmiDetail.ipmi_password }}</strong>
+                  <IpmiPassword :device-id="deviceDrawer.row.id" :available="!!deviceIpmiDetail.ipmi_password" :can-unlock="!!deviceDrawer.row.can_unlock_ipmi" />
                 </div>
               </div>
               <div v-if="ipmiLogTarget === deviceIpmiLogKey(deviceDrawer.row)" class="ipmi-log-panel">
@@ -383,7 +383,7 @@
                     <span><b>磁盘总数</b><em>{{ node.disk || '-' }}</em></span>
                     <span><b>IPMI地址</b><em>{{ node.ipmi_host || '-' }}</em></span>
                     <span><b>IPMI用户</b><em>{{ node.ipmi_user || '-' }}</em></span>
-                    <span><b>IPMI密码</b><em>{{ node.ipmi_password || '-' }}</em></span>
+                    <span><b>IPMI密码</b><IpmiPassword :device-id="deviceDrawer.row.id" :node-name="node.name" :available="!!node.ipmi_password" :can-unlock="!!deviceDrawer.row.can_unlock_ipmi" /></span>
                     <span class="wide"><b>备注</b><em>{{ node.remark || '-' }}</em></span>
                   </div>
                   <div v-if="ipmiLogTarget === deviceIpmiLogKey(deviceDrawer.row, node)" class="ipmi-log-panel node-log-panel">
@@ -656,6 +656,7 @@
               </n-form-item-gi>
               <n-form-item-gi label="IPMI 密码">
                 <n-input v-model:value="deviceModal.form.ipmi_password" type="password" show-password-on="click" />
+                <IpmiPassword v-if="deviceModal.form.id" :device-id="deviceModal.form.id" :available="deviceModal.form.ipmi_password === '******'" :can-unlock="!!deviceModal.form.can_unlock_ipmi" />
               </n-form-item-gi>
             </n-grid>
           </div>
@@ -745,6 +746,7 @@
                   <n-input v-model:value="node.ipmi_host" size="small" placeholder="IPMI 地址" />
                   <n-input v-model:value="node.ipmi_user" size="small" placeholder="IPMI User" />
                   <n-input v-model:value="node.ipmi_password" size="small" placeholder="IPMI Password" type="password" show-password-on="click" />
+                  <IpmiPassword v-if="deviceModal.form.id" :device-id="deviceModal.form.id" :node-name="node.name" :available="node.ipmi_password === '******'" :can-unlock="!!deviceModal.form.can_unlock_ipmi" />
                   <n-input v-model:value="node.remark" size="small" placeholder="备注" />
                 </div>
               </article>
@@ -831,6 +833,7 @@
 
 <script setup>
 import { computed, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import IpmiPassword from './IpmiPassword.vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { NTag } from 'naive-ui'
@@ -1356,7 +1359,7 @@ function normalizeFourNodeList(nodes) {
       disk: String(matched.disk || ''),
       ipmi_host: String(matched.ipmi_host || matched.ipmiHost || ''),
       ipmi_user: String(matched.ipmi_user || matched.ipmiUser || ''),
-      ipmi_password: String(matched.ipmi_password || matched.ipmiPassword || ''),
+      ipmi_password: String(matched.ipmi_password || matched.ipmiPassword || matched.IPMI密码 || ''),
       remark: String(matched.remark || ''),
       legacy_ip: String(matched.ip || ''),
       legacy_cpu: String(matched.cpu || ''),
@@ -1518,6 +1521,7 @@ async function probeDeviceRedfish() {
   redfishLoading.value = true
   try {
     const res = await api.assetApi.redfishProbeDevice({
+      device_id: deviceModal.form.id || null,
       ipmi_host: deviceModal.form.ipmi_host,
       ipmi_user: deviceModal.form.ipmi_user,
       ipmi_password: deviceModal.form.ipmi_password,

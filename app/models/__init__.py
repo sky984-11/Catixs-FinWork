@@ -19,3 +19,4 @@ from .resource_cost import *
 from .monitor_event_config import *
 from .monitor_notification import *
 from .cabinet_monitor import *
+from .device_secret import *

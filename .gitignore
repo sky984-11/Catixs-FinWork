@@ -34,6 +34,7 @@ migrations/models/*
 !migrations/models/192_20261116130646_notification_category_recipients.py
 !migrations/models/193_20261116150214_cabinet_ping_monitor.py
 !migrations/models/194_20261116163934_cabinet_host_policies.py
+!migrations/models/195_20261117214537_device_secret_unlock.py
 .env
 .pnpm-store/
 

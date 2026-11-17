@@ -103,6 +103,7 @@ class AssetDeviceUpdate(AssetDeviceBase):
 
 
 class AssetDeviceRedfishProbe(BaseModel):
+    device_id: int | None = Field(default=None, gt=0, description="复用已保存凭据的设备 ID")
     ipmi_host: str = Field(..., example="192.168.1.10")
     ipmi_user: str = Field("", example="ADMIN")
     ipmi_password: str = Field("", example="")
